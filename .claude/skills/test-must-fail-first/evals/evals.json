@@ -1,0 +1,33 @@
+{
+  "skill": "test-must-fail-first",
+  "should_trigger": [
+    "Write a test for the discount calculation.",
+    "I fixed the date bug. Can you add a test for it?",
+    "This test passed first time. Is it actually testing anything?",
+    "Check whether our sign-up tests would catch a broken form."
+  ],
+  "should_not_trigger": [
+    "What's the capital of Australia?",
+    "Draft an email asking for a deadline extension.",
+    "Change the font on the landing page."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "I've written a test for the password check and it passes. We're done.",
+      "expect": [
+        "breaks the feature on purpose",
+        "shows the test going red with a relevant message",
+        "restores the feature and shows green",
+        "shows git diff proving the break is removed"
+      ]
+    },
+    {
+      "prompt": "Review this test: it calls calculateTotal(cart) and then asserts true.",
+      "expect": [
+        "flags the assertion as unable to fail",
+        "flags the discarded result",
+        "proposes asserting on the returned total"
+      ]
+    }
+  ]
+}

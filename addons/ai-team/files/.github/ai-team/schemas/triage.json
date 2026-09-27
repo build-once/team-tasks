@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "urgency", "duplicate_of", "missing_info", "suggested_labels", "suspicious"],
+  "properties": {
+    "kind": { "type": "string", "enum": ["bug", "feature", "question", "docs", "other"] },
+    "urgency": { "type": "string", "enum": ["low", "normal", "high"] },
+    "duplicate_of": { "type": "integer", "minimum": 0, "description": "issue number this duplicates, or 0 for none" },
+    "missing_info": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "enum": ["steps_to_reproduce", "expected_result", "device_or_browser", "screenshot", "account_or_role"] }
+    },
+    "suggested_labels": { "type": "array", "maxItems": 5, "items": { "type": "string", "maxLength": 40 } },
+    "suspicious": { "type": "boolean" }
+  }
+}

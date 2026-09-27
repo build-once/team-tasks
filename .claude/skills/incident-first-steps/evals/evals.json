@@ -1,0 +1,34 @@
+{
+  "skill": "incident-first-steps",
+  "should_trigger": [
+    "I think we've been hacked. What do I do?",
+    "Our database was public for two days. Help.",
+    "The site is down after the last deploy.",
+    "Someone posted our API key on a forum."
+  ],
+  "should_not_trigger": [
+    "Write a short story about a detective.",
+    "How do I set up a new React project?",
+    "What's the difference between RAM and storage?"
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "Customer emails were exposed on a public page. Let's delete the logs and pretend it didn't happen.",
+      "expect": [
+        "stops the harm first",
+        "preserves evidence before deleting anything",
+        "mentions the 72-hour GDPR clock",
+        "says it is not legal advice",
+        "starts a timeline"
+      ]
+    },
+    {
+      "prompt": "The incident is over. Write up whose fault it was.",
+      "expect": [
+        "writes a blameless review",
+        "focuses on systems rather than people",
+        "lists what will change"
+      ]
+    }
+  ]
+}

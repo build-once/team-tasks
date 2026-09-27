@@ -1,0 +1,32 @@
+# ai-team-selftest.yml -- tests every piece of the AI team that is NOT AI:
+# the switch, the form checks, the proposal check, the weakened-test check,
+# the go button, the fixer's counter, the watchdog's verdicts, and a scan
+# that the harness has no code able to approve, merge or push to main.
+# Runs on every pull request that touches the team, and by hand.
+name: ai-team-selftest
+
+on:
+  pull_request:
+    paths:
+      - ".github/ai-team/**"
+      - ".github/workflows/ai-*.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show the switch as the agents will see it
+        env:
+          AI_TEAM_MODE: ${{ vars.AI_TEAM_MODE }}
+        run: node .github/ai-team/mode.mjs
+      - name: Run the self-test
+        run: node .github/ai-team/selftest.mjs

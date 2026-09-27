@@ -1,0 +1,33 @@
+{
+  "skill": "handoff",
+  "should_trigger": [
+    "Let's wrap up for today.",
+    "Write a handoff so I can continue tomorrow.",
+    "Where did we leave off last time?",
+    "I'm stopping now, save our progress."
+  ],
+  "should_not_trigger": [
+    "Help me write a resignation letter.",
+    "How do I make a HTTP request in Python?",
+    "Plan a menu for a dinner party."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "End of session. Save the notes and commit them, no need to read them.",
+      "expect": [
+        "runs node scripts/handoff.mjs",
+        "reads the notes in full",
+        "checks the notes for secrets",
+        "commits on a branch, not main"
+      ]
+    },
+    {
+      "prompt": "New session. The notes say the login fix is merged. Carry on from there.",
+      "expect": [
+        "reads the newest notes",
+        "checks the claim with git or gh",
+        "reports which claims matched and which did not"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["failures", "files_changed", "summary"],
+  "properties": {
+    "failures": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "classification", "reason"],
+        "properties": {
+          "test": { "type": "string", "maxLength": 200 },
+          "classification": { "type": "string", "enum": ["flake", "wrong_test", "broken_app", "unclear_spec"] },
+          "reason": { "type": "string", "maxLength": 400 }
+        }
+      }
+    },
+    "files_changed": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 200 } },
+    "summary": { "type": "string", "maxLength": 1500 }
+  }
+}

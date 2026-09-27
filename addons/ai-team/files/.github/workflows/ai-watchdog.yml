@@ -1,0 +1,54 @@
+# ai-watchdog.yml -- the WATCHDOG (Book 3, Chapter 31). No AI at all.
+#
+# Every hour: checks every AI run of the last day against its record, keeps
+# the "AI team health" issue up to date, then pings an outside heartbeat.
+# It uses the job's own token, not the team's app or AI key, so it keeps
+# working when those break. If it stops running, the heartbeats stop and the
+# outside service alerts you.
+name: ai-watchdog
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ai-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Check every AI run (no AI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_TEAM_MODE: ${{ vars.AI_TEAM_MODE }}
+          AI_TRIAGE_MODE: ${{ vars.AI_TRIAGE_MODE }}
+          AI_BUILDER_MODE: ${{ vars.AI_BUILDER_MODE }}
+          AI_REVIEWER_MODE: ${{ vars.AI_REVIEWER_MODE }}
+          AI_FIXER_MODE: ${{ vars.AI_FIXER_MODE }}
+        run: node .github/ai-team/watchdog.mjs
+      # Only reached if the check above finished. A crashed watchdog sends no
+      # heartbeat, and the outside service notices the silence.
+      - name: Heartbeat to the outside uptime service
+        env:
+          HEARTBEAT_URL: ${{ secrets.WATCHDOG_HEARTBEAT_URL }}
+        run: |
+          if [ -z "$HEARTBEAT_URL" ]; then
+            echo "::error::unverified -- WATCHDOG_HEARTBEAT_URL is not set, so nobody outside GitHub would notice if this watchdog stopped."
+            exit 1
+          fi
+          curl -fsS -m 20 --retry 3 -o /dev/null "$HEARTBEAT_URL"
+          echo "Heartbeat sent."

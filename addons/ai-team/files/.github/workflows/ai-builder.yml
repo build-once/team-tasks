@@ -1,0 +1,215 @@
+# ai-builder.yml -- the BUILDER agent (Book 3, Chapter 28).
+#
+#   start    THE GO BUTTON. No AI. Runs only when a person with write access
+#            adds the agent:build label, and finds that person's /spec.
+#   propose  THE AI. Works in a throwaway copy of main, from the spec only.
+#            Read-only token: it cannot push, open pull requests or comment.
+#            Its only shell commands are the tests.
+#   harness  No AI. Checks the diff (files, folders, stale base, tests really
+#            ran, no weakened test), works out the risk tier, and only in on
+#            mode opens a DRAFT pull request using the team's own GitHub App.
+name: ai-builder
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  group: ai-builder-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  start:
+    if: github.event.label.name == 'agent:build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      schema: ${{ steps.mode.outputs.schema }}
+      ok: ${{ steps.go.outputs.ok }}
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: mode
+        env:
+          AI_TEAM_MODE: ${{ vars.AI_TEAM_MODE }}
+          AGENT_MODE: ${{ vars.AI_BUILDER_MODE }}
+        # Scripts not on main yet (e.g. the pull request that adds them): off.
+        run: |
+          if [ ! -f .github/ai-team/mode.mjs ]; then
+            echo "mode=off" >> "$GITHUB_OUTPUT"
+            echo "The AI team's scripts are not on the main branch yet, so the team is off."
+            exit 0
+          fi
+          node .github/ai-team/mode.mjs --agent builder
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: app
+        if: steps.mode.outputs.mode == 'on'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AI_TEAM_APP_PRIVATE_KEY }}
+          permission-issues: write
+      - id: go
+        if: steps.mode.outputs.mode == 'shadow' || steps.mode.outputs.mode == 'on'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WRITE_TOKEN: ${{ steps.app.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: node .github/ai-team/builder-start.mjs --mode "$MODE" --out "$RUNNER_TEMP/spec"
+      - if: steps.go.outputs.ok == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: spec
+          path: ${{ runner.temp }}/spec/
+          retention-days: 30
+          if-no-files-found: error
+
+  propose:
+    name: propose
+    needs: start
+    if: needs.start.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # No secrets here except the AI key. If your tests ever need keys, give
+    # them staging keys only, never production.
+    permissions:
+      contents: read
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+    steps:
+      # The agent's working copy.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.start.outputs.base_sha }}
+          persist-credentials: false
+      # A second, pristine copy. Moved out of the agent's reach below; the
+      # diff is taken with ITS .git folder, never the agent's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.start.outputs.base_sha }}
+          persist-credentials: false
+          path: pristine
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: spec
+          path: ai-input
+      - name: Move the harness tools and the pristine copy out of the agent's folder (no AI)
+        run: |
+          mv pristine "$RUNNER_TEMP/pristine"
+          cp -r "$RUNNER_TEMP/pristine/.github/ai-team" "$RUNNER_TEMP/ai-tools"
+          echo "ai-input/" >> .git/info/exclude
+
+      # The sandbox that keeps secrets out of the commands the agent runs
+      # (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB). Without it Claude Code refuses to
+      # start, which is safe but stops the agent. Found while rehearsing.
+      - name: Install the secret-scrubbing sandbox (no AI)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat && break
+            echo "apt-get attempt $i failed, retrying..."
+            sleep 5
+          done
+          command -v bwrap
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Builder agent (AI, proposes only)
+        id: ai
+        uses: anthropics/claude-code-action@9171db3e57d6a3140a37ddc2ba92788584e0ead6 # v1.0.234
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are the builder agent. Implement the spec in ai-input/spec.md in this repository.
+
+            Rules:
+            - Change only what the spec needs. Only files under web/src/, web/test/ or
+              supabase/migrations/ may change; anything else will be refused.
+            - Never change .github/, .claude/, guard/, docs/ai-team.md or docs/review-rules.md.
+            - Never delete, skip or weaken an existing test. Add tests for what you build.
+            - Run the tests with exactly this command before you finish: npm --prefix web test
+            - You cannot commit, push or open pull requests. Plain code checks your change
+              afterwards and a person decides what happens to it.
+
+            In the form, list every file you changed (files_changed), a short summary, and
+            whether you ran the tests (tests_run).
+          claude_args: |
+            --max-turns 30
+            --allowedTools Edit Write "Bash(npm --prefix web test)" "Bash(npm --prefix web test:*)"
+            --disallowedTools WebFetch WebSearch Task NotebookEdit
+            --json-schema '${{ needs.start.outputs.schema }}'
+
+      - name: Save the run record and the diff (no AI)
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.ai.outputs.execution_file }}
+          STRUCTURED_OUTPUT: ${{ steps.ai.outputs.structured_output }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ needs.start.outputs.base_sha }}
+        run: node "$RUNNER_TEMP/ai-tools/record.mjs" --out "$RUNNER_TEMP/record" --patch-from "$GITHUB_WORKSPACE" --git-dir "$RUNNER_TEMP/pristine/.git" --base "$BASE_SHA"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ai-record
+          path: ${{ runner.temp }}/record/
+          retention-days: 30
+          if-no-files-found: error
+
+  harness:
+    needs: [start, propose]
+    if: needs.propose.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ai-record
+          path: ${{ runner.temp }}/record
+      - name: Check the proposal (no AI)
+        id: check
+        env:
+          BASE_SHA: ${{ needs.start.outputs.base_sha }}
+        run: node .github/ai-team/check-proposal.mjs --agent builder --record "$RUNNER_TEMP/record" --base "$BASE_SHA" --current "$(git rev-parse HEAD)"
+      - id: app
+        if: needs.start.outputs.mode == 'on'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AI_TEAM_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      # Opens a DRAFT pull request if the check passed, or posts the reasons it
+      # refused. In shadow mode this step does not run: the summary is the report.
+      - name: Open a draft pull request, or report the refusal (no AI)
+        if: needs.start.outputs.mode == 'on'
+        env:
+          WRITE_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node .github/ai-team/apply-change.mjs --agent builder --record "$RUNNER_TEMP/record"

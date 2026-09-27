@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["files_changed", "summary", "tests_run"],
+  "properties": {
+    "files_changed": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 200 } },
+    "summary": { "type": "string", "maxLength": 1500 },
+    "tests_run": { "type": "boolean" }
+  }
+}

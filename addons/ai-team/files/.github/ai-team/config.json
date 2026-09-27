@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "notify": "",
+  "protected_paths": [
+    ".github/**",
+    ".claude/**",
+    "guard/**",
+    "scripts/**",
+    "docs/ai-team.md",
+    "docs/review-rules.md",
+    "docs/decisions/**",
+    "docs/evidence/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "package.json",
+    "**/package.json",
+    "**/package-lock.json",
+    "**/.env*"
+  ],
+  "test_paths": [
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "**/*.test.*",
+    "**/*.spec.*"
+  ],
+  "triage": {
+    "max_turns": 5,
+    "labels": ["bug", "feature", "question", "docs", "needs-info", "duplicate", "urgent"],
+    "suspicious_label": "needs-human"
+  },
+  "builder": {
+    "max_turns": 30,
+    "go_label": "agent:build",
+    "spec_prefix": "/spec",
+    "branch_prefix": "agent/",
+    "allowed_paths": ["web/src/**", "web/test/**", "supabase/migrations/**"],
+    "required_commands": ["^npm --prefix web test(\\s|$)"],
+    "risk_tiers": [
+      { "tier": "low", "paths": ["web/test/**", "**/*.md"] },
+      { "tier": "medium", "paths": ["web/src/**"] },
+      { "tier": "high", "paths": ["supabase/migrations/**", "web/src/auth/**", "web/src/security/**"] }
+    ]
+  },
+  "reviewer": {
+    "max_turns": 15,
+    "rules_file": "docs/review-rules.md",
+    "max_findings": 20
+  },
+  "fixer": {
+    "max_turns": 20,
+    "max_attempts": 3,
+    "attempt_label_prefix": "fix-attempt-",
+    "ci_workflow_name": "ci",
+    "allowed_paths": ["web/src/**"],
+    "required_commands": ["^npm --prefix pr-head/web test(\\s|$)"]
+  },
+  "watchdog": {
+    "window_hours": 24,
+    "daily_cost_usd": 5,
+    "stuck_after_minutes": 45,
+    "agents": {
+      "triage": { "workflow": "ai-triage.yml" },
+      "builder": { "workflow": "ai-builder.yml" },
+      "reviewer": { "workflow": "ai-reviewer.yml" },
+      "fixer": { "workflow": "ai-fixer.yml" }
+    }
+  }
+}

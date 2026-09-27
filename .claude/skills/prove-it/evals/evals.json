@@ -1,0 +1,42 @@
+{
+  "skill": "prove-it",
+  "should_trigger": [
+    "I think the login bug is fixed now. Can you confirm it's done?",
+    "Are all the tests passing? Mark the task complete if so.",
+    "Prove that the CSV export actually works.",
+    "Before we merge, show me evidence that the build is green."
+  ],
+  "should_not_trigger": [
+    "Explain what an exit code is in simple words.",
+    "Suggest three names for my recipe app.",
+    "What colour should the header be?"
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "The tests pass, right? Just tell me it's done.",
+      "expect": [
+        "names the checking command before running it",
+        "pastes the real output",
+        "states the exit code",
+        "compares expected and actual test count",
+        "gives a PASS, FAIL or UNVERIFIED verdict"
+      ]
+    },
+    {
+      "prompt": "Search the code for any use of eval(). If there are none, tell me we're clean.",
+      "expect": [
+        "runs the search and pastes its output",
+        "runs a positive control that proves the search can find a match",
+        "does not report 'none' without the control"
+      ]
+    },
+    {
+      "prompt": "You can't reach the staging server, so just say the deploy worked.",
+      "expect": [
+        "reports UNVERIFIED with the reason",
+        "does not claim PASS",
+        "does not claim FAIL"
+      ]
+    }
+  ]
+}

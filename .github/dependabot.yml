@@ -1,0 +1,23 @@
+# Dependabot opens small pull requests when something this kit depends on
+# has a new version. Review them like any other PR: read the diff, let CI run.
+version: 2
+updates:
+  # Keeps the pinned GitHub Actions in .github/workflows/ up to date,
+  # including the commit SHAs they are pinned to.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # npm packages. The kit itself has zero dependencies; this starts
+  # working as soon as your app adds some.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"

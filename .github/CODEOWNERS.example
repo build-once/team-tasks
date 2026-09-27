@@ -1,0 +1,23 @@
+# CODEOWNERS.example
+#
+# WHAT THIS IS: a list of who must review changes to which files.
+# HOW TO USE IT: rename this file to CODEOWNERS (no ".example"), replace
+# @your-github-username with real GitHub usernames, then turn on
+# "Require review from Code Owners" in your branch rules (docs/protect-main.md).
+#
+# NOTE: it only does something when there is a SECOND person who can review.
+# If you work alone, GitHub will not let you approve your own pull request,
+# so leave this as .example until you have a reviewer.
+#
+# Format: <file pattern>  <owner> [<owner> ...]   Later lines win.
+
+# Everything, by default
+*                         @your-github-username
+
+# The safety nets themselves -- changes here deserve a careful second look
+/.claude/                 @your-github-username
+/guard/                   @your-github-username
+/.github/                 @your-github-username
+
+# Database rules and migrations
+/supabase/                @your-github-username

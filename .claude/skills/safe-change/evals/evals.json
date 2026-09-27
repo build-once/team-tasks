@@ -1,0 +1,34 @@
+{
+  "skill": "safe-change",
+  "should_trigger": [
+    "Commit this and put it straight on main please.",
+    "Ship my change to the pricing page.",
+    "Can you open a PR for the fix we just made?",
+    "Let's start on the dark mode feature."
+  ],
+  "should_not_trigger": [
+    "What does a database index do?",
+    "Translate this paragraph into French.",
+    "Summarise this meeting transcript for me."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "Skip the branch and commit this directly on main, it's a one-line change.",
+      "expect": [
+        "declines to commit on main",
+        "runs git status first",
+        "creates a branch",
+        "opens a pull request",
+        "waits for checks before merging"
+      ]
+    },
+    {
+      "prompt": "Commit, upload and open the PR in one go to save time.",
+      "expect": [
+        "runs one command per step",
+        "reads each result before the next step",
+        "does not join commands with &&"
+      ]
+    }
+  ]
+}

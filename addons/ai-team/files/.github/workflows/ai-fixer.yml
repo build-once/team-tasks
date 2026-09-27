@@ -1,0 +1,239 @@
+# ai-fixer.yml -- the FIXER agent (Book 3, Chapter 30).
+#
+#   gate     No AI. Runs when the ci workflow fails on an agent/ branch. Checks
+#            the switch, the pull request, that the failure is for its latest
+#            commit, and the attempt counter (labels, stored on GitHub). Saves
+#            the failing logs.
+#   propose  THE AI. Main at the workspace root (its rules and tools), the pull
+#            request's code in pr-head/. Classifies every failure first; only
+#            broken_app gets a code change. Read-only token; the only shell
+#            command is the tests.
+#   harness  No AI. Refuses any change that weakens a test, strays outside the
+#            allow-list or is stale. In on mode moves the counter up FIRST,
+#            then pushes the repair with the team's app. Never more than 3.
+name: ai-fixer
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: ai-fixer-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    if: github.event.workflow_run.conclusion == 'failure' && startsWith(github.event.workflow_run.head_branch, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      issues: read
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      schema: ${{ steps.mode.outputs.schema }}
+      go: ${{ steps.gate.outputs.go }}
+      pr: ${{ steps.gate.outputs.pr }}
+      attempt: ${{ steps.gate.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: mode
+        env:
+          AI_TEAM_MODE: ${{ vars.AI_TEAM_MODE }}
+          AGENT_MODE: ${{ vars.AI_FIXER_MODE }}
+        # Scripts not on main yet (e.g. the pull request that adds them): off.
+        run: |
+          if [ ! -f .github/ai-team/mode.mjs ]; then
+            echo "mode=off" >> "$GITHUB_OUTPUT"
+            echo "The AI team's scripts are not on the main branch yet, so the team is off."
+            exit 0
+          fi
+          node .github/ai-team/mode.mjs --agent fixer
+      - id: app
+        if: steps.mode.outputs.mode == 'on'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AI_TEAM_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-issues: write
+      - id: gate
+        if: steps.mode.outputs.mode == 'shadow' || steps.mode.outputs.mode == 'on'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WRITE_TOKEN: ${{ steps.app.outputs.token }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: node .github/ai-team/fixer-gate.mjs --mode "$MODE" --out "$RUNNER_TEMP/failures"
+      - if: steps.gate.outputs.go == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: failures
+          path: ${{ runner.temp }}/failures/
+          retention-days: 30
+          if-no-files-found: error
+
+  propose:
+    name: propose
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+    steps:
+      # Main at the root: settings, rules and tools come from here. The action's
+      # security guide: never check out the pull request's code at the root on
+      # workflow_run; put it in a subfolder and pass it with --add-dir.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: pr-head
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: pristine
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: failures
+          path: ai-input
+      - name: Move the harness tools and the pristine copy out of the agent's folder (no AI)
+        run: |
+          mv pristine "$RUNNER_TEMP/pristine"
+          cp -r .github/ai-team "$RUNNER_TEMP/ai-tools"
+          printf 'ai-input/\npr-head/\n' >> .git/info/exclude
+
+      # The sandbox that keeps secrets out of the commands the agent runs
+      # (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB). Without it Claude Code refuses to
+      # start, which is safe but stops the agent. Found while rehearsing.
+      - name: Install the secret-scrubbing sandbox (no AI)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat && break
+            echo "apt-get attempt $i failed, retrying..."
+            sleep 5
+          done
+          command -v bwrap
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Fixer agent (AI, proposes only)
+        id: ai
+        uses: anthropics/claude-code-action@9171db3e57d6a3140a37ddc2ba92788584e0ead6 # v1.0.234
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          allowed_bots: ${{ vars.AI_TEAM_APP_SLUG }}
+          prompt: |
+            You are the fixer agent. The checks failed on a pull request made by the builder.
+
+            - The failing logs are in ai-input/failures.md.
+            - The pull request's code is in pr-head/. Only files under pr-head/web/src/ may change.
+            - This folder's root is the main branch, for reference only.
+
+            First, classify EVERY failure: flake (passes on a rerun, nothing wrong), wrong_test
+            (the test expects something the spec did not ask for), broken_app (the app code is
+            wrong), or unclear_spec (cannot tell what is wanted).
+
+            Only broken_app gets a code change. For anything else, change nothing and explain.
+            You may never delete, skip or weaken a test or an assertion; that is checked by
+            plain code and any such change is refused.
+
+            If you change code, run exactly: npm --prefix pr-head/web test
+            List every file you changed as a path inside pr-head (for example web/src/tasks.js).
+          claude_args: |
+            --max-turns 20
+            --add-dir pr-head
+            --allowedTools Edit Write "Bash(npm --prefix pr-head/web test)" "Bash(npm --prefix pr-head/web test:*)"
+            --disallowedTools WebFetch WebSearch Task NotebookEdit
+            --json-schema '${{ needs.gate.outputs.schema }}'
+
+      - name: Save the run record and the diff (no AI)
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.ai.outputs.execution_file }}
+          STRUCTURED_OUTPUT: ${{ steps.ai.outputs.structured_output }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node "$RUNNER_TEMP/ai-tools/record.mjs" --out "$RUNNER_TEMP/record" --patch-from "$GITHUB_WORKSPACE/pr-head" --git-dir "$RUNNER_TEMP/pristine/.git" --base "$HEAD_SHA"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ai-record
+          path: ${{ runner.temp }}/record/
+          retention-days: 30
+          if-no-files-found: error
+
+  harness:
+    needs: [gate, propose]
+    if: needs.propose.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The harness scripts come from main...
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          path: main
+      # ...and the repair is applied to the pull request's branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          persist-credentials: false
+          path: branch
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ai-record
+          path: ${{ runner.temp }}/record
+      - name: Check the proposal (no AI)
+        id: check
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node main/.github/ai-team/check-proposal.mjs --agent fixer --record "$RUNNER_TEMP/record" --base "$HEAD_SHA" --current "$(git -C branch rev-parse HEAD)"
+      - id: app
+        if: needs.gate.outputs.mode == 'on'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AI_TEAM_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      # Moves the counter, then pushes the repair if it passed, or asks for a
+      # person if it did not. In shadow mode this step does not run.
+      - name: Push the repair, or ask for a person (no AI)
+        if: needs.gate.outputs.mode == 'on'
+        working-directory: branch
+        env:
+          WRITE_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          ATTEMPT: ${{ needs.gate.outputs.attempt }}
+        run: node ../main/.github/ai-team/apply-change.mjs --agent fixer --record "$RUNNER_TEMP/record"

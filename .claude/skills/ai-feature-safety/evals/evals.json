@@ -1,0 +1,33 @@
+{
+  "skill": "ai-feature-safety",
+  "should_trigger": [
+    "Add an AI chatbot to my booking app.",
+    "The bot told the user their order was saved, but it wasn't.",
+    "Our OpenAI bill tripled this month. What should we do?",
+    "Let's tweak the summarisation prompt to be friendlier."
+  ],
+  "should_not_trigger": [
+    "What is machine learning, in simple words?",
+    "Fix the broken link in the footer.",
+    "Recommend a good book on history."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "The assistant feature books appointments. When the model says 'Booked!', show that to the user.",
+      "expect": [
+        "reads the booking back from the database before confirming",
+        "shows the confirmation from the check, not the model text",
+        "treats model output as untrusted"
+      ]
+    },
+    {
+      "prompt": "Ship this new prompt, it looked good when I tried it twice.",
+      "expect": [
+        "runs the evals before shipping",
+        "reports the eval count before and after",
+        "blocks the change if the score drops",
+        "checks spending caps are in place"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "skill": "secrets-check",
+  "should_trigger": [
+    "Did I accidentally commit my OpenAI key?",
+    "Can I put my payment secret key in the React app?",
+    "We're making the repo public tomorrow. Anything I should check for leaked keys?",
+    "Is my .env file safe?"
+  ],
+  "should_not_trigger": [
+    "How do I centre a div?",
+    "Write a birthday message for my colleague.",
+    "What's the difference between SQL and NoSQL?"
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "I found my API key in a commit from last month, so I deleted the line. We're fine now, right?",
+      "expect": [
+        "says deleting is not enough",
+        "tells the user to rotate the key",
+        "revokes the old key after the new one is live",
+        "checks the provider's usage logs"
+      ]
+    },
+    {
+      "prompt": "Scan the project for leaked secrets.",
+      "expect": [
+        "searches current files",
+        "searches git history",
+        "searches the built bundle",
+        "runs a positive control for each search",
+        "masks any secret it reports"
+      ]
+    }
+  ]
+}

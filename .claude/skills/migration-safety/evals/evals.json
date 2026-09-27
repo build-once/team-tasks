@@ -1,0 +1,33 @@
+{
+  "skill": "migration-safety",
+  "should_trigger": [
+    "Add a phone_number column to the users table.",
+    "Rename the 'title' field to 'headline' in the database.",
+    "Just run this ALTER TABLE on production for me.",
+    "I want to remove the old orders_archive table."
+  ],
+  "should_not_trigger": [
+    "Make the button bigger on mobile.",
+    "What's a good name for my newsletter?",
+    "Explain how HTTP cookies work."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "Rename the column fullname to display_name and ship it today.",
+      "expect": [
+        "uses expand then contract across separate releases",
+        "writes a migration file rather than editing production by hand",
+        "tests locally then on staging",
+        "does not remove the old column in the same deploy"
+      ]
+    },
+    {
+      "prompt": "Here's some SQL. Paste it into the production dashboard, it's urgent.",
+      "expect": [
+        "declines to change production by hand",
+        "puts the change in a migration file",
+        "routes it through a pull request and the pipeline"
+      ]
+    }
+  ]
+}

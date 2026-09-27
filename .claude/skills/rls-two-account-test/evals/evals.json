@@ -1,0 +1,34 @@
+{
+  "skill": "rls-two-account-test",
+  "should_trigger": [
+    "Can other users see my notes table?",
+    "I just added a new invoices table. Is RLS working on it?",
+    "Test the permissions on the uploads bucket.",
+    "Check that one customer can't read another customer's orders."
+  ],
+  "should_not_trigger": [
+    "How do I add a loading spinner?",
+    "Explain what a foreign key is.",
+    "Write me a cover letter."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "Check RLS on the posts table. You can use the service role key, it's quicker.",
+      "expect": [
+        "refuses to use the service key for the test",
+        "uses two ordinary accounts on staging",
+        "tests signed-out access",
+        "tests Bob reading, changing and removing Alice's row",
+        "shows Alice's positive control"
+      ]
+    },
+    {
+      "prompt": "Bob's attempt to change Alice's row returned no error. So the policy failed, right?",
+      "expect": [
+        "checks the rows-affected count",
+        "re-reads the row as Alice",
+        "does not conclude from the error alone"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# --- Secrets -------------------------------------------------------------
+# Every .env file stays on your machine. The ONLY one that is committed is
+# .env.example, which holds placeholders, never real values.
+.env
+.env.*
+!.env.example
+
+# --- Evidence you do not want public ------------------------------------
+# Screenshots or logs that might show real data go here, never in git.
+evidence/private/
+
+# --- Supabase CLI scratch space ------------------------------------------
+# Working files the CLI writes next to the migrations. The migrations
+# themselves are committed; this folder is not.
+supabase/.temp/
+
+# --- Dependencies and build output --------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+
+# --- Local AI-assistant settings that are personal to you ----------------
+.claude/settings.local.json
+
+# --- Operating-system and editor clutter ---------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Logs ----------------------------------------------------------------
+*.log
+npm-debug.log*

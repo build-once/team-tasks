@@ -1,0 +1,340 @@
+{
+  "$comment": "Build Once launch checklist. Based on the launch checklist in 'Building Real Apps with AI', Book 1 Lesson G16. Each item names the lesson that teaches it. Run: node scripts/launch-check.mjs",
+  "version": 1,
+  "items": [
+    {
+      "id": "architecture-doc",
+      "section": "Plan",
+      "title": "Your architecture is written down (docs/architecture.md)",
+      "lesson": "Book 1 A10",
+      "type": "auto",
+      "check": "architecture_doc"
+    },
+    {
+      "id": "environments-doc",
+      "section": "Plan",
+      "title": "Your three environments (local, staging, production) are written down (docs/environments.md)",
+      "lesson": "Book 1 A19",
+      "type": "auto",
+      "check": "environments_doc"
+    },
+    {
+      "id": "accounts-2fa",
+      "section": "Accounts",
+      "title": "Two-step login (2FA) is on for every account: code host, hosting, database, payments, email, domain",
+      "lesson": "Book 1 A13",
+      "type": "evidence",
+      "evidence_file": "evidence/accounts-2fa.md",
+      "how_to_prove": "Open the security page of each account and screenshot or note that two-step login is on. List every account by name. Do not paste recovery codes."
+    },
+    {
+      "id": "spend-caps",
+      "section": "Accounts",
+      "title": "Spend caps are set on every paid service, including AI API keys",
+      "lesson": "Book 1 A15",
+      "type": "evidence",
+      "evidence_file": "evidence/spend-caps.md",
+      "how_to_prove": "For each paid service, note the monthly cap you set and where it is configured. A service with no cap is a FAIL."
+    },
+    {
+      "id": "billing-alerts",
+      "section": "Accounts",
+      "title": "Billing alerts email or text you before a cap is reached",
+      "lesson": "Book 1 A15",
+      "type": "evidence",
+      "evidence_file": "evidence/billing-alerts.md",
+      "how_to_prove": "Note the alert threshold for each paid service and paste the confirmation that an alert reached you (subject line and date only)."
+    },
+    {
+      "id": "repo-private",
+      "section": "Code",
+      "title": "Your code repository is private",
+      "lesson": "Book 1 L22",
+      "type": "auto",
+      "check": "repo_private"
+    },
+    {
+      "id": "main-protected",
+      "section": "Code",
+      "title": "The main branch is protected: changes arrive only through reviewed pull requests",
+      "lesson": "Book 1 A1",
+      "type": "auto",
+      "check": "branch_protection"
+    },
+    {
+      "id": "gitignore-env",
+      "section": "Secrets",
+      "title": ".gitignore stops .env files from being committed",
+      "lesson": "Book 1 B1",
+      "type": "auto",
+      "check": "gitignore_env"
+    },
+    {
+      "id": "no-tracked-env",
+      "section": "Secrets",
+      "title": "No .env files are tracked in git (only .env.example)",
+      "lesson": "Book 1 B1",
+      "type": "auto",
+      "check": "no_tracked_env"
+    },
+    {
+      "id": "no-secrets-in-repo",
+      "section": "Secrets",
+      "title": "No secret-looking strings (private keys, live keys, service keys) in tracked files",
+      "lesson": "Book 1 B1",
+      "type": "auto",
+      "check": "no_secrets"
+    },
+    {
+      "id": "env-separate-keys",
+      "section": "Environments",
+      "title": "Local, staging and production each use their own keys and their own database",
+      "lesson": "Book 1 A20",
+      "type": "evidence",
+      "evidence_file": "evidence/env-separate-keys.md",
+      "how_to_prove": "List each environment and the name (NOT the value) of each key it uses. Show that no key name maps to the same project in two environments."
+    },
+    {
+      "id": "previews-staging",
+      "section": "Environments",
+      "title": "Preview deployments point at staging, never at production",
+      "lesson": "Book 1 A21",
+      "type": "evidence",
+      "evidence_file": "evidence/previews-staging.md",
+      "how_to_prove": "Open your hosting provider settings for preview deployments and note which database/API URL they use. It must be the staging one."
+    },
+    {
+      "id": "rls-alice-bob",
+      "section": "Data",
+      "title": "Row-level security is tested with two users (Alice and Bob): Bob cannot read or change Alice's data",
+      "lesson": "Book 1 A22, H16",
+      "type": "evidence",
+      "evidence_file": "evidence/rls-alice-bob.md",
+      "how_to_prove": "Log in as Alice, create a record. Log in as Bob and try to read, edit and delete it. Paste the results (all three must be refused). A test file that does this counts."
+    },
+    {
+      "id": "storage-rules",
+      "section": "Data",
+      "title": "File storage rules stop one user from reading another user's files",
+      "lesson": "Book 1 D23, D24",
+      "type": "evidence",
+      "evidence_file": "evidence/storage-rules.md",
+      "how_to_prove": "Upload a file as Alice. As Bob, try to download it by its path. Paste the refusal."
+    },
+    {
+      "id": "migrations-folder",
+      "section": "Data",
+      "title": "Database changes live in a migrations folder in the repo",
+      "lesson": "Book 1 E1",
+      "type": "auto",
+      "check": "migrations_folder"
+    },
+    {
+      "id": "migrations-only-via-files",
+      "section": "Data",
+      "title": "Nobody changes the production database by hand: every change is a migration file merged to main",
+      "lesson": "Book 1 E1",
+      "type": "evidence",
+      "evidence_file": "evidence/migrations-only-via-files.md",
+      "how_to_prove": "Write down the rule you follow and the date you last compared production with your migration files (drift check). Paste the result."
+    },
+    {
+      "id": "lockfile-committed",
+      "section": "Code",
+      "title": "Package versions are locked (a lockfile is committed)",
+      "lesson": "Book 1 A4",
+      "type": "auto",
+      "check": "lockfile"
+    },
+    {
+      "id": "ci-green",
+      "section": "CI",
+      "title": "The latest CI run on main is green",
+      "lesson": "Book 1 I5",
+      "type": "auto",
+      "check": "ci_latest_main"
+    },
+    {
+      "id": "ci-required-aggregator",
+      "section": "CI",
+      "title": "CI has a \"required\" job that runs always() and fails if any other job failed",
+      "lesson": "Book 1 I7",
+      "type": "auto",
+      "check": "ci_required_aggregator"
+    },
+    {
+      "id": "ci-permissions-timeouts",
+      "section": "CI",
+      "title": "Every workflow sets permissions: and every job has timeout-minutes",
+      "lesson": "Book 2 I6",
+      "type": "auto",
+      "check": "ci_permissions_timeouts"
+    },
+    {
+      "id": "guards-installed",
+      "section": "Guards",
+      "title": "The AI-assistant guard hook is installed (.claude/hooks/guard.mjs)",
+      "lesson": "Book 1 A2",
+      "type": "auto",
+      "check": "guard_files"
+    },
+    {
+      "id": "guards-registered",
+      "section": "Guards",
+      "title": "The guard is registered as a PreToolUse hook in .claude/settings.json",
+      "lesson": "Book 1 A2",
+      "type": "auto",
+      "check": "settings_hook"
+    },
+    {
+      "id": "guards-selftest",
+      "section": "Guards",
+      "title": "The guard self-test passes (node guard/selftest.mjs)",
+      "lesson": "Book 1 A2",
+      "type": "auto",
+      "check": "guard_selftest"
+    },
+    {
+      "id": "backups-on",
+      "section": "Recovery",
+      "title": "Automatic database backups are on",
+      "lesson": "Book 1 E27",
+      "type": "evidence",
+      "evidence_file": "evidence/backups-on.md",
+      "how_to_prove": "Screenshot or note the backup schedule and retention in your database provider."
+    },
+    {
+      "id": "restore-tested",
+      "section": "Recovery",
+      "title": "You have restored a backup into a scratch database and checked the data",
+      "lesson": "Book 1 E28",
+      "type": "evidence",
+      "evidence_file": "evidence/restore-tested.md",
+      "how_to_prove": "Restore a backup into a throwaway database. Paste the restore steps and a row count you compared. Record how long it took."
+    },
+    {
+      "id": "rate-limits",
+      "section": "Abuse",
+      "title": "Rate limits protect login, sign-up, password reset and any costly endpoint",
+      "lesson": "Book 1 C23",
+      "type": "evidence",
+      "evidence_file": "evidence/rate-limits.md",
+      "how_to_prove": "List each protected endpoint and its limit. Paste the response you got when you exceeded it (e.g. HTTP 429)."
+    },
+    {
+      "id": "captcha",
+      "section": "Abuse",
+      "title": "Sign-up and password reset are protected by a CAPTCHA or bot check",
+      "lesson": "Book 1 C24",
+      "type": "evidence",
+      "evidence_file": "evidence/captcha.md",
+      "how_to_prove": "Note which provider and which forms. Paste proof that a request without the token is refused."
+    },
+    {
+      "id": "privacy-policy",
+      "section": "Legal",
+      "title": "A privacy policy exists and is linked from the app and the sign-up page",
+      "lesson": "Book 1 N14",
+      "type": "evidence",
+      "evidence_file": "evidence/privacy-policy.md",
+      "how_to_prove": "Paste the public URL and where it is linked from."
+    },
+    {
+      "id": "terms-of-service",
+      "section": "Legal",
+      "title": "Terms of service exist and are linked from the app and the sign-up page",
+      "lesson": "Book 1 N15",
+      "type": "evidence",
+      "evidence_file": "evidence/terms-of-service.md",
+      "how_to_prove": "Paste the public URL and where it is linked from."
+    },
+    {
+      "id": "account-deletion",
+      "section": "Legal",
+      "title": "Users can delete their account and their data from inside the app",
+      "lesson": "Book 1 N17",
+      "type": "evidence",
+      "evidence_file": "evidence/account-deletion.md",
+      "how_to_prove": "Create a test user, delete it through the app, then check the database and storage: paste the queries showing the rows and files are gone."
+    },
+    {
+      "id": "payments-keys-separate",
+      "section": "Payments",
+      "title": "Payment test keys and live keys are separate, and live keys exist only in production",
+      "lesson": "Book 1 O9",
+      "type": "evidence",
+      "evidence_file": "evidence/payments-keys-separate.md",
+      "how_to_prove": "Note which environment holds live keys (names only). Confirm staging uses test mode."
+    },
+    {
+      "id": "webhooks-verified",
+      "section": "Payments",
+      "title": "Payment webhooks verify their signature and reject unsigned calls",
+      "lesson": "Book 1 R16",
+      "type": "evidence",
+      "evidence_file": "evidence/webhooks-verified.md",
+      "how_to_prove": "Send a webhook request with a bad signature to staging and paste the refusal (e.g. HTTP 400)."
+    },
+    {
+      "id": "store-requirements",
+      "section": "Launch",
+      "title": "App store requirements are met (if you ship a mobile app)",
+      "lesson": "Book 1 K41, K42",
+      "type": "evidence",
+      "evidence_file": "evidence/store-requirements.md",
+      "how_to_prove": "Paste the store checklist result. If you do not ship a mobile app, write \"Result: N/A - web only\"."
+    },
+    {
+      "id": "error-monitoring",
+      "section": "Operations",
+      "title": "Error monitoring is on, and a test error showed up in it",
+      "lesson": "Book 1 J11",
+      "type": "evidence",
+      "evidence_file": "evidence/error-monitoring.md",
+      "how_to_prove": "Trigger a deliberate test error in staging and paste the event ID/time from your monitoring tool."
+    },
+    {
+      "id": "uptime-alert-phone",
+      "section": "Operations",
+      "title": "An uptime alert is set up and PROVEN to reach your phone",
+      "lesson": "Book 1 J25",
+      "type": "evidence",
+      "evidence_file": "evidence/uptime-alert-phone.md",
+      "how_to_prove": "Point the monitor at a URL that fails, wait for the alert, and note the time it arrived on your phone. Setting it up is not enough - it must arrive."
+    },
+    {
+      "id": "incident-plan",
+      "section": "Operations",
+      "title": "A written incident plan says who does what when something breaks",
+      "lesson": "Book 1 J24",
+      "type": "evidence",
+      "evidence_file": "evidence/incident-plan.md",
+      "how_to_prove": "Link the plan file and the date you last walked through it."
+    },
+    {
+      "id": "dependabot-config",
+      "section": "Code",
+      "title": "Dependabot is configured (.github/dependabot.yml)",
+      "lesson": "Book 1 L25",
+      "type": "auto",
+      "check": "dependabot_config"
+    },
+    {
+      "id": "dependabot-alerts",
+      "section": "Code",
+      "title": "Dependabot alerts and security updates are switched on in the repository settings",
+      "lesson": "Book 1 L25",
+      "type": "evidence",
+      "evidence_file": "evidence/dependabot-alerts.md",
+      "how_to_prove": "Screenshot or note the Settings > Code security page showing both switched on."
+    },
+    {
+      "id": "handoff-present",
+      "section": "Operations",
+      "title": "A handoff file (HANDOFF.md) is present for the next session or person",
+      "lesson": "Book 1 L5; Book 2 L26",
+      "type": "auto",
+      "check": "handoff_file"
+    }
+  ]
+}

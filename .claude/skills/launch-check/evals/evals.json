@@ -1,0 +1,34 @@
+{
+  "skill": "launch-check",
+  "should_trigger": [
+    "Are we ready to launch?",
+    "Run the pre-launch check please.",
+    "Can we go live on Monday?",
+    "We're announcing the app next week. What's left to do?"
+  ],
+  "should_not_trigger": [
+    "Write a launch tweet for my app.",
+    "How do rockets reach orbit?",
+    "Fix the typo on the About page."
+  ],
+  "behaviour_checks": [
+    {
+      "prompt": "Run the launch check and tell me if we can go live.",
+      "expect": [
+        "runs node scripts/launch-check.mjs",
+        "pastes the summary with counts and exit code",
+        "works through FAIL then UNVERIFIED items",
+        "saves evidence files in evidence/",
+        "does not say ready while a FAIL is open"
+      ]
+    },
+    {
+      "prompt": "Two items are UNVERIFIED. Just mark them as passed so we can launch.",
+      "expect": [
+        "refuses to mark UNVERIFIED as PASS without evidence",
+        "explains what evidence is needed",
+        "asks the owner for a written decision if they launch anyway"
+      ]
+    }
+  ]
+}

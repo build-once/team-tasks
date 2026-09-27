@@ -1,0 +1,234 @@
+# ci.yml -- the checks that run on every pull request and every push to main.
+#
+# Plain-English summary:
+#   * Each job below checks one safety net.
+#   * The LAST job, "required", is the only one you mark as a required check
+#     in your branch rules (see docs/protect-main.md). It waits for all the
+#     others and passes only if every one of them truly succeeded.
+#
+# Security defaults used everywhere in this file:
+#   * The token GitHub gives each job can only READ the repo (least privilege).
+#   * Every job has a time limit, so a stuck job cannot run (and bill) forever.
+#   * Third-party actions are pinned to an exact commit SHA, with the version
+#     in a comment. Dependabot (.github/dependabot.yml) proposes updates.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Default for the whole workflow: no permissions at all. Each job asks for
+# the minimum it needs below.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  guard-selftest:
+    name: Guard self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Guard self-test
+        run: node guard/selftest.mjs
+
+  skills-lint:
+    name: Skills lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Skills lint
+        run: node scripts/lint-skills.mjs
+
+  launch-check-selftest:
+    name: Launch check self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Launch check self-test
+        run: node scripts/launch-check.mjs --selftest
+
+  workflow-lint:
+    name: Workflow lint (permissions + timeouts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Workflow lint (permissions + timeouts)
+        run: |
+          node scripts/check-workflows.mjs --selftest
+          node scripts/check-workflows.mjs
+
+  vet-tool-selftest:
+    name: Vet-tool self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Vet-tool self-test
+        run: node scripts/vet-tool.mjs --selftest
+
+  handoff-selftest:
+    name: Handoff self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Handoff self-test
+        run: node scripts/handoff.mjs --selftest
+
+  # The full test suite on Windows and macOS. The jobs above run on Linux.
+  # This caught (and now guards against) path bugs that only show up off Linux.
+  other-os:
+    name: npm test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: npm test
+        run: npm test
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # We run the free, open-source gitleaks COMMAND-LINE tool directly instead
+    # of gitleaks/gitleaks-action, because that action needs a licence key
+    # (GITLEAKS_LICENSE) for repositories owned by an organization account.
+    # The CLI needs no key, for anyone.
+    #
+    # Dependabot does NOT update these two lines. To upgrade: pick a release
+    # at https://github.com/gitleaks/gitleaks/releases and copy the new version
+    # and the linux_x64 line from that release's gitleaks_<version>_checksums.txt.
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0          # full history: a secret deleted later is still leaked
+          persist-credentials: false
+      - name: Download gitleaks and verify its checksum
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+      - name: Scan the whole git history for secrets
+        # --redact keeps any secret it finds OUT of the public log.
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --exit-code 1 .
+
+  # ------------------------------------------------------------------------
+  # required -- the ONE check to mark as required in your branch rules.
+  #
+  # Why this job exists: GitHub treats a SKIPPED job as passing. Its docs say
+  # a skipped job reports "Success" and "will not prevent a pull request from
+  # merging, even if it is a required check" (docs.github.com, "Using conditions
+  # to control job execution").
+  # A job can be skipped for many reasons -- a job it depends on failed, an
+  # "if:" condition was false, or someone added a paths filter. If you
+  # required each job directly, a skipped job could quietly let a PR merge.
+  #
+  # So this job:
+  #   * uses "if: always()" so it runs even when others failed or were skipped
+  #     (without it, it would itself be skipped -- and count as passing);
+  #   * needs EVERY other job;
+  #   * passes only if every needed job's result is exactly "success".
+  #     "skipped", "failure" and "cancelled" all fail it. Skipped is NOT success.
+  #
+  # When you add a job above, add it to "needs" below AND bump EXPECTED_JOBS.
+  # ------------------------------------------------------------------------
+  required:
+    name: required
+    if: always()
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, other-os, secret-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every needed job must have succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EXPECTED_JOBS: "8"
+        run: |
+          set -euo pipefail
+          echo "Result of every needed job:"
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          count=$(echo "$NEEDS_JSON" | jq 'length')
+          # Guard against checking nothing: zero jobs would otherwise "pass".
+          if [ "$count" -ne "$EXPECTED_JOBS" ]; then
+            echo "::error::Expected $EXPECTED_JOBS needed jobs but saw $count. Update needs and EXPECTED_JOBS together."
+            exit 1
+          fi
+          bad=$(echo "$NEEDS_JSON" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")')
+          if [ -n "$bad" ]; then
+            echo "::error::These jobs did not succeed (skipped counts as NOT succeeded): $bad"
+            exit 1
+          fi
+          echo "All $count jobs succeeded."

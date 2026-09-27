@@ -1,0 +1,138 @@
+# Local, staging and production
+
+The app exists in three places. Keeping them apart is the single most useful habit for avoiding
+disasters.
+
+Parts of this table are still **to be filled in**. The two Supabase projects now exist —
+`teamtasks-staging` and `teamtasks-production` — but there is no Vercel project and no domain name.
+Where a cell is filled in, it records what was decided, not what has been observed in a running
+service: nothing has connected to either database yet. See "What is not filled in yet, and why" at
+the end.
+
+## The three copies
+
+| | **Local** | **Staging** | **Production** |
+|---|---|---|---|
+| **Purpose** | Where the code is written and first tried. Fast, throwaway, breaks often | A full copy online, for trying a change properly before real people see it. Where the Alice / Bob / Carol checks are run | The real app the six volunteers use |
+| **Web address** | `http://localhost:3000` — the `next dev` default (unverified: the dev server has not been run yet) | to be filled in — a Vercel URL; pull-request previews get their own URL and point at staging | to be filled in — no domain name chosen yet |
+| **Database project name** | **None.** There is no local database; local development points at the staging project | `teamtasks-staging` — a Supabase project in a **separate free organisation** | `teamtasks-production` — a Supabase project in a **Pro organisation** (about $25/month) |
+| **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | Public values in the Vercel project's environment settings; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets | Same split as staging, with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
+| **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md` |
+| **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`.** No hand-editing in a dashboard, and the AI assistant never touches it |
+
+## Rules
+
+- We never build, test or experiment on production.
+- Staging holds fake data only. Production data is never copied to local or staging.
+- The AI assistant has keys for local and staging only.
+- Changes reach production only through the change flow: branch, pull request, checks, merge.
+
+### What follows from those four
+
+1. **Separate projects, separate keys.** Staging and production are two different Supabase
+   projects, each with its own URL and its own keys. Never reuse a key between them.
+2. **Previews point at staging.** When Vercel builds a preview of a pull request, that preview uses
+   the **staging** URL and keys. This is set in Vercel's environment settings, per environment.
+3. **Reading production** uses the **owner-runs-query pattern** (Book 2 A24): the AI assistant
+   writes a read-only query, **the owner** runs it on production and pastes back the result with
+   anything private removed. The assistant never gets production keys.
+4. **Keys live in `.env` files that git ignores**, and in the host's secret settings.
+   `.env.example` shows the names only, never a real value.
+
+## No local database, for now
+
+Decided 2026-09-27. A database on the laptop is optional (Build it 5), and the usual way to run one —
+the Supabase CLI — needs Docker. Docker is not installed and is not going to be. So local
+development points at the **staging** project, which holds fake data only.
+
+What follows from that:
+
+- One less copy to keep in step, and no Docker on the machine.
+- **Local is not isolated any more.** A row added while developing, a task deleted, a migration tried
+  by hand — all of it happens in the staging database that the Alice / Bob / Carol checks share.
+  Expect to reload the seed data more often, and do not assume a clean slate.
+- Staging still holds fake data only. That rule does not loosen because local now shares it.
+- Revisit this if two people ever develop at the same time, or when a change could destroy staging
+  data rather than just add to it.
+
+## Seed data and test accounts
+
+Seed data is fake data you can load into local and staging at any time, so tests always start from
+the same place. Keep it in the repo as a script. Never copy real people's data into staging.
+
+Create these three test accounts on **staging** (and locally). Use email addresses you control, for
+example `yourname+alice@example.com` style addresses, and store their passwords in your password
+manager — not in the repo.
+
+| Account | Role | What it proves |
+|---|---|---|
+| **Alice** | The owner of some data (e.g. owns a team with a few tasks) | Normal use works |
+| **Bob** | An outsider with his own separate account | He must **not** see or change anything of Alice's |
+| **Carol** | A member of Alice's team | She sees what a team member should — and nothing that is owner-only |
+
+These three are what plan feature 5 — "see only the tasks of teams you belong to" — is tested with.
+
+## Checks you can do yourself (no coding needed)
+
+Do these on **staging** after any change to sign-in, sharing, or database rules. Write down what you
+saw — that is your evidence.
+
+1. **Bob cannot see Alice's things.** Sign in as Bob. Try Alice's page by pasting its web address.
+   You should see "not found" or be sent away — not her data.
+2. **Bob cannot change Alice's things.** As Bob, try to edit or delete something of Alice's (for
+   example by using an old link). It must fail.
+3. **Carol sees the team's things, not the owner-only things.** Sign in as Carol. Team tasks:
+   visible. Owner settings: not visible or not editable.
+4. **Signed-out visitors see nothing private.** Open a private/incognito window and visit a private
+   page. You should be asked to sign in.
+5. **Staging is really staging.** On the staging site, open your browser's developer tools → Network
+   and check that requests go to your **staging** project address, not production.
+6. **Files are locked too.** Not applicable in the first version — it has no file uploads. Re-check
+   this if that ever changes.
+7. **No secrets in the page.** On staging, view the page source and search for `service` or
+   `secret`. Only public keys should appear.
+
+If any of these cannot be done (for example, you have no second account yet), write
+**"unverified — reason"**, not "passed".
+
+## What is not filled in yet, and why
+
+Every "to be filled in" above is waiting on something that has not been created. None of it is
+unknown in the sense of undecided — the decisions are in `docs/stack.md`; the values just do not
+exist yet.
+
+- **Web addresses for staging and production.** No Vercel project exists, so no URL has been
+  issued, and no domain name has been chosen.
+- **Unverified — the two database project names.** `teamtasks-staging` and `teamtasks-production` are
+  the names the owner reported on 2026-09-27. Nothing has connected to either project to read them
+  back, so they are recorded here on the owner's word. The split — production in a Pro organisation,
+  staging in a separate free organisation — is decided in `docs/stack.md` (decision B) and in the
+  Budget section of `docs/plan.md`; whether the two projects are really in two organisations has not
+  been checked either.
+- **Project references, URLs and keys are deliberately not here.** This file holds names only. The
+  values live in `web/.env.local` on the laptop and in the host's secret settings, never in git.
+- **The local database is settled, not missing** — see "No local database, for now" above.
+- **Unverified — the local web address.** `http://localhost:3000` is the documented `next dev`
+  default and matches `web/package.json`, but the dev server has not been run, so it has not been
+  seen.
+- **Unverified — nothing in the "where its keys are kept" row has been done.** No environment
+  variable has been set in Vercel, because no Vercel project exists, and no secret has been stored in
+  either Supabase project. That row describes the intended arrangement from `docs/stack.md`, not a
+  configuration that was inspected.
+- **Open — the variable names in `.env.example` do not match what Next.js needs.** The committed
+  `.env.example` uses `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`. Next.js only exposes a
+  variable to the browser when its name starts with `NEXT_PUBLIC_`, so `web/.env.local` needs
+  `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Copying `.env.example`
+  as-is will not work; the example file has not been changed yet.
+- **Note — the guard does not recognise the production project yet.** The `production-access` rule in
+  `guard/rules.json` matches production by whatever is listed under `production_patterns` in
+  `guard/local.json`, and that file does not exist, so that part of the rule never matches
+  (`docs/guards.md`, "Tell the guard what production looks like"). Until a person creates it, nothing
+  stops a command or connector call that names the production project by reference or URL — only the
+  written rule does. Guard files are changed by a person, never by the assistant.
+- **Note — `main` is not protected yet.** Rule 4 above assumes changes cannot be pushed straight to
+  `main`. On GitHub's Free plan, branch protection needs a public repository or a paid plan, and
+  `team-tasks` is private. This is still open: see `docs/stack.md` (still open, D) and
+  `docs/protect-main.md`. Until it is settled, "changes reach production only through the change
+  flow" is enforced by habit and by the local guards in `.claude/hooks/`, which run on this machine
+  only — **not** by a branch rule.
