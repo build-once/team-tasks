@@ -172,10 +172,13 @@ exist yet.
 - **Unverified — the local web address.** `http://localhost:3000` is the documented `next dev`
   default and matches `web/package.json`, but the dev server has not been run, so it has not been
   seen.
-- **Unverified — Vercel's settings have not been inspected.** The Root Directory, the two
-  Preview-scoped variables and the deletion of the ten pre-filled ones are recorded from the owner's
-  account of what they did in the dashboard. No tool has read Vercel's configuration back, and the
-  assistant has no Vercel access. The only way to confirm any of it is to open the project's settings.
+- **Partly verified — Vercel builds, but its settings have not been inspected.** A preview deployment
+  for the pull request that added this section completed successfully, which is good evidence that the
+  Root Directory setting is right: a wrong one fails the build. Everything else here — the Preview
+  scoping, and the deletion of the ten pre-filled variables — is recorded from the owner's account of
+  what they did in the dashboard. No tool has read Vercel's configuration back, and the assistant has
+  no Vercel access. A green build does **not** show which Supabase project a preview talks to; check 5
+  below is how to establish that.
 - **Unverified — no secret has been stored in either Supabase project.** The "where its keys are kept"
   row describes the intended arrangement from `docs/stack.md` for the secret half, not a configuration
   that was inspected.
