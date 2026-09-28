@@ -21,6 +21,8 @@ export async function addTask(formData: FormData) {
   if (error) redirect("/tasks?problem=save");
 
   revalidatePath("/tasks");
+  // The design confirms the add with a "Task added." message, so say so.
+  redirect("/tasks?added=1");
 }
 
 export async function setDone(formData: FormData) {

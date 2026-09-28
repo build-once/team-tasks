@@ -1,0 +1,96 @@
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.count {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Input and button side by side, the way the design has them. */
+.addRow {
+  display: flex;
+  gap: 8px;
+}
+
+.addRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The phone screen says "Add"; the laptop screen has room for "Add task". */
+.taskWord {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .taskWord {
+    display: inline;
+    white-space: pre;
+  }
+}
+
+.list {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  list-style: none;
+}
+
+.item + .item {
+  border-top: 1px solid var(--line);
+}
+
+/* The whole row is the control, so ticking something off is an easy tap. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 16px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: #faf9f6;
+}
+
+.toggle:focus-visible {
+  outline-offset: -3px;
+}
+
+.box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+}
+
+.boxOn {
+  color: #fff;
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.done {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.empty {
+  color: var(--muted);
+}
