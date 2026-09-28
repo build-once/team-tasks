@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Pages anyone may open while signed out. Everything else needs a signed-in
 // person, which is what makes "My tasks" private.
+//
+// "/auth" covers everything beneath it, including /auth/callback, where a
+// confirmation link lands. That one has to be reachable while signed out --
+// being signed out is the whole reason the person is following the link.
 const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
 
 function isPublic(pathname: string) {
