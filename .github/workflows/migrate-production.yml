@@ -1,0 +1,77 @@
+# migrate-production.yml -- applies the migrations in supabase/migrations/ to the
+# PRODUCTION database.
+#
+# This is the only thing in this repository that writes to production, and it is
+# deliberately the dullest file here.
+#
+# How a change reaches production:
+#   branch -> pull request -> checks pass -> the owner merges -> this runs.
+# Nobody runs it by hand, and no assistant runs it at all.
+#
+# Security defaults, the same as ci.yml:
+#   * The job token can only READ the repository.
+#   * The job has a time limit, so a stuck migration cannot run forever.
+#   * Third-party actions are pinned to an exact commit SHA, version in a comment.
+#
+# About the connection:
+#   Supabase's own example (supabase.com/docs/guides/deployment/managing-environments)
+#   uses `supabase link` with a SUPABASE_ACCESS_TOKEN. This project does not. An
+#   access token reaches the whole Supabase account -- every project, including
+#   staging -- while a database connection string reaches one database and
+#   nothing else. So the only secret here is SUPABASE_DB_URL, and no Supabase
+#   access token is stored anywhere. See docs/environments.md.
+
+name: migrate-production
+
+on:
+  push:
+    branches: [main]
+
+# No pull_request trigger, on purpose: a pull request must never be able to
+# write to production. No workflow_dispatch either -- merging is the only way
+# to start this.
+
+# Default for the whole workflow: no permissions at all.
+permissions: {}
+
+# One run at a time. A half-applied migration, caused by a second run starting
+# beside the first, is the worst outcome here -- so a run in progress is never
+# cancelled, and the next one waits its turn.
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+
+  migrate:
+    name: Apply migrations to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          version: 2.117.0
+
+      # SUPABASE_DB_URL is production's Session pooler connection string, with
+      # the password percent-encoded -- the CLI reference for `db push` requires
+      # that: "Pushes to the database specified by the connection string (must be
+      # percent-encoded)."
+      #
+      # It is passed as an environment variable and read by the shell as
+      # "$SUPABASE_DB_URL". It is never written into the command line here, so it
+      # cannot appear in the workflow file, in a run-command echo, or in the log
+      # of the command being run. GitHub also masks the value in logs.
+      #
+      # --yes is the CLI's documented global flag ("answer yes to all prompts"),
+      # which is what makes this non-interactive. There is no password prompt to
+      # answer, because the password is inside the connection string.
+      - name: Apply migrations to production
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
