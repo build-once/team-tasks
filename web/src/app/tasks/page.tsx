@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Banner } from "@/app/components/Banner";
@@ -5,7 +6,7 @@ import { Header } from "@/app/components/Header";
 import { createClient } from "@/lib/supabase/server";
 import { TITLE_MAX, type Task } from "@/lib/tasks";
 
-import { addTask, setDone } from "./actions";
+import { addTask, deleteTask, renameTask, setDone } from "./actions";
 import styles from "./tasks.module.css";
 
 function Tick() {
@@ -30,7 +31,7 @@ function Tick() {
 export default async function MyTasksPage({
   searchParams,
 }: PageProps<"/tasks">) {
-  const { problem, added } = await searchParams;
+  const { problem, added, rename, confirm } = await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows
@@ -108,6 +109,12 @@ export default async function MyTasksPage({
           </Banner>
         ) : null}
 
+        {problem === "missing" ? (
+          <Banner tone="bad" icon="alert">
+            That task wasn&apos;t found.
+          </Banner>
+        ) : null}
+
         {error ? (
           <Banner tone="bad" icon="alert">
             Your tasks could not be loaded. If this database is new, the tasks
@@ -122,28 +129,96 @@ export default async function MyTasksPage({
           <ul className={styles.list}>
             {tasks.map((task) => (
               <li className={styles.item} key={task.id}>
-                <form action={setDone}>
-                  <input type="hidden" name="id" value={task.id} />
-                  <input
-                    type="hidden"
-                    name="done"
-                    value={task.done ? "false" : "true"}
-                  />
-                  <button
-                    className={styles.toggle}
-                    type="submit"
-                    aria-pressed={task.done}
-                  >
-                    <span
-                      className={`${styles.box} ${task.done ? styles.boxOn : ""}`}
+                {rename === task.id ? (
+                  // Renaming: this row becomes a small form. Everything else in
+                  // the list stays where it was.
+                  <form className={styles.editRow} action={renameTask}>
+                    <input type="hidden" name="id" value={task.id} />
+                    <label
+                      className="visually-hidden"
+                      htmlFor={`rename-${task.id}`}
                     >
-                      {task.done ? <Tick /> : null}
-                    </span>
-                    <span className={task.done ? styles.done : undefined}>
-                      {task.title}
-                    </span>
-                  </button>
-                </form>
+                      New name for this task
+                    </label>
+                    <input
+                      className={`input ${styles.editInput}`}
+                      id={`rename-${task.id}`}
+                      name="title"
+                      type="text"
+                      defaultValue={task.title}
+                      maxLength={TITLE_MAX}
+                      required
+                      autoFocus
+                    />
+                    <button className="btn btn--primary" type="submit">
+                      Save
+                    </button>
+                    <Link className="btn btn--quiet" href="/tasks">
+                      Cancel
+                    </Link>
+                  </form>
+                ) : confirm === task.id ? (
+                  // Deleting is permanent, so it is asked for twice: once on
+                  // the row, and once here.
+                  <div className={styles.confirmRow}>
+                    <p className={styles.confirmText}>Delete this task?</p>
+                    <form action={deleteTask}>
+                      <input type="hidden" name="id" value={task.id} />
+                      <button
+                        className={`btn ${styles.danger}`}
+                        type="submit"
+                      >
+                        Delete
+                        <span className="visually-hidden"> {task.title}</span>
+                      </button>
+                    </form>
+                    <Link className="btn btn--quiet" href="/tasks">
+                      Cancel
+                    </Link>
+                  </div>
+                ) : (
+                  <div className={styles.row}>
+                    <form action={setDone}>
+                      <input type="hidden" name="id" value={task.id} />
+                      <input
+                        type="hidden"
+                        name="done"
+                        value={task.done ? "false" : "true"}
+                      />
+                      <button
+                        className={styles.toggle}
+                        type="submit"
+                        aria-pressed={task.done}
+                      >
+                        <span
+                          className={`${styles.box} ${task.done ? styles.boxOn : ""}`}
+                        >
+                          {task.done ? <Tick /> : null}
+                        </span>
+                        <span className={task.done ? styles.done : undefined}>
+                          {task.title}
+                        </span>
+                      </button>
+                    </form>
+
+                    <div className={styles.actions}>
+                      <Link
+                        className={styles.action}
+                        href={`/tasks?rename=${task.id}`}
+                      >
+                        Rename
+                        <span className="visually-hidden"> {task.title}</span>
+                      </Link>
+                      <Link
+                        className={styles.action}
+                        href={`/tasks?confirm=${task.id}`}
+                      >
+                        Delete
+                        <span className="visually-hidden"> {task.title}</span>
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
