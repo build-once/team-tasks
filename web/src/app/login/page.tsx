@@ -1,49 +1,66 @@
 import Link from "next/link";
 
 import { signIn } from "@/app/auth/actions";
+import { Banner } from "@/app/components/Banner";
+import { Header } from "@/app/components/Header";
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { problem } = await searchParams;
 
   return (
-    <main>
-      <h1>Sign in</h1>
+    <>
+      <Header />
 
-      {problem ? (
-        <p role="alert">
-          That did not work. Check the email address and password and try again.
+      <main className="page stack">
+        <h1>Sign in</h1>
+        <p className="lede">
+          See what&apos;s done, what&apos;s left and who&apos;s doing it.
         </p>
-      ) : null}
 
-      <form action={signIn}>
-        <p>
-          <label htmlFor="email">Email address</label>
-          <br />
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-          />
-        </p>
-        <p>
-          <label htmlFor="password">Password</label>
-          <br />
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </p>
-        <button type="submit">Sign in</button>
-      </form>
+        {problem ? (
+          <Banner tone="bad" icon="alert">
+            That email and password don&apos;t match. Check them and try again.
+          </Banner>
+        ) : null}
 
-      <p>
-        No account yet? <Link href="/signup">Sign up</Link>.
-      </p>
-    </main>
+        <form className="card" action={signIn}>
+          <div>
+            <label className="label" htmlFor="email">
+              Email address
+            </label>
+            <input
+              className="input"
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="password">
+              Password
+            </label>
+            <input
+              className="input"
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          <button className="btn btn--primary btn--block" type="submit">
+            Sign in
+          </button>
+        </form>
+
+        <p className="switch">
+          No account yet? <Link href="/signup">Sign up</Link>
+        </p>
+      </main>
+    </>
   );
 }
