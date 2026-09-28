@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent instruction files that next dev generates
+# The only instruction files in this project are the AGENTS.md and CLAUDE.md at
+# the repository root, which a person owns. Generation is switched off in
+# next.config.ts (agentRules: false); these two lines are the second lock, so a
+# regenerated file can never be committed by accident.
+/AGENTS.md
+/CLAUDE.md
