@@ -50,9 +50,13 @@ As Bob
 ```
 
 Checks 7 and 8 are the ones that matter most, and they were seen together: signed in as Bob, the page
-showed his single task and a counter that matched it, with nothing of Alice's in either. The count is
-derived from the same query that draws the list, so if the row-level security rules ever failed, a
-number larger than the rows on screen would be the first visible symptom.
+showed his single task and nothing of Alice's.
+
+**The counter is not a safety check.** It counts the same array the list is drawn from, so it always
+agrees with the rows on screen, whatever those rows are. If the row-level security rules ever failed,
+Bob would see Alice's tasks *and* a count that matched them perfectly — nothing would look wrong. The
+only thing that catches that is a person recognising whose tasks are on screen, which is what check 8
+is: the owner knowing that `Alice private task SAMPLE` belongs to Alice and must not appear for Bob.
 
 ## Output (secrets removed)
 
