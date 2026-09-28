@@ -21,7 +21,7 @@ Five things, and nothing else:
 1. Sign up and sign in.
 2. Create a team.
 3. Invite people to a team by email.
-4. Add tasks and tick them off.
+4. Add, tick, rename, delete tasks you created.
 5. See only the tasks of teams you belong to.
 
 ## Deliberately not in the first version
@@ -80,8 +80,8 @@ free text that could contain absolutely anything.
 | Display name — a nickname | So the organiser sees "Carol", not an address; never a real or full name | `profiles` *(proposed)* | Their team members; owner | Until the account is deleted | No way in the app yet | No |
 | Team name | Feature 2 | `teams` *(proposed)* | Members of that team; owner | Until the team is deleted | Only by deleting the team — not built yet | No |
 | Team membership — who is in which team | Feature 5; the RLS rule decides by this | `team_members` *(proposed)* | Members of that team; owner | Until removed from the team | Leave the team — not built yet | No, but it shows who belongs to which group |
-| Task text — length-limited | Feature 4; the input box carries the "no personal details" request | `tasks` *(proposed)* | Members of that team; owner | Until the task is deleted — no automatic clear-out in the first version | Delete the task — not built yet | **Yes** — free text; people type anything |
-| Who created and who ticked off each task | Feature 4; answers "who said they would do it" | `tasks` *(proposed)* | Members of that team; owner | With the task | With the task | No |
+| Task text — length-limited | Feature 4; the input box carries the "no personal details" request | `tasks` *(proposed)* | Members of that team; owner | Until the task is deleted — no automatic clear-out in the first version | Rename or delete the task, on the My tasks page — **built** | **Yes** — free text; people type anything |
+| Who created and who ticked off each task | Feature 4; answers "who said they would do it" | `tasks` *(proposed)* | Members of that team; owner | With the task | With the task — deleting the task removes it, **built** | No |
 | Dates on tasks and teams — exact timestamps | Feature 4; ordering and "what is left" | `tasks`, `teams` *(proposed)* | Members of that team; owner | With the row | With the row | No, but it records when a person was active |
 | An invited person's email, before they accept | Feature 3 | `invitations` *(proposed)* and Supabase Auth | The inviter; owner | Until accepted, or 7 days — then the row is deleted | **They cannot** — not a user yet; owner deletes | No, but it is data about someone who never signed up |
 | Sent-invitation logs | Proof an invitation actually went out | Resend — outside your app | Owner via Resend; Resend | 30 days on the free plan | Not user-deletable; owner clears | No |
