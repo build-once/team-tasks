@@ -48,7 +48,10 @@ export default async function MyTasksPage({
     .order("created_at", { ascending: false });
 
   const tasks = (data ?? []) as Task[];
-  const left = tasks.filter((task) => !task.done).length;
+
+  // Counted from the rows this page is about to draw, not from a second query,
+  // so the number can never disagree with the list underneath it.
+  const doneCount = tasks.filter((task) => task.done).length;
 
   return (
     <>
@@ -57,10 +60,12 @@ export default async function MyTasksPage({
       <main className="page stack">
         <div className={styles.head}>
           <h1>My tasks</h1>
-          {error ? null : (
+          {/* No count when there is nothing to count, and none when the list
+              could not be loaded: a number beside an error would be a lie. */}
+          {error || tasks.length === 0 ? null : (
             <p className={styles.count}>
-              {left} left
-              <span className="visually-hidden"> to do</span>
+              {doneCount} of {tasks.length}
+              <span className="visually-hidden"> tasks</span> done
             </p>
           )}
         </div>
@@ -124,7 +129,7 @@ export default async function MyTasksPage({
         ) : null}
 
         {tasks.length === 0 && !error ? (
-          <p className={styles.empty}>Nothing on your list yet.</p>
+          <p className={styles.empty}>No tasks yet</p>
         ) : (
           <ul className={styles.list}>
             {tasks.map((task) => (
