@@ -81,6 +81,24 @@ that file:
 2026-09-28 it was cut down to the two the app actually reads, so a fresh import offers only those
 two. The next section lists them and says what went, and why.
 
+## Rolling back production
+
+If a release breaks the live site, the owner puts the previous one back. **The owner does this in the
+Vercel dashboard. The assistant never does it.**
+
+1. Open Vercel, go to the **team-tasks** project, and open **Deployments**.
+2. Find the deployment currently serving production.
+3. Choose **Instant Rollback**, and confirm.
+4. On the Hobby plan there is only one step back: you can roll back to the **previous** production
+   deployment, not to any older one.
+5. Afterwards, new merges stop going live. A later merge to `main` still builds, but it stays off the
+   live site until someone presses **Undo Rollback**, or promotes a newer deployment. Remember this,
+   or the next fix will look as though it did nothing.
+
+**A rollback changes the website code and nothing else.** It does **not** undo a database migration
+that the `migrate-production` job has already applied. A bad migration is fixed by writing another
+migration and taking it through a pull request, the same way as any other change.
+
 ## Every setting the app uses
 
 Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
