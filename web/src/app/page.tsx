@@ -24,6 +24,8 @@ export default function Home() {
         <p className="switch">
           No account yet? <Link href="/signup">Sign up</Link>
         </p>
+
+        <footer className="footer">Team Tasks version 2</footer>
       </main>
     </>
   );

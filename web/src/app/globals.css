@@ -242,6 +242,15 @@ svg {
   width: 100%;
 }
 
+/* A quiet line at the foot of a page. Same muted grey and small size as the
+   hints in the design, centred like the line under the sign-in card. */
+.footer {
+  margin-top: 32px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  text-align: center;
+}
+
 /* Said out loud by a screen reader, never drawn on screen. */
 .visually-hidden {
   position: absolute;
