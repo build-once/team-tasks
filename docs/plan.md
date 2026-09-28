@@ -21,7 +21,7 @@ Five things, and nothing else:
 1. Sign up and sign in.
 2. Create a team.
 3. Invite people to a team by email.
-4. Add tasks and tick them off.
+4. Add, tick, rename, delete tasks you created.
 5. See only the tasks of teams you belong to.
 
 ## Deliberately not in the first version
