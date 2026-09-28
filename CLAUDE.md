@@ -17,4 +17,7 @@ The second line imports `docs/plan.md`, so the agreed plan is in context at the 
 8. **Say "unverified — reason" when a check could not run.** A check that was blocked, timed out, lacked permission or found zero things to check is **not** a pass. Write `unverified — <reason>` and say how to check it properly.
 9. **Stay inside `docs/plan.md`.** Read `docs/plan.md` before starting work in a session, and treat it as the agreed scope. If a request needs something the plan does not list — a new feature, anything from its "deliberately not in the first version" list, a new kind of personal data, a native app, or spending above its budget ceiling — say so **before** writing code: name the part of the plan the request goes past, and ask whether to update the plan or drop the request. Widening the plan is the owner's call. The plan is updated first, then the code.
 
+10. **Local and staging only.** You have access to local and staging only. You never ask for, read, store or use production keys, passwords or database connections. You never link a command-line tool or connector to the production project. Changes reach production only through a pull request that the owner merges. If a task seems to need production, stop and explain why.
+11. **Read the Next.js docs that match the installed version.** Before writing Next.js code, read the version-matched docs in `web/node_modules/next/dist/docs/`.
+
 Also: the guards in `.claude/hooks/` run before your tools. A block from them is a correct result, not an error to get around. Report it.
