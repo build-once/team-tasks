@@ -4,19 +4,19 @@ The app exists in three places. Keeping them apart is the single most useful hab
 disasters.
 
 Parts of this table are still **to be filled in**. The two Supabase projects now exist —
-`teamtasks-staging` and `teamtasks-production` — but there is no Vercel project and no domain name.
-Where a cell is filled in, it records what was decided, not what has been observed in a running
-service: nothing has connected to either database yet. See "What is not filled in yet, and why" at
-the end.
+`teamtasks-staging` and `teamtasks-production` — and so does the Vercel project that hosts the app.
+There is still no domain name, and production has no environment values set. Where a cell is filled
+in, it records what was decided or done, not what has been observed in a running service. See "What
+is not filled in yet, and why" at the end.
 
 ## The three copies
 
 | | **Local** | **Staging** | **Production** |
 |---|---|---|---|
 | **Purpose** | Where the code is written and first tried. Fast, throwaway, breaks often | A full copy online, for trying a change properly before real people see it. Where the Alice / Bob / Carol checks are run | The real app the six volunteers use |
-| **Web address** | `http://localhost:3000` — the `next dev` default (unverified: the dev server has not been run yet) | to be filled in — a Vercel URL; pull-request previews get their own URL and point at staging | to be filled in — no domain name chosen yet |
+| **Web address** | `http://localhost:3000` — the `next dev` default (unverified: the dev server has not been run yet) | not written down here — a Vercel URL on the Hobby plan; pull-request previews get their own URL and point at staging | to be filled in — no domain name chosen yet |
 | **Database project name** | **None.** There is no local database; local development points at the staging project | `teamtasks-staging` — a Supabase project in a **separate free organisation** | `teamtasks-production` — a Supabase project in a **Pro organisation** (about $25/month) |
-| **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | Public values in the Vercel project's environment settings; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets | Same split as staging, with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
+| **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | The two public values in the Vercel project's environment settings, **scoped to Preview only**; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets — never in Vercel | **Nothing is set yet** (Build it 6). When it is: the same split as staging with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
 | **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md` |
 | **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`.** No hand-editing in a dashboard, and the AI assistant never touches it |
 
@@ -38,6 +38,61 @@ the end.
    anything private removed. The assistant never gets production keys.
 4. **Keys live in `.env` files that git ignores**, and in the host's secret settings.
    `.env.example` shows the names only, never a real value.
+
+## The host: Vercel (Hobby)
+
+Set up 2026-09-27. The app is hosted on Vercel, on the free **Hobby** plan, which keeps this inside
+the £0-while-building line in `docs/plan.md`.
+
+- **Root Directory is `web`.** The Next.js app lives in a sub-folder of this repository, not at the
+  top. Vercel has to be told that, or it looks for an app at the top level and the build fails.
+- **Two environment variables, scoped to Preview only.** `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set to the **staging** project's values. Preview scope means
+  every pull-request deploy talks to staging and its fake data. That is the same rule as rule 2 above,
+  enforced in Vercel's settings rather than by memory.
+- **Production has no values set at all** (Build it 6). So a production deploy has nothing to talk to
+  yet. That is deliberate: production values arrive when there is a production release to make, not
+  before. Until then, treat a production deploy as broken by design.
+- **Nothing secret is stored in Vercel.** Only those two public values. The service-role key and the
+  email-sending key live in Supabase Edge Functions secrets, as the table above says.
+
+### The ten pre-filled variables, and why they were deleted
+
+When the project was imported, Vercel read `.env.example` and pre-filled **ten** environment
+variables with its placeholder values, scoped to **Production and Preview**. That is every name in
+that file:
+
+`APP_ENV`, `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `PUBLIC_PAYMENTS_PUBLISHABLE_KEY`,
+`PUBLIC_MONITORING_DSN`, `SUPABASE_SERVICE_ROLE_KEY`, `PAYMENTS_SECRET_KEY`,
+`PAYMENTS_WEBHOOK_SIGNING_SECRET`, `EMAIL_API_KEY`, `AI_API_KEY`.
+
+**All ten were deleted.** Three reasons, in order of importance:
+
+1. **Five of them are secret names**, including `SUPABASE_SERVICE_ROLE_KEY`, which bypasses every
+   database rule. Vercel holds no secrets in this design, so a slot waiting to be filled with one
+   does not belong there. An empty box invites someone to fill it.
+2. **The values were placeholders, not settings.** `replace-me-server-only` in a live environment
+   variable makes a deploy look configured when it points nowhere.
+3. **The names are not the ones this app reads.** The app reads `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; `PUBLIC_…` names are inert in Next.js. Keeping them would
+   have left two sets of names for one value.
+
+`.env.example` is still what Vercel reads on import, and it still carries those ten names — see the
+open item at the end of this file.
+
+### Where the app reads these values
+
+Checked on 2026-09-27 against `main`. The app reads the two public names and nothing else, in three
+places, all of them `process.env`:
+
+| File | Lines |
+|---|---|
+| `web/src/lib/supabase/client.ts` | 8–9 |
+| `web/src/lib/supabase/server.ts` | 10–11 |
+| `web/src/lib/supabase/proxy.ts` | 22–23 |
+
+No project address and no key is written into the code anywhere, and no secret name sits behind a
+public prefix such as `NEXT_PUBLIC_` or `VITE_`.
 
 ## No local database, for now
 
@@ -101,8 +156,10 @@ Every "to be filled in" above is waiting on something that has not been created.
 unknown in the sense of undecided — the decisions are in `docs/stack.md`; the values just do not
 exist yet.
 
-- **Web addresses for staging and production.** No Vercel project exists, so no URL has been
-  issued, and no domain name has been chosen.
+- **Web addresses for staging and production.** The Vercel project exists and issues URLs, but they
+  are deliberately not written down in this repository, and no domain name has been chosen.
+- **Production environment values.** None are set in Vercel (Build it 6), so there is nothing to
+  record and nothing to deploy to yet.
 - **Unverified — the two database project names.** `teamtasks-staging` and `teamtasks-production` are
   the names the owner reported on 2026-09-27. Nothing has connected to either project to read them
   back, so they are recorded here on the owner's word. The split — production in a Pro organisation,
@@ -115,15 +172,23 @@ exist yet.
 - **Unverified — the local web address.** `http://localhost:3000` is the documented `next dev`
   default and matches `web/package.json`, but the dev server has not been run, so it has not been
   seen.
-- **Unverified — nothing in the "where its keys are kept" row has been done.** No environment
-  variable has been set in Vercel, because no Vercel project exists, and no secret has been stored in
-  either Supabase project. That row describes the intended arrangement from `docs/stack.md`, not a
-  configuration that was inspected.
+- **Partly verified — Vercel builds, but its settings have not been inspected.** A preview deployment
+  for the pull request that added this section completed successfully, which is good evidence that the
+  Root Directory setting is right: a wrong one fails the build. Everything else here — the Preview
+  scoping, and the deletion of the ten pre-filled variables — is recorded from the owner's account of
+  what they did in the dashboard. No tool has read Vercel's configuration back, and the assistant has
+  no Vercel access. A green build does **not** show which Supabase project a preview talks to; check 5
+  below is how to establish that.
+- **Unverified — no secret has been stored in either Supabase project.** The "where its keys are kept"
+  row describes the intended arrangement from `docs/stack.md` for the secret half, not a configuration
+  that was inspected.
 - **Open — the variable names in `.env.example` do not match what Next.js needs.** The committed
   `.env.example` uses `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`. Next.js only exposes a
   variable to the browser when its name starts with `NEXT_PUBLIC_`, so `web/.env.local` needs
   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Copying `.env.example`
-  as-is will not work; the example file has not been changed yet.
+  as-is will not work; the example file has not been changed yet. It is also the file Vercel reads on
+  import, which is where the ten pre-filled variables came from — so the next import into any host
+  will offer the same ten names again until it is fixed.
 - **Note — the guard does not recognise the production project yet.** The `production-access` rule in
   `guard/rules.json` matches production by whatever is listed under `production_patterns` in
   `guard/local.json`, and that file does not exist, so that part of the rule never matches
