@@ -77,13 +77,32 @@ that file:
    `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; `PUBLIC_…` names are inert in Next.js. Keeping them would
    have left two sets of names for one value.
 
-`.env.example` is still what Vercel reads on import, and it still carries those ten names — see the
-open item at the end of this file.
+`.env.example` is still what a host reads on import, but it no longer carries those ten names. On
+2026-09-28 it was cut down to the two the app actually reads, so a fresh import offers only those
+two. The next section lists them and says what went, and why.
 
-### Where the app reads these values
+## Every setting the app uses
 
-Checked on 2026-09-27 against `main`. The app reads the two public names and nothing else, in three
-places, all of them `process.env`:
+Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
+
+| Name | Public or secret | Local | Staging | Production | What it is |
+|---|---|---|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
+
+**Secret: none.** The app has no server-side secret today. It talks to Supabase with the publishable
+key and lets the database rules decide, which is why nothing secret belongs in Vercel.
+
+Where each copy keeps them:
+
+- **Local** — `web/.env.local`, git-ignored, holding the **staging** values.
+- **Staging** — the Vercel project's environment settings, scoped to **Preview** only.
+- **Production** — the same two names, different values, scoped to Production. **Not set yet**
+  (Build it 6), so a production deploy has nothing to talk to.
+
+### Where the app reads them
+
+Three files, six lines, all `process.env`, all in `web/`:
 
 | File | Lines |
 |---|---|
@@ -92,7 +111,30 @@ places, all of them `process.env`:
 | `web/src/lib/supabase/proxy.ts` | 22–23 |
 
 No project address and no key is written into the code anywhere, and no secret name sits behind a
-public prefix such as `NEXT_PUBLIC_` or `VITE_`.
+public prefix such as `NEXT_PUBLIC_` or `VITE_`. Both statements were re-checked on 2026-09-28 by
+searching the whole repository, not only `web/`.
+
+### What `.env.example` lists, and what was taken out of it
+
+`.env.example` now lists those two names with empty values, and nothing else. It used to carry ten.
+The other eight were removed because the app does not use them, and because a host reads this file:
+importing the project into Vercel turned all ten into environment variables, five of them secret
+names. A name written here in advance becomes an empty slot in a dashboard, waiting for somebody to
+fill it.
+
+| Removed | Why |
+|---|---|
+| `APP_ENV` | Nothing in the app reads it. (The `production-access` guard rule still recognises `APP_ENV=production` in a command; removing the name from this file does not change that.) |
+| `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY` | Superseded. Next.js only exposes `NEXT_PUBLIC_…` names to the browser, so these two were inert and invited someone to fill in the wrong pair |
+| `SUPABASE_SERVICE_ROLE_KEY` | Not used. It bypasses every database rule, and must never live in Vercel |
+| `PAYMENTS_SECRET_KEY`, `PAYMENTS_WEBHOOK_SIGNING_SECRET`, `PUBLIC_PAYMENTS_PUBLISHABLE_KEY` | No payments. `docs/plan.md` puts them outside the first version |
+| `EMAIL_API_KEY` | No email sending yet. Invitations (plan feature 3) are not built; the name comes back when they are, and the value lives in Supabase Edge Functions secrets, not Vercel |
+| `AI_API_KEY` | No AI feature. `docs/plan.md` lists an AI helper under "deliberately not in the first version" |
+| `PUBLIC_MONITORING_DSN` | No monitoring or error reporting. The plan says none is collected and none is planned |
+
+If one of these comes back, add the name with an empty value, and put the real value only where that
+kind of value belongs: a public one in the host's environment settings, a secret one in Supabase Edge
+Functions secrets.
 
 ## No local database, for now
 
@@ -182,19 +224,17 @@ exist yet.
 - **Unverified — no secret has been stored in either Supabase project.** The "where its keys are kept"
   row describes the intended arrangement from `docs/stack.md` for the secret half, not a configuration
   that was inspected.
-- **Open — the variable names in `.env.example` do not match what Next.js needs.** The committed
-  `.env.example` uses `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`. Next.js only exposes a
-  variable to the browser when its name starts with `NEXT_PUBLIC_`, so `web/.env.local` needs
-  `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Copying `.env.example`
-  as-is will not work; the example file has not been changed yet. It is also the file Vercel reads on
-  import, which is where the ten pre-filled variables came from — so the next import into any host
-  will offer the same ten names again until it is fixed.
-- **Note — the guard does not recognise the production project yet.** The `production-access` rule in
-  `guard/rules.json` matches production by whatever is listed under `production_patterns` in
-  `guard/local.json`, and that file does not exist, so that part of the rule never matches
-  (`docs/guards.md`, "Tell the guard what production looks like"). Until a person creates it, nothing
-  stops a command or connector call that names the production project by reference or URL — only the
-  written rule does. Guard files are changed by a person, never by the assistant.
+- **Closed 2026-09-28 — the variable names in `.env.example` now match what Next.js needs.** It used
+  to list `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`, which Next.js never exposes to the
+  browser, alongside eight names the app does not use. It now lists `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` with empty values, and nothing else, so a fresh import into
+  any host offers only those two. See "Every setting the app uses".
+- **Closed 2026-09-28 — the guard now recognises the production project.** `guard/local.json` exists
+  and lists the production project reference under `production_patterns`, so the `production-access`
+  rule in `guard/rules.json` can block a command or connector call that names production
+  (`docs/guards.md`, "Tell the guard what production looks like"). Still worth knowing: it matches the
+  project reference, not a production web address, because no domain name has been chosen yet. Guard
+  files are changed by a person, never by the assistant.
 - **Note — `main` is not protected yet.** Rule 4 above assumes changes cannot be pushed straight to
   `main`. On GitHub's Free plan, branch protection needs a public repository or a paid plan, and
   `team-tasks` is private. This is still open: see `docs/stack.md` (still open, D) and
