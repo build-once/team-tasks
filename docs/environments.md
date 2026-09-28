@@ -18,7 +18,7 @@ is not filled in yet, and why" at the end.
 | **Database project name** | **None.** There is no local database; local development points at the staging project | `teamtasks-staging` — a Supabase project in a **separate free organisation** | `teamtasks-production` — a Supabase project in a **Pro organisation** (about $25/month) |
 | **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | The two public values in the Vercel project's environment settings, **scoped to Preview only**; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets — never in Vercel | **Nothing is set yet** (Build it 6). When it is: the same split as staging with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
 | **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md` |
-| **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`.** No hand-editing in a dashboard, and the AI assistant never touches it |
+| **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`**, plus the migration job in `.github/workflows/migrate-production.yml`, which runs on a push to `main` and nothing else. No hand-editing in a dashboard, and the AI assistant never touches it |
 
 ## Rules
 
@@ -90,8 +90,17 @@ Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
 | `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
 
-**Secret: none.** The app has no server-side secret today. It talks to Supabase with the publishable
-key and lets the database rules decide, which is why nothing secret belongs in Vercel.
+**Secret: none in the app.** The app has no server-side secret today. It talks to Supabase with the
+publishable key and lets the database rules decide, which is why nothing secret belongs in Vercel.
+
+There is one secret in the whole system, and it is not the app's: **`SUPABASE_DB_URL`**, held in
+**GitHub Actions secrets**, used by exactly one job — `migrate` in
+`.github/workflows/migrate-production.yml`, which applies the migrations to production after the
+owner merges to `main`. It is production's Session pooler connection string with the password
+percent-encoded. It is not in `.env.example`, not in Vercel, not on the laptop, and not in this
+document. **No Supabase access token is stored anywhere**: Supabase's own example workflow links the
+project with one, and this project deliberately does not, because an access token reaches the whole
+account — staging included — while a connection string reaches one database.
 
 Where each copy keeps them:
 
