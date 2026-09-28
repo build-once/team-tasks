@@ -5,7 +5,7 @@ import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const { problem } = await searchParams;
+  const { problem, confirmed } = await searchParams;
 
   return (
     <>
@@ -16,6 +16,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <p className="lede">
           See what&apos;s done, what&apos;s left and who&apos;s doing it.
         </p>
+
+        {confirmed ? (
+          <Banner tone="ok" icon="check">
+            Your email is confirmed. Please sign in.
+          </Banner>
+        ) : null}
 
         {problem ? (
           <Banner tone="bad" icon="alert">
