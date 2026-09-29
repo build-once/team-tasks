@@ -99,10 +99,93 @@ exit code: 1
 
 That is the branch that matters most, and it failed instead of passing.
 
-## Proof 2 — end to end in CI
+## Proof 2 — end to end in CI, both directions
 
-Recorded in the section added below once the throwaway branch had run. See
-"CI run on the throwaway branch".
+### The control: a clean bundle passes
+
+Run `36572024100` on `ci/bundle-scan` itself (commit `4dcb3dc`), conclusion `success`. From the
+`App build` log:
+
+```
+Scanning 24 files under web/.next/static for sb_secret_ or service_role.
+Clean: no sb_secret_ or service_role in any of the 24 files.
+```
+
+This matters as much as the failure below. It shows the step really runs in CI, really reads 24 real
+files, and does not break a clean build.
+
+### The test: a leaking bundle fails
+
+Throwaway branch `test/bundle-leak`, PR #26, run `36573882943`. **Not for merging.** From the
+`App build` log:
+
+```
+Scanning 25 files under web/.next/static for sb_secret_ or service_role.
+##[error]A Supabase secret key shape was found in the built bundle. Everything under .next/static
+is served to browsers, so treat the key as leaked and rotate it -- see docs/secrets.md.
+Where it was found (file:line:matched-token -- the key itself is not printed):
+.next/static/chunks/2egur_b3juy0a.js:1:sb_secret_
+##[error]Process completed with exit code 1.
+```
+
+Job results in that run:
+
+```
+X App build in 37s
+  ✓ Install exactly what the lockfile says
+  ✓ Lint
+  ✓ Build
+  X No Supabase secret key in the built bundle
+X required
+  X These jobs did not succeed (skipped counts as NOT succeeded): app-build
+```
+
+Three things worth reading off that list:
+
+1. It failed at **the new step**, with `Install`, `Lint` and `Build` all green before it. The failure
+   is the check firing, not a broken branch.
+2. `required` failed with it, so a pull request in this state cannot be merged.
+3. The log shows `sb_secret_` and **not** the invented key that follows it, in a public log, which is
+   what `-o` is there for.
+
+### The same run proves why this check was needed
+
+In that run, `Secret scan (gitleaks)` **passed** — a green tick — on a branch that has a fake Supabase
+secret key sitting in `web/src/app/page.tsx`:
+
+```
+✓ Secret scan (gitleaks) in 8s
+```
+
+That is the gap in issue #25, observed in CI rather than argued from a stdin test: gitleaks walked the
+whole history, found the `sb_secret_` string, and did not consider it a secret. The bundle scan caught
+what the dedicated secret scanner missed.
+
+### One thing the hook taught us on the way
+
+The first attempt to commit the fake string was **refused by the pre-commit hook**:
+
+```
+RuleID:      generic-api-key
+Entropy:     5.041010
+File:        web/src/app/page.tsx
+Line:        20
+exit code: 1
+```
+
+The constant was called `FAKE_SECRET`. gitleaks' generic rule fires on an identifier containing the
+word "secret" beside a high-entropy string — not on the `sb_secret_` prefix. Same value, only the
+name differing:
+
+```
+const k = "sb_secret_<invented>"            -> no leaks found,  exit 0
+const FAKE_SECRET = "sb_secret_<invented>"  -> generic-api-key, exit 1
+```
+
+The owner chose to rename it. `--no-verify` was never used, and nothing was allowlisted or switched
+off — the hook kept full force on every other line and file, and passed the renamed commit on its own
+terms. This is recorded because "we renamed a variable to get past a secret scanner" is exactly the
+sort of sentence that should never appear without its reason attached.
 
 ## What this does not cover
 
@@ -111,3 +194,13 @@ Recorded in the section added below once the throwaway branch had run. See
   passes this check.
 - **Only `web/.next/static`.** Not `.next/server`, which is not served to browsers, and not the
   deployed output on Vercel.
+- **Source files are still uncovered for this key shape.** This check reads the build output. A
+  Supabase secret key sitting in a source file that never reaches the client bundle is caught by
+  neither this nor gitleaks today — issue #25.
+- **Unverified — the deployed site.** Nothing here was checked against a running deployment, only the
+  build output produced in CI and locally.
+
+## Issue filed
+
+- #25 — gitleaks has no rule for Supabase `sb_secret_` keys, so a real secret key can be committed:
+  https://github.com/build-once/team-tasks/issues/25
