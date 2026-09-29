@@ -215,6 +215,59 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      # Everything under web/.next/static is PUBLIC: Next.js serves it to every
+      # browser that opens the app. A publishable key belongs there. A secret key
+      # never does, and once one has been served it is leaked -- the only real fix
+      # is to rotate it. So the build is not finished until we have looked.
+      #
+      # This is not covered by the "Secret scan (gitleaks)" job above. That job
+      # reads the git history; this one reads the compiled output, where a key can
+      # arrive without ever being written in a source file -- inlined from an env
+      # var at build time, for instance. Confirmed on 2026-09-29: gitleaks 8.30.1
+      # has no rule for the "sb_secret_" shape, so it would not catch this even in
+      # source. See evidence/bundle-scan.md.
+      - name: No Supabase secret key in the built bundle
+        run: |
+          # grep exit codes: 0 = found a match, 1 = found nothing, 2 = grep itself
+          # failed. "Found nothing" is the result we want, so 1 must not fail this
+          # step -- and 2 must never be mistaken for it. Hence the explicit status
+          # check rather than a bare "grep || true", which would hide a real error.
+          set -uo pipefail
+
+          # A check that silently had nothing to look at is not a pass (AGENTS.md
+          # rule 8). If the directory is missing or empty, something is wrong with
+          # the build, and this step says so instead of reporting success.
+          if [ ! -d .next/static ]; then
+            echo "::error::web/.next/static does not exist, so NOTHING was scanned. Did the build step run?"
+            exit 1
+          fi
+          count=$(find .next/static -type f | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::web/.next/static contains no files, so NOTHING was scanned."
+            exit 1
+          fi
+          echo "Scanning $count files under web/.next/static for sb_secret_ or service_role."
+
+          # -r recursive, -a treat every file as text so nothing is skipped for
+          # looking binary, -n line numbers, -o print ONLY the matched token.
+          # -o matters for safety: it prints "sb_secret_" and not the key that
+          # follows it, so a real leak cannot be copied out of this public log.
+          set +e
+          hits=$(grep -ranoE 'sb_secret_|service_role' .next/static)
+          status=$?
+          set -e
+
+          if [ "$status" -eq 2 ]; then
+            echo "::error::grep failed, so the bundle was NOT checked. Treat this as a failure, not a pass."
+            exit 1
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "::error::A Supabase secret key shape was found in the built bundle. Everything under .next/static is served to browsers, so treat the key as leaked and rotate it -- see docs/secrets.md."
+            echo "Where it was found (file:line:matched-token -- the key itself is not printed):"
+            echo "$hits" | head -20
+            exit 1
+          fi
+          echo "Clean: no sb_secret_ or service_role in any of the $count files."
 
   # ------------------------------------------------------------------------
   # required -- the ONE check to mark as required in your branch rules.
