@@ -1,0 +1,34 @@
+#!/bin/sh
+# .githooks/pre-commit -- refuse a commit that contains a secret.
+#
+# This runs BEFORE the commit is made, so a key never enters the history in the
+# first place. That matters: once a secret is committed, removing it later does
+# not un-leak it. The only real fix is to rotate the key.
+#
+# Turn it on, once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# It needs gitleaks on your PATH. See docs/secrets.md for how to install it.
+#
+# CI runs the same tool over the WHOLE history on every pull request
+# (.github/workflows/ci.yml, "Secret scan"). This hook is the earlier, faster
+# copy of that check -- it looks only at what you are about to commit.
+
+set -eu
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed, so nothing was scanned." >&2
+  echo "" >&2
+  echo "This hook refuses the commit rather than letting it through unchecked." >&2
+  echo "A check that quietly does nothing is worse than no check at all." >&2
+  echo "" >&2
+  echo "Install gitleaks (see docs/secrets.md), or if you really must commit" >&2
+  echo "without it, run the commit yourself with --no-verify and say so." >&2
+  exit 1
+fi
+
+# --staged   : "scan staged commits (good for pre-commit)" -- gitleaks cmd/git.go
+# --redact   : keeps any secret it finds OUT of your terminal and your logs
+# --exit-code: 1 when something is found, so the commit stops
+gitleaks git --staged --redact --no-banner --verbose --exit-code 1 .
