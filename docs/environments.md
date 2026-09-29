@@ -111,10 +111,10 @@ Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
 **Secret: none in the app.** The app has no server-side secret today. It talks to Supabase with the
 publishable key and lets the database rules decide, which is why nothing secret belongs in Vercel.
 
-There is one secret in the whole system, and it is not the app's: **`SUPABASE_DB_URL`**, held in
-**GitHub Actions secrets**, used by exactly one job — `migrate` in
-`.github/workflows/migrate-production.yml`, which applies the migrations to production after the
-owner merges to `main`. It is production's Session pooler connection string with the password
+There is one secret in the whole system, and it is not the app's:
+**`PRODUCTION_SUPABASE_DB_URL`**, held in **GitHub Actions secrets**, used by exactly one job —
+`migrate` in `.github/workflows/migrate-production.yml`, which applies the migrations to production
+after the owner merges to `main`. It is production's Session pooler connection string with the password
 percent-encoded. It is not in `.env.example`, not in Vercel, not on the laptop, and not in this
 document. **No Supabase access token is stored anywhere**: Supabase's own example workflow links the
 project with one, and this project deliberately does not, because an access token reaches the whole

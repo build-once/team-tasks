@@ -79,7 +79,8 @@ scrapers watch new public commits for exactly that.
 
 - **Environment variables**, from a git-ignored `.env` file locally, or the host's secret store.
 - **Supabase Edge Functions secrets**, for anything the server needs at run time.
-- **GitHub Actions secrets**, for deploy credentials. Exactly one exists: `SUPABASE_DB_URL`.
+- **GitHub Actions secrets**, for deploy credentials. Exactly one exists:
+  `PRODUCTION_SUPABASE_DB_URL`.
 
 Never in a committed file, never in a commit message, never in an issue or pull request, never in
 chat. `.env.example` holds names with empty values and nothing else. See `docs/environments.md`.
@@ -93,9 +94,9 @@ In this order, and do not skip the first step:
    - **Supabase service-role or publishable key** — Supabase dashboard → the project → Settings →
      API Keys. Update it in Supabase Edge Functions secrets, and in `web/.env.local` if it is the
      publishable one. Production keys never come to this machine.
-   - **`SUPABASE_DB_URL`** — change the database password in the Supabase dashboard, rebuild the
-     Session pooler connection string, and update it in GitHub → Settings → Secrets and variables →
-     Actions. Nowhere else holds it.
+   - **`PRODUCTION_SUPABASE_DB_URL`** — change the database password in the Supabase dashboard,
+     rebuild the Session pooler connection string, and update it in GitHub → Settings → Secrets and
+     variables → Actions. Nowhere else holds it.
    - **A GitHub token** — GitHub → Settings → Developer settings → revoke, then reissue with the
      smallest scope that works.
    - **An email or payment key** — that provider's dashboard. None exists yet.

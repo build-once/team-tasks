@@ -73,5 +73,5 @@ jobs:
       # answer, because the password is inside the connection string.
       - name: Apply migrations to production
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
         run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
