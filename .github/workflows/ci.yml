@@ -184,6 +184,38 @@ jobs:
         run: |
           "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --exit-code 1 .
 
+  # The web app itself: install exactly what the lockfile says, lint, build.
+  # The jobs above test the kit's own scripts; this one tests the product.
+  app-build:
+    name: App build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # The build reads these two names, so they have to exist. They do NOT have
+    # to be real: nothing here connects to Supabase, it only compiles. These are
+    # obvious placeholders written in the open on purpose -- no secret belongs in
+    # this file, and these two values are public ones in any case.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "placeholder-key"
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install exactly what the lockfile says
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
   # ------------------------------------------------------------------------
   # required -- the ONE check to mark as required in your branch rules.
   #
@@ -207,7 +239,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, other-os, secret-scan]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, other-os, secret-scan, app-build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -215,7 +247,7 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "8"
+          EXPECTED_JOBS: "9"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
