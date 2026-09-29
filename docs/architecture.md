@@ -111,9 +111,10 @@ Neither key is stored in Vercel. Vercel holds only public settings for the web a
 URL and the publishable key.
 
 There is a **third secret store**: GitHub Actions secrets. It holds **exactly one secret,
-`SUPABASE_DB_URL`** — production's Session pooler connection string, password percent-encoded — and
-it is used by exactly one job, `migrate` in `.github/workflows/migrate-production.yml`, which applies
-database migrations to production after the owner merges to `main`.
+`PRODUCTION_SUPABASE_DB_URL`** — production's Session pooler connection string, password
+percent-encoded — and it is used by exactly one job, `migrate` in
+`.github/workflows/migrate-production.yml`, which applies database migrations to production after the
+owner merges to `main`.
 
 **No Supabase access token is stored anywhere**, in GitHub or otherwise. Supabase's own example
 workflow uses `supabase link` with a `SUPABASE_ACCESS_TOKEN`; this project does not, deliberately. An
@@ -151,10 +152,10 @@ wanting a secret in `web/` client code, the answer is a new server function, not
 | Sign-in | Sign up, sign in, password reset; answers "who is this?" | Supabase Auth | **Public** key in the browser |
 | Database + RLS | Holds teams, members, tasks, invitations. RLS enforces feature 5 | Supabase Postgres | **Public** key, safe only because RLS is on |
 | Server functions | The invite flow, and anything needing a secret key | Supabase Edge Functions | **Secret** — server side only |
-| Where secrets live | Run-time app keys: service-role key and Resend key. Deploy credential: `SUPABASE_DB_URL`, and nothing else | Run-time keys in **Supabase Edge Functions secrets**; the one deploy credential in **GitHub Actions secrets**; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat |
+| Where secrets live | Run-time app keys: service-role key and Resend key. Deploy credential: `PRODUCTION_SUPABASE_DB_URL`, and nothing else | Run-time keys in **Supabase Edge Functions secrets**; the one deploy credential in **GitHub Actions secrets**; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat |
 | Email | Sends the one email the app needs: "you have been invited" | Resend — **not set up yet** | **Secret** API key, held in Supabase |
 | Backups | Daily copies of the database, so a mistake is survivable | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none | **Secret** — owner only |
-| CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `SUPABASE_DB_URL` |
+| CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
 | Monitoring | Will tell you the app is broken before a volunteer does | **Planned, later step** — no service chosen yet | — |
 
@@ -204,10 +205,10 @@ Before any real volunteer signs up:
 - RLS on `teams`, `team_members`, `tasks` and `invitations`, tested as Alice, Bob and Carol.
 - Run-time secrets only in **Supabase's Edge Functions secrets** and a git-ignored `.env`; nothing
   secret in Vercel; the CI secret scan green.
-- The one deploy credential, `SUPABASE_DB_URL`, only in **GitHub Actions secrets**, and reachable
-  only by workflows running on `main` — never by a pull request, and never from a fork. It is a
-  production credential: whatever can read it can change production data. The workflow that uses it
-  has no `pull_request` trigger for exactly that reason.
+- The one deploy credential, `PRODUCTION_SUPABASE_DB_URL`, only in **GitHub Actions secrets**, and
+  reachable only by workflows running on `main` — never by a pull request, and never from a fork. It
+  is a production credential: whatever can read it can change production data. The workflow that
+  uses it has no `pull_request` trigger for exactly that reason.
 - Separate staging and production Supabase projects, in separate organisations (`docs/stack.md`
   decision B).
 - Production on Pro so automatic daily backups exist, and **one test restore actually done**. Free
