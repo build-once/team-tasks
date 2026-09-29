@@ -53,6 +53,12 @@ export default async function MyTasksPage({
   // so the number can never disagree with the list underneath it.
   const doneCount = tasks.filter((task) => task.done).length;
 
+  // DELIBERATELY BROKEN. This line exists to prove the App build job fails a
+  // pull request that does not compile. thisVariableDoesNotExist is not
+  // declared anywhere, so TypeScript must refuse it. Do not merge; delete the
+  // branch once the check has gone red.
+  const brokenOnPurpose = thisVariableDoesNotExist;
+
   return (
     <>
       <Header signedIn />
