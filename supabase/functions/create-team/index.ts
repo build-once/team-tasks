@@ -21,7 +21,11 @@
 //   https://supabase.com/docs/guides/ai-tools/ai-prompts/edge-functions
 //   https://supabase.com/docs/reference/server/types-userclaims
 //
-// NOT DEPLOYED ANYWHERE. This file has never been pushed to any project.
+// DEPLOYED TO STAGING on 2026-09-30, by the owner from their own terminal. Not
+// deployed to production; no production deploy of this function exists yet.
+// What staging is running was tested there -- evidence/create-team.md records
+// what was checked, including a deliberately broken version used to prove the
+// error checks below actually fire.
 
 // Both names below resolve through the import map in deno.json, and both are
 // pinned there to an EXACT version -- no ^ and no ~ (rule 17, Lesson A4):
