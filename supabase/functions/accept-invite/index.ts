@@ -23,8 +23,28 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 
-function fail(message: string, status: number, code?: string) {
-  return Response.json({ error: message, code }, { status });
+// `reason` is a short machine code -- not_found, expired, used, wrong_person,
+// signin, failed -- which the /invite/[token] page maps to its own fixed
+// wording. `code` stays what it was: a Postgres error code, where there is one.
+//
+// Two separate fields on purpose. The page must never print text that arrived
+// from outside, so what crosses that boundary is a code from a known list; the
+// human-readable `message` here is for the API's own callers and for logs.
+type Reason =
+  | "not_found"
+  | "expired"
+  | "used"
+  | "wrong_person"
+  | "signin"
+  | "failed";
+
+function fail(
+  message: string,
+  status: number,
+  reason: Reason,
+  code?: string,
+) {
+  return Response.json({ error: message, reason, code }, { status });
 }
 
 // SHA-256, hex-encoded. Identical to invite-member's, on purpose: the whole
@@ -49,7 +69,7 @@ export default {
     const userEmail = ctx.userClaims?.email;
 
     if (!userId) {
-      return fail("You must be signed in to accept an invitation.", 401);
+      return fail("You must be signed in to accept an invitation.", 401, "signin");
     }
     if (typeof userEmail !== "string" || userEmail.trim() === "") {
       // Without an email on the token there is nothing to compare, and
@@ -58,6 +78,7 @@ export default {
       return fail(
         "Your account has no email address on it, so this invitation cannot be checked. Please sign in again.",
         403,
+        "signin",
       );
     }
     const callerEmail = userEmail.trim().toLowerCase();
@@ -66,12 +87,12 @@ export default {
     try {
       body = await req.json();
     } catch {
-      return fail("Expected a JSON body with an invitation token.", 400);
+      return fail("Expected a JSON body with an invitation token.", 400, "failed");
     }
 
     const rawToken = (body as { token?: unknown } | null)?.token;
     if (typeof rawToken !== "string" || rawToken.trim() === "") {
-      return fail("This invitation link is missing its token.", 400);
+      return fail("This invitation link is missing its token.", 400, "not_found");
     }
 
     const tokenHash = await hashToken(rawToken.trim());
@@ -92,6 +113,7 @@ export default {
       return fail(
         "Could not check this invitation, so nothing was changed. Please try again.",
         500,
+        "failed",
         findError.code,
       );
     }
@@ -99,12 +121,14 @@ export default {
       return fail(
         "Could not check this invitation, so nothing was changed. Please try again.",
         500,
+        "failed",
       );
     }
     if (rows.length === 0) {
       return fail(
         "This invitation link is not valid. It may have been withdrawn, or the link may be incomplete.",
         404,
+        "not_found",
       );
     }
 
@@ -120,6 +144,7 @@ export default {
       return fail(
         "This invitation has already been used. If that was you, the team should already be on your My teams page.",
         409,
+        "used",
       );
     }
 
@@ -127,6 +152,7 @@ export default {
       return fail(
         "This invitation has expired. Invitations last 7 days -- ask the team's owner to send a new one.",
         410,
+        "expired",
       );
     }
 
@@ -138,6 +164,7 @@ export default {
       return fail(
         "This invitation was sent to a different email address. Sign in with the address the invitation was sent to, then open the link again.",
         403,
+        "wrong_person",
       );
     }
 
@@ -163,6 +190,7 @@ export default {
       return fail(
         "Could not accept this invitation. Please try again.",
         500,
+        "failed",
         claimError.code,
       );
     }
@@ -176,11 +204,13 @@ export default {
         return fail(
           "This invitation has just been used. If that was you, the team should already be on your My teams page.",
           409,
+          "used",
         );
       }
       return fail(
         `This invitation could not be accepted safely: the update affected ${affected} rows instead of 1. Nothing further was changed.`,
         500,
+        "failed",
       );
     }
 
@@ -213,6 +243,7 @@ export default {
       return fail(
         "Your invitation was accepted but adding you to the team did not finish. Please tell the team's owner rather than trying again -- the invitation cannot be used twice.",
         500,
+        "failed",
         memberError.code,
       );
     }
@@ -224,6 +255,7 @@ export default {
       return fail(
         "Your invitation was accepted but adding you to the team did not finish. Please tell the team's owner rather than trying again -- the invitation cannot be used twice.",
         500,
+        "failed",
       );
     }
 

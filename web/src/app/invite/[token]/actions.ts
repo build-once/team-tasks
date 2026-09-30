@@ -5,24 +5,48 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { INVITE_REASONS, type InviteReason } from "@/lib/teams";
 
-const MESSAGE_MAX = 200;
-
-async function messageFrom(error: unknown): Promise<string> {
+// Read the machine code accept-invite returns, and nothing else.
+//
+// WHY A CODE AND NOT THE MESSAGE. An earlier version put the function's own
+// message into ?error= and the page printed it. That let anyone craft a link to
+// this site that displayed words they chose -- a plausible-looking "your account
+// has been suspended, telephone this number" on our own domain, with our own
+// styling. The page now receives a short code from a known list and picks its
+// own wording, so the worst a crafted link can do is show one of our messages
+// at the wrong moment.
+//
+// The code is validated here as well as in the page. Belt and braces: the page
+// is the one that must not be fooled, but an unknown code should not travel any
+// further than it has to.
+async function reasonFrom(error: unknown): Promise<InviteReason> {
   if (error instanceof FunctionsHttpError) {
     try {
       const body = await error.context.json();
-      const message = (body as { error?: unknown } | null)?.error;
-      if (typeof message === "string" && message.trim() !== "") {
-        return message.trim().slice(0, MESSAGE_MAX);
+      const reason = (body as { reason?: unknown } | null)?.reason;
+      if (
+        typeof reason === "string" &&
+        (INVITE_REASONS as readonly string[]).includes(reason)
+      ) {
+        return reason as InviteReason;
       }
     } catch {
-      // Not JSON, or already read. Fall through.
+      // Not JSON, or already read. Fall through to the status below.
     }
-    return "This invitation could not be accepted. Please try again.";
+
+    // No usable code in the body: fall back to the HTTP status, which the
+    // function controls and a caller cannot forge.
+    const status = error.context?.status;
+    if (status === 404) return "not_found";
+    if (status === 410) return "expired";
+    if (status === 409) return "used";
+    if (status === 403) return "wrong_person";
+    return "failed";
   }
 
-  return "Could not reach the server to accept this invitation. Please try again.";
+  // A relay or network error: nothing was reached, so nothing is known.
+  return "unreachable";
 }
 
 // Runs ONLY when somebody presses Accept.
@@ -35,7 +59,7 @@ async function messageFrom(error: unknown): Promise<string> {
 export async function acceptInvite(formData: FormData) {
   const token = String(formData.get("token") ?? "").trim();
 
-  if (!token) redirect("/teams?error=This%20invitation%20link%20is%20incomplete.");
+  if (!token) redirect("/invite/missing?reason=not_found");
 
   const supabase = await createClient();
 
@@ -44,10 +68,10 @@ export async function acceptInvite(formData: FormData) {
   });
 
   if (error) {
-    const message = await messageFrom(error);
+    const reason = await reasonFrom(error);
     // Back to the invitation page, not to My teams: the message is about this
     // link, and the person may need to sign in as somebody else and retry.
-    redirect(`/invite/${encodeURIComponent(token)}?error=${encodeURIComponent(message)}`);
+    redirect(`/invite/${encodeURIComponent(token)}?reason=${reason}`);
   }
 
   revalidatePath("/teams");

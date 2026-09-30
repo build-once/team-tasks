@@ -40,3 +40,22 @@ export const INVITATION_DAYS = 7;
 // An email address is at most 320 characters (64 local + @ + 255 domain), which
 // is what the function checks too.
 export const EMAIL_MAX = 320;
+
+// The only outcomes /invite/[token] will describe.
+//
+// Every one of these is a CODE, never a message. The page maps each to its own
+// fixed wording and ignores anything not on this list, so a crafted link cannot
+// make the site display words somebody else chose. The first six come from
+// accept-invite's `reason` field; "unreachable" is added by the action when the
+// function could not be reached at all.
+export const INVITE_REASONS = [
+  "not_found",
+  "expired",
+  "used",
+  "wrong_person",
+  "signin",
+  "failed",
+  "unreachable",
+] as const;
+
+export type InviteReason = (typeof INVITE_REASONS)[number];

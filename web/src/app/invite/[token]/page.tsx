@@ -3,9 +3,42 @@ import Link from "next/link";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
 import { createClient } from "@/lib/supabase/server";
-import { INVITATION_DAYS } from "@/lib/teams";
+import {
+  INVITATION_DAYS,
+  INVITE_REASONS,
+  type InviteReason,
+} from "@/lib/teams";
 
 import { acceptInvite } from "./actions";
+
+// Every message this page can show, chosen HERE and keyed by a code.
+//
+// Nothing from the address bar is ever printed. An earlier version put
+// accept-invite's message into ?error= and rendered it, which let anyone craft a
+// link to this site that displayed words they chose -- on our domain, in our
+// styling, which is exactly what makes a phishing message convincing. A code
+// from a known list cannot do that: the worst a crafted link achieves is one of
+// the messages below at a moment when it is not true.
+const REASON_MESSAGES: Record<InviteReason, string> = {
+  not_found:
+    "This invitation link is not valid. It may have been withdrawn, or the link may be incomplete — check you copied the whole thing from the email.",
+  expired: `This invitation has expired. Invitations last ${INVITATION_DAYS} days — ask the team's owner to send a new one.`,
+  used: "This invitation has already been used. If that was you, the team is already on your My teams page.",
+  wrong_person:
+    "This invitation was sent to a different email address. Sign in with the address it was sent to, then open the link again.",
+  signin:
+    "Please sign in again, then open this link once more. Your sign-in could not be checked.",
+  failed: "This invitation could not be accepted. Please try again.",
+  unreachable:
+    "Could not reach the server to accept this invitation. Please try again.",
+};
+
+function messageFor(raw: string | string[] | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  // Unknown codes are ignored on purpose -- no fallback that echoes the input.
+  if (!(INVITE_REASONS as readonly string[]).includes(raw)) return null;
+  return REASON_MESSAGES[raw as InviteReason];
+}
 
 // The page an invitation email links to: <APP_URL>/invite/<token>.
 //
@@ -23,13 +56,13 @@ import { acceptInvite } from "./actions";
 //    real. It is a public page (src/lib/supabase/proxy.ts), so anything shown
 //    here would be shown to whoever holds the link, which may not be the
 //    invited person. Every check lives in accept-invite, behind a verified
-//    sign-in, and its message comes back through ?error=.
+//    sign-in, and what comes back is a CODE in ?reason= -- never text to print.
 export default async function InvitePage({
   params,
   searchParams,
 }: PageProps<"/invite/[token]">) {
   const { token } = await params;
-  const { error: errorParam } = await searchParams;
+  const { reason } = await searchParams;
 
   const supabase = await createClient();
 
@@ -38,13 +71,9 @@ export default async function InvitePage({
   const { data: claimsData } = await supabase.auth.getClaims();
   const signedIn = Boolean(claimsData?.claims);
 
-  // The message from accept-invite, passed through the URL by the action. It is
-  // our own text and React escapes it, but it arrived from whoever opened the
-  // link, so it is something to display and never something to trust.
-  const failure =
-    typeof errorParam === "string" && errorParam.trim() !== ""
-      ? errorParam
-      : null;
+  // A code from the URL, mapped to one of this page's own messages. An
+  // unrecognised code shows nothing at all.
+  const failure = messageFor(reason);
 
   return (
     <>
@@ -61,10 +90,12 @@ export default async function InvitePage({
 
         {signedIn ? (
           <>
-            <p className="lede">
-              Accepting adds you to the team, and the team&apos;s tasks appear on
-              your My tasks page.
-            </p>
+            {/* Says only what accepting does TODAY. It used to promise that the
+                team's tasks would appear on My tasks, which is not true yet:
+                tasks belong to the person who created them, not to a team, until
+                Build it 15 moves them. Promising a result the app does not
+                produce is how somebody concludes the feature is broken. */}
+            <p className="lede">Accepting adds you to the team.</p>
 
             <form className="card" action={acceptInvite}>
               {/* The token travels in the form, so accepting is a POST from a

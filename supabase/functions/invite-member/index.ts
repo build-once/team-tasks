@@ -283,6 +283,88 @@ export default {
     }
     const teamName = String(team[0].name ?? "");
 
+    // ---- Refuse inviting yourself -----------------------------------------
+    //
+    // Cheap and first: the caller's own address is on the verified token, so
+    // this costs no query. An owner inviting themselves would send a link they
+    // can never use -- accept-invite would match the address, add them to
+    // team_members, and leave them a "member" of a team they already own, which
+    // means nothing and confuses the pending list.
+    const callerEmail = ctx.userClaims?.email;
+    if (
+      typeof callerEmail === "string" &&
+      callerEmail.trim().toLowerCase() === email
+    ) {
+      return fail(
+        "That is your own email address. You already own this team, so there is nothing to accept.",
+        409,
+      );
+    }
+
+    // ---- Refuse inviting somebody already in the team ---------------------
+    //
+    // Checked by looking up THE TEAM'S members and comparing their addresses,
+    // rather than looking up the invited address and asking which teams it is
+    // in. The reason is the shape of the data available: team_members holds
+    // user ids, invitations hold email addresses, and the installed client has
+    // no "find the user with this email" call -- `listUsers` is paginated over
+    // every user in the project and `getUserById` needs an id you do not have.
+    //
+    // So the loop is bounded by the size of THIS TEAM (a handful of people),
+    // not by the number of accounts in the project. If teams ever grow large
+    // this wants replacing with a lookup, but it is correct either way: it
+    // never pages, so it cannot silently miss somebody on page two.
+    const { data: members, error: membersError } = await ctx.supabaseAdmin
+      .from("team_members")
+      .select("user_id")
+      .eq("team_id", teamId);
+
+    // Lesson F14: the error AND what came back. A failed read here must NOT be
+    // treated as "nobody is in the team" -- that would let the check pass by
+    // accident, which is the failing-open pattern this project keeps refusing.
+    if (membersError) {
+      return fail(
+        "Could not check who is already in this team, so no invitation was created. Please try again.",
+        500,
+        membersError.code,
+      );
+    }
+    if (!Array.isArray(members)) {
+      return fail(
+        "Could not check who is already in this team, so no invitation was created. Please try again.",
+        500,
+      );
+    }
+
+    for (const member of members) {
+      const memberId = (member as { user_id?: unknown }).user_id;
+      if (typeof memberId !== "string") continue;
+
+      const { data: memberUser, error: memberUserError } =
+        await ctx.supabaseAdmin.auth.admin.getUserById(memberId);
+
+      // Again, not treated as "not them". If a member's account cannot be read
+      // we do not know whether this address is already in the team, and an
+      // unknown is not a no.
+      if (memberUserError) {
+        return fail(
+          "Could not check who is already in this team, so no invitation was created. Please try again.",
+          500,
+        );
+      }
+
+      const memberEmail = memberUser?.user?.email;
+      if (
+        typeof memberEmail === "string" &&
+        memberEmail.trim().toLowerCase() === email
+      ) {
+        return fail(
+          "That person is already in this team, so there is nothing to invite them to.",
+          409,
+        );
+      }
+    }
+
     // ---- Limit: fewer than 20 PENDING invitations -------------------------
     //
     // Pending means not accepted and not expired. An expired or accepted
@@ -329,6 +411,61 @@ export default {
         `invite-member refused: email delivery not configured. Settings involved: ${decision.missing.join(", ")}. No value is logged.`,
       );
       return fail(decision.message, 503);
+    }
+
+    // ---- Clear this address's DEAD invitations to this team ---------------
+    //
+    // Without this, an address could be invited to a team exactly once, ever.
+    //
+    // The unique index invitations_one_pending_per_email covers
+    // (team_id, email) WHERE accepted_at IS NULL. "Not accepted" includes
+    // "not accepted and long expired", so an invitation that lapsed after 7
+    // days still occupies that slot -- and a fresh invite to the same person
+    // hits 23505 and reports "already has an invitation waiting", which is
+    // simply untrue. Nothing expires the row, so the block is permanent.
+    //
+    // WHY THE INDEX IS NOT CHANGED INSTEAD. The obvious fix -- adding
+    // `and expires_at > now()` to the index predicate -- is not allowed by
+    // Postgres. From the CREATE INDEX documentation: "All functions and
+    // operators used in an index definition must be immutable, that is, their
+    // results must depend only on their arguments and never on any outside
+    // influence (such as the contents of another table or the current time)."
+    // now() depends on the current time, so a time-aware partial index cannot
+    // exist. The index is kept exactly as it is, and the dead rows are removed
+    // here instead, which is the only place that can know the clock.
+    //
+    // Deleted rather than kept for the record: an expired invitation that was
+    // never accepted is not history worth holding, and docs/plan.md's whole
+    // reason for the 7-day expiry is that an address belonging to somebody who
+    // never joined should not sit in the database.
+    //
+    // Placed after the delivery decision on purpose, so an environment that may
+    // not send still changes nothing at all.
+    const { error: clearError, count: clearedCount } = await ctx.supabaseAdmin
+      .from("invitations")
+      .delete({ count: "exact" })
+      .eq("team_id", teamId)
+      .eq("email", email)
+      .is("accepted_at", null)
+      .lte("expires_at", nowIso);
+
+    // F14 on the delete. If it failed, stop: carrying on would hit the unique
+    // index and report "already has an invitation waiting", which is the wrong
+    // message and the bug this code exists to remove.
+    if (clearError) {
+      return fail(
+        "Could not clear an earlier expired invitation for that address, so no new invitation was created. Please try again.",
+        500,
+        clearError.code,
+      );
+    }
+
+    // A COUNT only, never the address. There is normally nothing to clear, so
+    // the zero case is not worth a line.
+    if ((clearedCount ?? 0) > 0) {
+      console.log(
+        `invite-member: cleared ${clearedCount} expired unaccepted invitation(s) for this team and address before re-inviting. No address is logged.`,
+      );
     }
 
     // ---- Create the invitation --------------------------------------------
