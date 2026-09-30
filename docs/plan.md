@@ -4,15 +4,15 @@ One page. Written 2026-09-27. Update it before adding anything below.
 
 ## Who it is for
 
-The organiser of a volunteer group of about six. Every morning they scroll back
-through the group chat to work out which jobs are done, which are left, and who said they would
-do them. The other five use the app too, but the organiser feels the pain most.
+The organiser of a volunteer group of about six. Every morning they scroll the
+group chat to work out which jobs are done, which are left, and who said they would
+do them. The other five use it too, but the organiser feels the pain most.
 
 ## The problem
 
-Shared to-dos live in chat messages, so nobody knows what is done, what is left or who is doing
+Shared to-dos live in chat, so nobody knows what is done, what is left or who is doing
 it. Some jobs get done twice, others forgotten until too late. The organiser spends
-about 20 minutes a day chasing people.
+20 minutes a day chasing people.
 
 ## Smallest useful version
 
@@ -20,7 +20,8 @@ Five things, and nothing else:
 
 1. Sign up and sign in.
 2. Create a team: a name of 1 to 60 characters. One person may own at most 3 teams.
-3. Invite people to a team by email.
+3. Invite people to a team by email: an invitation expires after 7 days, and a team
+   may have at most 20 pending.
 4. Add, tick, rename, delete tasks you created.
 5. See only the tasks of teams you belong to.
 
@@ -39,10 +40,10 @@ Some of these come later, on purpose. When one does, this plan gets updated firs
 - Who created each task
 - Dates
 
-Nothing else. No phone numbers, no addresses, no birthdays, no photos. We ask people not to put
-sensitive personal information in task text, and the app does not need it.
+Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
+sensitive information in task text, and the app does not need it.
 
-Supabase and Vercel also record IP addresses automatically; the appendix lists everything.
+Supabase and Vercel also record IP addresses; the appendix lists everything.
 
 Point 5 protects all of this: a person sees their own teams' tasks and
 nothing more. That must be true in the database, not just the screens.
@@ -54,10 +55,10 @@ each morning, sometimes on a laptop. No app store, no native app.
 
 ## Budget
 
-£0 a month while building and testing, using free plans. Before real users arrive, production
+£0 a month while building and testing, on free plans. Before real users arrive, production
 moves to a Supabase Pro organisation at about $25 a month; staging stays in a separate free
-organisation at $0. Ceiling is about $30 a month including a domain name. If a choice would push
-past that, stop and decide rather than spend.
+organisation at $0. Ceiling about $30 a month including a domain name. If a choice would push
+past that, stop and decide.
 
 ---
 
@@ -83,7 +84,8 @@ free text that could contain absolutely anything.
 | Task text — length-limited | Feature 4; the input box carries the "no personal details" request | `tasks` *(proposed)* | Members of that team; owner | Until the task is deleted — no automatic clear-out in the first version | Rename or delete the task, on the My tasks page — **built** | **Yes** — free text; people type anything |
 | Who created and who ticked off each task | Feature 4; answers "who said they would do it" | `tasks` *(proposed)* | Members of that team; owner | With the task | With the task — deleting the task removes it, **built** | No |
 | Dates on tasks and teams — exact timestamps | Feature 4; ordering and "what is left" | `tasks`, `teams` *(proposed)* | Members of that team; owner | With the row | With the row | No, but it records when a person was active |
-| An invited person's email, before they accept | Feature 3 | `invitations` *(proposed)* and Supabase Auth | The inviter; owner | Until accepted, or 7 days — then the row is deleted | **They cannot** — not a user yet; owner deletes | No, but it is data about someone who never signed up |
+| An invited person's email, before they accept | Feature 3. Stored lowercase, so the same address cannot be invited twice under different capitalisation | `invitations` — **built** | The inviter; owner | Until accepted, or 7 days — then it expires. At most 20 pending per team | **They cannot** — not a user yet; owner deletes | No, but it is data about someone who never signed up |
+| An invitation's token, hashed | Feature 3 — proves the person opening the link is the one who was invited | `invitations.token_hash` — **built**. A SHA-256 hash; the token itself is **never stored**, only emailed | Nobody — a hash cannot be read back into a token | With the invitation | With the invitation | **Yes** — until it expires or is used, the token in the email *is* a credential |
 | Sent-invitation logs | Proof an invitation actually went out | Resend — outside your app | Owner via Resend; Resend | 30 days on the free plan | Not user-deletable; owner clears | No |
 | Sign-in audit records, including IP address | **Nothing** — Supabase Auth writes them anyway | Supabase `auth.audit_log_entries` | Owner via dashboard; Supabase | UNSURE — see notes below | Not user-deletable | **Yes** — IP address |
 | Session and refresh tokens, last sign-in time | Keeping people signed in (feature 1) | Supabase `auth.sessions`, `auth.refresh_tokens`, `auth.users` | Nobody — they are secrets | Until sign-out or expiry | Sign out | **Yes** — credentials |
@@ -105,8 +107,14 @@ here on purpose, so the same question does not get re-argued from scratch later.
 - **Task text: a length limit, and the request shown in the input box itself.** "No personal
   details" belongs where people are typing, not only in this plan — nobody using the app will ever
   read this document.
-- **An invited person's email: invitations expire after 7 days, and the row is deleted then.** An
-  address belonging to someone who never joined does not sit in the database indefinitely.
+- **An invited person's email: invitations expire after 7 days.** An address belonging to someone who
+  never joined stops being usable quickly. A team may also have **at most 20 pending invitations**,
+  which caps how many addresses of non-users one team can accumulate, and stops the invite form being
+  used to send mail in bulk.
+- **The email service key lives only in each Supabase project's function settings.** Staging and
+  production each hold their own Resend key, in that project's Edge Functions secrets and nowhere
+  else — not in this repository, not in Vercel, not in a `.env` file on anybody's laptop. Only server
+  code ever holds it, because anyone holding it could send email as this app.
 - **Logs: we add none of our own.** No request logging on top of what Vercel and Supabase already
   write, and task text and email addresses never go into a log line from server code.
 - **Analytics: stays at none.** If numbers are ever wanted, count rows in the database rather than

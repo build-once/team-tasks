@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { NAME_MAX } from "@/lib/teams";
+import { EMAIL_MAX, NAME_MAX } from "@/lib/teams";
 
 // How long an error message from the function may be before this trims it. The
 // message is shown on the page, and the page should not become a wall of text
@@ -25,7 +25,9 @@ const MESSAGE_MAX = 200;
 //
 // Anything else -- a relay error, a network error -- has no body to read, so it
 // falls through to a general message.
-async function messageFrom(error: unknown): Promise<string> {
+// `what` names the thing that failed, so one helper can serve both actions
+// without either inheriting the other's wording.
+async function messageFrom(error: unknown, what: string): Promise<string> {
   if (error instanceof FunctionsHttpError) {
     try {
       const body = await error.context.json();
@@ -36,10 +38,10 @@ async function messageFrom(error: unknown): Promise<string> {
     } catch {
       // The body was not JSON, or was already read. Fall through.
     }
-    return "The team could not be created. Please try again.";
+    return `${what} did not work. Please try again.`;
   }
 
-  return "Could not reach the server to create the team. Please try again.";
+  return `Could not reach the server: ${what} did not work. Please try again.`;
 }
 
 export async function createTeam(formData: FormData) {
@@ -67,10 +69,50 @@ export async function createTeam(formData: FormData) {
   });
 
   if (error) {
-    const message = await messageFrom(error);
+    const message = await messageFrom(error, "creating the team");
     redirect(`/teams?error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath("/teams");
   redirect("/teams?created=1");
+}
+
+export async function inviteMember(formData: FormData) {
+  const teamId = String(formData.get("team_id") ?? "").trim();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!teamId) redirect("/teams?problem=invite");
+
+  // Checked here so an obvious typo costs no round trip. NOT the check that
+  // matters: invite-member checks the address, the ownership and the 20-pending
+  // limit, and it is the only thing that can write an invitation.
+  if (!email || email.length > EMAIL_MAX || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    redirect("/teams?problem=email");
+  }
+
+  const supabase = await createClient();
+
+  // The invitation is created by the function, never by an insert from here:
+  // the invitations table has no insert policy. Note what is NOT sent -- no
+  // inviter id, no token, no expiry. The function takes the inviter from the
+  // verified token and makes the token itself, so there is nothing here for a
+  // caller to tamper with.
+  const { data, error } = await supabase.functions.invoke("invite-member", {
+    body: { team_id: teamId, email },
+  });
+
+  if (error) {
+    const message = await messageFrom(error, "sending the invitation");
+    redirect(`/teams?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/teams");
+
+  // On staging the email goes to the test inbox instead of the invited person.
+  // Saying so on screen stops a tester concluding the invitation failed because
+  // nothing arrived at the address they typed.
+  const redirected = (data as { redirected?: unknown } | null)?.redirected === true;
+  redirect(redirected ? "/teams?invited=test" : "/teams?invited=1");
 }

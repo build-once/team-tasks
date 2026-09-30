@@ -100,13 +100,14 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
 ## The arrows that carry a secret key
 
-Three, and all three start at the server functions:
+Five, and all five start at the server functions:
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
 | **create a team** — not drawn on the map above yet | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Creating a team also makes its owner its first member, and both limits in `docs/plan.md` — a name of 1 to 60 characters, and at most 3 teams per person — have to hold even if the request does not come from our own screens. A browser cannot be trusted to enforce its own limit, and counting somebody's teams is not something a person should have to be able to read rows to do. |
-| **(5)** write the invitation row | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Bob has no account yet, so no RLS rule can let "Bob" write his own invitation. Only trusted server code may create that row. |
-| **(7)** send the invitation email | **Resend API key** | Supabase Edge Function | Supabase Edge Functions secrets | Anyone holding this key could send email as your app. It must never reach a browser. |
+| **(5)** write the invitation row | Supabase **service-role key** | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets | Bob has no account yet, so no RLS rule can let "Bob" write his own invitation. Only trusted server code may create that row — and the 20-pending limit below needs to count the team's other invitations, which a policy cannot do. |
+| **(7)** send the invitation email | **Resend API key** (`EMAIL_API_KEY`) | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets, **per project** | Anyone holding this key could send email as your app. It must never reach a browser. |
+| **accept an invitation** — not drawn on the map yet | Supabase **service-role key** | Supabase Edge Function (`accept-invite`) | Supabase Edge Functions secrets | Marking an invitation accepted and writing the `team_members` row both have to happen for somebody who is not yet in the team, so no policy on either table can allow it. The claim also has to be atomic, or two clicks both succeed. |
 
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
 row-level security rule. It is the most damaging value in this project to lose.
@@ -124,8 +125,37 @@ bypassed. Routing every creation through one function that holds the secret key 
 somewhere to happen. The cost is that the function is now the only door, and it has to check its own
 work — which is why it verifies both the error and the row count of every database call it makes.
 
-**Where that key lives, and the one place it does not.** All three keys above live *only* in the
-function's own settings on Supabase — Edge Functions secrets. **Never in a file.** Not in this
+**`invitations` and `team_members` have no insert rule either**, for the same reason and one more.
+`supabase/migrations/20260930193813_create_invitations.sql` gives each table exactly one policy:
+a team's **owner** may read that team's invitations, and a person may read their own membership rows.
+Nothing else. So:
+
+- **The 20-pending limit is enforceable.** Like the 3-team limit, it needs a count of the team's other
+  rows, which a policy cannot do. `invite-member` counts invitations that are neither accepted nor
+  expired, and refuses at 20.
+- **An invitation is written for somebody who has no account.** No policy can authorise a row on
+  behalf of a person who does not exist yet, which is the same reason arrow (5) needs the secret key.
+- **Accepting has to be atomic.** `accept-invite` claims the invitation with `where accepted_at is
+  null` and requires exactly one affected row, so two clicks cannot both succeed. A policy has no way
+  to express "only if nobody else got here first".
+
+Note which policy reads the **owner** rather than the team's members: an invited person's address is
+never shown to the rest of the team (`docs/plan.md`), so a member-level read on `invitations` would
+leak exactly what that decision protects.
+
+**Invitations expire after 7 days.** `expires_at` is stored as an absolute moment, defaulting to
+`created_at + 7 days`, rather than computed when read — so an invitation's life cannot be quietly
+extended by a later code change, and "expired" means the same thing to every query.
+
+**The invitation token is never stored.** Only a SHA-256 hash of it, in `invitations.token_hash`. The
+token itself goes into one email and nowhere else. Until it expires or is used, that token *is* a
+credential — anyone holding the link can join the team — so it is kept the way a password is kept: as
+a hash that cannot be read back. A leaked copy of the `invitations` table therefore lets nobody join
+anything.
+
+**Where these keys live, and the one place they do not.** All the keys above live *only* in the
+function's own settings on Supabase — Edge Functions secrets — and **each project has its own**:
+staging's Resend key is not production's. **Never in a file.** Not in this
 repository, not in a `.env` file on anybody's laptop, not in `.env.example`, not in Vercel, not in
 GitHub Actions secrets, and not pasted into a chat. A server function reads its key from its own
 environment at run time and nowhere else, so there is no file to leak and nothing for the secret

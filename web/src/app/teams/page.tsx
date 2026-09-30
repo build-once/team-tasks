@@ -3,14 +3,41 @@ import { redirect } from "next/navigation";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
 import { createClient } from "@/lib/supabase/server";
-import { MAX_TEAMS_PER_OWNER, NAME_MAX, type Team } from "@/lib/teams";
+import {
+  EMAIL_MAX,
+  INVITATION_DAYS,
+  MAX_PENDING_INVITATIONS,
+  MAX_TEAMS_PER_OWNER,
+  NAME_MAX,
+  type Invitation,
+  type Team,
+} from "@/lib/teams";
 
-import { createTeam } from "./actions";
+import { createTeam, inviteMember } from "./actions";
+
+// An expiry date a person can read, in the one format this app uses. Dates come
+// back as ISO strings; en-GB gives "3 October 2026" rather than a US ordering
+// that a UK volunteer would misread.
+function expiryLabel(iso: string) {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "unknown";
+  return when.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 
 export default async function MyTeamsPage({
   searchParams,
 }: PageProps<"/teams">) {
-  const { problem, created, error: errorParam } = await searchParams;
+  const {
+    problem,
+    created,
+    invited,
+    joined,
+    error: errorParam,
+  } = await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows
@@ -27,6 +54,36 @@ export default async function MyTeamsPage({
     .order("created_at", { ascending: false });
 
   const teams = (data ?? []) as Team[];
+
+  // Pending invitations for the teams this person OWNS.
+  //
+  // No "where team_id in (my teams)" and no owner check here: the select policy
+  // on invitations only returns rows whose team's owner_id is the caller, so a
+  // member of somebody else's team gets nothing back. That is the database
+  // deciding, not this screen -- and it is what keeps an invited person's
+  // address away from the rest of the team (docs/plan.md).
+  //
+  // Filtered to genuinely pending: not accepted, and not past its expiry. The
+  // same definition invite-member counts against for the 20 limit, so the list
+  // on screen and the limit cannot disagree.
+  const nowIso = new Date().toISOString();
+  const { data: inviteData, error: inviteError } = await supabase
+    .from("invitations")
+    .select("id, team_id, email, expires_at")
+    .is("accepted_at", null)
+    .gt("expires_at", nowIso)
+    .order("expires_at", { ascending: true });
+
+  const invitations = (inviteData ?? []) as Invitation[];
+
+  // Grouped once, rather than filtering the whole list inside the render loop
+  // for every team.
+  const pendingByTeam = new Map<string, Invitation[]>();
+  for (const invitation of invitations) {
+    const list = pendingByTeam.get(invitation.team_id) ?? [];
+    list.push(invitation);
+    pendingByTeam.set(invitation.team_id, list);
+  }
 
   // The message from create-team, passed through the URL by the action. It is
   // our own text, and React escapes it, so it cannot become markup. It is still
@@ -93,9 +150,51 @@ export default async function MyTeamsPage({
           </Banner>
         ) : null}
 
+        {invited === "1" ? (
+          <Banner tone="ok" icon="mail">
+            Invitation sent.
+          </Banner>
+        ) : null}
+
+        {/* Staging redirects all invitation mail to the test inbox. Saying so
+            stops a tester deciding the invitation failed because nothing
+            arrived at the address they typed. */}
+        {invited === "test" ? (
+          <Banner tone="ok" icon="mail">
+            Invitation created. This environment sends all invitation email to
+            the test inbox, not to the invited address.
+          </Banner>
+        ) : null}
+
+        {joined ? (
+          <Banner tone="ok" icon="check">
+            You have joined the team.
+          </Banner>
+        ) : null}
+
         {problem === "name" ? (
           <Banner tone="bad" icon="alert">
             A team needs a name, and no more than {NAME_MAX} characters.
+          </Banner>
+        ) : null}
+
+        {problem === "email" ? (
+          <Banner tone="bad" icon="alert">
+            That does not look like an email address.
+          </Banner>
+        ) : null}
+
+        {problem === "invite" ? (
+          <Banner tone="bad" icon="alert">
+            That invitation could not be sent. Please try again.
+          </Banner>
+        ) : null}
+
+        {inviteError ? (
+          <Banner tone="bad" icon="alert">
+            Pending invitations could not be loaded, so the lists below may be
+            incomplete. If this database is new, the invitations table may not
+            exist yet.
           </Banner>
         ) : null}
 
@@ -117,9 +216,62 @@ export default async function MyTeamsPage({
           <p className="hint">No teams yet</p>
         ) : (
           <ul className="stack">
-            {teams.map((team) => (
-              <li key={team.id}>{team.name}</li>
-            ))}
+            {teams.map((team) => {
+              const pending = pendingByTeam.get(team.id) ?? [];
+              // The invite form appears on every team in this list. Every team
+              // here is one this person owns -- the select policy on teams
+              // returns owned teams only -- and invite-member refuses anybody
+              // who is not the owner regardless.
+              return (
+                <li className="card stack" key={team.id}>
+                  <h2>{team.name}</h2>
+
+                  <form action={inviteMember}>
+                    <input type="hidden" name="team_id" value={team.id} />
+                    <label className="label" htmlFor={`email-${team.id}`}>
+                      Invite someone by email
+                    </label>
+                    <input
+                      className="input"
+                      id={`email-${team.id}`}
+                      name="email"
+                      type="email"
+                      maxLength={EMAIL_MAX}
+                      required
+                      placeholder="friend@example.com"
+                      aria-describedby={`invite-hint-${team.id}`}
+                    />
+                    <p className="hint" id={`invite-hint-${team.id}`}>
+                      They get a link that works for {INVITATION_DAYS} days, and
+                      only for that address. A team may have up to{" "}
+                      {MAX_PENDING_INVITATIONS} invitations waiting.
+                    </p>
+                    <button className="btn btn--primary" type="submit">
+                      Send invitation
+                    </button>
+                  </form>
+
+                  {pending.length === 0 ? (
+                    <p className="hint">No invitations waiting.</p>
+                  ) : (
+                    <>
+                      <p className="hint">
+                        {pending.length} of {MAX_PENDING_INVITATIONS}{" "}
+                        invitations waiting:
+                      </p>
+                      <ul>
+                        {pending.map((invitation) => (
+                          <li key={invitation.id}>
+                            {invitation.email} — expires{" "}
+                            {expiryLabel(invitation.expires_at)}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>
