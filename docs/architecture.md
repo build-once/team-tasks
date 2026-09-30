@@ -111,6 +111,19 @@ Three, and all three start at the server functions:
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
 row-level security rule. It is the most damaging value in this project to lose.
 
+**The `teams` table has no insert rule, so only the function can create a team.** Row-level security
+refuses whatever no policy allows, and `supabase/migrations/20260930101343_create_teams.sql` gives
+`teams` exactly one policy: owners may *read* their own teams. There is no insert, update or delete
+policy. So the web app, which holds only the publishable key, cannot write to `teams` at all — an
+insert from the browser is refused by the database, not merely discouraged by the screens.
+
+That is what makes the two limits in `docs/plan.md` real rather than decorative. "At most 3 teams per
+person" cannot be expressed as a policy on an insert, because the rule would have to count the
+caller's other rows; and a limit checked only in a form is not a limit, because a form can be
+bypassed. Routing every creation through one function that holds the secret key gives the count
+somewhere to happen. The cost is that the function is now the only door, and it has to check its own
+work — which is why it verifies both the error and the row count of every database call it makes.
+
 **Where that key lives, and the one place it does not.** All three keys above live *only* in the
 function's own settings on Supabase — Edge Functions secrets. **Never in a file.** Not in this
 repository, not in a `.env` file on anybody's laptop, not in `.env.example`, not in Vercel, not in

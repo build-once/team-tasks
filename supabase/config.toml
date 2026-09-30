@@ -1,0 +1,28 @@
+# Supabase CLI configuration.
+#
+# Created by `npx supabase@2.117.0 functions new create-team`. This project has
+# no other CLI config: migrations reach production through
+# .github/workflows/migrate-production.yml, not through `supabase link`.
+
+[functions.create-team]
+enabled = true
+
+# verify_jwt = true, CHANGED from the false that `functions new` scaffolded.
+#
+# The scaffold assumed an api-key function (publishable/secret). This one is
+# called by a signed-in person, so it declares `auth: "user"` in index.ts, and
+# the official guide pairs that mode with platform verification:
+#
+#   "Keep verify_jwt = true (the default) so the platform validates the JWT
+#    before your handler runs, then use auth: 'user' to get ctx.supabase
+#    already scoped to the caller's RLS policies."
+#   https://supabase.com/docs/guides/functions/auth
+#
+# With false, an unauthenticated request would reach the handler and the
+# function's promise -- only signed-in callers, identity taken from a verified
+# token -- would not be true. This line is the platform half of that promise;
+# `auth: "user"` is the other half.
+verify_jwt = true
+
+import_map = "./functions/create-team/deno.json"
+entrypoint = "./functions/create-team/index.ts"
