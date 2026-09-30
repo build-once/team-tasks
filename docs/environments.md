@@ -5,9 +5,9 @@ disasters.
 
 Parts of this table are still **to be filled in**. The two Supabase projects now exist —
 `teamtasks-staging` and `teamtasks-production` — and so does the Vercel project that hosts the app.
-There is still no domain name, and production has no environment values set. Where a cell is filled
-in, it records what was decided or done, not what has been observed in a running service. See "What
-is not filled in yet, and why" at the end.
+There is still no domain name. Production's environment values **have** been set, since Build it 6.
+Where a cell is filled in, it records what was decided or done, not what has been observed in a
+running service unless it says so. See "What is not filled in yet, and why" at the end.
 
 ## The three copies
 
@@ -16,7 +16,7 @@ is not filled in yet, and why" at the end.
 | **Purpose** | Where the code is written and first tried. Fast, throwaway, breaks often | A full copy online, for trying a change properly before real people see it. Where the Alice / Bob / Carol checks are run | The real app the six volunteers use |
 | **Web address** | `http://localhost:3000` — the `next dev` default (unverified: the dev server has not been run yet) | not written down here — a Vercel URL on the Hobby plan; pull-request previews get their own URL and point at staging | to be filled in — no domain name chosen yet |
 | **Database project name** | **None.** There is no local database; local development points at the staging project | `teamtasks-staging` — a Supabase project in a **separate free organisation** | `teamtasks-production` — a Supabase project in a **Pro organisation** (about $25/month) |
-| **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | The two public values in the Vercel project's environment settings, **scoped to Preview only**; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets — never in Vercel | **Nothing is set yet** (Build it 6). When it is: the same split as staging with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
+| **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | The two public values in the Vercel project's environment settings, **scoped to Preview only**; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets — never in Vercel | **Set since Build it 6**: the two public values in the Vercel project's environment settings, **scoped to Production**, pointing at the production project — the same split as staging with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
 | **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md` |
 | **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`**, plus the migration job in `.github/workflows/migrate-production.yml`, which runs on a push to `main` and nothing else. No hand-editing in a dashboard, and the AI assistant never touches it |
 
@@ -50,9 +50,14 @@ the £0-while-building line in `docs/plan.md`.
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set to the **staging** project's values. Preview scope means
   every pull-request deploy talks to staging and its fake data. That is the same rule as rule 2 above,
   enforced in Vercel's settings rather than by memory.
-- **Production has no values set at all** (Build it 6). So a production deploy has nothing to talk to
-  yet. That is deliberate: production values arrive when there is a production release to make, not
-  before. Until then, treat a production deploy as broken by design.
+- **Production has its two values set**, since Build it 6: the same two names again, scoped to
+  Production, pointing at the **production** project. So the two scopes hold different values on
+  purpose — Preview talks to staging, Production talks to production — which is rule 2 above made real
+  in Vercel's settings rather than remembered.
+
+  This bullet used to say production had no values at all and that a production deploy should be
+  treated as "broken by design". That is no longer true, and the distinction matters: a production
+  deploy now reaches a real database with real people's data in it.
 - **Nothing secret is stored in Vercel.** Only those two public values. The service-role key and the
   email-sending key live in Supabase Edge Functions secrets, as the table above says.
 
@@ -267,8 +272,9 @@ exist yet.
 
 - **Web addresses for staging and production.** The Vercel project exists and issues URLs, but they
   are deliberately not written down in this repository, and no domain name has been chosen.
-- **Production environment values.** None are set in Vercel (Build it 6), so there is nothing to
-  record and nothing to deploy to yet.
+- **Production environment values: no longer missing.** They were set in Vercel at Build it 6, scoped
+  to Production. The values themselves stay out of this file, as everywhere else — only the names are
+  recorded, above.
 - **Unverified — the two database project names.** `teamtasks-staging` and `teamtasks-production` are
   the names the owner reported on 2026-09-27. Nothing has connected to either project to read them
   back, so they are recorded here on the owner's word. The split — production in a Pro organisation,
