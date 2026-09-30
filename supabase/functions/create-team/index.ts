@@ -23,6 +23,23 @@
 //
 // NOT DEPLOYED ANYWHERE. This file has never been pushed to any project.
 
+// Both names below resolve through the import map in deno.json, and both are
+// pinned there to an EXACT version -- no ^ and no ~ (rule 17, Lesson A4):
+//
+//   jsr:@supabase/functions-js@2.117.2
+//   npm:@supabase/server@1.9.0
+//
+// A range means the code that runs in production is chosen at build time by
+// whatever the registry happens to serve, which is somebody else's code arriving
+// with our permissions and no review. `functions new` scaffolded ^2 and ^1;
+// those were replaced with the versions above, read from each specifier's own
+// registry on 2026-09-30 -- npm for @supabase/server (`npm view`), and JSR for
+// functions-js, because a jsr: specifier does not come from npm at all.
+//
+// deno.json is kept as strict JSON, with no comments, because the edge runtime's
+// import-map parser has not been shown to accept JSONC here. That is why this
+// note lives in this file instead.
+//
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
