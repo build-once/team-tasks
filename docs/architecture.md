@@ -39,7 +39,7 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  It does NOT      |  |  invitations         |  |  AT RUN TIME - in      |
    |  decide what      |  |                      |  |  Supabase Edge         |
    |  they may see.    |  |  ROW LEVEL SECURITY  |  |  Functions secrets     |
-   +---------+---------+  |  decides what each   |  |  Runs the invite flow  |
+   +---------+---------+  |  decides what each   |  |  Runs invites + teams  |
              |            |  person may read     |  +---+----------------+---+
              | (4) "this  |  and change.         |      |                |
              | is Carol"  |  THE REAL RULE       |      |                |
@@ -100,15 +100,26 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
 ## The arrows that carry a secret key
 
-Exactly two, and both start at the server functions:
+Three, and all three start at the server functions:
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
+| **create a team** — not drawn on the map above yet | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Creating a team also makes its owner its first member, and both limits in `docs/plan.md` — a name of 1 to 60 characters, and at most 3 teams per person — have to hold even if the request does not come from our own screens. A browser cannot be trusted to enforce its own limit, and counting somebody's teams is not something a person should have to be able to read rows to do. |
 | **(5)** write the invitation row | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Bob has no account yet, so no RLS rule can let "Bob" write his own invitation. Only trusted server code may create that row. |
 | **(7)** send the invitation email | **Resend API key** | Supabase Edge Function | Supabase Edge Functions secrets | Anyone holding this key could send email as your app. It must never reach a browser. |
 
-Neither key is stored in Vercel. Vercel holds only public settings for the web app: the Supabase
-URL and the publishable key.
+"Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
+row-level security rule. It is the most damaging value in this project to lose.
+
+**Where that key lives, and the one place it does not.** All three keys above live *only* in the
+function's own settings on Supabase — Edge Functions secrets. **Never in a file.** Not in this
+repository, not in a `.env` file on anybody's laptop, not in `.env.example`, not in Vercel, not in
+GitHub Actions secrets, and not pasted into a chat. A server function reads its key from its own
+environment at run time and nowhere else, so there is no file to leak and nothing for the secret
+scanners in `docs/secrets.md` to find.
+
+None of these keys is stored in Vercel. Vercel holds only public settings for the web app: the
+Supabase URL and the publishable key.
 
 There is a **third secret store**: GitHub Actions secrets. It holds **exactly one secret,
 `PRODUCTION_SUPABASE_DB_URL`** — production's Session pooler connection string, password
@@ -151,7 +162,7 @@ wanting a secret in `web/` client code, the answer is a new server function, not
 | Web app | Every screen: sign-in, team page, task list, tick boxes | Next.js, in `web/` | **Public** — anyone can read this code |
 | Sign-in | Sign up, sign in, password reset; answers "who is this?" | Supabase Auth | **Public** key in the browser |
 | Database + RLS | Holds teams, members, tasks, invitations. RLS enforces feature 5 | Supabase Postgres | **Public** key, safe only because RLS is on |
-| Server functions | The invite flow, and anything needing a secret key | Supabase Edge Functions | **Secret** — server side only |
+| Server functions | Creating a team, the invite flow, and anything else needing a secret key | Supabase Edge Functions | **Secret** — server side only. The key lives in the function's settings on Supabase, never in a file |
 | Where secrets live | Run-time app keys: service-role key and Resend key. Deploy credential: `PRODUCTION_SUPABASE_DB_URL`, and nothing else | Run-time keys in **Supabase Edge Functions secrets**; the one deploy credential in **GitHub Actions secrets**; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat |
 | Email | Sends the one email the app needs: "you have been invited" | Resend — **not set up yet** | **Secret** API key, held in Supabase |
 | Backups | Daily copies of the database, so a mistake is survivable | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none | **Secret** — owner only |
