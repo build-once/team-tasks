@@ -86,6 +86,11 @@ scrapers watch new public commits for exactly that.
   - `PRODUCTION_SUPABASE_ACCESS_TOKEN` — a Supabase **scoped** personal access token, limited to the
     production project with only the **Edge Functions Read-write** permission. Used by the
     `deploy-functions` job only. **Expires on or about 29 December 2026** — see below.
+    **As powerful as the connection string, not less.** Deploying a function means deploying code, and
+    that code runs with the production secret keys, which bypass row-level security — so this token can
+    read and change all production data. An earlier version of this file implied it could not touch the
+    database; that was wrong. What the scoping limits: no staging, no other project in the account, no
+    account settings, and nothing but Edge Functions through the Management API.
   - `PRODUCTION_SUPABASE_PROJECT_REF` — names the project to deploy to. Not a credential on its own;
     kept secret to keep the production project id out of the repository.
 

@@ -24,16 +24,30 @@
 #   The `deploy-functions` job uses ONLY an access token,
 #   PRODUCTION_SUPABASE_ACCESS_TOKEN, plus the project ref. The token is a
 #   Supabase **scoped** personal access token: limited to the production project,
-#   with the **Edge Functions Read-write** permission and nothing else. It cannot
-#   read the database, cannot touch staging, and cannot see any other project in
-#   the account.
+#   with the **Edge Functions Read-write** permission and nothing else.
 #
-#   That is the difference from the objection recorded in this file until now,
+#   BE CLEAR ABOUT WHAT THAT TOKEN CAN DO. Deploying a function means deploying
+#   code, and a function runs with the production **secret keys** available to it
+#   -- the service-role key, which bypasses every row-level security rule. So
+#   anyone holding this token can deploy a function that reads and changes ALL
+#   production data. It is not a database credential, but in effect it reaches the
+#   database, and treating it as narrower than PRODUCTION_SUPABASE_DB_URL would be
+#   a mistake. An earlier version of this comment claimed the token "cannot read
+#   the database". That was wrong, and it was wrong in the dangerous direction.
+#
+#   What the scoping does limit, which is still worth having:
+#     * staging is out of reach -- it is a different project;
+#     * every other project in the account is out of reach;
+#     * account settings -- billing, members, tokens -- are out of reach;
+#     * through the Management API it can do nothing but Edge Functions: no
+#       database branches, no API keys, no project configuration.
+#
+#   That is the honest answer to the objection recorded in this file until now,
 #   which said an access token "reaches the whole Supabase account -- every
-#   project, including staging". That was true, and it applied to a **classic**
-#   personal access token, which carries the full rights of the person who made
-#   it. A scoped token does not, so deploying functions from CI no longer means
-#   handing CI the account. The objection is answered rather than ignored.
+#   project, including staging". That was true of a **classic** personal access
+#   token, which carries the full rights of the person who made it. The gain from
+#   a scoped token is that the reach is confined to ONE project -- not that it
+#   excludes that project's data, because it does not.
 #
 #   `supabase link` is deliberately NOT used. Linking needs permissions this token
 #   does not have, so `functions deploy --project-ref` names the project directly
@@ -96,8 +110,10 @@ jobs:
       # `supabase db push --db-url "" --yes` and fail with whatever the CLI says
       # about an empty connection string, which never names the secret and reads
       # like a database fault rather than a missing setting. This is not
-      # hypothetical: the secret was renamed in #29, and the old name is due to be
-      # deleted (#27), so a mismatch here is a live possibility.
+      # hypothetical: the secret was renamed in #29, and the old name SUPABASE_DB_URL
+      # has since been deleted (#27, closed) -- confirmed with `gh secret list`,
+      # which no longer returns it. A rename plus a deletion is exactly the shape
+      # of mistake this step turns into a clear message.
       #
       # How it avoids printing the value:
       #   * the secret arrives through env:, never interpolated into the command
@@ -151,6 +167,13 @@ jobs:
   #     connection string, and `migrate` never sees the access token. Steps in one
   #     job would share an env, so separating the jobs is what makes that true
   #     rather than merely tidy.
+  #
+  # What that separation does NOT mean. This job is not the safer of the two. The
+  # token it holds can deploy code, and deployed code runs with the production
+  # secret keys, which bypass row-level security -- so this job's credential can
+  # reach and change all production data just as surely as the connection string
+  # can. Keeping them in separate jobs limits the blast radius of one leaking, not
+  # the power of either. See the header, "About the connection".
   deploy-functions:
     name: Deploy server functions to production
     needs: migrate

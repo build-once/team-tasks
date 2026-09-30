@@ -119,18 +119,39 @@ this document.
 | Secret | What it reaches | Which job uses it |
 |---|---|---|
 | **`PRODUCTION_SUPABASE_DB_URL`** | The production **database**, and nothing else. Production's Session pooler connection string, password percent-encoded | `migrate` only |
-| **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** | **Edge Functions on the production project only.** A Supabase *scoped* personal access token, limited to that project, with the **Edge Functions Read-write** permission and nothing more. It cannot read the database, cannot reach staging, and cannot see other projects | `deploy-functions` only |
+| **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** | **In effect, all production data.** A Supabase *scoped* personal access token for the production project, with the **Edge Functions Read-write** permission — but deploying a function means deploying code, and that code runs with the production secret keys, which bypass row-level security. Treat it as equal in power to the connection string, not lesser. See below for what the scoping does limit | `deploy-functions` only |
 | **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions` only |
 
 The two jobs are separate so that each credential is visible to one job and not the other: steps
 inside a single job share an environment, so splitting the jobs is what makes the separation real
 rather than merely tidy. `deploy-functions` also has `needs: migrate`, so functions are only deployed
-onto a database that has already been migrated.
+onto a database that has already been migrated. That separation limits what one leaked credential
+exposes; it does **not** make either job the safer one.
 
-**About the access token, because this document used to say the opposite.** It previously said "No
-Supabase access token is stored anywhere", on the grounds that such a token "reaches the whole account
-— staging included". That was correct about a **classic** personal access token, which carries the full
-rights of the person who created it. The token now stored is a **scoped** token, which does not.
+### What the access token can actually do
+
+An earlier version of this section said the token "cannot read the database". **That was wrong, and
+wrong in the dangerous direction.** The correction matters enough to state plainly:
+
+**A token that can deploy Edge Functions can deploy code, and that code runs with the production secret
+keys — the service-role key, which bypasses every row-level security rule. So whoever holds this token
+can read and change all production data.** The reach is indirect, needing one deploy to get there, but
+the end state is the same. It is not a lesser credential than `PRODUCTION_SUPABASE_DB_URL`.
+
+**What the scoping does limit,** and this is still worth having:
+
+- **Staging is out of reach** — a different project entirely.
+- **Every other project in the account is out of reach.**
+- **Account settings are out of reach** — billing, members, other tokens.
+- **Through the Management API it can do nothing but Edge Functions** — no database branches, no API
+  keys, no project configuration.
+
+**About the earlier objection, answered accurately.** This document used to say "No Supabase access
+token is stored anywhere", on the grounds that such a token "reaches the whole account — staging
+included". That was correct about a **classic** personal access token, which carries the full rights of
+the person who created it. The gain from a scoped token is that its reach is **confined to one
+project** — not that it excludes that project's data, because it does not.
+
 `supabase link` is still not used: linking needs permissions this token does not have, so the workflow
 names the project with `functions deploy --project-ref` instead.
 
