@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
+
 // Pages anyone may open while signed out. Everything else needs a signed-in
 // person, which is what makes "My tasks" private.
 //
@@ -23,8 +25,8 @@ export async function updateSession(request: NextRequest) {
 
   // Always make a new client per request. Never hold one in a global.
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
     {
       cookies: {
         getAll() {

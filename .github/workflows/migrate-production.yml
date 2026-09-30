@@ -18,8 +18,13 @@
 #   uses `supabase link` with a SUPABASE_ACCESS_TOKEN. This project does not. An
 #   access token reaches the whole Supabase account -- every project, including
 #   staging -- while a database connection string reaches one database and
-#   nothing else. So the only secret here is SUPABASE_DB_URL, and no Supabase
-#   access token is stored anywhere. See docs/environments.md.
+#   nothing else. So the only secret here is PRODUCTION_SUPABASE_DB_URL, and no
+#   Supabase access token is stored anywhere. See docs/environments.md.
+#
+#   Note the two names are different on purpose: the GitHub Actions secret is
+#   PRODUCTION_SUPABASE_DB_URL, and it is passed to the step below as the
+#   environment variable SUPABASE_DB_URL, which is the name the Supabase CLI
+#   reads by convention.
 
 name: migrate-production
 
@@ -57,6 +62,41 @@ jobs:
       - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
         with:
           version: 2.117.0
+
+      # Stops the run BEFORE anything touches the database if the secret is
+      # missing or empty.
+      #
+      # Why this deserves its own step: a GitHub secret that has been deleted,
+      # renamed or never created does not raise an error when referenced -- it
+      # expands to an empty string. Without this check the next step would run
+      # `supabase db push --db-url "" --yes` and fail with whatever the CLI says
+      # about an empty connection string, which never names the secret and reads
+      # like a database fault rather than a missing setting. This is not
+      # hypothetical: the secret was renamed in #29, and the old name is due to be
+      # deleted (#27), so a mismatch here is a live possibility.
+      #
+      # How it avoids printing the value:
+      #   * the secret arrives through env:, never interpolated into the command
+      #     line, so it cannot appear in this file or in the log of the command;
+      #   * the test branches on the value without echoing it -- not the value,
+      #     and not its length either;
+      #   * only the NAME is printed, which is public and is in this file already.
+      # Whitespace counts as empty, matching the app's own settings check in
+      # web/src/lib/env.ts.
+      - name: Check the production database secret is set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
+        run: |
+          set -u
+          # "${VAR-}" so an entirely unset variable gives the message below too,
+          # rather than bash's "unbound variable". env: above always defines it,
+          # so this is belt and braces -- but the belt costs two characters.
+          value="${SUPABASE_DB_URL-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The GitHub Actions secret PRODUCTION_SUPABASE_DB_URL is missing or empty, so no migration was attempted. Set it at Settings -> Secrets and variables -> Actions. Its value is never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_DB_URL is set. Its value is not printed."
 
       # SUPABASE_DB_URL is production's Session pooler connection string, with
       # the password percent-encoded -- the CLI reference for `db push` requires
