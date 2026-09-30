@@ -111,14 +111,33 @@ Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
 **Secret: none in the app.** The app has no server-side secret today. It talks to Supabase with the
 publishable key and lets the database rules decide, which is why nothing secret belongs in Vercel.
 
-There is one secret in the whole system, and it is not the app's:
-**`PRODUCTION_SUPABASE_DB_URL`**, held in **GitHub Actions secrets**, used by exactly one job —
-`migrate` in `.github/workflows/migrate-production.yml`, which applies the migrations to production
-after the owner merges to `main`. It is production's Session pooler connection string with the password
-percent-encoded. It is not in `.env.example`, not in Vercel, not on the laptop, and not in this
-document. **No Supabase access token is stored anywhere**: Supabase's own example workflow links the
-project with one, and this project deliberately does not, because an access token reaches the whole
-account — staging included — while a connection string reaches one database.
+The secrets in the whole system are not the app's: they belong to the deploy pipeline, and there are
+**three**, all in **GitHub Actions secrets** and used only by
+`.github/workflows/migrate-production.yml`. None is in `.env.example`, in Vercel, on the laptop, or in
+this document.
+
+| Secret | What it reaches | Which job uses it |
+|---|---|---|
+| **`PRODUCTION_SUPABASE_DB_URL`** | The production **database**, and nothing else. Production's Session pooler connection string, password percent-encoded | `migrate` only |
+| **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** | **Edge Functions on the production project only.** A Supabase *scoped* personal access token, limited to that project, with the **Edge Functions Read-write** permission and nothing more. It cannot read the database, cannot reach staging, and cannot see other projects | `deploy-functions` only |
+| **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions` only |
+
+The two jobs are separate so that each credential is visible to one job and not the other: steps
+inside a single job share an environment, so splitting the jobs is what makes the separation real
+rather than merely tidy. `deploy-functions` also has `needs: migrate`, so functions are only deployed
+onto a database that has already been migrated.
+
+**About the access token, because this document used to say the opposite.** It previously said "No
+Supabase access token is stored anywhere", on the grounds that such a token "reaches the whole account
+— staging included". That was correct about a **classic** personal access token, which carries the full
+rights of the person who created it. The token now stored is a **scoped** token, which does not.
+`supabase link` is still not used: linking needs permissions this token does not have, so the workflow
+names the project with `functions deploy --project-ref` instead.
+
+**The token expires.** It was created on **30 September 2026** with a **90-day** expiry, so it lapses
+**on or about 29 December 2026** — the exact date is shown in the Supabase access-token list, which is
+the only authoritative place. **Rotation is due before then**, or the first merge afterwards will fail
+at the deploy step. How to rotate it is in `docs/secrets.md`.
 
 Where each copy keeps them:
 

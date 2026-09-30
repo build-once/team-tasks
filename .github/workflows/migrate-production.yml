@@ -1,5 +1,6 @@
-# migrate-production.yml -- applies the migrations in supabase/migrations/ to the
-# PRODUCTION database.
+# migrate-production.yml -- brings PRODUCTION up to date after a merge: applies
+# the migrations in supabase/migrations/, then deploys the server functions in
+# supabase/functions/.
 #
 # This is the only thing in this repository that writes to production, and it is
 # deliberately the dullest file here.
@@ -10,21 +11,39 @@
 #
 # Security defaults, the same as ci.yml:
 #   * The job token can only READ the repository.
-#   * The job has a time limit, so a stuck migration cannot run forever.
+#   * Every job has a time limit, so a stuck step cannot run forever.
 #   * Third-party actions are pinned to an exact commit SHA, version in a comment.
 #
 # About the connection:
-#   Supabase's own example (supabase.com/docs/guides/deployment/managing-environments)
-#   uses `supabase link` with a SUPABASE_ACCESS_TOKEN. This project does not. An
-#   access token reaches the whole Supabase account -- every project, including
-#   staging -- while a database connection string reaches one database and
-#   nothing else. So the only secret here is PRODUCTION_SUPABASE_DB_URL, and no
-#   Supabase access token is stored anywhere. See docs/environments.md.
+#   Two jobs, two credentials, and neither job can reach the other's.
 #
-#   Note the two names are different on purpose: the GitHub Actions secret is
-#   PRODUCTION_SUPABASE_DB_URL, and it is passed to the step below as the
-#   environment variable SUPABASE_DB_URL, which is the name the Supabase CLI
-#   reads by convention.
+#   The `migrate` job uses ONLY the database connection string,
+#   PRODUCTION_SUPABASE_DB_URL. That has not changed. It reaches one database and
+#   nothing else, and no access token is needed to push migrations.
+#
+#   The `deploy-functions` job uses ONLY an access token,
+#   PRODUCTION_SUPABASE_ACCESS_TOKEN, plus the project ref. The token is a
+#   Supabase **scoped** personal access token: limited to the production project,
+#   with the **Edge Functions Read-write** permission and nothing else. It cannot
+#   read the database, cannot touch staging, and cannot see any other project in
+#   the account.
+#
+#   That is the difference from the objection recorded in this file until now,
+#   which said an access token "reaches the whole Supabase account -- every
+#   project, including staging". That was true, and it applied to a **classic**
+#   personal access token, which carries the full rights of the person who made
+#   it. A scoped token does not, so deploying functions from CI no longer means
+#   handing CI the account. The objection is answered rather than ignored.
+#
+#   `supabase link` is deliberately NOT used. Linking needs permissions this token
+#   does not have, so `functions deploy --project-ref` names the project directly
+#   instead. See docs/environments.md and docs/secrets.md.
+#
+#   Note that secret names and environment variable names differ on purpose. The
+#   GitHub Actions secrets are PRODUCTION_SUPABASE_DB_URL and
+#   PRODUCTION_SUPABASE_ACCESS_TOKEN; the CLI reads SUPABASE_DB_URL and
+#   SUPABASE_ACCESS_TOKEN by convention, so each is passed under the name the CLI
+#   expects, in the one job that needs it.
 
 name: migrate-production
 
@@ -42,6 +61,11 @@ permissions: {}
 # One run at a time. A half-applied migration, caused by a second run starting
 # beside the first, is the worst outcome here -- so a run in progress is never
 # cancelled, and the next one waits its turn.
+#
+# Unchanged by the second job, and worth saying why: this is workflow-level, so
+# the group covers the whole run -- migrate and deploy-functions together. Two
+# merges in quick succession cannot interleave a migration from one with a
+# function deploy from the other.
 concurrency:
   group: migrate-production
   cancel-in-progress: false
@@ -115,3 +139,105 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
         run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
+
+  # Deploys every function in supabase/functions/ to production.
+  #
+  # Why a separate job rather than two more steps in `migrate`:
+  #   * needs: migrate means functions deploy ONLY after the migrations
+  #     succeeded. A function deployed against a database that is missing the
+  #     table it queries would be broken from its first request -- create-team
+  #     reads and writes public.teams, which a migration creates.
+  #   * The two credentials stay apart. This job never sees the database
+  #     connection string, and `migrate` never sees the access token. Steps in one
+  #     job would share an env, so separating the jobs is what makes that true
+  #     rather than merely tidy.
+  deploy-functions:
+    name: Deploy server functions to production
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          version: 2.117.0
+
+      # One check per secret, in the same style as the migrate job's: a GitHub
+      # secret that was deleted, renamed or never created expands to an empty
+      # string rather than raising an error, so without these the deploy would
+      # fail with whatever the CLI says about an empty token or project ref and
+      # never name the setting that is actually missing.
+      #
+      # Neither value is printed. Each arrives through env:, the test branches on
+      # it without echoing it -- not the value, not its length -- and only the
+      # NAME is printed, which is public and is in this file already. Whitespace
+      # counts as empty, matching the migrate job and web/src/lib/env.ts.
+      - name: Check the production access token is set
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -u
+          value="${SUPABASE_ACCESS_TOKEN-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The GitHub Actions secret PRODUCTION_SUPABASE_ACCESS_TOKEN is missing or empty, so no function was deployed. Set it at Settings -> Secrets and variables -> Actions. Its value is never printed by this workflow. Note the token expires -- see docs/secrets.md for when, and how to rotate it."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_ACCESS_TOKEN is set. Its value is not printed."
+
+      - name: Check the production project ref is set
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: |
+          set -u
+          value="${SUPABASE_PROJECT_REF-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The GitHub Actions secret PRODUCTION_SUPABASE_PROJECT_REF is missing or empty, so no function was deployed. Set it at Settings -> Secrets and variables -> Actions. Its value is never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_PROJECT_REF is set. Its value is not printed."
+
+      # Every flag here was read from `supabase functions deploy --help` on the
+      # pinned CLI 2.117.0, not remembered:
+      #
+      #   "Function name... string  Names of Functions to deploy. Deploys all if
+      #    omitted. (optional)"
+      # -- so no function is named, and every function in supabase/functions/ is
+      # deployed. Adding one to the folder is enough; this file needs no edit.
+      #
+      #   "--use-api  Bundle functions server-side without using Docker."
+      # -- Docker is the default bundler. --use-api removes that dependency, so
+      # the deploy does not rest on Docker being present and working on the
+      # runner image.
+      #
+      #   "--project-ref string  Project ref of the Supabase project."
+      # -- names the project directly, which is what replaces `supabase link`.
+      # The CLI's own example is "supabase functions deploy --project-ref
+      # abcdefghijklmnopqrst", captioned "Deploy all local functions to a
+      # specific project".
+      #
+      # --yes is the documented global flag ("answer yes to all prompts"), which
+      # is what makes this non-interactive.
+      #
+      # NOT passed, on purpose:
+      #   * --no-verify-jwt. The config reference says verify_jwt defaults to true
+      #     and "By default, when you deploy your Edge Functions or serve them
+      #     locally, it will reject requests without a valid JWT in the
+      #     Authorization header", overridable "using the --no-verify-jwt flag
+      #     during deployment". supabase/config.toml sets verify_jwt = true for
+      #     create-team, so not passing the flag is what lets that setting stand.
+      #     Passing it would silently make the function public.
+      #   * --prune, which deletes functions that exist in the project but not
+      #     locally. Deleting things in production is not this job's business.
+      #
+      # The project ref is expanded by the shell from env, so the literal
+      # "$SUPABASE_PROJECT_REF" is what appears in the run log, not its value.
+      - name: Deploy every function to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --use-api --yes
