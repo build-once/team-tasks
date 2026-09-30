@@ -36,7 +36,16 @@ function Mark() {
   );
 }
 
-export function Header({ signedIn = false }: { signedIn?: boolean }) {
+// `current` marks which of the two pages you are on. It is passed in rather than
+// read from the URL on purpose: usePathname would make this a client component,
+// and nothing else in this app is one.
+export function Header({
+  signedIn = false,
+  current,
+}: {
+  signedIn?: boolean;
+  current?: "tasks" | "teams";
+}) {
   return (
     <header className={styles.bar}>
       <div className={styles.inner}>
@@ -46,11 +55,33 @@ export function Header({ signedIn = false }: { signedIn?: boolean }) {
         </Link>
 
         {signedIn ? (
-          <form action="/auth/signout" method="post">
-            <button className="btn btn--quiet" type="submit">
-              Sign out
-            </button>
-          </form>
+          <div className={styles.right}>
+            {/* Both pages are reachable from every signed-in screen. Before
+                this, /teams could only be opened by typing the address, and
+                /tasks only from the front page. */}
+            <nav className={styles.nav} aria-label="Your pages">
+              <Link
+                className={styles.navLink}
+                href="/tasks"
+                aria-current={current === "tasks" ? "page" : undefined}
+              >
+                My tasks
+              </Link>
+              <Link
+                className={styles.navLink}
+                href="/teams"
+                aria-current={current === "teams" ? "page" : undefined}
+              >
+                My teams
+              </Link>
+            </nav>
+
+            <form action="/auth/signout" method="post">
+              <button className="btn btn--quiet" type="submit">
+                Sign out
+              </button>
+            </form>
+          </div>
         ) : null}
       </div>
     </header>

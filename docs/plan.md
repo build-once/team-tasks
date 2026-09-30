@@ -4,22 +4,22 @@ One page. Written 2026-09-27. Update it before adding anything below.
 
 ## Who it is for
 
-The organiser of a small volunteer group of about six people. Every morning they scroll back
+The organiser of a volunteer group of about six. Every morning they scroll back
 through the group chat to work out which jobs are done, which are left, and who said they would
-do them. The other five members use the app too, but the organiser feels the pain most.
+do them. The other five use the app too, but the organiser feels the pain most.
 
 ## The problem
 
 Shared to-dos live in chat messages, so nobody knows what is done, what is left or who is doing
-it. Some jobs get done twice. Others are forgotten until it is too late. The organiser spends
-about 20 minutes a day chasing people in the chat.
+it. Some jobs get done twice, others forgotten until too late. The organiser spends
+about 20 minutes a day chasing people.
 
 ## Smallest useful version
 
 Five things, and nothing else:
 
 1. Sign up and sign in.
-2. Create a team.
+2. Create a team: a name of 1 to 60 characters. One person may own at most 3 teams.
 3. Invite people to a team by email.
 4. Add, tick, rename, delete tasks you created.
 5. See only the tasks of teams you belong to.
@@ -44,13 +44,13 @@ sensitive personal information in task text, and the app does not need it.
 
 Supabase and Vercel also record IP addresses automatically; the appendix lists everything.
 
-Point 5 above is the rule that protects all of this: a person sees their own teams' tasks and
-nothing more. That has to be true in the database, not just in the screens.
+Point 5 protects all of this: a person sees their own teams' tasks and
+nothing more. That must be true in the database, not just the screens.
 
 ## Web or mobile
 
-A web app that works well in a phone's browser. The organiser mostly checks it on their phone
-first thing in the morning, and sometimes on a laptop. No app store, no native app.
+A web app that works well in a phone's browser. The organiser checks it on their phone
+each morning, sometimes on a laptop. No app store, no native app.
 
 ## Budget
 

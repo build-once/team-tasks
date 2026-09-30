@@ -27,9 +27,9 @@ Pieces 1 to 5 are the stack for the first version. Piece 6 is agreed but **not s
 - **Job in your app.** Holds teams, members and tasks in Postgres. Runs sign-up and sign-in.
   Enforces plan feature 5 — "see only the tasks of teams you belong to" — as Row Level Security
   rules inside the database, which is what `docs/plan.md` and `docs/architecture.md` both insist
-  on. It also runs the **server functions**, as Supabase Edge Functions: the invite flow lives
-  there, and **Supabase's Edge Functions secrets are the only place a secret key is stored** — the
-  service-role key and the Resend key. Vercel holds no secret. Storage is part of the plan but your
+  on. It also runs the **server functions**, as Supabase Edge Functions: creating a team and the
+  invite flow live there, and **Supabase's Edge Functions secrets are the only place a secret key is
+  stored** — the service-role key and the Resend key. Vercel holds no secret. Storage is part of the plan but your
   first version has no file uploads, so it stays unused.
 - **Backups.** Automatic daily backups come with **Pro only**. Production has them; free staging has
   none. Do not keep anything on staging you would mind losing.
