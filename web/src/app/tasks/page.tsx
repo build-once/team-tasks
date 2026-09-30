@@ -55,7 +55,7 @@ export default async function MyTasksPage({
 
   return (
     <>
-      <Header signedIn />
+      <Header signedIn current="tasks" />
 
       <main className="page stack">
         <div className={styles.head}>

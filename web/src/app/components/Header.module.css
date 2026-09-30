@@ -31,3 +31,38 @@
   flex: none;
   color: var(--green);
 }
+
+/* The signed-in links and the Sign out button, kept together on the right so
+   .inner's space-between still puts the brand at one end and this at the other. */
+.right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.navLink {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navLink:hover {
+  background: var(--green-soft);
+}
+
+/* The page you are on is not a link to somewhere else, so it is marked rather
+   than merely present. aria-current does the same job for a screen reader. */
+.navLink[aria-current="page"] {
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

@@ -125,10 +125,10 @@ export default {
       );
     }
     if (count >= MAX_TEAMS_PER_OWNER) {
-      return fail(
-        `You already own ${count} teams, and ${MAX_TEAMS_PER_OWNER} is the limit. Delete one before creating another.`,
-        409,
-      );
+      // No "delete one and try again": there is no way to delete a team, so that
+      // advice would send somebody looking for a button that does not exist.
+      // This is the message the page shows in its Banner, word for word.
+      return fail(`You own ${count} teams, the most allowed.`, 409);
     }
 
     // ---- Insert ----------------------------------------------------------

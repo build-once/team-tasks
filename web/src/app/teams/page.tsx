@@ -37,49 +37,55 @@ export default async function MyTeamsPage({
       ? errorParam
       : null;
 
-  // Hide the form once the limit is reached, so the button is not offered for
-  // something that cannot work. The function refuses it regardless -- this is
-  // courtesy, not enforcement.
+  // Whether this person is already at the limit, used only to show a note. The
+  // form stays visible either way.
+  //
+  // An earlier version hid the form at the limit. That was a mistake worth
+  // naming: it meant the only thing saying "no" was this screen, the function's
+  // refusal could never be seen, and so the check that actually protects the
+  // limit was never exercised by anybody using the app. A guard nobody can
+  // trigger is a guard nobody knows is broken. The function is the thing that
+  // refuses; this note just warns first.
   const atLimit = !error && teams.length >= MAX_TEAMS_PER_OWNER;
 
   return (
     <>
-      <Header signedIn />
+      <Header signedIn current="teams" />
 
       <main className="page stack">
         <h1>My teams</h1>
 
         {atLimit ? (
-          <p className="hint">
-            You own {teams.length} teams, which is the limit of{" "}
-            {MAX_TEAMS_PER_OWNER}. Delete one before creating another.
-          </p>
-        ) : (
-          <form className="card" action={createTeam}>
-            <div>
-              <label className="label" htmlFor="name">
-                Create team
-              </label>
-              <input
-                className="input"
-                id="name"
-                name="name"
-                type="text"
-                maxLength={NAME_MAX}
-                required
-                placeholder="Tuesday crew"
-                aria-describedby="name-hint"
-              />
-              <p className="hint" id="name-hint">
-                Up to {NAME_MAX} characters. Please pick a name that does not
-                identify the members.
-              </p>
-              <button className="btn btn--primary" type="submit">
-                Create team
-              </button>
-            </div>
-          </form>
-        )}
+          // A warning, not a gate. No advice to delete a team: there is no way
+          // to delete one, so telling somebody to would send them looking for a
+          // button that does not exist.
+          <p className="hint">You own {teams.length} teams, the most allowed.</p>
+        ) : null}
+
+        <form className="card" action={createTeam}>
+          <div>
+            <label className="label" htmlFor="name">
+              Create team
+            </label>
+            <input
+              className="input"
+              id="name"
+              name="name"
+              type="text"
+              maxLength={NAME_MAX}
+              required
+              placeholder="Tuesday crew"
+              aria-describedby="name-hint"
+            />
+            <p className="hint" id="name-hint">
+              Up to {NAME_MAX} characters. Please pick a name that does not
+              identify the members.
+            </p>
+            <button className="btn btn--primary" type="submit">
+              Create team
+            </button>
+          </div>
+        </form>
 
         {created ? (
           <Banner tone="ok" icon="check">
