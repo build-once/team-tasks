@@ -1,0 +1,13 @@
+# Patch files are kept byte-for-byte, with no line-ending conversion.
+#
+# Why this file exists at all. This repository is worked on from Windows with
+# core.autocrlf=true, so git converts text files to CRLF on checkout. A .patch
+# file is not prose: `git apply` compares its lines against the stored file
+# content, which is LF. A patch checked out with CRLF can fail to apply against
+# the very files it was generated from, with a "patch does not apply" that looks
+# like a bad patch rather than a line-ending mismatch.
+#
+# -text switches the conversion off for these files only. Nothing else in the
+# repository is affected.
+*.patch -text
+*.diff -text
