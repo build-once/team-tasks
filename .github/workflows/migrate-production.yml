@@ -89,6 +89,7 @@ jobs:
   migrate:
     name: Apply migrations to production
     runs-on: ubuntu-latest
+    environment: supabase-production
     timeout-minutes: 10
     permissions:
       contents: read
@@ -178,6 +179,7 @@ jobs:
     name: Deploy server functions to production
     needs: migrate
     runs-on: ubuntu-latest
+    environment: supabase-production
     timeout-minutes: 10
     permissions:
       contents: read
