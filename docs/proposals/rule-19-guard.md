@@ -144,11 +144,15 @@ does not say. This rule forbids any `functions deploy` unless the **whole comman
 whose `--project-ref` names staging.
 
 ```
-^(?!\s*(?:npx\s+)?supabase(?:@[\w.-]+)?\s+functions\s+deploy[^#|;&$`()<>\r\n]*\s--project-ref[=\s]+{{local:staging_patterns}}(?=\s|$)[^#|;&$`()<>\r\n]*$)[\s\S]*\bfunctions\s+deploy\b
+^(?!(?![\s\S]*--project-ref[\s\S]*--project-ref)\s*(?:npx\s+)?supabase(?:@[\w.-]+)?\s+functions\s+deploy[^#|;&$`()<>\r\n]*\s--project-ref[=\s]+{{local:staging_patterns}}(?=\s|$)[^#|;&$`()<>\r\n]*$)[\s\S]*\bfunctions\s+deploy\b
 ```
 
-**This is the second attempt. The first had the same flaw as the `db push` draft, and the re-review found
-it.** It read:
+**This is the third attempt.** Both earlier ones failed the same way, and the pattern of the mistake is
+more useful than either instance: each time the exemption asked *"is a staging ref present?"* when the
+question it must answer is *"is this command, as a whole, the one permitted shape?"*. Presence is easy to
+check and almost never what you want.
+
+**The first attempt** had the same flaw as the `db push` draft. It read:
 
 ```
 \bfunctions\s+deploy\b(?![^|;&]*--project-ref[=\s]+["']?{{local:staging_patterns}})
@@ -166,15 +170,35 @@ the rule exists to stop — was exempted by a staging ref that had nothing to do
 It was worse than merely wrong, because removing the alternative from `deploy` (change 3) had turned
 those three from `ask` into `allow`. Narrowing one rule had widened another.
 
+**The second attempt** closed those three but still only checked that a staging ref was *present*, not that
+it was the *only* one. The trailing ``[^#|;&$`()<>\r\n]*`` had room for a second `--project-ref`:
+
+| command | second draft | now |
+|---|---|---|
+| `functions deploy --project-ref <staging> --project-ref <other>` | allow | forbid |
+| `functions deploy --project-ref <staging> --project-ref=<other>` | allow | forbid |
+
+A repeated flag is very likely honoured as its last value — **not tested here, and it does not need to
+be**: the target is then not provably staging, which is the only test this rule applies. It is not
+production either, since `production-access` catches that ref; "some third project" is simply outside
+what rule 19 permits.
+
 The exemption now has the same discipline as the production carve-out:
 
 - **no `#`, newline, CR, `$`, backtick, `(`, `)`, `<`, `>`, `|`, `;` or `&`** anywhere in the command;
 - **`--project-ref` must be a real flag**, immediately preceded by whitespace — which is what disqualifies
   `--import-map "--project-ref <staging>"`, where the character before the flag is a quote;
 - **the ref must end at whitespace or the end of the command**, so `--project-ref <staging>x` does not
-  pass on the strength of a shared prefix.
+  pass on the strength of a shared prefix;
+- **`--project-ref` must appear exactly once**, via `(?![\s\S]*--project-ref[\s\S]*--project-ref)`.
 
-Three of those cases are caught through the **raw** command text rather than the normalised one, which is
+**That last lookahead is nested inside the exemption, and the nesting is the whole point.** At the start of
+the *rule's* pattern it would read "do not forbid any command containing two refs" — the opposite of what
+is wanted, because the rule only acts when it matches. Inside the exemption, a second ref makes the
+exemption fail, and a failed exemption is a forbid. The draft builder now asserts that the pattern starts
+with `^(?!(?![\s\S]*--project-ref…`, so the two cannot be transposed by accident.
+
+Three of the earlier cases are caught through the **raw** command text rather than the normalised one, which is
 worth knowing: `normalizeCommand()` strips quotes and collapses whitespace, so in the normalised subject
 `--import-map "--project-ref S"` does look like a genuine flag. The guard tests every subject and forbids
 if **any** of them matches, so the raw text is what settles it. That is the mechanism the whole patch
@@ -261,14 +285,19 @@ chosen by hand and the self-test tests every example already in the file.
 
 **2. The `evaluate()` matrix, main versus patched.** The draft rules are loaded into memory, compiled
 exactly as `loadRules()` does, and run through the guard's own exported `evaluate()` alongside the rules
-on `main`, so each case shows what changes and what does not. **44 of 44 behave as intended.**
+on `main`, so each case shows what changes and what does not. **50 of 50 behave as intended.**
 
-**Both kinds of evidence missed something, twice, and the same lesson applies to both.** The matrix
-missed the self-test failure because it only tests cases somebody thought of; and the matrix as first
-written missed the staging-exemption bypasses because the cases it contained were the ones the pattern
-was built to pass. Each fault was found by someone reading the pattern adversarially and asking what
-the character class does **not** stop. The three bypass tables in changes 4 and 5 exist so that those
-questions stay answered in the file rather than having to be re-asked.
+**Both kinds of evidence missed something, three times over, and that is the most useful thing in this
+file.** The matrix missed the self-test failure because it only tests cases somebody thought of. The
+matrix then missed the staging-exemption bypasses twice, because the cases in it were the ones the
+pattern had been written to pass — a test authored by whoever authored the pattern inherits its blind
+spot, however many rows it has. Every one of the three faults was found by somebody else reading the
+pattern adversarially and asking what the exemption does **not** rule out.
+
+So the four bypass tables in changes 4 and 5 are not decoration: they are the questions, kept answered
+in the file, so the next person to touch these patterns does not have to think of them again. Adding to
+those tables is the cheapest part of changing a rule here, and skipping it is how a narrowing quietly
+becomes a widening.
 
 Neither shows that the guard is actually *armed* in a live session. Only the arming probe shows that,
 and it needs a restart first.
