@@ -46,7 +46,18 @@ import { fileURLToPath } from "node:url";
 // refusal to start, not a warning. AGENTS.md rules 1 and 10.
 const STAGING_REF = "ghskxrhqlhvrhpnivqbd";
 
-const INVITE_ADDRESS = "nobody@example.com";
+// A FRESH address on every run, and this matters more than it looks.
+//
+// The first version of this script used a fixed nobody@example.com. Alice's team
+// already has a pending invitation for that address, and invite-member has a
+// unique index on (team_id, email) where accepted_at is null. So if the owner
+// check were broken, the call would have got past it and then failed at the
+// index with 409 -- and this script would have printed "neither 403 nor 201",
+// which reads as inconclusive. A serious hole would have looked like a shrug.
+//
+// With an address nothing has ever been invited to, that collision cannot
+// happen, so 201 is the only way a broken owner check can surface.
+const INVITE_ADDRESS = `bob-test-${Date.now()}@example.com`;
 const FUNCTION_NAME = "invite-member";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -234,17 +245,51 @@ try {
       "RESULT: *** PROBLEM *** Bob created an invitation in a team he does not own.",
     );
     console.log(
-      "        Check the staging invitations table and tell the owner before going further.",
+      "        Any signed-in person can invite strangers into somebody else's team.",
     );
+    console.log("        Tell the owner before going further, and then:");
+    console.log(
+      `        delete the invitation for ${INVITE_ADDRESS} from the staging invitations table,`,
+    );
+    console.log(
+      "        because it is real and it occupies one of that team's 20 pending slots.",
+    );
+  } else if (response.status === 409) {
+    // The one confound a fresh address does not remove.
+    //
+    // The owner check runs FIRST in invite-member, so a working one answers 403
+    // and nothing below it is reached. A 409 therefore means something got past
+    // it -- and with an address nothing has been invited to, the only 409 left
+    // is the 20-pending limit.
+    console.log(
+      "RESULT: *** TREAT AS A PROBLEM UNTIL CHECKED *** 409 on a brand-new address.",
+    );
+    console.log(
+      "        The owner check runs before every other check in invite-member, so a working",
+    );
+    console.log(
+      "        one answers 403 and nothing else is reached. Getting as far as a 409 suggests",
+    );
+    console.log("        it did not refuse.");
+    console.log(
+      "        Read the body above: if it is about the 20-invitation limit, the owner check",
+    );
+    console.log(
+      "        may still be broken and the limit merely stopped it. Clear some pending",
+    );
+    console.log("        invitations from that team and run this again.");
   } else {
     console.log(
       `RESULT: neither 403 nor 201. Read the status and body above before drawing a conclusion --`,
     );
     console.log(
-      `        a 404 would mean the team id is wrong, and a 500 would mean the function failed`,
+      `        a 404 would mean the team id is wrong, so nothing was tested; a 500 would mean`,
     );
     console.log(
-      `        rather than refused, which is not the same as the rule working.`,
+      `        the function failed rather than refused, which is not the same as the rule`,
+    );
+    console.log(
+      `        working; a 503 would mean this environment is not configured to send email.`,
     );
   }
 } finally {
@@ -268,13 +313,41 @@ try {
   }
 }
 
-// HOW TO RUN IT, from the repository root:
+// HOW TO RUN IT, from the repository root.
 //
-//   BOB_EMAIL='...' BOB_PASSWORD='...' ALICE_TEAM_ID='...' \
-//     node scripts/staging/bob-invites-to-alices-team.mjs
+// KEEP THE PASSWORD OFF THE COMMAND LINE. An earlier version of this comment
+// said to put the values inline -- BOB_PASSWORD='...' node ... -- "so the
+// password is not stored anywhere". That was wrong in both shells, and checked
+// on this machine rather than assumed:
 //
-// Set the values on the command line for the one run rather than putting them in
-// a file, so the password is not stored anywhere. In PowerShell the environment
-// variables are set with $env:NAME = '...' on separate lines first.
+//   * Git Bash writes every command line to ~/.bash_history. That file exists
+//     here, and HISTCONTROL is unset, so the usual leading-space trick
+//     (ignorespace) would not help either.
+//   * PowerShell is no better: PSReadLine's HistorySaveStyle is
+//     SaveIncrementally and its history file exists, so $env:BOB_PASSWORD =
+//     '...' lands in a file as soon as you press Enter.
+//
+// So prompt for it instead. What you TYPE at a prompt is not a command line and
+// is not written to either history file.
+//
+// Git Bash, WSL or macOS:
+//
+//   read -rsp 'Bob password: ' BOB_PASSWORD; echo
+//   export BOB_PASSWORD
+//   export BOB_EMAIL='bob@...'
+//   export ALICE_TEAM_ID='...'
+//   node scripts/staging/bob-invites-to-alices-team.mjs
+//   unset BOB_PASSWORD
+//
+// PowerShell:
+//
+//   $env:BOB_PASSWORD = Read-Host 'Bob password'
+//   $env:BOB_EMAIL = 'bob@...'
+//   $env:ALICE_TEAM_ID = '...'
+//   node scripts/staging/bob-invites-to-alices-team.mjs
+//   Remove-Item Env:BOB_PASSWORD
+//
+// BOB_EMAIL and ALICE_TEAM_ID are not secrets, so it does not matter that those
+// two lines are kept in history. Only the password needs the prompt.
 //
 // The assistant has never run this script.
