@@ -78,7 +78,23 @@ scrapers watch new public commits for exactly that.
 ## Where secrets are allowed to live
 
 - **Environment variables**, from a git-ignored `.env` file locally, or the host's secret store.
-- **Supabase Edge Functions secrets**, for anything the server needs at run time.
+- **Supabase Edge Functions secrets**, for anything the server needs at run time. Set by the owner,
+  **per project** — staging's values are not production's. Names only below; no values live in this
+  repository. The full table, with what each is for, is in `docs/environments.md`:
+  - `EMAIL_API_KEY` — the Resend API key. **Each project has its own**, with sending access limited to
+    `notify.raj-dhonota.com`, so a leaked staging key cannot send as production. Anyone holding it
+    could send email as this app.
+  - `EMAIL_FROM` — the address invitations are sent from.
+  - `APP_URL` — the site's own address, used to build the invitation link. Read **only** from this
+    setting, never from a request header.
+  - `EMAIL_TEST_INBOX` — **staging only.** Redirects every invitation email away from real people, and
+    overrides `EMAIL_DELIVERY`.
+  - `EMAIL_DELIVERY` — **production only**, exactly `live`. The only value that permits sending to a
+    real recipient.
+
+  `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are also there, but nobody sets them: Supabase
+  pre-populates both, and `withSupabase` reads them. The secret key bypasses every row-level security
+  rule, which is why no function ever writes it into a file or a log.
 - **GitHub Actions secrets**, for deploy credentials. Three exist, all used only by
   `.github/workflows/migrate-production.yml`:
   - `PRODUCTION_SUPABASE_DB_URL` — the production database connection string. Used by the `migrate`
@@ -113,7 +129,12 @@ In this order, and do not skip the first step:
      whether it leaked or simply expired.
    - **A GitHub token** — GitHub → Settings → Developer settings → revoke, then reissue with the
      smallest scope that works.
-   - **An email or payment key** — that provider's dashboard. None exists yet.
+   - **`EMAIL_API_KEY` (a Resend key)** — Resend dashboard → API Keys → create a replacement with
+     sending access limited to `notify.raj-dhonota.com`, put it in **that one project's** Supabase
+     Edge Functions secrets, then revoke the old one. Staging and production hold different keys, so
+     check which project leaked and rotate only that one; rotating both is harmless, rotating the
+     wrong one leaves the leak live.
+   - **A payment key** — that provider's dashboard. None exists yet.
 2. **Work out the exposure.** How long was it live, was the repository public at the time, and does
    the provider offer usage logs for the period?
 3. **Then, and only then, consider the history.** Rewriting it with `git filter-repo` changes every

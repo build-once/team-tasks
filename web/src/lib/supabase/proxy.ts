@@ -9,7 +9,14 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 // "/auth" covers everything beneath it, including /auth/callback, where a
 // confirmation link lands. That one has to be reachable while signed out --
 // being signed out is the whole reason the person is following the link.
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+//
+// "/invite" is public for the same reason: an invitation email goes to somebody
+// who usually has no account yet, so the page has to be able to greet a
+// signed-out visitor and tell them to sign up with the invited address. It is
+// safe to open while signed out because the page only READS the token from the
+// address bar -- it shows nothing about the invitation, and accepting needs a
+// signed-in person and a button press, both enforced by accept-invite.
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/invite"];
 
 function isPublic(pathname: string) {
   if (pathname === "/") return true;

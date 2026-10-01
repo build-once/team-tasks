@@ -106,15 +106,62 @@ migration and taking it through a pull request, the same way as any other change
 
 ## Every setting the app uses
 
-Audited 2026-09-28 against `main`. **Two names. Both public. No secret at all.**
+Two names the **web app** reads, both public, and four the **server functions** read, which the web app
+never sees.
+
+### What the web app reads, from Vercel
 
 | Name | Public or secret | Local | Staging | Production | What it is |
 |---|---|---|---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
 
-**Secret: none in the app.** The app has no server-side secret today. It talks to Supabase with the
-publishable key and lets the database rules decide, which is why nothing secret belongs in Vercel.
+**Secret: none in the web app.** It talks to Supabase with the publishable key and lets the database
+rules decide, which is why nothing secret belongs in Vercel.
+
+### What the server functions read, from Supabase Edge Functions secrets
+
+Set by the **owner**, in each Supabase project's own function settings. **Names only below — no
+values, here or anywhere else in this repository.** Local is not listed because there is no local
+database and the functions are not served locally.
+
+| Name | Public or secret | Staging | Production | What it is |
+|---|---|---|---|---|
+| `EMAIL_API_KEY` | **Secret** | Needed | Needed, a **different** value | The Resend API key. Each project has its own, with sending access limited to `notify.raj-dhonota.com`, so a leaked staging key cannot send as production |
+| `EMAIL_FROM` | Not secret, but not public either | Needed | Needed | The address invitations are sent from. `invite-member` refuses to send without it |
+| `APP_URL` | Not secret | Needed | Needed, a **different** value | The site's own address, used to build the `<APP_URL>/invite/<token>` link. **Only ever read from this setting, never from a request header** — a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an attacker owns, harvesting the token |
+| `EMAIL_TEST_INBOX` | Not secret | **Needed** — every invitation email goes here instead of to the invited person | **Not set** | Where staging's invitation mail is redirected. Its presence *alone* is what redirects mail, and it **overrides `EMAIL_DELIVERY`**: if a test inbox is set, nothing reaches a real recipient |
+| `EMAIL_DELIVERY` | Not secret | **Not set** | **Needed**, exactly `live` | The only value that permits sending to a real recipient. Not `true`, not `Live`, not `1` — a delivery switch that accepts near-misses is one that turns itself on by accident |
+
+**With none of these set, `invite-member` creates nothing and sends nothing.** It refuses, names the
+settings that are missing, and writes no invitation row — because an invitation that exists but whose
+email never went is worse than none: it occupies one of the team's 20 pending slots and the person it
+names never heard about it. No setting's **value** is ever logged.
+
+`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are not in that table because nobody sets them: Supabase
+pre-populates both in every function's settings, and `withSupabase` reads them.
+
+### Staging's `APP_URL` is temporary, and will break on merge
+
+**Staging's `APP_URL` currently points at the `feat/invitations` preview deployment.** That was the
+only address available while the feature was being tested: staging has no fixed web address of its own
+(see the "Web address" row at the top of this page — it is deliberately not written down, and no
+domain name has been chosen).
+
+**A preview URL stops existing when its branch is merged and deleted.** So once `feat/invitations`
+goes, staging will keep sending invitation emails — the function has no way to know — and every link
+in them will point at a dead address. Nothing will warn anybody: `invite-member` reads `APP_URL`,
+finds a non-empty value, and sends. The email arrives looking perfectly normal and the link fails.
+
+**After the merge, the owner must set `APP_URL` in the staging project's function settings to a new
+value**, or staging invitations are untestable. Choosing a permanent address for staging is
+**issue #47** rather than a guess made here.
+
+Worth knowing alongside it: **staging invitation links only work for the project owner.** Vercel's
+Deployment Protection guards preview deployments, so opening a link in another browser or as another
+person reaches Vercel's own sign-in rather than the app. That is why the Carol and Bob checks in
+`evidence/invitations.md` were all done from the owner's own browser, and it is a limit on what can be
+tested on staging at all — not a fault.
 
 The secrets in the whole system are not the app's: they belong to the deploy pipeline, and there are
 **three**, all in **GitHub Actions secrets** and used only by

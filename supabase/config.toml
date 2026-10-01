@@ -26,3 +26,26 @@ verify_jwt = true
 
 import_map = "./functions/create-team/deno.json"
 entrypoint = "./functions/create-team/index.ts"
+
+[functions.invite-member]
+enabled = true
+# verify_jwt = true, CHANGED from the false that `functions new` scaffolded, for
+# the same reason as create-team above: this function is called by a signed-in
+# person and declares `auth: "user"`, so the platform must verify the token
+# before the handler runs. Left at false, an unauthenticated request would reach
+# the code and "only the team's owner may invite" would be unenforceable --
+# there would be no verified caller to check.
+verify_jwt = true
+import_map = "./functions/invite-member/deno.json"
+entrypoint = "./functions/invite-member/index.ts"
+
+[functions.accept-invite]
+enabled = true
+# verify_jwt = true, CHANGED from the scaffolded false. This one matters even
+# more than the others: accept-invite compares the invitation's email against
+# the SIGNED-IN person's email. Without platform verification there is no
+# trustworthy signed-in person to compare against, and anyone holding a token
+# could accept an invitation addressed to somebody else.
+verify_jwt = true
+import_map = "./functions/accept-invite/deno.json"
+entrypoint = "./functions/accept-invite/index.ts"
