@@ -95,6 +95,24 @@ export default {
       return fail("This invitation link is missing its token.", 400, "not_found");
     }
 
+    // NO UUID CHECK HERE, and that is not an omission.
+    //
+    // invite-member validates its team_id as a UUID before querying, because a
+    // malformed one reached a uuid column and came back as Postgres 22P02 and a
+    // misleading 500. This function has no equivalent: the token is the ONLY
+    // value it takes from the request, and it is never used as an id.
+    //
+    //   * the token is hashed first, and hashToken returns 64 hex characters for
+    //     any input whatsoever, so token_hash is always a well-formed value for
+    //     a text column;
+    //   * the two id-shaped filters below -- invitation.id and
+    //     invitation.team_id -- come from a row the DATABASE returned, so they
+    //     are already valid uuids;
+    //   * nothing else from the request reaches a query.
+    //
+    // So there is no input that can provoke a cast error. If this function ever
+    // takes an id from a caller, it needs the same check invite-member has.
+
     const tokenHash = await hashToken(rawToken.trim());
 
     // ---- Find the invitation by hash --------------------------------------

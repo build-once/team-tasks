@@ -33,6 +33,15 @@ import { withSupabase } from "@supabase/server";
 const MAX_PENDING_PER_TEAM = 20;
 const TOKEN_BYTES = 32; // 32 random bytes = 256 bits. See makeToken below.
 
+// The shape Postgres accepts for a uuid column: 8-4-4-4-12 hex digits.
+//
+// Deliberately a shape check and nothing cleverer. It does not care which UUID
+// version or variant the value claims to be -- gen_random_uuid() produces v4,
+// but rejecting anything else here would be inventing a rule the database does
+// not have. The only job is to stop a value that cannot be cast at all.
+const UUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 function fail(message: string, status: number, code?: string) {
   // One shape for every failure, so the page can always read `error`.
   return Response.json({ error: message, code }, { status });
@@ -237,6 +246,23 @@ export default {
     }
 
     const teamId = rawTeamId.trim();
+
+    // A valid UUID, checked BEFORE any database call.
+    //
+    // teams.id is a uuid column. Sending anything else -- the owner did it on
+    // staging by typing an email address into the team id prompt -- made
+    // Postgres refuse to cast it, error 22P02 (invalid_text_representation),
+    // which arrived here as a query error and came back as
+    // 500 "Could not check the team, so no invitation was created."
+    //
+    // That is wrong twice over: 500 says the server broke when the caller sent
+    // something malformed, and the message sends somebody looking at the team
+    // rather than at what they typed. A shape this easy to check should never
+    // reach the database to be rejected.
+    if (!UUID_PATTERN.test(teamId)) {
+      return fail("That is not a valid team id.", 400);
+    }
+
     // Lowercased here, so it matches the invitations_email_lowercase constraint
     // and so accept-invite's comparison is case-insensitive by construction.
     const email = rawEmail.trim().toLowerCase();

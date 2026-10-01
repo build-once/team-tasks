@@ -141,6 +141,28 @@ names never heard about it. No setting's **value** is ever logged.
 `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are not in that table because nobody sets them: Supabase
 pre-populates both in every function's settings, and `withSupabase` reads them.
 
+### Staging's `APP_URL` is temporary, and will break on merge
+
+**Staging's `APP_URL` currently points at the `feat/invitations` preview deployment.** That was the
+only address available while the feature was being tested: staging has no fixed web address of its own
+(see the "Web address" row at the top of this page — it is deliberately not written down, and no
+domain name has been chosen).
+
+**A preview URL stops existing when its branch is merged and deleted.** So once `feat/invitations`
+goes, staging will keep sending invitation emails — the function has no way to know — and every link
+in them will point at a dead address. Nothing will warn anybody: `invite-member` reads `APP_URL`,
+finds a non-empty value, and sends. The email arrives looking perfectly normal and the link fails.
+
+**After the merge, the owner must set `APP_URL` in the staging project's function settings to a new
+value**, or staging invitations are untestable. Choosing a permanent address for staging is
+**issue #47** rather than a guess made here.
+
+Worth knowing alongside it: **staging invitation links only work for the project owner.** Vercel's
+Deployment Protection guards preview deployments, so opening a link in another browser or as another
+person reaches Vercel's own sign-in rather than the app. That is why the Carol and Bob checks in
+`evidence/invitations.md` were all done from the owner's own browser, and it is a limit on what can be
+tested on staging at all — not a fault.
+
 The secrets in the whole system are not the app's: they belong to the deploy pipeline, and there are
 **three**, all in **GitHub Actions secrets** and used only by
 `.github/workflows/migrate-production.yml`. None is in `.env.example`, in Vercel, on the laptop, or in

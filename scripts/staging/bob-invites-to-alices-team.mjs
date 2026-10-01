@@ -60,6 +60,11 @@ const STAGING_REF = "ghskxrhqlhvrhpnivqbd";
 const INVITE_ADDRESS = `bob-test-${Date.now()}@example.com`;
 const FUNCTION_NAME = "invite-member";
 
+// The shape Postgres accepts for a uuid column: 8-4-4-4-12 hex digits. The same
+// pattern invite-member uses, for the same reason -- see the check below.
+const UUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = resolve(HERE, "..", "..", "web", ".env.local");
 
@@ -143,6 +148,26 @@ if (missingFromEnv.length > 0) {
     `these environment variables are not set: ${missingFromEnv.join(", ")}.\n` +
       `Set them on the command line for this one run, so they are not stored.\n` +
       `No value is printed by this script.`,
+  );
+}
+
+// ALICE_TEAM_ID must look like a UUID, checked BEFORE signing in.
+//
+// Not cosmetic. The first real run of this script passed a wrong team id, and
+// the answer was 500 with Postgres 22P02 -- which tested nothing about the owner
+// rule and looked at a glance like a broken function. invite-member now returns
+// 400 "That is not a valid team id." for that, but a run that cannot test
+// anything should not get as far as signing Bob in and sending a request at all.
+//
+// Refusing before sign-in is the point of putting this here rather than later:
+// no session is created, so there is nothing to clean up, and the message
+// arrives before anybody types a password.
+if (!UUID_PATTERN.test(aliceTeamId)) {
+  die(
+    `ALICE_TEAM_ID is not a UUID, so this run could not have tested the owner rule.\n` +
+      `Expected 8-4-4-4-12 hex digits, for example 0f8fad5b-d9cb-469f-a165-70867728950e.\n` +
+      `Copy the team's id from the staging Table Editor -- not its name, and not an\n` +
+      `email address. Nothing was sent and nobody was signed in.`,
   );
 }
 
