@@ -1,0 +1,252 @@
+# Proposal: guard changes for rule 19 (production access during setup)
+#
+# DRAFTED BY THE ASSISTANT, NOT APPLIED. Guard files are person-only (rule 5),
+# so the assistant must not apply this. The owner reviews, applies and commits.
+#
+# Apply from the repository root:
+#     git apply docs/proposals/rule-19-guard.patch
+#
+# Then, in this order:
+#     node guard/selftest.mjs
+#     restart the session, then run the arming probe on BOTH shell tools.
+#
+# Every change, and the reasoning, is in docs/proposals/rule-19-guard.md.
+diff --git a/guard/local.json b/guard/local.json
+index dfa23d8..b2df2f7 100644
+--- a/guard/local.json
++++ b/guard/local.json
+@@ -1,3 +1,4 @@
+ {
+-  "production_patterns": ["qnupjabyowxnnwxalcid"]
++  "production_patterns": ["qnupjabyowxnnwxalcid"],
++  "staging_patterns": ["ghskxrhqlhvrhpnivqbd"]
+ }
+\ No newline at end of file
+
+diff --git a/guard/rules.json b/guard/rules.json
+index 9f100f0..90563eb 100644
+--- a/guard/rules.json
++++ b/guard/rules.json
+@@ -131,28 +131,41 @@
+       "id": "production-access",
+       "decision": "forbid",
+       "tools": [
+         "Bash",
+         "mcp__*"
+       ],
+-      "pattern": "{{local:production_patterns}}|\\bAPP_ENV=[\\\"']?prod(?:uction)?\\b|--(?:env|environment|stage)[= ][\\\"']?prod(?:uction)?\\b|\\s--prod\\b",
+-      "reason": "The assistant never touches production. Ask the owner to run it, or use the owner-runs-query pattern (read-only query, counts only).",
++      "pattern": "^(?!\\s*(?:npx\\s+)?supabase(?:@[\\w.-]+)?\\s+secrets\\s+set\\b[^|;&]*$)[\\s\\S]*{{local:production_patterns}}|\\bAPP_ENV=[\\\"']?prod(?:uction)?\\b|--(?:env|environment|stage)[= ][\\\"']?prod(?:uction)?\\b|\\s--prod\\b",
++      "reason": "Rule 19: the only production command you may run is `supabase secrets set`, by itself. Everything else about production goes through a pull request the owner merges, or the owner-runs-query pattern (read-only, counts only).",
+       "lesson": "Book 1 A23; Book 2 A24",
+       "examples": {
+         "should_match": [
+           "APP_ENV=production node scripts/seed.mjs",
+           "npx wrangler deploy --env production",
+           "vercel --prod",
+-          "vercel deploy --prod"
++          "vercel deploy --prod",
++          "supabase secrets unset EMAIL_API_KEY --project-ref qnupjabyowxnnwxalcid",
++          "supabase secrets list --project-ref qnupjabyowxnnwxalcid",
++          "supabase secrets set A=1 --project-ref qnupjabyowxnnwxalcid && supabase db push --linked",
++          "supabase functions deploy --project-ref qnupjabyowxnnwxalcid",
++          "SUPABASE_PROJECT_REF=qnupjabyowxnnwxalcid supabase secrets set A=1"
+         ],
+         "should_not_match": [
+           "APP_ENV=staging node scripts/seed.mjs",
+           "NODE_ENV=production npm run build",
+           "npx wrangler deploy --env staging",
+           "supabase link --project-ref abcd1234prodref",
+-          "npm run product-list"
++          "npm run product-list",
++          "supabase secrets set EMAIL_FROM=invites@notify.raj-dhonota.com --project-ref qnupjabyowxnnwxalcid",
++          "npx supabase@2.117.0 secrets set EMAIL_FROM=x --project-ref qnupjabyowxnnwxalcid",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "npx supabase secrets set EMAIL_FROM=x --project-ref qnupjabyowxnnwxalcid"
++            }
++          }
+         ]
+       }
+     },
+     {
+       "id": "push-to-main",
+       "decision": "forbid",
+@@ -629,13 +642,13 @@
+     {
+       "id": "db-remote-write",
+       "decision": "forbid",
+       "tools": [
+         "Bash"
+       ],
+-      "pattern": "\\bsupabase\\s+db\\s+push\\b(?![^|;&]*--local\\b)|\\bsupabase\\s+(?:db\\s+reset|migration\\s+(?:up|repair))\\b[^|;&]*--(?:linked|db-url)\\b|\\bprisma\\s+(?:migrate\\s+(?:deploy|reset)|db\\s+push)\\b|\\bdrizzle-kit\\s+(?:push|migrate)\\b|\\b(?:psql|pg_restore|pg_dump)\\b[^|;&]*postgres(?:ql)?://[^\\s@/]*@(?!localhost\\b|127\\.0\\.0\\.1\\b|\\[::1\\]|host\\.docker\\.internal\\b)",
++      "pattern": "\\bsupabase\\s+db\\s+push\\b(?![^|;&]*--local\\b)(?![^|;&]*{{local:staging_patterns}})|\\bsupabase\\s+(?:db\\s+reset|migration\\s+(?:up|repair))\\b[^|;&]*--(?:linked|db-url)\\b|\\bprisma\\s+(?:migrate\\s+(?:deploy|reset)|db\\s+push)\\b|\\bdrizzle-kit\\s+(?:push|migrate)\\b|\\b(?:psql|pg_restore|pg_dump)\\b[^|;&]*postgres(?:ql)?://[^\\s@/]*@(?!localhost\\b|127\\.0\\.0\\.1\\b|\\[::1\\]|host\\.docker\\.internal\\b)",
+       "reason": "Database changes reach staging and production only through migration files and the deploy pipeline, never straight from the assistant.",
+       "lesson": "Book 1 E1; Book 1 A23",
+       "examples": {
+         "should_match": [
+           "supabase db push",
+           "npx supabase db push --linked",
+@@ -644,20 +657,128 @@
+           "psql postgresql://postgres:pw@db.example.supabase.co:5432/postgres -c 'select 1'",
+           {
+             "tool": "PowerShell",
+             "input": {
+               "command": "npx supabase db push"
+             }
+-          }
++          },
++          "supabase db push --linked",
++          "supabase db push --db-url postgresql://postgres.qnupjabyowxnnwxalcid:pw@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+         ],
+         "should_not_match": [
+           "supabase db reset",
+           "supabase migration new add_orders",
+           "supabase db push --local",
+           "npx prisma migrate dev --name init",
+-          "psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c 'select 1'"
++          "psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c 'select 1'",
++          "supabase db push --db-url postgresql://postgres.ghskxrhqlhvrhpnivqbd:pw@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "npx supabase db push --db-url postgresql://postgres.ghskxrhqlhvrhpnivqbd:pw@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
++            }
++          }
++        ]
++      }
++    },
++    {
++      "id": "supabase-functions-deploy-target",
++      "decision": "forbid",
++      "tools": [
++        "Bash"
++      ],
++      "pattern": "\\bfunctions\\s+deploy\\b(?![^|;&]*--project-ref[=\\s]+[\"']?{{local:staging_patterns}})",
++      "reason": "Rule 19: you may deploy functions to STAGING only, and only when --project-ref names the staging project in the same command. A bare `functions deploy` targets whatever `supabase link` last pointed at, which this command does not say. Production functions reach production through a pull request the owner merges.",
++      "lesson": "Book 1 A23",
++      "examples": {
++        "should_match": [
++          "supabase functions deploy",
++          "supabase functions deploy create-team",
++          "npx supabase functions deploy --project-ref qnupjabyowxnnwxalcid",
++          "supabase functions deploy --use-api",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "npx supabase functions deploy invite-member"
++            }
++          }
++        ],
++        "should_not_match": [
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy create-team --project-ref ghskxrhqlhvrhpnivqbd --use-api",
++          "supabase functions serve",
++          "supabase functions new hello",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "npx supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd --use-api --yes"
++            }
++          }
++        ]
++      }
++    },
++    {
++      "id": "destructive-remote",
++      "decision": "forbid",
++      "tools": [
++        "Bash",
++        "mcp__*"
++      ],
++      "pattern": "\\bsupabase\\b[^|;&]*\\b(?:functions\\s+delete|projects\\s+delete|branches\\s+delete|secrets\\s+unset|domains\\s+delete)\\b|\\bsupabase\\b[^|;&]*\\s--prune\\b|^mcp__\\S*?(?:delete|drop|truncate|reset)[\\w-]*\\s|^mcp__\\S*\\s[\\s\\S]*\\b(?:drop\\s+(?:table|schema|database|view|index|policy|function|trigger|type|extension)|truncate\\s+(?:table\\b)?|delete\\s+from)\\b",
++      "reason": "Rule 19: destructive actions are forbidden against any remote project, staging included, with no prompt. There is no point-in-time restore on the free plan. Deleting rows, tables, functions, projects, keys or secrets is a person's job, done deliberately.",
++      "lesson": "Book 1 A2; Book 1 E1",
++      "examples": {
++        "should_match": [
++          "supabase functions delete create-team --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase projects delete qnupjabyowxnnwxalcid",
++          "supabase secrets unset EMAIL_API_KEY --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd --prune",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "npx supabase functions delete invite-member --project-ref ghskxrhqlhvrhpnivqbd"
++            }
++          },
++          {
++            "tool": "mcp__supabase__execute_sql",
++            "input": {
++              "query": "delete from public.teams where id = '1'"
++            }
++          },
++          {
++            "tool": "mcp__supabase__execute_sql",
++            "input": {
++              "query": "DROP TABLE public.invitations"
++            }
++          },
++          {
++            "tool": "mcp__supabase__delete_project",
++            "input": {
++              "ref": "x"
++            }
++          }
++        ],
++        "should_not_match": [
++          "supabase db reset",
++          "supabase functions new hello",
++          "supabase secrets set A=1 --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd",
++          {
++            "tool": "mcp__supabase__list_tables",
++            "input": {
++              "schemas": [
++                "public"
++              ]
++            }
++          },
++          {
++            "tool": "mcp__supabase__execute_sql",
++            "input": {
++              "query": "select count(*) from public.teams"
++            }
++          }
+         ]
+       }
+     },
+     {
+       "id": "skip-permissions",
+       "decision": "forbid",
+@@ -758,13 +879,13 @@
+     {
+       "id": "deploy",
+       "decision": "ask",
+       "tools": [
+         "Bash"
+       ],
+-      "pattern": "\\b(?:vercel\\s+(?:deploy|promote)|netlify\\s+deploy|wrangler\\s+(?:deploy|publish|pages\\s+deploy|versions\\s+deploy)|firebase\\s+deploy|fly(?:ctl)?\\s+deploy|railway\\s+up|supabase\\s+functions\\s+deploy|serverless\\s+deploy|sls\\s+deploy|terraform\\s+(?:apply|destroy)|pulumi\\s+(?:up|destroy)|eas\\s+(?:submit|update)|gh\\s+workflow\\s+run|gh\\s+release\\s+create|npm\\s+publish)\\b",
++      "pattern": "\\b(?:vercel\\s+(?:deploy|promote)|netlify\\s+deploy|wrangler\\s+(?:deploy|publish|pages\\s+deploy|versions\\s+deploy)|firebase\\s+deploy|fly(?:ctl)?\\s+deploy|railway\\s+up|supabase\\s+functions\\s+deploy\\b(?![^|;&]*--project-ref[=\\s]+[\"']?{{local:staging_patterns}})|serverless\\s+deploy|sls\\s+deploy|terraform\\s+(?:apply|destroy)|pulumi\\s+(?:up|destroy)|eas\\s+(?:submit|update)|gh\\s+workflow\\s+run|gh\\s+release\\s+create|npm\\s+publish)\\b",
+       "reason": "Deploys normally happen automatically from main. A manual deploy needs a person to confirm where it is going.",
+       "lesson": "Book 1 I28; Book 1 I5",
+       "examples": {
+         "should_match": [
+           "vercel deploy",
+           "npx wrangler pages deploy dist",
+@@ -775,13 +896,14 @@
+         ],
+         "should_not_match": [
+           "vercel dev",
+           "npx wrangler dev",
+           "supabase functions serve",
+           "terraform plan",
+-          "npm run build"
++          "npm run build",
++          "supabase functions deploy create-team --project-ref ghskxrhqlhvrhpnivqbd"
+         ]
+       }
+     },
+     {
+       "id": "mcp-risky-actions",
+       "decision": "ask",
