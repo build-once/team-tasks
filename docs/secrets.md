@@ -96,12 +96,27 @@ scrapers watch new public commits for exactly that.
   pre-populates both, and `withSupabase` reads them. The secret key bypasses every row-level security
   rule, which is why no function ever writes it into a file or a log.
 - **GitHub Actions secrets**, for deploy credentials. Three exist, all used only by
-  `.github/workflows/migrate-production.yml`:
+  `.github/workflows/migrate-production.yml`. They live in the **`supabase-production` environment**,
+  not in the repository's Actions secrets — **Settings → Environments → supabase-production**, with
+  deployment branches limited to `main`.
+
+  **Why an environment and not repository secrets.** A repository secret is readable by a workflow
+  running on *any* branch, and a workflow file is just a file in the branch — so anyone who can push a
+  branch can push a job that reads production's credentials and prints or sends them somewhere. An
+  environment with its branch list set to `main` cannot be reached from a branch at all: a job that
+  names it only gets the secrets when the run is on `main`. That matters more now than it did, because
+  an automated actor that can push branches is coming (level 2).
+
+  Both jobs in `migrate-production.yml` carry `environment: supabase-production` for this reason. That
+  workflow only triggers on a push to `main`, so the environment is a second lock on the same door
+  rather than the only one — which is the point: the trigger is one line that a future edit could
+  widen, and the branch list is enforced by GitHub regardless of what the file says.
+
   - `PRODUCTION_SUPABASE_DB_URL` — the production database connection string. Used by the `migrate`
     job only.
   - `PRODUCTION_SUPABASE_ACCESS_TOKEN` — a Supabase **scoped** personal access token, limited to the
     production project with only the **Edge Functions Read-write** permission. Used by the
-    `deploy-functions` job only. **Expires on or about 29 December 2026** — see below.
+    `deploy-functions` job only. **Expires on or about 30 December 2026** — see below.
     **As powerful as the connection string, not less.** Deploying a function means deploying code, and
     that code runs with the production secret keys, which bypass row-level security — so this token can
     read and change all production data. An earlier version of this file implied it could not touch the
@@ -123,8 +138,8 @@ In this order, and do not skip the first step:
      API Keys. Update it in Supabase Edge Functions secrets, and in `web/.env.local` if it is the
      publishable one. Production keys never come to this machine.
    - **`PRODUCTION_SUPABASE_DB_URL`** — change the database password in the Supabase dashboard,
-     rebuild the Session pooler connection string, and update it in GitHub → Settings → Secrets and
-     variables → Actions. Nowhere else holds it.
+     rebuild the Session pooler connection string, and update it in GitHub → Settings → Environments
+     → **supabase-production**. Nowhere else holds it.
    - **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** — see "Rotating the access token" below. Same steps
      whether it leaked or simply expired.
    - **A GitHub token** — GitHub → Settings → Developer settings → revoke, then reissue with the
@@ -147,7 +162,7 @@ In this order, and do not skip the first step:
 `PRODUCTION_SUPABASE_ACCESS_TOKEN` is the only secret here with an **expiry date**, which makes it the
 only one that breaks on a calendar rather than because somebody leaked it.
 
-**Created 30 September 2026, with a 90-day expiry, so it lapses on or about 29 December 2026.** That
+**Created 1 October 2026, with a 90-day expiry, so it lapses on or about 30 December 2026.** That
 date is calculated from the creation date and the 90 days, not read from Supabase: **the exact date is
 shown in the Supabase access-token list**, which is the only authoritative place. Check it there rather
 than trusting the sentence above.
@@ -163,7 +178,10 @@ To rotate:
    the production project only, with the **Edge Functions Read-write** permission and nothing else. A
    classic token would work and is the wrong choice — it carries the full rights of whoever made it.
 2. Note the new expiry date from that same list.
-3. GitHub → Settings → Secrets and variables → Actions → update `PRODUCTION_SUPABASE_ACCESS_TOKEN`.
+3. GitHub → Settings → **Environments** → **supabase-production** → update
+   `PRODUCTION_SUPABASE_ACCESS_TOKEN`. **Not** Secrets and variables → Actions: a repository secret of
+   that name would be readable from any branch, which is exactly what the environment exists to
+   prevent. If one is there from before, it is stale and should be deleted, not updated.
 4. **Revoke the old token** in Supabase. Until it is revoked, rotating has added a credential rather
    than replaced one.
 5. Update the dates in this file and in `docs/environments.md`, so the next person reads the real ones.
