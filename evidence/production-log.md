@@ -26,10 +26,10 @@ repeating it spreads it for no gain.
 
 ## 2026-10-01
 
-All four entries below were **recorded after the fact on 1 Oct 2026, when this log was created.** They
-are **not backdated**: the times are approximate (BST) and are the owner's recollection, not timestamps
-read from a system. Anything added from now on is written in the session it happened, which is what
-rule 19 asks for.
+All **three** entries below were **recorded after the fact on 1 Oct 2026, when this log was created.**
+They are **not backdated**: the times are approximate (BST), and they come from **the coach's session
+notes of 1 Oct**, not from anybody's memory and not from timestamps read off a system. Anything added
+from now on is written in the session it happened, which is what rule 19 asks for.
 
 All three actions were by **the coach (claude.ai)**, through the **Supabase production (read-only)
 connector**, and all three were **read-only**.

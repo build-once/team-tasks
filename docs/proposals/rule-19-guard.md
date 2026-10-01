@@ -74,16 +74,29 @@ Sources:
   `supabase functions deploy --project-ref abcdefghijklmnopqrst`"*.
   `npx supabase@2.117.0 secrets --help` → subcommands `list`, `set`, `unset`.
 
-**The consequence for `db push` is the important one.** It has no `--project-ref`. Its targets are
-`--local`, `--linked` or `--db-url`. `--linked` depends on what `supabase link` last pointed at, which
-is state *outside* the command — so under the issue's own test ("if the target cannot be read from the
-command itself, it stays forbidden") **`--linked` must stay forbidden**. The only staging `db push`
-this patch allows is one carrying `--db-url` with the staging ref in the connection string, which
-Supabase connection strings do (direct host `db.<ref>.supabase.co`, pooler user `postgres.<ref>`).
+**The consequence for `db push` decided the design, and the decision went against allowing it at all.**
 
-If that is too narrow to be useful in practice, the honest fix is to change rule 19, not to loosen the
-guard to accept `--linked` — because nothing in a `--linked` command distinguishes staging from
-production.
+`db push` has no `--project-ref`. Its targets are `--local`, `--linked` or `--db-url`. `--linked`
+depends on what `supabase link` last pointed at — state *outside* the command — so under the issue's
+own test ("if the target cannot be read from the command itself, it stays forbidden") `--linked` had to
+stay forbidden. That left only `--db-url` carrying the staging ref in the connection string.
+
+**That turned out to be impossible to use without breaking rule 7.** A Supabase connection string
+carries the database password, so a `--db-url` that makes the target provable also puts a password on
+the command line — into shell history and into the transcript. Move the password to an environment
+variable and the ref is no longer in the command, so the guard refuses it. There was no form that
+satisfied both the guard and rule 7.
+
+**Owner decision, 2026-10-01: drop staging `db push` from rule 19** (issue #55 moves staging migrations
+to a CI job; until that lands the owner applies them). So:
+
+- `db-remote-write` is **byte-for-byte as on `main`** in this patch. Its pattern is not touched.
+- **Every `db push` except `--local` stays forbidden**, staging included.
+- The new `should_match` examples pin that down, including the two cases the review found —
+  `db push --linked # <staging ref>` and `db push --linked --include-all <staging ref>` — which the
+  first draft would have allowed because it looked for the staging ref *anywhere* rather than as the
+  target.
+- Rule 19's staging bullet now says so in words: migrations are not the assistant's to run anywhere.
 
 ---
 
@@ -99,34 +112,36 @@ to it by name. No rule hard-codes a ref.
   "staging_patterns": ["ghskxrhqlhvrhpnivqbd"]
 ```
 
-### 2. `db-remote-write` — let a provably-staging `db push` through
+### 2. `db-remote-write` — **pattern unchanged**, examples added
 
-Adds one negative lookahead to the `db push` alternative:
+The first draft narrowed this rule to let a staging `db push` through. That is reverted: the pattern is
+byte-for-byte as on `main`, for the reason in the section above.
 
-```
-\bsupabase\s+db\s+push\b(?![^|;&]*--local\b)(?![^|;&]*{{local:staging_patterns}})
-```
+What is added is five `should_match` examples, so the behaviour is pinned rather than merely inherited:
+`db push --linked`, a production `--db-url`, a **staging** `--db-url`, and the two the review found —
+`db push --linked # <staging ref>` and `db push --linked --include-all <staging ref>`. The last two
+matter because they are what "the ref appears somewhere in the command" lets through when you meant
+"the ref is the target".
 
-`[^|;&]*` keeps the check inside **one shell segment**, so chaining a second command cannot borrow the
-first one's staging ref.
+### 3. `deploy` (ask) — the `supabase functions deploy` alternative is **removed**
 
-Still forbidden: `db push`, `db push --linked`, `db push --db-url <production>`.
-Now allowed: `db push --db-url <…ghskxrhqlhvrhpnivqbd…>`.
-Unchanged: `--local`, and everything else in that rule (Prisma, Drizzle, psql-to-remote).
+Not narrowed: removed. With rule 4 below owning that command — `forbid` when the target is not provably
+staging, `allow` when it is — there is no case left where `deploy` could be the deciding rule.
 
-### 3. `deploy` (ask) — stop prompting for a provably-staging function deploy
+The first draft narrowed it instead and left it in, which **broke the guard's own self-test**: the
+rule's existing example `supabase functions deploy send-email` was still listed under `should_match` for
+an `ask` rule, but the new `forbid` rule now wins, so the hook exits 2 instead of asking. That example
+moves to rule 4's `should_match` and to this rule's `should_not_match`.
 
-```
-supabase\s+functions\s+deploy\b(?![^|;&]*--project-ref[=\s]+["']?{{local:staging_patterns}})
-```
+Worth stating because it is the general lesson: adding a `forbid` rule silently changes the outcome of
+every `ask` example it overlaps. The 24-case matrix in the first draft did not catch it, because it
+tested commands I chose rather than the examples already in the file. The self-test tests both.
 
-Without this the staging deploy would still prompt, which rule 19 does not ask for.
+### 4. NEW `supabase-functions-deploy-target` (forbid) — owns `functions deploy`
 
-### 4. NEW `supabase-functions-deploy-target` (forbid) — close the gap that leaves
-
-`deploy` was only `ask`, so a bare `supabase functions deploy` — which targets whatever `supabase link`
-last pointed at — would merely prompt. Rule 19 wants it blocked. This rule forbids any
-`functions deploy` unless `--project-ref` names staging in the same segment.
+A bare `supabase functions deploy` targets whatever `supabase link` last pointed at, which the command
+does not say. This rule forbids any `functions deploy` unless `--project-ref` names staging in the same
+segment.
 
 ```
 \bfunctions\s+deploy\b(?![^|;&]*--project-ref[=\s]+["']?{{local:staging_patterns}})
@@ -139,16 +154,40 @@ than being surprised by.
 
 ### 5. `production-access` — carve out exactly one production command
 
-Rule 19 allows production `secrets set` and nothing else. The exemption is deliberately tight: it
-applies **only when the whole command is one `supabase secrets set`**, with no `|`, `;` or `&`.
+Rule 19 allows production `secrets set` and nothing else. The exemption applies **only when the whole
+command is one `supabase secrets set`** — and "whole command" had to be defined much more carefully than
+the first draft managed.
 
 ```
-^(?!\s*(?:npx\s+)?supabase(?:@[\w.-]+)?\s+secrets\s+set\b[^|;&]*$)[\s\S]*{{local:production_patterns}}
+^(?!\s*(?:npx\s+)?supabase(?:@[\w.-]+)?\s+secrets\s+set\b[^|;&$`()<>\r\n]*$)[\s\S]*{{local:production_patterns}}
 ```
 
-Still forbidden, verified: `secrets unset`, `secrets list`, `functions deploy`, `db push`, a chained
-`secrets set … && db push --linked`, and the production ref passed as an environment variable instead
-of a flag.
+**The first draft ended the exemption with `[^|;&]*$`, and that was wrong.** It stops at a pipe,
+semicolon and ampersand, but a `.` -class exclusion of three characters does not stop at a **newline**,
+`$(…)`, a **backtick**, or a redirection. Every one of those let a second production command ride along
+inside an "allowed" one. The review found five; the character class now refuses newline, CR, `$`,
+backtick, `(`, `)`, `<` and `>`, and every one of them is a `should_match` example.
+
+**The worst of them was `supabase secrets set … <newline> supabase link --project-ref <production>`.**
+Linking the CLI to production is not itself a destructive act, which is what makes it dangerous: every
+later bare `db push` or `functions deploy` would then target production, and none of those commands
+would mention production at all. A guard that reads commands cannot catch what a command does not say.
+
+Why excluding these characters costs nothing: a legitimate `secrets set` needs none of them. Values come
+from `--env-file` anyway, which is also what the token section below recommends, so the permitted form is
+`supabase secrets set --env-file <path outside the repo> --project-ref <production>`.
+
+Still forbidden, and verified in the matrix: `secrets unset`, `secrets list`, `functions deploy`,
+`db push`, a chained `&&`, all five newline/substitution/redirection bypasses, and the production ref
+passed as an environment variable instead of a flag.
+
+**A trap worth recording, because it produced a pattern that looked right and was not.** Building this
+with `String.replace("…", replacement)` silently ate two characters: in a replacement *string*, `` $` ``
+is a special token meaning "the text before the match". So the class was written as
+``[^|;&$`()<>\r\n]`` and came out as `[^|;&()<>\r\n]` — missing exactly the `$` and the backtick, which
+is why the backtick bypass still worked on the first rebuild. The draft builder now passes a replacer
+**function**, which disables `$` handling, and then asserts every character is still present before
+writing the file. The matrix caught it; reading the pattern did not.
 
 **There is no prompt for the allowed case.** Rule 19 says so, and it is why the production log exists:
 the log is the only record that a production `secrets set` happened.
@@ -171,18 +210,23 @@ That is why the SQL half of this rule is scoped to MCP, and why it does not bloc
 
 ## Verification
 
-**Against the patched files: `unverified — guard files are person-only.`** The assistant cannot apply
-the patch, so it cannot run `node guard/selftest.mjs` against the patched rules. That run is the
-owner's, and it is the one that counts.
+Two kinds of evidence, and they answer different questions.
 
-What the assistant *could* do, and did: load the draft rules into memory, compile them exactly as
-`loadRules()` does, and run the guard's own exported `evaluate()` against a matrix of commands —
-without writing to `guard/` at all. **24 of 24 behaved as intended.** The output is in the pull
+**1. The patched self-test, run in a scratch clone.** The patch is applied to a **temporary clone**
+outside the working tree, never to `guard/` here, and `node <clone>/guard/selftest.mjs` is run there.
+That is the owner's first post-apply step, run in advance. The output and exit code are in the pull
 request description.
 
-That is evidence about the patterns, not about the installed guard. Two things it does not show: that
-the patch applies (it does — `git apply --check` exits 0, which writes nothing), and that the guard is
-actually armed in a session, which only the arming probe shows.
+The first attempt at this **failed**, with the `deploy` example described in change 3 — which is the
+point of running it: the 33-case matrix below passed while the self-test did not, because the matrix
+tests commands chosen by hand and the self-test tests every example already in the file.
+
+**2. The `evaluate()` matrix, main versus patched.** The draft rules are loaded into memory, compiled
+exactly as `loadRules()` does, and run through the guard's own exported `evaluate()` alongside the rules
+on `main`, so each case shows what changes and what does not. **33 of 33 behave as intended.**
+
+Neither shows that the guard is actually *armed* in a live session. Only the arming probe shows that,
+and it needs a restart first.
 
 ### For the owner, after applying — in this order
 
