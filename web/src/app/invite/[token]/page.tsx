@@ -23,7 +23,12 @@ const REASON_MESSAGES: Record<InviteReason, string> = {
   not_found:
     "This invitation link is not valid. It may have been withdrawn, or the link may be incomplete — check you copied the whole thing from the email.",
   expired: `This invitation has expired. Invitations last ${INVITATION_DAYS} days — ask the team's owner to send a new one.`,
-  used: "This invitation has already been used. If that was you, the team is already on your My teams page.",
+  // Says only that it was used. It used to add "the team is already on your My
+  // teams page", which is false: My teams lists the teams a person OWNS, not the
+  // ones they belong to, until Build it 14. Somebody who had just accepted would
+  // have gone looking for a team that is not shown there yet and concluded the
+  // acceptance had failed.
+  used: "This invitation has already been used.",
   wrong_person:
     "This invitation was sent to a different email address. Sign in with the address it was sent to, then open the link again.",
   signin:

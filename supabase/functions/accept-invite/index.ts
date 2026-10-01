@@ -142,7 +142,7 @@ export default {
     // need.
     if (invitation.accepted_at !== null) {
       return fail(
-        "This invitation has already been used. If that was you, the team should already be on your My teams page.",
+        "This invitation has already been used.",
         409,
         "used",
       );
@@ -202,7 +202,7 @@ export default {
       const affected = Array.isArray(claimed) ? claimed.length : 0;
       if (affected === 0) {
         return fail(
-          "This invitation has just been used. If that was you, the team should already be on your My teams page.",
+          "This invitation has just been used.",
           409,
           "used",
         );
