@@ -140,17 +140,55 @@ tested commands I chose rather than the examples already in the file. The self-t
 ### 4. NEW `supabase-functions-deploy-target` (forbid) — owns `functions deploy`
 
 A bare `supabase functions deploy` targets whatever `supabase link` last pointed at, which the command
-does not say. This rule forbids any `functions deploy` unless `--project-ref` names staging in the same
-segment.
+does not say. This rule forbids any `functions deploy` unless the **whole command** is one strict shape
+whose `--project-ref` names staging.
+
+```
+^(?!\s*(?:npx\s+)?supabase(?:@[\w.-]+)?\s+functions\s+deploy[^#|;&$`()<>\r\n]*\s--project-ref[=\s]+{{local:staging_patterns}}(?=\s|$)[^#|;&$`()<>\r\n]*$)[\s\S]*\bfunctions\s+deploy\b
+```
+
+**This is the second attempt. The first had the same flaw as the `db push` draft, and the re-review found
+it.** It read:
 
 ```
 \bfunctions\s+deploy\b(?![^|;&]*--project-ref[=\s]+["']?{{local:staging_patterns}})
 ```
 
-**Ordering matters, and it fails closed.** The lookahead inspects the text *after* `functions deploy`,
-so `--project-ref` must come after it — which is where the CLI's own documented example puts it. Write
-the flag first and the guard blocks the command. That is the safe direction, and worth knowing rather
-than being surprised by.
+That accepted the staging ref **anywhere later in the text**, so a bare `functions deploy` — the one case
+the rule exists to stop — was exempted by a staging ref that had nothing to do with it:
+
+| command | first draft | now |
+|---|---|---|
+| `functions deploy` *newline* `functions deploy --project-ref <staging>` | allow | forbid |
+| `functions deploy # --project-ref <staging>` | allow | forbid |
+| `functions deploy x --import-map "--project-ref <staging>"` | allow | forbid |
+
+It was worse than merely wrong, because removing the alternative from `deploy` (change 3) had turned
+those three from `ask` into `allow`. Narrowing one rule had widened another.
+
+The exemption now has the same discipline as the production carve-out:
+
+- **no `#`, newline, CR, `$`, backtick, `(`, `)`, `<`, `>`, `|`, `;` or `&`** anywhere in the command;
+- **`--project-ref` must be a real flag**, immediately preceded by whitespace — which is what disqualifies
+  `--import-map "--project-ref <staging>"`, where the character before the flag is a quote;
+- **the ref must end at whitespace or the end of the command**, so `--project-ref <staging>x` does not
+  pass on the strength of a shared prefix.
+
+Three of those cases are caught through the **raw** command text rather than the normalised one, which is
+worth knowing: `normalizeCommand()` strips quotes and collapses whitespace, so in the normalised subject
+`--import-map "--project-ref S"` does look like a genuine flag. The guard tests every subject and forbids
+if **any** of them matches, so the raw text is what settles it. That is the mechanism the whole patch
+leans on, and it only works in this direction — toward forbidding.
+
+**Ordering matters, and it fails closed.** The exemption reads one fixed shape, `supabase … functions
+deploy … --project-ref <staging>`, which is where the CLI's own documented example puts the flag. Write
+`supabase --project-ref <staging> functions deploy` and the guard blocks it. Note the matrix column: that
+command was **allow** on `main`, because `deploy`'s pattern required `functions` and `deploy` to be
+adjacent to `supabase`. Blocking it is the safe direction.
+
+**Both carve-outs depend on `^` meaning start-of-string, not start-of-line.** `guard.mjs` line 104
+defaults `flags` to `'i'` and never sets `'m'`, so it does. A rule that ever set `flags: "im"` would
+reopen every newline bypass in this patch at a stroke. Worth a comment if that option is ever used.
 
 ### 5. `production-access` — carve out exactly one production command
 
@@ -218,12 +256,19 @@ That is the owner's first post-apply step, run in advance. The output and exit c
 request description.
 
 The first attempt at this **failed**, with the `deploy` example described in change 3 — which is the
-point of running it: the 33-case matrix below passed while the self-test did not, because the matrix
-tests commands chosen by hand and the self-test tests every example already in the file.
+point of running it: the matrix passed while the self-test did not, because the matrix tests commands
+chosen by hand and the self-test tests every example already in the file.
 
 **2. The `evaluate()` matrix, main versus patched.** The draft rules are loaded into memory, compiled
 exactly as `loadRules()` does, and run through the guard's own exported `evaluate()` alongside the rules
-on `main`, so each case shows what changes and what does not. **33 of 33 behave as intended.**
+on `main`, so each case shows what changes and what does not. **44 of 44 behave as intended.**
+
+**Both kinds of evidence missed something, twice, and the same lesson applies to both.** The matrix
+missed the self-test failure because it only tests cases somebody thought of; and the matrix as first
+written missed the staging-exemption bypasses because the cases it contained were the ones the pattern
+was built to pass. Each fault was found by someone reading the pattern adversarially and asking what
+the character class does **not** stop. The three bypass tables in changes 4 and 5 exist so that those
+questions stay answered in the file rather than having to be re-asked.
 
 Neither shows that the guard is actually *armed* in a live session. Only the arming probe shows that,
 and it needs a restart first.

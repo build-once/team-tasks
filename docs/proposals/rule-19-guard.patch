@@ -24,10 +24,12 @@ index dfa23d8..b2df2f7 100644
 \ No newline at end of file
 
 diff --git a/guard/rules.json b/guard/rules.json
-index 9f100f0..01f3149 100644
+index 9f100f0..b4d9364 100644
 --- a/guard/rules.json
 +++ b/guard/rules.json
-@@ -131,28 +131,43 @@
+@@ -129,32 +129,47 @@
+     },
+     {
        "id": "production-access",
        "decision": "forbid",
        "tools": [
@@ -75,7 +77,11 @@ index 9f100f0..01f3149 100644
      {
        "id": "push-to-main",
        "decision": "forbid",
-@@ -644,23 +659,110 @@
+       "tools": [
+         "Bash"
+@@ -642,27 +657,122 @@
+           "supabase migration repair --status applied 20260101000000 --linked",
+           "npx prisma migrate deploy",
            "psql postgresql://postgres:pw@db.example.supabase.co:5432/postgres -c 'select 1'",
            {
              "tool": "PowerShell",
@@ -105,8 +111,8 @@ index 9f100f0..01f3149 100644
 +      "tools": [
 +        "Bash"
 +      ],
-+      "pattern": "\\bfunctions\\s+deploy\\b(?![^|;&]*--project-ref[=\\s]+[\"']?{{local:staging_patterns}})",
-+      "reason": "Rule 19: you may deploy functions to STAGING only, and only when --project-ref names the staging project in the same command. A bare `functions deploy` targets whatever `supabase link` last pointed at, which this command does not say. Production functions reach production through a pull request the owner merges.",
++      "pattern": "^(?!\\s*(?:npx\\s+)?supabase(?:@[\\w.-]+)?\\s+functions\\s+deploy[^#|;&$`()<>\\r\\n]*\\s--project-ref[=\\s]+{{local:staging_patterns}}(?=\\s|$)[^#|;&$`()<>\\r\\n]*$)[\\s\\S]*\\bfunctions\\s+deploy\\b",
++      "reason": "Rule 19: you may deploy functions to STAGING only, and only when the whole command is a single line whose --project-ref flag names the staging project -- no #, newline, command substitution, redirection or second command. A bare `functions deploy` targets whatever `supabase link` last pointed at, which this command does not say. Production functions reach production through a pull request the owner merges.",
 +      "lesson": "Book 1 A23",
 +      "examples": {
 +        "should_match": [
@@ -114,7 +120,15 @@ index 9f100f0..01f3149 100644
 +          "supabase functions deploy create-team",
 +          "supabase functions deploy send-email",
 +          "npx supabase functions deploy --project-ref qnupjabyowxnnwxalcid",
-+          "supabase functions deploy --use-api"
++          "supabase functions deploy --use-api",
++          "supabase functions deploy\nsupabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy\r\nsupabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy # --project-ref ghskxrhqlhvrhpnivqbd",
++          "supabase functions deploy x --import-map \"--project-ref ghskxrhqlhvrhpnivqbd\"",
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbdx",
++          "supabase --project-ref ghskxrhqlhvrhpnivqbd functions deploy",
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd | tee out.txt",
++          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd && supabase functions deploy"
 +        ],
 +        "should_not_match": [
 +          "supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd",
@@ -187,7 +201,11 @@ index 9f100f0..01f3149 100644
        "tools": [
          "Bash"
        ],
-@@ -758,30 +860,31 @@
+       "pattern": "--dangerously-skip-permissions\\b|--dangerously-bypass-approvals|--permission-mode[= ]bypassPermissions\\b|\\bbypassPermissions\\b|\\bdisableAllHooks\\b|\\s--yolo\\b",
+       "reason": "This switches off the assistant's permission prompts or hooks, which removes the safety net this kit adds.",
+@@ -756,34 +866,35 @@
+       }
+     },
      {
        "id": "deploy",
        "decision": "ask",
@@ -222,3 +240,5 @@ index 9f100f0..01f3149 100644
      {
        "id": "mcp-risky-actions",
        "decision": "ask",
+       "tools": [
+         "mcp__*"
