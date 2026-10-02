@@ -19,7 +19,9 @@
 #      the secrets are unreachable from any other ref;
 #   3. the action's own check -- it refuses an actor without write access to the
 #      repository (src/entrypoints/run.ts, `checkWritePermissions`);
-#   4. the guard in .claude/hooks/ -- it runs inside the Action, same as locally.
+#   4. the guard in .claude/hooks/ -- it runs inside the Action, same as locally,
+#      but on a pull request it enforces THAT BRANCH's guard/rules.json, not
+#      main's. Read the next section before relying on it; see #66.
 # Each is written down here because any one of them could be loosened by a future
 # edit to one line, and the others are what makes that survivable.
 #
@@ -44,18 +46,50 @@
 # self-contained. So the hooks in this repository's .claude/settings.json are
 # loaded, because the checkout IS the working directory.
 #
-# Three things follow, and all three happen to go our way:
+# Three things follow. Two go our way. The middle one does NOT, and it is a
+# limitation of this setup rather than a feature of it.
 #
-#   * On a PULL REQUEST the action replaces `.claude/` with the version from the
-#     pull request's BASE branch before Claude starts, and keeps the
-#     branch-authored copy under `.claude-pr/` for reading only (docs/security.md
-#     lists `.claude/` first in that fixed set). So a branch cannot weaken its
-#     own guard: the guard that runs is `main`'s.
-#   * guard.mjs finds its rules from its own file location, not from the current
-#     directory -- "It is worked out from the script's own absolute location,
-#     never from the current working directory, so a `cd` cannot move it"
-#     (.claude/hooks/guard.mjs, the comment on `ROOT`). guard/rules.json and
-#     guard/local.json are both committed, so they are in the checkout.
+#   * THE GUARD SCRIPT on a pull request is main's. The action replaces
+#     `.claude/` with the version from the pull request's BASE branch before
+#     Claude starts, keeping the branch-authored copy under `.claude-pr/` for
+#     reading only (docs/security.md lists `.claude/` first in that fixed set).
+#     So .claude/settings.json and .claude/hooks/guard.mjs cannot be edited by
+#     the very branch being worked on.
+#
+#   * THE RULES IT ENFORCES ARE NOT. An earlier version of this comment claimed
+#     "a branch cannot weaken its own guard: the guard that runs is main's".
+#     That was WRONG, and wrong in the dangerous direction. `SENSITIVE_PATHS` at
+#     the pinned commit is exactly `.claude`, `.mcp.json`, `.claude.json`,
+#     `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky`.
+#     `guard/` is NOT in it. guard.mjs loads `resolve(ROOT, 'guard',
+#     'rules.json')` and `guard/local.json` from the working tree, and on a pull
+#     request the working tree is the PR HEAD. So the script is main's and the
+#     rules beside it are the branch's.
+#
+#     The action's own docblock warns about exactly this shape: "A base-branch
+#     hook or setting that calls out through files a PR can change ... therefore
+#     runs whatever the PR head provides. Keep restored hooks self-contained"
+#     (src/github/operations/restore-config.ts). Our hook is not
+#     self-contained -- it reads its configuration from the checkout.
+#
+#     Two levers, not one. A branch could weaken guard/rules.json; or leave it
+#     alone and edit guard/local.json, where `production_patterns` is what the
+#     `production-access` rule expands to -- changing that stops production being
+#     recognised as production while rules.json still looks untouched.
+#     AGENTS.md is in the same position. That exposure is smaller than it looks,
+#     because CLAUDE.md IS restored from base and repeats all nineteen rules
+#     inline; but docs/plan.md, which CLAUDE.md imports, is not restored either.
+#
+#     Which way it fails matters: an INVALID or missing rules file fails closed,
+#     because loadRules throws and guard.mjs turns every internal error into
+#     exit 2. A VALID BUT WEAKER one does not. That asymmetry is the bug.
+#
+#     UNTIL #66 IS FIXED, THE RULE IS: do not write `@claude` on a pull request
+#     whose branch changes `guard/` or `AGENTS.md`. Nothing in this file
+#     enforces that. It is a habit, which is the weakest kind of control, and
+#     saying so plainly is the point -- #66 exists to replace it with something
+#     that holds. A real fix is a guard change, so it is the owner's (rule 5).
+#
 #   * If the hook cannot run at all, the tool call is BLOCKED rather than
 #     allowed. .claude/settings.json invokes it as
 #     `node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs" || exit 2`, and
@@ -246,6 +280,15 @@ jobs:
       # claude_code_oauth_token: the Claude credential, from the `claude`
       # environment. Never written into this file (docs/security.md,
       # "Authentication Protection").
+      #
+      # RESIDUAL RISK, worth naming because it is the one credential here that
+      # outlives the run. The app token above is revoked when the job finishes;
+      # this one is long-lived and sits in the job's environment for the whole
+      # session. If prompt injection ever got through, this is what an attacker
+      # would still hold afterwards -- and it spends the owner's subscription, so
+      # a leak is a billing incident as well as an access one. Nothing in this
+      # file can shorten its life: rotating it is the owner's lever, in the
+      # `claude` environment. See docs/secrets.md.
       #
       # include_comments_by_actor: info423 -- the one defence here against
       # untrusted text. Its exact documented meaning, from the action's own

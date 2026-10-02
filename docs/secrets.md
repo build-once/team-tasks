@@ -158,6 +158,19 @@ scrapers watch new public commits for exactly that.
     from editing its own cage, and it is a property of the app's settings, not of any file here.
   - `CLAUDE_CODE_OAUTH_TOKEN` — the Claude credential the action authenticates with. Spends the
     owner's subscription, so treat a leak as a billing incident as well as an access one.
+    **The one credential in a level-2 run that outlives the run.** `APP_PRIVATE_KEY` is never used
+    directly by Claude — it mints an installation token that `create-github-app-token` revokes when
+    the job ends. This one is long-lived and sits in the job's environment for the whole session, so
+    if prompt injection ever got through, this is what would still be held afterwards. Nothing in
+    `claude.yml` can shorten its life; **rotating it is the only lever**, and it is the owner's:
+    **Settings → Environments → claude**.
+
+  **A known limitation of the guard on pull requests, recorded here because this is where someone
+  reads about level 2.** The guard runs inside the Action, but on a pull request it enforces *that
+  branch's* `guard/rules.json`, not `main`'s — the action restores `.claude/` from the base branch
+  and `guard/` is not in the list it restores. So until #66 is fixed: **do not write `@claude` on a
+  pull request whose branch changes `guard/` or `AGENTS.md`.** The full explanation, with the
+  evidence, is in the header of `.github/workflows/claude.yml` and in #66.
 
   **Not the official Claude app.** Level 2 uses our own app so the permission list is ours. The
   official app (<https://github.com/apps/claude>) requests Workflows read-write among others; the
