@@ -191,7 +191,7 @@ branches are limited to `main`, with no reviewers and no wait timer. They are de
 repository Actions secrets. A repository secret is readable by a workflow running on *any* branch, and
 a workflow file is only a file in that branch — so whoever can push a branch can push a job that reads
 production's credentials. Limiting the environment to `main` means a job that names it gets nothing
-unless the run is on `main`. Both jobs in `migrate-production.yml` therefore carry
+unless the run is on `main`. All three jobs in `migrate-production.yml` therefore carry
 `environment: supabase-production`. The workflow already triggers only on a push to `main`, so this is
 a second lock on the same door — which is the point, because the trigger is a line in a file and the
 branch list is enforced by GitHub whatever the file says.
@@ -203,13 +203,37 @@ these and is not used by this workflow.
 |---|---|---|
 | **`PRODUCTION_SUPABASE_DB_URL`** | The production **database**, and nothing else. Production's Session pooler connection string, password percent-encoded | `migrate` only |
 | **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** | **In effect, all production data.** A Supabase *scoped* personal access token for the production project, with the **Edge Functions Read-write** permission — but deploying a function means deploying code, and that code runs with the production secret keys, which bypass row-level security. Treat it as equal in power to the connection string, not lesser. See below for what the scoping does limit | `deploy-functions` only |
-| **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions` only |
+| **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions` and `smoke-test` |
 
-The two jobs are separate so that each credential is visible to one job and not the other: steps
-inside a single job share an environment, so splitting the jobs is what makes the separation real
-rather than merely tidy. `deploy-functions` also has `needs: migrate`, so functions are only deployed
-onto a database that has already been migrated. That separation limits what one leaked credential
-exposes; it does **not** make either job the safer one.
+The two credential-holding jobs are separate so that each credential is visible to one job and not the
+other: steps inside a single job share an environment, so splitting the jobs is what makes the
+separation real rather than merely tidy. `deploy-functions` also has `needs: migrate`, so functions are
+only deployed onto a database that has already been migrated. That separation limits what one leaked
+credential exposes; it does **not** make either job the safer one.
+
+### One environment variable, which is not a secret
+
+The same environment also holds **one configuration variable**, under **Environment variables** rather
+than Environment secrets:
+
+| Variable | What it is | Which job uses it |
+|---|---|---|
+| **`PRODUCTION_SITE_URL`** | The full `https` address of the production home page, which the smoke test fetches expecting 200. Not a credential — it grants nothing | `smoke-test` only |
+
+It is a variable because it is not secret, and it lives in the environment rather than this file for the
+reason the rest of this document gives: the production address is deliberately not written down in the
+repository. **Being a variable has one cost worth knowing.** GitHub masks secrets in run logs; it does
+not mask variables, and this repository's run logs are public. So `smoke-test` never prints it — not in
+a message, not in a success line, and not through curl, which is run with `-s` and deliberately without
+`-S` because curl's own error text names the host it could not reach.
+
+**The third job, `smoke-test`, holds no credential at all.** It reads the project ref, to build the
+function URLs, and this variable, to fetch the home page. Every request it makes is a stranger's
+request — no key, no token, no cookie, nothing that writes — because being signed out is precisely what
+it is testing: every function must answer a signed-out POST with HTTP 401 and the code
+`UNAUTHORIZED_NO_AUTH_HEADER`, which is the platform refusing before the function's own code runs. A
+401 from the function's own code instead would mean `verify_jwt` was off and the request reached the
+handler, so the job checks the code as well as the status.
 
 ### What the access token can actually do
 

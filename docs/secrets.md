@@ -114,8 +114,8 @@ scrapers watch new public commits for exactly that.
   names it only gets the secrets when the run is on `main`. That matters more now than it did, because
   an automated actor that can push branches is coming (level 2).
 
-  Both jobs in `migrate-production.yml` carry `environment: supabase-production` for this reason. That
-  workflow only triggers on a push to `main`, so the environment is a second lock on the same door
+  All three jobs in `migrate-production.yml` carry `environment: supabase-production` for this reason.
+  That workflow only triggers on a push to `main`, so the environment is a second lock on the same door
   rather than the only one — which is the point: the trigger is one line that a future edit could
   widen, and the branch list is enforced by GitHub regardless of what the file says.
 
@@ -130,7 +130,14 @@ scrapers watch new public commits for exactly that.
     database; that was wrong. What the scoping limits: no staging, no other project in the account, no
     account settings, and nothing but Edge Functions through the Management API.
   - `PRODUCTION_SUPABASE_PROJECT_REF` — names the project to deploy to. Not a credential on its own;
-    kept secret to keep the production project id out of the repository.
+    kept secret to keep the production project id out of the repository. Used by `deploy-functions`
+    and by `smoke-test`, which builds the function URLs from it.
+
+  **The same environment also holds one plain variable, not a secret**, under *Environment variables*:
+  `PRODUCTION_SITE_URL`, the production home page address that the `smoke-test` job fetches expecting
+  200. It grants nothing, so it is not in the list above. It is still never printed: GitHub masks
+  secrets in run logs but **not** variables, and this repository's run logs are public. See
+  `docs/environments.md` → *One environment variable, which is not a secret*.
 
   The sentence above about "an automated actor that can push branches is coming" is no longer about
   the future: that is level 2, and it is the next entry.

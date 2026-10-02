@@ -1,6 +1,7 @@
 # migrate-production.yml -- brings PRODUCTION up to date after a merge: applies
-# the migrations in supabase/migrations/, then deploys the server functions in
-# supabase/functions/.
+# the migrations in supabase/migrations/, deploys the server functions in
+# supabase/functions/, then checks from outside that the result answers
+# correctly.
 #
 # This is the only thing in this repository that writes to production, and it is
 # deliberately the dullest file here.
@@ -15,7 +16,8 @@
 #   * Third-party actions are pinned to an exact commit SHA, version in a comment.
 #
 # About the connection:
-#   Two jobs, two credentials, and neither job can reach the other's.
+#   Three jobs. Two of them hold one credential each and neither can reach the
+#   other's; the third holds none at all.
 #
 #   The `migrate` job uses ONLY the database connection string,
 #   PRODUCTION_SUPABASE_DB_URL. That has not changed. It reaches one database and
@@ -49,6 +51,11 @@
 #   a scoped token is that the reach is confined to ONE project -- not that it
 #   excludes that project's data, because it does not.
 #
+#   The `smoke-test` job holds NO credential. It reads the project ref, to build
+#   the function URLs, and the site address, to fetch the home page -- neither of
+#   which grants anything. Every request it makes is a stranger's request, which
+#   is the whole point of it: it is checking that a stranger gets refused.
+#
 #   `supabase link` is deliberately NOT used. Linking needs permissions this token
 #   does not have, so `functions deploy --project-ref` names the project directly
 #   instead. See docs/environments.md and docs/secrets.md.
@@ -76,10 +83,11 @@ permissions: {}
 # beside the first, is the worst outcome here -- so a run in progress is never
 # cancelled, and the next one waits its turn.
 #
-# Unchanged by the second job, and worth saying why: this is workflow-level, so
-# the group covers the whole run -- migrate and deploy-functions together. Two
-# merges in quick succession cannot interleave a migration from one with a
-# function deploy from the other.
+# Unchanged by the jobs added since, and worth saying why: this is
+# workflow-level, so the group covers the whole run -- migrate, deploy-functions
+# and smoke-test together. Two merges in quick succession cannot interleave a
+# migration from one with a function deploy from the other, and cannot have one
+# run's smoke test reading a half-deployed production.
 concurrency:
   group: migrate-production
   cancel-in-progress: false
@@ -266,3 +274,207 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
         run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --use-api --yes
+
+  # Proves from OUTSIDE that production answers correctly, after the deploy.
+  #
+  # WHY THIS EXISTS. A green `deploy-functions` proves the deploy COMMAND
+  # succeeded. It does not prove the result answers anything. The two jobs above
+  # could both be green while production returns 500 to every caller, or -- worse
+  # -- while a function happily serves a signed-out stranger.
+  #
+  # WHAT IT CHECKS, and nothing else:
+  #   1. Every function in supabase/functions/ refuses a POST that carries no
+  #      Authorization header, with HTTP 401 and the code
+  #      UNAUTHORIZED_NO_AUTH_HEADER.
+  #   2. The production home page answers HTTP 200.
+  #
+  # The function list is built from the FOLDER, not written here, so a function
+  # added to supabase/functions/ is checked from its first deploy without anybody
+  # remembering to edit this file -- the same reason `functions deploy` names no
+  # function above. A folder whose name starts with _ is skipped, because that is
+  # Supabase's convention for shared code rather than a function; there is none
+  # today.
+  #
+  # WHY 401 IS NOT ENOUGH ON ITS OWN, and why the code is checked too. There are
+  # two different ways a signed-out call can come back 401:
+  #   * the PLATFORM refuses it, before the function's code runs. That is
+  #     verify_jwt = true doing its job, and it answers
+  #     {"code":"UNAUTHORIZED_NO_AUTH_HEADER","message":"Missing authorization
+  #     header"} -- recorded from production in evidence/create-team.md
+  #     (2026-09-30) and again for two more functions in evidence/invitations.md.
+  #   * the FUNCTION'S OWN CODE refuses it, because the request reached the
+  #     handler -- which is what happens when verify_jwt is false. create-team's
+  #     handler returns `fail("You must be signed in to create a team.", 401)` at
+  #     index.ts line 72 for exactly that case, and withSupabase({auth:"user"})
+  #     refuses too. Those answers are 401 with a DIFFERENT body and no
+  #     UNAUTHORIZED_NO_AUTH_HEADER code.
+  # Both are refusals, so a check that only looked at the status would pass in
+  # both cases -- and the second case is a function deployed with verify_jwt
+  # switched off, which is the exact mistake this job is here to catch. The code
+  # is what tells them apart.
+  #
+  # NO CREDENTIALS. Every request here is the request of a stranger: no key, no
+  # token, no cookie, no signed-in call, and nothing that writes. That is not a
+  # limitation to work around -- being signed out IS the thing under test. The
+  # only two settings it reads are the project ref and the site address, and
+  # neither is a credential.
+  #
+  # WHAT IT NEVER PRINTS. Run logs on this repository are public, because the
+  # repository is.
+  #   * The project ref arrives through env: from a secret, so GitHub masks it,
+  #     and the URL is never echoed.
+  #   * The site address arrives through env: from an environment VARIABLE, and
+  #     variables are NOT masked. So it is never echoed either -- not in a
+  #     message, not in a success line, and not by curl: `-s` without `-S` is
+  #     deliberate, because curl's own error text names the host it could not
+  #     reach ("Could not resolve host: ..."). The exit code is reported instead.
+  #   * No response body. Only the HTTP status, and the `code` field pulled out
+  #     with jq -- and even that is printed only when it is a plain identifier,
+  #     so a body carrying anything else cannot arrive in the log through it.
+  #
+  # Docs read for this job rather than remembered:
+  #   * the function URL shape, "https://[YOUR_PROJECT_ID].supabase.co/functions/
+  #     v1/hello-world" -- https://supabase.com/docs/guides/functions/quickstart
+  #   * verify_jwt defaults to true and "the platform validates the JWT before
+  #     your handler runs" -- https://supabase.com/docs/guides/functions/auth
+  #   * the vars context, "${{ vars.VARIABLE_NAME }}", and "If a configuration
+  #     variable has not been set, the return value of a context referencing the
+  #     variable will be an empty string" -- which is why the check below exists:
+  #     https://docs.github.com/en/actions/learn-github-actions/variables
+  # jq and curl are both already on the runner image; ci.yml's `required` job
+  # uses jq the same way.
+  smoke-test:
+    name: Smoke-test production from outside
+    needs: deploy-functions
+    runs-on: ubuntu-latest
+    environment: supabase-production
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The same shape as the two checks in deploy-functions, for the same
+      # reason: a secret that was deleted, renamed or never created expands to an
+      # empty string rather than raising an error. Only the NAME is printed.
+      - name: Check the production project ref is set
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: |
+          set -u
+          value="${SUPABASE_PROJECT_REF-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The GitHub Actions secret PRODUCTION_SUPABASE_PROJECT_REF is missing or empty, so nothing was smoke-tested. Set it at Settings -> Environments -> supabase-production. Its value is never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_PROJECT_REF is set. Its value is not printed."
+
+      # PRODUCTION_SITE_URL is a VARIABLE, not a secret -- the site address is
+      # not a credential. It is still not printed, because this log is public and
+      # the address is deliberately absent from this repository
+      # (docs/environments.md). An unset variable reads as an empty string, so
+      # without this step the next one would curl "" and report a bare 000 that
+      # never names the setting.
+      - name: Check the production site address is set
+        env:
+          SITE_URL: ${{ vars.PRODUCTION_SITE_URL }}
+        run: |
+          set -u
+          value="${SITE_URL-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The environment variable PRODUCTION_SITE_URL is missing or empty, so the site was not checked. Add it at Settings -> Environments -> supabase-production -> Environment variables, as the full https address of the production home page. It is a variable, not a secret; its value is still never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SITE_URL is set. Its value is not printed."
+
+      - name: Every server function refuses a signed-out call
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: |
+          set -u
+          checked=0
+          failed=0
+
+          for dir in supabase/functions/*/; do
+            # Without a match the glob stays literal, so this also covers "no
+            # functions at all" -- which the count below turns into a failure.
+            [ -d "$dir" ] || continue
+            name="$(basename "$dir")"
+
+            # A folder whose name starts with _ is shared code, not a function:
+            # "You can store any shared code in a folder prefixed with an
+            # underscore (_)" --
+            # https://supabase.com/docs/guides/functions/development-tips
+            # There is no such folder today. Skipping it here means adding one
+            # later cannot turn this job red for a 404 on something that was
+            # never deployed as a function.
+            case "$name" in
+              _*) echo "SKIP  $name: a folder prefixed with _ is shared code, not a function."; continue ;;
+            esac
+
+            checked=$((checked + 1))
+
+            body="$(mktemp)"
+            # No Authorization header, no apikey, no body. --max-time so a hang
+            # cannot eat the job's ten minutes. -s and NOT -S on purpose: see the
+            # comment above this job.
+            curl_exit=0
+            status="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 \
+              -X POST "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${name}")" || curl_exit=$?
+
+            # stderr to /dev/null: jq's parse errors can quote the text they
+            # choked on, and that text is a response body.
+            code="$(jq -r '.code // empty' "$body" 2>/dev/null || true)"
+            rm -f "$body"
+
+            # Printed only if it is a plain identifier, so nothing else from a
+            # body can reach this log through the code field.
+            case "$code" in
+              *[!A-Za-z0-9_]*|"") shown="(not a plain identifier; not printed)" ;;
+              *) shown="$code" ;;
+            esac
+
+            if [ "$status" = "401" ] && [ "$code" = "UNAUTHORIZED_NO_AUTH_HEADER" ]; then
+              echo "PASS  $name: HTTP 401, code UNAUTHORIZED_NO_AUTH_HEADER -- the platform refused before the function ran."
+            elif [ "$status" = "401" ]; then
+              echo "::error::FAIL  $name was refused with HTTP 401, but the code was $shown, not UNAUTHORIZED_NO_AUTH_HEADER. A 401 from the function's own code instead of the platform is what verify_jwt = false looks like: the request reached the handler. Check [functions.$name] in supabase/config.toml and that the deploy did not pass --no-verify-jwt."
+              failed=1
+            elif [ "$status" = "000" ]; then
+              echo "::error::FAIL  $name could not be reached at all (curl exit $curl_exit, no HTTP status). The address is built from PRODUCTION_SUPABASE_PROJECT_REF and is not printed. curl exit 28 is a timeout, 6 is a DNS failure, 7 is a refused connection."
+              failed=1
+            else
+              echo "::error::FAIL  $name answered HTTP $status to a signed-out POST, expected 401. Anything in the 2xx range means the function RAN for a caller with no token at all -- treat that as a live hole and not a flaky check. 404 means the function is not deployed under this name."
+              failed=1
+            fi
+          done
+
+          # A check that had nothing to check is not a pass (AGENTS.md rule 8).
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::No function folders were found under supabase/functions/, so NOTHING was checked. That is a failure, not a pass: either the checkout is wrong or the folder moved."
+            exit 1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::$checked function(s) were checked and at least one did not refuse a signed-out call correctly. The per-function message above says which."
+            exit 1
+          fi
+          echo "All $checked function(s) refused a signed-out POST with HTTP 401 and code UNAUTHORIZED_NO_AUTH_HEADER."
+
+      # Redirects are deliberately NOT followed (no -L). The point is that the
+      # address the owner recorded answers the app itself, so a 3xx is a finding:
+      # it means PRODUCTION_SITE_URL should be set to whatever it redirects to.
+      - name: The production site answers
+        env:
+          SITE_URL: ${{ vars.PRODUCTION_SITE_URL }}
+        run: |
+          set -u
+          curl_exit=0
+          status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$SITE_URL")" || curl_exit=$?
+
+          if [ "$status" != "200" ]; then
+            echo "::error::The production home page answered HTTP $status, expected 200 (curl exit $curl_exit). The address came from the environment variable PRODUCTION_SITE_URL and is not printed. 000 means it could not be reached at all -- curl exit 28 is a timeout, 6 a DNS failure, 7 a refused connection. A 3xx means the address redirects: set the variable to the address it redirects to. 401 or 403 usually means Vercel Deployment Protection is switched on for production, or the variable points at a preview deployment rather than production."
+            exit 1
+          fi
+          echo "The production home page answered HTTP 200. Its address is not printed."
