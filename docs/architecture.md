@@ -221,8 +221,27 @@ both replacements return every row the old rule returned:
 of the team (`docs/plan.md`), and a member-level read there would leak exactly what that decision
 protects.
 
-The same migration adds the **one write rule that is not a server function**: a team's **owner** may
-delete a `team_members` row, which is how a member is removed. It needs a single fact about the row
+**What the screens do with all that** — Build it 14 part B, issue #80, folding in #76.
+`web/src/app/teams/page.tsx` reads three of the pieces above: `teams` for the list of teams,
+`team_roster` for each team's members list, and `profiles` for the signed-in person's own nickname.
+The roster is read three columns at a time — `team_id` to group the rows, `display_name` and `role` to
+draw each line — and never with a star, so a column the view grows later cannot arrive on a screen
+nobody has looked at.
+
+Because the select rule on `teams` now returns the teams a person **belongs to** as well as the teams
+they **own**, that page can no longer treat one list as both. It splits them by comparing
+`teams.owner_id` with the signed-in person's id, and the owner-only parts — the invite box, the waiting
+invitations, and the count toward "at most 3 teams" — hang off the owned list only. Before that split,
+a member was offered an invite box that `invite-member` could only refuse (HTTP 403), and the limit
+note counted teams somebody merely belonged to.
+
+Saving that nickname is the **only write any screen makes straight to a table**: every other write the
+app performs goes through a server function holding the secret key. It can, for the same reason
+`profiles` is the one table with write policies — a nickname needs no count of other rows.
+
+The same migration adds a second write rule that is not a server function, which **no screen uses
+yet**: a team's **owner** may delete a `team_members` row, which is how a member would be removed. It
+needs a single fact about the row
 being deleted — who owns its team — rather than a count of other rows, which is the line between what
 a policy does well and what needs a function. Nobody can *leave* a team of their own accord; that is
 on `docs/plan.md`'s not-built list and needs deciding rather than assuming.
