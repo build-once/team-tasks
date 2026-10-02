@@ -47,8 +47,27 @@ read-only connector action would have needed re-examining.
 
 ---
 
+## 2026-10-02
+
+Both entries below were by **the coach (claude.ai)**, through the **Supabase production (read-only)
+connector**, and both were **read-only**. They were run before the screens half of Build it 14 (issue
+#80) was written, to check that the schema it depends on was really live.
+
+**Where these two lines come from, and what that means.** They were written on 2 Oct 2026 by the
+assistant (Claude Code), **from the description in issue #80**, not from anything the assistant ran or
+saw. The assistant has no production access of any kind and did not watch these calls happen. The
+times are the ones the issue gives, approximate, BST. If the coach's own record disagrees with a line
+below, the coach's record is the one to trust.
+
+| Time (BST, approx.) | Who | What | Why | Result |
+|---|---|---|---|---|
+| ~13:04 | The coach (claude.ai), via the production read-only connector | `list_migrations` — read-only | Confirm part A's migration was live in production **before** any screen was built on top of it (Lesson E2: the schema goes first, and is checked, not assumed) | Production's migration list ends with `20261002122203 team_rules` |
+| ~13:04 | The coach (claude.ai), via the production read-only connector | `get_advisors`, security — read-only | Check what the migration did to production's security advice, rather than trusting that staging's reading carried over | **No** "Security Definer View" warning. `0029 authenticated_security_definer_function_executable` on `is_team_member` — **accepted as intentional**, for the reasons in `evidence/build-it-14-part-a.md` §3. Leaked password protection disabled — an Auth setting, **pre-existing**, older than this change |
+
+---
+
 ## Nothing written to production yet
 
-No entry above changed anything. **The assistant has never run a production command of any kind**, and
-rule 19's one permission — `supabase secrets set` against production — has not been used. The first
-time it is, it goes here, in that session, before the session ends.
+No entry above changed anything: every one is a read. **The assistant has never run a production
+command of any kind**, and rule 19's one permission — `supabase secrets set` against production — has
+not been used. The first time it is, it goes here, in that session, before the session ends.

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { EMAIL_MAX, NAME_MAX } from "@/lib/teams";
+import { DISPLAY_NAME_MAX, EMAIL_MAX, NAME_MAX } from "@/lib/teams";
 
 // How long an error message from the function may be before this trims it. The
 // message is shown on the page, and the page should not become a wall of text
@@ -75,6 +75,85 @@ export async function createTeam(formData: FormData) {
 
   revalidatePath("/teams");
   redirect("/teams?created=1");
+}
+
+// Save the signed-in person's display name: insert if they have no profile row,
+// update it if they do, and only ever their own row.
+//
+// THIS IS THE ONLY WRITE THE APP MAKES WITHOUT A SERVER FUNCTION, and the
+// migration that added profiles says why: creating a team, inviting somebody and
+// accepting an invitation each need a count of rows OTHER than the one being
+// written -- at most 3 teams, at most 20 pending, accepted exactly once -- which
+// is what a server function holding the secret key is for. Everything that must
+// be true of a nickname is true of the single row being written, which is what a
+// policy does well. So there is no function here, and no secret key: the two
+// policies "You can create your own profile" and "You can change your own
+// profile" are the check, and both pin user_id to auth.uid().
+export async function saveDisplayName(formData: FormData) {
+  const displayName = String(formData.get("display_name") ?? "").trim();
+
+  // Trimmed first, so a name of spaces is caught here rather than by
+  // profiles_display_name_not_blank, and so the stored value has no edges.
+  //
+  // Checked here so an obvious mistake costs no round trip. NOT the check that
+  // matters: profiles_display_name_length and profiles_display_name_not_blank
+  // are, and they count characters where JavaScript counts UTF-16 units -- so a
+  // name of emoji can pass this line and still be refused by the database. That
+  // refusal is reported rather than swallowed, below.
+  if (!displayName || displayName.length > DISPLAY_NAME_MAX) {
+    redirect("/teams?problem=yourname");
+  }
+
+  const supabase = await createClient();
+
+  // The id has to be in the insert: profiles.user_id is the primary key and has
+  // no default. It comes from getClaims(), which verifies the token's signature
+  // -- not from the form, and not from getSession(), which would trust a cookie
+  // anyone can forge. If it were wrong in either direction the insert policy
+  // would refuse it anyway, because its with check is (auth.uid() = user_id).
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+
+  if (claimsError || !userId) {
+    // Not "save failed": the session could not be read at all, so the honest
+    // next step is to sign in again.
+    redirect("/login");
+  }
+
+  // Update first, and let .select() report how many rows it touched.
+  //
+  // From the reference for update: "By default, updated rows are not returned.
+  // To return it, chain the call with .select() after filters."
+  // https://supabase.com/docs/reference/javascript/update
+  //
+  // Zero rows back means there is no profile row yet, which is the ordinary
+  // first-time case rather than an error -- so it falls through to the insert
+  // below. The .eq() is not what keeps this to one person's row (the update
+  // policy does that); it is here so the statement says plainly which row it
+  // means.
+  const { data: updated, error: updateError } = await supabase
+    .from("profiles")
+    .update({ display_name: displayName })
+    .eq("user_id", userId)
+    .select("user_id");
+
+  if (updateError) redirect("/teams?problem=profile");
+
+  if (!updated || updated.length === 0) {
+    const { error: insertError } = await supabase
+      .from("profiles")
+      .insert({ user_id: userId, display_name: displayName });
+
+    // Two of this person's own requests racing -- two tabs, or a double submit
+    // -- is the only way this can arrive after a row already exists, and then
+    // the primary key refuses it rather than anything being overwritten
+    // silently. That is the right way round: the page says it did not save, and
+    // saving again works, because by then the update above finds the row.
+    if (insertError) redirect("/teams?problem=profile");
+  }
+
+  revalidatePath("/teams");
+  redirect("/teams?named=1");
 }
 
 export async function inviteMember(formData: FormData) {

@@ -61,7 +61,8 @@ body {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   font-family: var(--font-display), Georgia, "Times New Roman", serif;
   font-weight: 700;
   line-height: 1.08;
@@ -74,6 +75,14 @@ h1 {
 
 h2 {
   font-size: 1.25rem;
+}
+
+/* My teams has two sections -- teams you own, teams you belong to -- so each
+   team's name sits one level below their headings. Without this rule an h3
+   would drop to the body font and read as a different kind of thing. */
+h3 {
+  font-size: 1.0625rem;
+  line-height: 1.15;
 }
 
 @media (min-width: 640px) {
@@ -134,6 +143,18 @@ svg {
   .card {
     padding: 20px;
   }
+}
+
+/* ------------------------------------------------- lists on the teams page */
+
+/* Only the team cards and each team's members list. Left side only, so the
+   vertical spacing from .stack and .card is left alone. Global ul and li are
+   untouched. */
+.team-list,
+.member-list {
+  list-style: none;
+  margin-left: 0;
+  padding-left: 0;
 }
 
 /* --------------------------------------------------------------- banners */
