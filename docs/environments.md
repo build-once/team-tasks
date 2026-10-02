@@ -171,9 +171,9 @@ Two things worth being exact about:
 
 **A permanent staging address is deferred to launch**, to be decided together with the production custom
 domain — because the two questions have one answer: once a real domain exists, staging takes a subdomain
-of it and production takes another. That also addresses **#48**'s link/sender mismatch, since serving the
-app from a subdomain of the `notify.raj-dhonota.com` sending domain makes the invitation link and the
-email's sender agree.
+of it and production takes another. That also would remove one of **#48**'s three unproven factors, since serving the
+app from the same registered domain as the sender (currently `raj-dhonota.com`, if that is the launch
+domain) makes the invitation link and the email's sender agree.
 
 Worth knowing alongside it: **staging invitation links only work for the project owner.** Vercel's
 Deployment Protection guards preview deployments, so opening a link in another browser or as another
