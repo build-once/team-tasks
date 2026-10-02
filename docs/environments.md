@@ -129,7 +129,7 @@ database and the functions are not served locally.
 |---|---|---|---|---|
 | `EMAIL_API_KEY` | **Secret** | Needed | Needed, a **different** value | The Resend API key. Each project has its own, with sending access limited to `notify.raj-dhonota.com`, so a leaked staging key cannot send as production |
 | `EMAIL_FROM` | Not secret, but not public either | Needed | Needed | The address invitations are sent from. `invite-member` refuses to send without it |
-| `APP_URL` | Not secret | Needed | Needed, a **different** value | The site's own address, used to build the `<APP_URL>/invite/<token>` link. **Only ever read from this setting, never from a request header** — a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an attacker owns, harvesting the token |
+| `APP_URL` | Not secret | Needed — currently `http://localhost:3000`, see below | Needed, a **different** value, and `https` | The site's own address, used to build the `<APP_URL>/invite/<token>` link. **Only ever read from this setting, never from a request header** — a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an attacker owns, harvesting the token |
 | `EMAIL_TEST_INBOX` | Not secret | **Needed** — every invitation email goes here instead of to the invited person | **Not set** | Where staging's invitation mail is redirected. Its presence *alone* is what redirects mail, and it **overrides `EMAIL_DELIVERY`**: if a test inbox is set, nothing reaches a real recipient |
 | `EMAIL_DELIVERY` | Not secret | **Not set** | **Needed**, exactly `live` | The only value that permits sending to a real recipient. Not `true`, not `Live`, not `1` — a delivery switch that accepts near-misses is one that turns itself on by accident |
 
@@ -141,21 +141,39 @@ names never heard about it. No setting's **value** is ever logged.
 `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are not in that table because nobody sets them: Supabase
 pre-populates both in every function's settings, and `withSupabase` reads them.
 
-### Staging's `APP_URL` is temporary, and will break on merge
+### Staging's `APP_URL` is `http://localhost:3000`
 
-**Staging's `APP_URL` currently points at the `feat/invitations` preview deployment.** That was the
-only address available while the feature was being tested: staging has no fixed web address of its own
-(see the "Web address" row at the top of this page — it is deliberately not written down, and no
-domain name has been chosen).
+Decided 2026-10-01 (**issue #47**) and set by the owner in the staging project's function settings.
 
-**A preview URL stops existing when its branch is merged and deleted.** So once `feat/invitations`
-goes, staging will keep sending invitation emails — the function has no way to know — and every link
-in them will point at a dead address. Nothing will warn anybody: `invite-member` reads `APP_URL`,
-finds a non-empty value, and sends. The email arrives looking perfectly normal and the link fails.
+It used to point at the `feat/invitations` preview deployment, which was the only address available
+while the feature was being built. That was going to break: a preview URL stops existing when its
+branch is merged and deleted, and staging would have carried on sending invitation emails whose links
+pointed nowhere. Nothing would have warned anybody — `invite-member` reads `APP_URL`, finds a non-empty
+value, and sends.
 
-**After the merge, the owner must set `APP_URL` in the staging project's function settings to a new
-value**, or staging invitations are untestable. Choosing a permanent address for staging is
-**issue #47** rather than a guess made here.
+**Why localhost.** It is **stable**: it belongs to no branch, so no merge or deletion can take it away.
+That removes the rot entirely, which a second preview URL would only have postponed.
+
+**What it costs.** A staging invitation link now starts `http://localhost:3000/invite/<token>`, which
+works only on a machine running `next dev`. It is not a link anybody can click straight from the email.
+
+**How to use it.** When testing against a Vercel preview, **swap the start of the link by hand**: take
+the `/invite/<token>` part and paste it after the preview's address. The token is the only part that
+matters — the host is a prefix.
+
+Two things worth being exact about:
+
+- **It is `http://`, not `https://`.** Correct for localhost, and it **must not** be copied to
+  production, which is `https`. The two environments hold different values, which is the whole point of
+  the table above.
+- **"Never a dead address" is not "a working link".** The claim is that the *setting* cannot go stale.
+  It is not that the link resolves to the app for whoever opens it.
+
+**A permanent staging address is deferred to launch**, to be decided together with the production custom
+domain — because the two questions have one answer: once a real domain exists, staging takes a subdomain
+of it and production takes another. That also would remove one of **#48**'s three unproven factors, since serving the
+app from the same registered domain as the sender (currently `raj-dhonota.com`, if that is the launch
+domain) makes the invitation link and the email's sender agree.
 
 Worth knowing alongside it: **staging invitation links only work for the project owner.** Vercel's
 Deployment Protection guards preview deployments, so opening a link in another browser or as another
