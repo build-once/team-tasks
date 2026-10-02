@@ -59,7 +59,7 @@ function MembersList({
         {entries.length === 1 ? "1 person" : `${entries.length} people`} in this
         team:
       </p>
-      <ul>
+      <ul className="member-list">
         {entries.map((entry, index) => (
           // The index is the key because no id is read for this list: the
           // columns selected are the ones shown, and a user id is not shown.
@@ -429,7 +429,7 @@ export default async function MyTeamsPage({
               {ownedTeams.length === 0 ? (
                 <p className="hint">You do not own a team yet.</p>
               ) : (
-                <ul className="stack">
+                <ul className="stack team-list">
                   {ownedTeams.map((team) => {
                     const pending = pendingByTeam.get(team.id) ?? [];
                     return (
@@ -528,7 +528,7 @@ export default async function MyTeamsPage({
                   You are not a member of anybody else&apos;s team.
                 </p>
               ) : (
-                <ul className="stack">
+                <ul className="stack team-list">
                   {memberTeams.map((team) => (
                     // Members list only. No invite box, no waiting
                     // invitations: both are the owner's, and the select policy

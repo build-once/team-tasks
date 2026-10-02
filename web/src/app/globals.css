@@ -145,6 +145,18 @@ svg {
   }
 }
 
+/* ------------------------------------------------- lists on the teams page */
+
+/* Only the team cards and each team's members list. Left side only, so the
+   vertical spacing from .stack and .card is left alone. Global ul and li are
+   untouched. */
+.team-list,
+.member-list {
+  list-style: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
 /* --------------------------------------------------------------- banners */
 
 .banner {
