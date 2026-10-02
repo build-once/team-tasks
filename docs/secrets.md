@@ -125,6 +125,57 @@ scrapers watch new public commits for exactly that.
   - `PRODUCTION_SUPABASE_PROJECT_REF` — names the project to deploy to. Not a credential on its own;
     kept secret to keep the production project id out of the repository.
 
+  The sentence above about "an automated actor that can push branches is coming" is no longer about
+  the future: that is level 2, and it is the next entry.
+
+- **The `claude` environment**, for level 2 — the workflow that runs Claude Code in GitHub Actions
+  when the owner writes `@claude` on an issue or pull request. Used only by
+  `.github/workflows/claude.yml`. **Settings → Environments → claude**, deployment branches limited
+  to `main`, administrator bypass off. Checked with `gh api` on 2026-10-02: the branch policy is the
+  single entry `main`, `can_admins_bypass` is false, and the repository has **no** repository-level
+  Actions secrets at all (`total_count` 0).
+
+  Why that matters here more than anywhere else. This environment's secrets let a run act as a
+  GitHub app with write access to this repository and spend the owner's Claude subscription. A
+  repository secret would be readable from any branch, which means readable by any workflow file
+  someone pushes. The `main`-only branch list is what makes that impossible, and it is the reason
+  `claude.yml` triggers only on `issue_comment` and `issues`: GitHub's event reference gives both of
+  those `GITHUB_REF` = the default branch, whereas `pull_request_review` and
+  `pull_request_review_comment` run on `refs/pull/<number>/merge` and so could never reach this
+  environment.
+
+  - `APP_ID` — a **variable**, not a secret: the App ID of the `team-tasks-claude` GitHub app
+    (5151263), which is public information. Kept in the environment next to the key it goes with
+    rather than hardcoded, so there is one place to change if the app is ever replaced.
+  - `APP_PRIVATE_KEY` — the private key of that app. **This is the most powerful credential in this
+    repository after the production ones.** Anyone holding it can mint tokens with the app's
+    permissions — Contents, Issues and Pull requests read-write — so they can push branches and
+    rewrite code here. It is a key, so it is never printed and never leaves the environment; the
+    workflow passes it straight to `actions/create-github-app-token`, which mints a short-lived
+    installation token and revokes it when the job ends.
+    **What it deliberately cannot do:** the app has **no Workflows permission**, so no token minted
+    from it can change a file in `.github/workflows/`. That is the one thing stopping a level-2 run
+    from editing its own cage, and it is a property of the app's settings, not of any file here.
+  - `CLAUDE_CODE_OAUTH_TOKEN` — the Claude credential the action authenticates with. Spends the
+    owner's subscription, so treat a leak as a billing incident as well as an access one.
+
+  **Not the official Claude app.** Level 2 uses our own app so the permission list is ours. The
+  official app (<https://github.com/apps/claude>) requests Workflows read-write among others; the
+  action's `docs/security.md` lists that under "Permissions for Future Features". Our app has
+  Contents RW, Issues RW, Pull requests RW, Actions R, Metadata R, and nothing else.
+
+  That last sentence is checked, not taken on trust. `gh api apps/team-tasks-claude` returns the
+  app's permissions, and on 2026-10-02 it returned exactly
+  `{"actions":"read","contents":"write","issues":"write","metadata":"read","pull_requests":"write"}`
+  — no `workflows` key. Anyone can re-run that command; it needs no special access, because an app's
+  permission list is public. **Run it again after any change to the app**, because nothing in this
+  repository can enforce it.
+
+  **Production is not reachable from here.** `claude.yml` never names the `supabase-production`
+  environment, so a level-2 run cannot read a production credential. Schema and code still reach
+  production only the way rule 10 says: a pull request the owner merges, which then starts
+  `migrate-production.yml`.
+
 Never in a committed file, never in a commit message, never in an issue or pull request, never in
 chat. `.env.example` holds names with empty values and nothing else. See `docs/environments.md`.
 

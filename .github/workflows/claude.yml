@@ -1,0 +1,270 @@
+# claude.yml -- Level 2: runs Claude Code in GitHub Actions when the OWNER writes
+# `@claude` on an issue or a pull request comment.
+#
+# This is not the file the `/install-github-app` installer wrote. That version is
+# on branch `add-claude-github-actions-1790855283132` and was never merged: it
+# authenticated through the official Claude app (which holds a Workflows
+# read-write permission), read a repository-level secret, pinned nothing to a
+# commit SHA, set no timeout, and brought an auto-review workflow we do not want.
+# This file was written from scratch. See issue #60.
+#
+# Security defaults, the same as ci.yml and migrate-production.yml:
+#   * The job token can only READ the repository.
+#   * Every job has a time limit, so a stuck step cannot run forever.
+#   * Third-party actions are pinned to an exact commit SHA, version in a comment.
+#
+# Four separate locks have to be open before Claude sees a single word:
+#   1. the `if:` below -- the text must contain `@claude` AND be written by info423;
+#   2. the `claude` environment -- its deployment branch list is `main` only, so
+#      the secrets are unreachable from any other ref;
+#   3. the action's own check -- it refuses an actor without write access to the
+#      repository (src/entrypoints/run.ts, `checkWritePermissions`);
+#   4. the guard in .claude/hooks/ -- it runs inside the Action, same as locally.
+# Each is written down here because any one of them could be loosened by a future
+# edit to one line, and the others are what makes that survivable.
+#
+# DOES THE GUARD RUN INSIDE THE ACTION? Yes, and here is how that is known
+# rather than hoped. The action's own source, at the commit this file pins,
+# documents the behaviour it has to defend against:
+#
+#   "The CLI's non-interactive mode trusts cwd: it reads `.mcp.json`,
+#    `.claude/settings.json`, and `.claude/settings.local.json` from the working
+#    directory and acts on them before any tool-permission gating -- executing
+#    hooks (including SessionStart), setting env vars (NODE_OPTIONS, LD_PRELOAD,
+#    PATH), running apiKeyHelper/awsAuthRefresh shell commands, and
+#    auto-approving MCP servers."
+#       -- src/github/operations/restore-config.ts, at
+#          97c53473391bff1901034d4b454b5bac7ab7a029 (v1.0.239)
+#
+# The same point is in the published docs: docs/security.md, "Which files come
+# from the base branch on pull requests", discusses what happens when "a hook,
+# `apiKeyHelper`, or `statusLine` command in your base-branch
+# `.claude/settings.json` runs a package-manager script" -- it treats
+# base-branch hooks as something that executes, and advises keeping them
+# self-contained. So the hooks in this repository's .claude/settings.json are
+# loaded, because the checkout IS the working directory.
+#
+# Three things follow, and all three happen to go our way:
+#
+#   * On a PULL REQUEST the action replaces `.claude/` with the version from the
+#     pull request's BASE branch before Claude starts, and keeps the
+#     branch-authored copy under `.claude-pr/` for reading only (docs/security.md
+#     lists `.claude/` first in that fixed set). So a branch cannot weaken its
+#     own guard: the guard that runs is `main`'s.
+#   * guard.mjs finds its rules from its own file location, not from the current
+#     directory -- "It is worked out from the script's own absolute location,
+#     never from the current working directory, so a `cd` cannot move it"
+#     (.claude/hooks/guard.mjs, the comment on `ROOT`). guard/rules.json and
+#     guard/local.json are both committed, so they are in the checkout.
+#   * If the hook cannot run at all, the tool call is BLOCKED rather than
+#     allowed. .claude/settings.json invokes it as
+#     `node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs" || exit 2`, and
+#     guard.mjs's own header explains why: any non-zero exit other than 2 is a
+#     non-blocking error, "so a missing script or a missing `node` binary also
+#     blocks". The advertised behaviour is therefore fail-closed even if
+#     CLAUDE_PROJECT_DIR is not set on the runner.
+#
+# UNVERIFIED, and it is the owner's call, not something to work around: none of
+# the above has been OBSERVED in a run of this workflow, because this workflow
+# has never run. Reading the action's source tells us hooks are loaded; it does
+# not prove that this repository's guard blocks this repository's commands on an
+# Ubuntu runner. The arming probe is the test that settles it, and the planned
+# first use of this workflow is exactly that probe -- with both shell tools --
+# before it is given any real work. See guard/arming-probe.md and the pull
+# request that added this file. Until that probe has been run and its result
+# recorded, treat the guard inside the Action as unverified.
+
+name: claude
+
+# Two triggers, and only two.
+#
+# NOT `pull_request_review_comment` and NOT `pull_request_review`. Those events
+# run on the pull request's merge ref, not on `main`, so the `claude`
+# environment would refuse them anyway and the job would fail rather than be
+# skipped. GitHub's event reference gives, for both events, GITHUB_REF =
+# "PR merge branch refs/pull/PULL_REQUEST_NUMBER/merge"; for `issue_comment` and
+# `issues` it gives GITHUB_REF = "Default branch". Checked 2026-10-02:
+# https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows
+#
+# `issue_comment` covers comments on pull requests too -- GitHub delivers a PR
+# comment as an `issue_comment` -- so losing the two review events costs the
+# ability to reply to review threads, not the ability to work on a PR.
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+# Default for the whole workflow: no permissions at all. The one job below asks
+# for the one thing it needs.
+permissions: {}
+
+# One run at a time per issue or pull request thread. A run in progress is never
+# cancelled: Claude may be part-way through committing and pushing a branch, and
+# killing it there leaves work half-done with nothing to say so.
+concurrency:
+  group: claude-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+
+  claude:
+    name: Claude Code (owner-triggered)
+
+    # Who can start this. Both halves must hold: the text contains the trigger
+    # phrase, AND the person who wrote that text is the owner. Anyone else's
+    # comment on any thread -- including a thread the owner started -- never
+    # starts a run, and a skipped job never reaches the `claude` environment, so
+    # no secret is even decrypted.
+    #
+    # The login is written out in full rather than compared to a variable,
+    # because a variable lives in settings that a workflow cannot see and a
+    # reader cannot check. It is also the LITERAL author of the text, not
+    # `github.actor`: for `issue_comment`, `github.actor` is the commenter, but
+    # keying off the payload field says plainly which text is being trusted.
+    #
+    # The title is checked as well as the body for `issues` because the action
+    # matches its trigger phrase in "comments, issue/PR bodies, and issue
+    # titles" (docs/usage.md, the `trigger_phrase` row). Leaving the title out
+    # here would skip jobs the action would otherwise have acted on, which reads
+    # as a broken workflow rather than as a deliberate narrowing.
+    #
+    # `allowed_non_write_users` and `allowed_bots` are deliberately NOT set
+    # below. Their defaults are empty, which means no non-write user and no bot
+    # can trigger the action at all.
+    if: >-
+      (github.event_name == 'issue_comment'
+        && github.event.comment.user.login == 'info423'
+        && contains(github.event.comment.body, '@claude'))
+      || (github.event_name == 'issues'
+        && github.event.issue.user.login == 'info423'
+        && (contains(github.event.issue.body, '@claude')
+          || contains(github.event.issue.title, '@claude')))
+
+    runs-on: ubuntu-latest
+
+    # The `claude` environment holds APP_ID, APP_PRIVATE_KEY and
+    # CLAUDE_CODE_OAUTH_TOKEN, with its deployment branch list set to `main` and
+    # administrator bypass off. There are no repository-level Actions secrets at
+    # all, so a branch cannot reach any of this. See docs/secrets.md.
+    environment: claude
+
+    # Required by scripts/check-workflows.mjs, which fails any job without it.
+    # 30 minutes is a working session, not a budget: the point is that a wedged
+    # step ends rather than burning a runner until GitHub's own 6-hour cap.
+    timeout-minutes: 30
+
+    # The smallest GITHUB_TOKEN this job can run on, and why it is this small:
+    #
+    #   contents: read -- actions/checkout, below, authenticates with
+    #     GITHUB_TOKEN. Nothing else here uses it.
+    #
+    # Everything Claude does to issues, comments, branches and pull requests
+    # goes through the app token minted in the next step, not through
+    # GITHUB_TOKEN. The action overwrites GITHUB_TOKEN in Claude's own
+    # environment with the app token (src/entrypoints/run.ts: `process.env
+    # .GITHUB_TOKEN = githubToken` after `setupGitHubToken`), so even the `gh`
+    # CLI inside the session uses the app's permissions rather than the job's.
+    #
+    # NOT asked for, each for a reason:
+    #   issues: write / pull-requests: write -- the app token does these.
+    #   actions: read -- only needed with `additional_permissions: actions: read`,
+    #     which turns on the action's CI MCP server (it checks that permission
+    #     using `DEFAULT_WORKFLOW_TOKEN`, i.e. GITHUB_TOKEN, in
+    #     src/mcp/install-mcp-server.ts). We do not set it, so Claude cannot read
+    #     workflow logs. That is a real limitation, filed as an issue, not an
+    #     oversight.
+    #   id-token: write -- that is for OIDC. Supplying `github_token` makes the
+    #     action return early before requesting an OIDC token at all
+    #     (src/github/token.ts, `setupGitHubToken`: "Check if GitHub token was
+    #     provided as override" ... `if (providedToken) return providedToken`).
+    #     Asking for it anyway would hand the job an unused credential-minting
+    #     capability.
+    permissions:
+      contents: read
+
+    steps:
+
+      # The action expects a git repository at the workspace root and does not
+      # check one out itself; its own docs show `actions/checkout` before it
+      # (docs/security.md, "Preferred -- check out the base ref (default)").
+      #
+      # persist-credentials: false removes GITHUB_TOKEN from .git/config, so no
+      # tool Claude runs can push with the job's own token. This costs nothing:
+      # the action replaces that credential with its own either way, and says so
+      # -- "actions/checkout stores its token as an `http.<server>/.extraheader`
+      # entry in .git/config for the duration of the job. Claude and the tools it
+      # invokes run inside this working tree, so remove that entry and back git
+      # with the action's own token instead" (src/github/operations/git-config.ts,
+      # `replaceCheckoutCredentials`). With this set, that removal finds nothing
+      # to remove and git is backed by the app token alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Mints a short-lived installation token for OUR app, team-tasks-claude
+      # (App ID 5151263, installed on this repository only). Its permissions are
+      # the app's: Contents RW, Issues RW, Pull requests RW, Actions R,
+      # Metadata R -- and no Workflows permission, so nothing this run does can
+      # change a file in .github/workflows/.
+      #
+      # Neither `owner` nor `repositories` is set, which is what limits the token
+      # to this repository: `repositories` is documented as "Comma or
+      # newline-separated list of repositories to grant the token access to
+      # (defaults to current repository if owner is unset)". Setting `owner`
+      # would widen it to every repository the app can reach, so both are left
+      # alone on purpose.
+      #
+      # `skip-token-revoke` is left at its default of false, so this action's
+      # post step revokes the token when the job finishes.
+      #
+      # KNOWN WARNING: in v3.2.0 the `app-id` input carries
+      # `deprecationMessage: "Use 'client-id' instead."`, so this step logs a
+      # deprecation warning. It does not fail. `client-id` needs the app's Client
+      # ID, which is a different value and is not in the `claude` environment --
+      # adding it is an environment change, which issue #60 puts out of scope.
+      # Filed as a follow-up issue.
+      - name: Mint a token from the team-tasks-claude app
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # anthropics/claude-code-action v1.0.239, released 2026-10-01 -- the latest
+      # release at the time of writing, and well past the v1.0.94 floor issue #60
+      # sets. The SHA was resolved from the tag, not copied from anywhere:
+      #   gh api repos/anthropics/claude-code-action/git/ref/tags/v1.0.239
+      #     -> 88eabbf1b47534a9f4a76ff5f8502b07f2d67ef5 (an annotated tag object)
+      #   gh api repos/anthropics/claude-code-action/git/tags/88eabbf1...
+      #     -> 97c53473391bff1901034d4b454b5bac7ab7a029 (the commit)
+      # Every quotation in this file was read from that commit, not from memory.
+      #
+      # github_token: the app token from the step above. This is also what stops
+      # the action asking for an OIDC token -- see the permissions block.
+      #
+      # claude_code_oauth_token: the Claude credential, from the `claude`
+      # environment. Never written into this file (docs/security.md,
+      # "Authentication Protection").
+      #
+      # include_comments_by_actor: info423 -- the one defence here against
+      # untrusted text. Its exact documented meaning, from the action's own
+      # action.yml at this commit: "Comma-separated list of actor usernames to
+      # INCLUDE in comments. Supports wildcards: '*[bot]' matches all bots,
+      # 'dependabot[bot]' matches specific bot. Empty (default) includes all
+      # actors." So with this set, comments by anybody other than info423 on the
+      # same issue or pull request are not passed to Claude.
+      #
+      # Be clear about what it does NOT cover: it filters COMMENTS. It is not a
+      # filter on the issue body or title, and it is not a filter on a pull
+      # request's diff, its commit messages, or the files in the branch. Those
+      # still reach Claude. For the issue body the `if:` above already requires
+      # the issue author to be info423; for a pull request's contents, nothing
+      # here protects against a hostile branch, which is why this repository has
+      # one person who can push.
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
+        with:
+          github_token: ${{ steps.app-token.outputs.token }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          include_comments_by_actor: info423
