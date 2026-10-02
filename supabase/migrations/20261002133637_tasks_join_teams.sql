@@ -274,21 +274,9 @@ create policy "You can add a task for yourself, or for a team you belong to"
 -- the row's owner, who may be somebody else. So the membership test is written
 -- out. It is the same test: owning the team, or having a team_members row for it.
 --
--- EXECUTE IS LEFT AT THE POSTGRES DEFAULT, which is a grant to PUBLIC -- unlike
--- public.is_team_member, where 20261002122203_team_rules.sql revokes it. The
--- reason is a thing I could not verify rather than a difference of opinion:
--- PostgreSQL's CREATE TRIGGER page says the user CREATING a trigger needs execute
--- on its function, and says nothing about the user whose statement fires it. If
--- the check also happens at fire time, revoking execute from authenticated's
--- roles would refuse every insert and update of a task -- the whole feature, for
--- everybody -- and there is no database here to try it on (see the pull request).
--- Breaking writes to prove a point about a function nobody can usefully call is
--- the wrong trade. What is left exposed is small and worth naming: this function
--- takes no arguments and returns trigger, and the records it reads -- new and old
--- -- exist only when a trigger fires (PostgreSQL's PL/pgSQL trigger page: those
--- variables are created "when a PL/pgSQL function is called as a trigger"). So
--- there is nothing for a direct caller to make it do. Unverified: whether
--- PostgREST publishes a trigger-returning function as an endpoint at all.
+-- EXECUTE is revoked from PUBLIC, after the comment on the function below,
+-- as 20261002122203_team_rules.sql does for public.is_team_member. This settles
+-- #84; the evidence is the coach's sandbox test in the pull request review.
 create function public.tasks_enforce_column_rules()
 returns trigger
 language plpgsql
@@ -392,6 +380,13 @@ $$;
 
 comment on function public.tasks_enforce_column_rules() is
   'Trigger on public.tasks. Enforces what no policy can: owner_id, id and created_at never change; team_id changes only by the task''s creator and only to null or a team they belong to; and a new task''s team_id must name a team its creator belongs to. The last of those is also what refuses an outsider while the old owner-only insert policy still stands.';
+
+-- EXECUTE on a trigger function is not checked when the trigger fires, and a
+-- trigger function cannot be called directly, so the default PUBLIC grant serves
+-- nothing. Narrowed for consistency with is_team_member. Evidence: the coach's
+-- sandbox test in this pull request's review -- the trigger still enforced
+-- owner_id after the revoke. Settles #84.
+revoke execute on function public.tasks_enforce_column_rules() from public;
 
 -- BEFORE, not AFTER: a BEFORE row trigger can refuse the change before the row
 -- is written, which is the point. FOR EACH ROW, because every rule above is about
