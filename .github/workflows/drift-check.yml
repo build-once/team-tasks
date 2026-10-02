@@ -1,0 +1,334 @@
+# drift-check.yml -- asks production, once a day, whether it is still what this
+# repository says it is. IT CHANGES NOTHING.
+#
+# What it compares:
+#   1. the migration versions APPLIED to production, against the files in
+#      supabase/migrations/;
+#   2. the function slugs DEPLOYED to production, against the folders in
+#      supabase/functions/.
+#
+# If the two differ it opens a GitHub issue titled "Database drift" listing the
+# differences -- or comments on the open one, if there already is one -- and
+# fails the run. Nothing else.
+#
+# WHY A RED RUN AS WELL AS AN ISSUE. A drift check that goes green on the day it
+# finds drift is a check nobody will look at. The issue is the detail; the red
+# cross is the thing you cannot miss on the Actions tab, and the thing GitHub
+# emails about. The order of the steps is deliberate: the issue is filed BEFORE
+# the run is failed, so a drift can never be found and then lost.
+#
+# ---------------------------------------------------------------------------
+# WHAT MAKES THIS READ-ONLY, EXACTLY
+#
+# Not the credential. The secret this job holds, PRODUCTION_SUPABASE_DB_URL, is
+# a full database connection string: it can create, drop and delete. Nothing
+# about it is read-only, and no flag here makes it so.
+#
+# THE ONLY THING KEEPING THIS READ-ONLY IS THE TWO COMMANDS IT RUNS. Say that
+# plainly, because it is the whole safety argument of this file:
+#
+#   * `supabase migration list --db-url <url> --output-format json`
+#     "Lists migration history in both local and remote databases."
+#     -- https://supabase.com/docs/reference/cli/supabase-migration-list
+#     Flag, verbatim from the same page: "--db-url <string> ... Lists
+#     migrations of the database specified by the connection string (must be
+#     percent-encoded)."
+#     Checked rather than assumed: the pinned CLI was run against a throwaway
+#     PostgreSQL 17 cluster on the owner's own machine whose database had NO
+#     supabase_migrations schema at all. The command exited 0, listed every
+#     local migration with an empty remote column, and afterwards the schema
+#     still did not exist -- so it does not even create the table it reads.
+#     The output is in evidence/build-it-15-part-4.md.
+#
+#   * `supabase functions list --project-ref <ref> --output-format json`
+#     "List all Functions in the linked Supabase project."
+#     -- https://supabase.com/docs/reference/cli/supabase-functions-list
+#     It is the CLI's front end for the Management API's
+#     GET /v1/projects/{ref}/functions, which the API's own schema describes as
+#     returning an array of functions and nothing else
+#     (https://api.supabase.com/api/v1-json).
+#
+# Neither command has a write mode, and neither is passed a flag that could
+# give it one. Anything that pushes, deploys, repairs, prunes or deletes is
+# absent on purpose -- there is no `db push`, no `functions deploy`, no
+# `migration repair`, no `--prune`. AGENTS.md rule 19 forbids all of them
+# against production anyway, including to the owner's own assistant.
+#
+# WHY `--output-format json` IS PASSED EXPLICITLY, and why it is not `-o json`.
+# On the pinned CLI 2.117.0 the DEFAULT format of `migration list` depends on
+# whether the CLI believes an agent is running it (`--agent auto`): the same
+# command printed JSON in one shell and a pipe-separated table with
+# `--agent no`. A format that changes with its surroundings is not something to
+# build a parser on. `--output-format json` pins it. The older `-o json` flag
+# ("output format of status variables") is a different flag and, on 2.117.0,
+# passing it made `migration list` print the TABLE -- both were tried, and both
+# outputs are in the evidence file. scripts/drift-check.mjs reads either shape,
+# and its self-test covers both.
+#
+# ---------------------------------------------------------------------------
+# WHAT IT NEVER PRINTS
+#
+# Run logs on this repository are public, because the repository is. Only three
+# kinds of thing reach this log, and all three are already public in this
+# repository:
+#   * migration versions, and the names taken from the FILENAMES in
+#     supabase/migrations/;
+#   * function slugs, which are the folder names in supabase/functions/;
+#   * a function's status -- ACTIVE, REMOVED or THROTTLED.
+#
+# THE CLI'S OUTPUT IS NEVER ECHOED, and that is not caution for its own sake.
+# When `migration list` cannot connect, its error payload names the host and the
+# database user. Recorded verbatim from the pinned CLI against a local cluster:
+#
+#   {"_tag":"Error","error":{"code":"LegacyDbConnectError","message":"failed to
+#    connect to postgres: failed to connect to `host=127.0.0.1 user=postgres
+#    database=postgres`: tls error (The server does not support SSL
+#    connections)"}}
+#
+# Against production that message carries production's pooler host and its
+# database user, which contains the project ref. GitHub masks a secret's exact
+# value in a log, but that is a safety net and not a plan. So both commands
+# write their whole output -- stdout and stderr together -- to a file under
+# RUNNER_TEMP, and that file is never printed and never uploaded as an artifact.
+# Each function's record also carries an `id`, an `entrypoint_path` and an
+# `import_map_path`; none of them is read.
+#
+# WHY THE CLI'S EXIT CODE DOES NOT FAIL ITS OWN STEP. If it did, the step would
+# have to say something about the failure, and the only thing it has to say is
+# in that file. Instead each step records the exit code as a number and carries
+# on; scripts/drift-check.mjs is handed the file and the code, and it is the one
+# place that decides what may be repeated out of the output -- the `code` field,
+# when it is a plain identifier, and never the `message`. That is tested:
+# `node scripts/drift-check.mjs --selftest` includes a case that feeds it the
+# payload above and fails if "127.0.0.1" or "user=postgres" survives into the
+# message. An exit code is a number, which is why printing it is safe.
+#
+# ---------------------------------------------------------------------------
+# WHY `environment: supabase-production` AND NOT JUST THE SECRETS
+#
+# The environment is what keeps the secrets off every branch but main. Checked
+# on 2026-10-02, not assumed:
+#
+#   gh api repos/build-once/team-tasks/environments/supabase-production
+#     -> "deployment_branch_policy": {"custom_branch_policies": true, ...}
+#   gh api .../deployment-branch-policies
+#     -> {"name":"main","type":"branch"}
+#
+# So a run on any other ref gets no secrets at all, and the two checks below
+# turn that into a clear message rather than a baffling CLI error. A scheduled
+# run always uses the default branch; a manual run can be started from a branch,
+# and if it is, it will stop at the first check and say which setting is empty.
+#
+# Security defaults, the same as ci.yml and migrate-production.yml:
+#   * the job token can READ the repository, and write ISSUES, and nothing else;
+#   * every job has a time limit;
+#   * third-party actions are pinned to an exact commit SHA, version in a
+#     comment.
+#
+# `gh` and `jq` are already on the ubuntu-latest runner image; ci.yml's
+# `required` job uses jq the same way.
+#
+# ONE THING TO KNOW ABOUT SCHEDULES. GitHub stops running a scheduled workflow
+# in a repository that has had no activity for 60 days, and emails the owner
+# when it does. If this check goes quiet, that is the first thing to look at --
+# a drift check that silently stopped running looks exactly like a drift check
+# that keeps finding nothing.
+
+name: drift-check
+
+on:
+  # 06:17 UTC daily. GitHub does not promise the minute -- its docs say a
+  # scheduled run can be delayed when the queue is busy -- and nothing here
+  # needs it: the question "does production still match main?" is no less
+  # answerable an hour later.
+  schedule:
+    - cron: "17 6 * * *"
+  # So the owner can ask the question on the day, rather than waiting for
+  # tomorrow. Nothing else starts this: no push, no pull_request. A pull request
+  # must never be able to reach production, not even to read it -- the branch
+  # policy above would refuse it the secrets anyway, and not offering the
+  # trigger means it never gets as far as trying.
+  workflow_dispatch:
+
+# Default for the whole workflow: no permissions at all.
+permissions: {}
+
+# One run at a time, and a run in progress is never cancelled. Two runs at once
+# would race on the "is there already an open Database drift issue?" question
+# and could file two.
+concurrency:
+  group: drift-check
+  cancel-in-progress: false
+
+jobs:
+
+  drift-check:
+    name: Compare production with this repository
+    runs-on: ubuntu-latest
+    environment: supabase-production
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          version: 2.117.0
+
+      # The same shape as migrate-production.yml's three checks, for the same
+      # reason: a GitHub secret that was deleted, renamed or never created does
+      # not raise an error when referenced -- it expands to an empty string. It
+      # is also what a manual run from a branch other than main looks like,
+      # because the environment's branch policy withholds the secrets there.
+      #
+      # Neither value is printed. Each arrives through env:, the test branches
+      # on it without echoing it -- not the value, not its length -- and only
+      # the NAME is printed, which is public and is in this file already.
+      # Whitespace counts as empty, matching web/src/lib/env.ts.
+      - name: Check the production database secret is set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
+        run: |
+          set -u
+          value="${SUPABASE_DB_URL-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The secret PRODUCTION_SUPABASE_DB_URL is missing or empty, so NOTHING was compared. Set it at Settings -> Environments -> supabase-production. If this was a manual run from a branch other than main, that is the cause: the environment releases its secrets to main only. Its value is never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_DB_URL is set. Its value is not printed."
+
+      - name: Check the production project ref is set
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: |
+          set -u
+          value="${SUPABASE_PROJECT_REF-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The secret PRODUCTION_SUPABASE_PROJECT_REF is missing or empty, so NOTHING was compared. Set it at Settings -> Environments -> supabase-production. If this was a manual run from a branch other than main, that is the cause: the environment releases its secrets to main only. Its value is never printed by this workflow."
+            exit 1
+          fi
+          echo "PRODUCTION_SUPABASE_PROJECT_REF is set. Its value is not printed."
+
+      # Read-only. See "WHAT MAKES THIS READ-ONLY, EXACTLY" in the header.
+      #
+      # The connection string is passed through env: and read by the shell as
+      # "$SUPABASE_DB_URL", so it is never written into the command line and
+      # cannot appear in this file or in the log of the command being run.
+      #
+      # Everything the command says goes into the file, stdout and stderr
+      # together, and the file is never printed. The exit code is recorded as a
+      # number for the comparison step to act on -- see "WHY THE CLI'S EXIT CODE
+      # DOES NOT FAIL ITS OWN STEP" in the header.
+      - name: List the migrations applied to production
+        env:
+          SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
+        run: |
+          set -u
+          cli_exit=0
+          supabase migration list --db-url "$SUPABASE_DB_URL" --output-format json \
+            > "$RUNNER_TEMP/migration-list.json" 2>&1 || cli_exit=$?
+          echo "MIGRATION_LIST_EXIT=$cli_exit" >> "$GITHUB_ENV"
+          echo "supabase migration list exited $cli_exit. Its output is saved to a file and deliberately not printed."
+
+      # Read-only, and a different credential: an access token and the project
+      # ref, never the connection string. The project ref is expanded by the
+      # shell from env, so the literal "$SUPABASE_PROJECT_REF" is what appears
+      # in the run log, not its value.
+      #
+      # The token is the same scoped token migrate-production.yml uses, and
+      # that file's header is honest about its reach: it can deploy a function,
+      # and a deployed function runs with production's secret keys. Nothing in
+      # this file deploys anything -- `functions list` is the only thing it is
+      # used for here -- but the token is no less powerful for being used
+      # gently, so do not read this job as the harmless one.
+      - name: List the functions deployed to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.PRODUCTION_SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+        run: |
+          set -u
+          value="${SUPABASE_ACCESS_TOKEN-}"
+          if [ -z "${value//[[:space:]]/}" ]; then
+            echo "::error::The secret PRODUCTION_SUPABASE_ACCESS_TOKEN is missing or empty, so NOTHING was compared. Set it at Settings -> Environments -> supabase-production. Note the token expires -- see docs/secrets.md for when, and how to rotate it. Its value is never printed by this workflow."
+            exit 1
+          fi
+          cli_exit=0
+          supabase functions list --project-ref "$SUPABASE_PROJECT_REF" --output-format json \
+            > "$RUNNER_TEMP/function-list.json" 2>&1 || cli_exit=$?
+          echo "FUNCTION_LIST_EXIT=$cli_exit" >> "$GITHUB_ENV"
+          echo "supabase functions list exited $cli_exit. Its output is saved to a file and deliberately not printed."
+
+      # This step holds NO credential. It reads two files and two folders.
+      #
+      # Exit codes, from the top of scripts/drift-check.mjs:
+      #   0 = checked, and production matches
+      #   3 = checked, and it does not match -- the report file was written
+      #   1 = could NOT check. That is "unverified", not a pass (rule 8), so it
+      #       fails this step rather than being reported as "no drift".
+      - name: Compare production with this repository
+        id: compare
+        run: |
+          set -u
+          rc=0
+          node scripts/drift-check.mjs \
+            --migration-list "$RUNNER_TEMP/migration-list.json" \
+            --migration-list-exit "$MIGRATION_LIST_EXIT" \
+            --function-list "$RUNNER_TEMP/function-list.json" \
+            --function-list-exit "$FUNCTION_LIST_EXIT" \
+            --migrations-dir supabase/migrations \
+            --functions-dir supabase/functions \
+            --report "$RUNNER_TEMP/drift-report.md" || rc=$?
+          case "$rc" in
+            0)
+              echo "drift=false" >> "$GITHUB_OUTPUT"
+              ;;
+            3)
+              echo "drift=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::The comparison could not be made (scripts/drift-check.mjs exited $rc), so this run proves NOTHING about production. The message above says why. Treat it as unverified, not as a pass."
+              exit 1
+              ;;
+          esac
+
+      # Runs only when there is drift, and BEFORE the step that fails the run,
+      # so a difference is always recorded somewhere that outlives the run.
+      #
+      # No duplicate issues: if an open issue titled exactly "Database drift"
+      # already exists, this comments on it. The exact-title match is done here
+      # rather than left to `gh issue list --search`, because search matches
+      # words, not titles -- an issue called "Database drift check is noisy"
+      # would come back from the search and must not be treated as the one.
+      # `| first // empty` takes the lowest-numbered match and prints nothing
+      # when there is none, so "" means "none open".
+      #
+      # The body comes from a FILE, not from the command line (rule 12).
+      - name: Open or comment the "Database drift" issue
+        if: steps.compare.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --state open --search 'Database drift in:title' \
+            --json number,title --jq '[.[] | select(.title == "Database drift") | .number] | first // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$RUNNER_TEMP/drift-report.md"
+            echo "Commented on the open \"Database drift\" issue #$existing rather than opening a second one."
+          else
+            gh issue create --title "Database drift" --body-file "$RUNNER_TEMP/drift-report.md"
+          fi
+
+      - name: Fail the run if production and this repository differ
+        if: steps.compare.outputs.drift == 'true'
+        run: |
+          echo "::error::Production is not what main says it is. The differences are listed in the \"Database drift\" issue, and in the comparison step above. Nothing was changed to fix it: the fix is a pull request the owner merges, or -- if production is ahead of main -- working out how it got there."
+          exit 1

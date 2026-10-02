@@ -80,6 +80,38 @@ therefore what the entry says, rather than a precise-looking time nobody measure
 |---|---|---|---|---|
 | After 15:26 — exact time not recorded | The coach (claude.ai), via the production read-only connector | `list_migrations` — read-only | Confirm Build it 15 **part 1's** migration was live in production **before** part 2's screens were built on top of it (Lesson E2: the schema goes first, and is checked, not assumed) | Production's migration list ends with `20261002133637 tasks_join_teams` |
 
+### Two more entries for 2 Oct, added later the same day
+
+Same provenance warning again, and it has not got any weaker for being repeated: the two lines below
+were written by the assistant (Claude Code) **from the description in issue #93**, not from anything
+the assistant ran or saw. The assistant has no production access of any kind and did not watch these
+calls happen. If the coach's own record disagrees with them, the coach's record is the one to trust.
+
+**On the time.** Issue #93 does not give one. It says the reads happened after pull request #92 was
+merged, and `gh pr view 92 --json mergedAt` reports that merge at **18:25:39 UTC on 2 Oct 2026** —
+19:25 BST. So "after 19:25" is what the entries say, rather than a precise-looking time nobody
+measured.
+
+Both were by **the coach (claude.ai)**, through the **Supabase production (read-only) connector**,
+and both were **read-only**.
+
+| Time (BST) | Who | What | Why | Result |
+|---|---|---|---|---|
+| After 19:25 — exact time not recorded | The coach (claude.ai), via the production read-only connector | `list_migrations` — read-only | Confirm Build it 15 **part 3's** contract migration was live in production, rather than assuming the merge had carried it there (Lesson E2) | Production's migration list ends with `20261002170244 tasks_drop_owner_only_rules` |
+| After 19:25 — exact time not recorded | The coach (claude.ai), via the production read-only connector | A query against `pg_policies` for `public.tasks` — read-only, **policy names only, no rows of data** | Check the contract is what production actually enforces. The migration dropped three superseded policies; the point of the read is that production says four remain, not that the migration file says it should | **Four** policies on `public.tasks`, one per command — matching what `evidence/build-it-15-part-3.md` §2 records for staging |
+
+**Why the second one is worth having.** A green `migrate-production` run proves the `drop policy`
+statements ran. It does not prove what is left behind. Counting the policies production actually has
+is a different question from reading the migration that was meant to change them, and it is the only
+one of the two that would have caught a half-applied migration.
+
+**What this pair makes possible, and the honest limit on it.** Both answers are what the new daily
+drift check (issue #93, `.github/workflows/drift-check.yml`) will go on to ask every morning without
+anybody opening a connector — the first one, at least: the drift check compares migration *versions*
+and function *names*. It does not count policies, and nothing in this repository does that
+automatically. So the policy count above is a point-in-time reading by a person, not a standing
+guarantee.
+
 ---
 
 ## Nothing written to production yet

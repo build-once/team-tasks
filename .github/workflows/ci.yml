@@ -127,6 +127,28 @@ jobs:
       - name: Handoff self-test
         run: node scripts/handoff.mjs --selftest
 
+  # The comparison that .github/workflows/drift-check.yml relies on. Its
+  # fixtures are the recorded output of the pinned Supabase CLI, and the cases
+  # cover a missing migration, an extra migration, a missing function and
+  # identical lists -- so the thing that decides whether production has drifted
+  # is checked on every pull request, rather than being first exercised on the
+  # morning it matters. See evidence/build-it-15-part-4.md.
+  drift-check-selftest:
+    name: Drift-check self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Drift-check self-test
+        run: node scripts/drift-check.mjs --selftest
+
   # The full test suite on Windows and macOS. The jobs above run on Linux.
   # This caught (and now guards against) path bugs that only show up off Linux.
   other-os:
@@ -292,7 +314,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, other-os, secret-scan, app-build]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, other-os, secret-scan, app-build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -300,7 +322,7 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "9"
+          EXPECTED_JOBS: "10"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
