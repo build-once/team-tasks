@@ -18,7 +18,8 @@
     "workflows:check": "node scripts/check-workflows.mjs --selftest && node scripts/check-workflows.mjs",
     "vet:test": "node scripts/vet-tool.mjs --selftest",
     "handoff:test": "node scripts/handoff.mjs --selftest",
+    "drift:test": "node scripts/drift-check.mjs --selftest",
     "ai-team:test": "node addons/ai-team/files/.github/ai-team/selftest.mjs && node scripts/check-workflows.mjs addons/ai-team/files",
-    "test": "npm run guard:test && npm run skills:lint && node scripts/launch-check.mjs --selftest && npm run workflows:check && npm run vet:test && npm run handoff:test && npm run ai-team:test"
+    "test": "npm run guard:test && npm run skills:lint && node scripts/launch-check.mjs --selftest && npm run workflows:check && npm run vet:test && npm run handoff:test && npm run drift:test && npm run ai-team:test"
   }
 }
