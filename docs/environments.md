@@ -130,7 +130,7 @@ database and the functions are not served locally.
 | `EMAIL_API_KEY` | **Secret** | Needed | Needed, a **different** value | The Resend API key. Each project has its own, with sending access limited to `notify.raj-dhonota.com`, so a leaked staging key cannot send as production |
 | `EMAIL_FROM` | Not secret, but not public either | Needed | Needed | The address invitations are sent from. `invite-member` refuses to send without it |
 | `APP_URL` | Not secret | Needed — currently `http://localhost:3000`, see below | Needed, a **different** value, and `https` | The site's own address, used to build the `<APP_URL>/invite/<token>` link. **Only ever read from this setting, never from a request header** — a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an attacker owns, harvesting the token |
-| `EMAIL_TEST_INBOX` | Not secret | **Needed** — every invitation email goes here instead of to the invited person | **Not set** | Where staging's invitation mail is redirected. Its presence *alone* is what redirects mail, and it **overrides `EMAIL_DELIVERY`**: if a test inbox is set, nothing reaches a real recipient |
+| `EMAIL_TEST_INBOX` | Not secret | **Set** — `teamtasks.staging.test@gmail.com`, the Gmail test mailbox. Every invitation email goes there instead of to the invited person | **Not set** | Where staging's invitation mail is redirected. Its presence *alone* is what redirects mail, and it **overrides `EMAIL_DELIVERY`**: if a test inbox is set, nothing reaches a real recipient |
 | `EMAIL_DELIVERY` | Not secret | **Not set** | **Needed**, exactly `live` | The only value that permits sending to a real recipient. Not `true`, not `Live`, not `1` — a delivery switch that accepts near-misses is one that turns itself on by accident |
 
 **With none of these set, `invite-member` creates nothing and sends nothing.** It refuses, names the
@@ -307,17 +307,87 @@ What follows from that:
 Seed data is fake data you can load into local and staging at any time, so tests always start from
 the same place. Keep it in the repo as a script. Never copy real people's data into staging.
 
-Create these three test accounts on **staging** (and locally). Use email addresses you control, for
-example `yourname+alice@example.com` style addresses, and store their passwords in your password
-manager — not in the repo.
+Create these three test accounts on **staging** (and locally). They all use the **Gmail test
+mailbox**, `teamtasks.staging.test@gmail.com`, with plus-addressing, so every sign-up confirmation and
+every staging invitation lands in one inbox nobody real reads:
 
-| Account | Role | What it proves |
-|---|---|---|
-| **Alice** | The owner of some data (e.g. owns a team with a few tasks) | Normal use works |
-| **Bob** | An outsider with his own separate account | He must **not** see or change anything of Alice's |
-| **Carol** | A member of Alice's team | She sees what a team member should — and nothing that is owner-only |
+| Account | Email address | Role | What it proves |
+|---|---|---|---|
+| **Alice** | `teamtasks.staging.test+alice@gmail.com` | The owner of some data (e.g. owns a team with a few tasks) | Normal use works |
+| **Bob** | `teamtasks.staging.test+bob@gmail.com` | An outsider with his own separate account | He must **not** see or change anything of Alice's |
+| **Carol** | `teamtasks.staging.test+carol@gmail.com` | A member of Alice's team | She sees what a team member should — and nothing that is owner-only |
 
 These three are what plan feature 5 — "see only the tasks of teams you belong to" — is tested with.
+
+The accounts are created by **real sign-up on the app, pointed at staging** — the owner does that, in
+a browser. Nothing in this repository creates them.
+
+**Why one mailbox and not three.** Staging's `EMAIL_TEST_INBOX` is set to
+`teamtasks.staging.test@gmail.com`, so `invite-member` redirects *every* staging invitation there, no
+matter who it names. Plus-addressing makes the three accounts separate identities to Supabase Auth —
+`+alice` and `+bob` are different rows in `auth.users` — while the mail all arrives in one place the
+owner can actually open. Gmail delivers `name+anything@gmail.com` to `name@gmail.com`.
+
+These addresses are **not secret**; they are written down here on purpose. The passwords are, and they
+are not here — see below.
+
+### Where the test accounts' passwords live
+
+**`~/.config/team-tasks/staging.env`**, on the owner's machine, **outside this repository**. The
+owner writes that file by hand; it is never committed, never printed, and no value from it is ever
+pasted into chat or into a commit message (rule 7). It holds the staging test accounts' passwords and
+nothing from production.
+
+One `NAME=value` per line, `#` comments and an optional `export ` prefix allowed, for example:
+
+```sh
+BOB_EMAIL=teamtasks.staging.test+bob@gmail.com
+BOB_PASSWORD='the password you chose when you signed Bob up'
+```
+
+The scripts do not read the file themselves. They read **environment variables**, so the owner loads
+the file into the shell for one run and the values stay out of shell history — what you type is a
+filename, not a password:
+
+```sh
+# Git Bash, WSL or macOS, from the repository root
+set -a
+. ~/.config/team-tasks/staging.env
+set +a
+node scripts/staging/bob-invites-to-alices-team.mjs
+```
+
+PowerShell has no `source`, so it reads the file line by line instead. Run from the repository root:
+
+```powershell
+foreach ($line in Get-Content "$HOME\.config\team-tasks\staging.env") {
+  if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+    Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim().Trim("'").Trim('"')
+  }
+}
+node scripts/staging/bob-invites-to-alices-team.mjs
+```
+
+**Both snippets were run on this machine on 2026-10-02**, against a fake file holding a `#` comment
+line, a plain `NAME=value`, a single-quoted value and an `export NAME="value"` line. Each set all
+three names, skipped the comment and stripped both kinds of quote. Only the names and the value
+*lengths* were printed, never a value. Close the shell window when you are done — the values live in
+that one process, and nothing writes them to disk.
+
+The names the scripts expect, as they are read in the code today:
+
+| Variable | Read by | What it is |
+|---|---|---|
+| `BOB_EMAIL` | `scripts/staging/bob-invites-to-alices-team.mjs` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
+| `BOB_PASSWORD` | the same script | Bob's staging password. **Secret** — never printed, by that script or any other |
+| `ALICE_TEAM_ID` | the same script | The UUID of the team Bob must be refused. Not secret, and it changes whenever staging's seed data is reloaded |
+
+`ALICE_…` and `CAROL_…` variables are **not read anywhere yet** — that one script is the only one that
+signs a test account in. When a script needs them, follow the same two names per person,
+`<NAME>_EMAIL` and `<NAME>_PASSWORD`, and add the row here.
+
+The staging URL and publishable key are **not** in that file: they live in `web/.env.local`, which the
+same script reads directly.
 
 ## Checks you can do yourself (no coding needed)
 
