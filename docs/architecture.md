@@ -37,7 +37,7 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  "who is this?"   |  |  team_members        |  |  THE ONLY PLACE AN     |
    |                   |  |  tasks               |  |  APP SECRET KEY LIVES  |
    |  It does NOT      |  |  invitations         |  |  AT RUN TIME - in      |
-   |  decide what      |  |                      |  |  Supabase Edge         |
+   |  decide what      |  |  profiles            |  |  Supabase Edge         |
    |  they may see.    |  |  ROW LEVEL SECURITY  |  |  Functions secrets     |
    +---------+---------+  |  decides what each   |  |  Runs invites + teams  |
              |            |  person may read     |  +---+----------------+---+
@@ -128,7 +128,8 @@ work — which is why it verifies both the error and the row count of every data
 **`invitations` and `team_members` have no insert rule either**, for the same reason and one more.
 `supabase/migrations/20260930193813_create_invitations.sql` gives each table exactly one policy:
 a team's **owner** may read that team's invitations, and a person may read their own membership rows.
-Nothing else. So:
+(The `team_members` half of that was widened later — see "Who may read a team" below. The
+`invitations` half was not.) So:
 
 - **The 20-pending limit is enforceable.** Like the 3-team limit, it needs a count of the team's other
   rows, which a policy cannot do. `invite-member` counts invitations that are neither accepted nor
@@ -185,6 +186,46 @@ public. Arrows (1), (2), (3), (4), (6), (8), (9) and (10) carry no secret.
 
 **No secret arrow starts at the web app.** There is no mobile app. If you ever find yourself
 wanting a secret in `web/` client code, the answer is a new server function, not an exception.
+
+## Who may read a team
+
+`supabase/migrations/20261002122203_team_rules.sql` (Build it 14 part A) is the first migration whose
+rules are about a **team** rather than a person. Three pieces, and one question underneath all of
+them:
+
+- **`profiles`** — one nickname per person, keyed by the auth user id. The only table in this
+  database with write rules rather than a server function in front of it, because a display name has
+  no limit that needs counting other rows: everything that must be true of it is true of the single
+  row being written. You read your own row, and the rows of people who share a team with you.
+- **`is_team_member(p_team_id)`** — "does the person making this request belong to this team?" True
+  for the owner and for anybody with a `team_members` row. It is `security definer`, so it runs as the
+  table owner and therefore does not re-enter the very rule that called it; it has
+  `set search_path = ''` and schema-qualified names, because a function running with more rights than
+  its caller must not resolve a name through a path somebody else can change; and **it never takes a
+  user id**, only a team. Who is asking comes from `auth.uid()` inside its own body. `execute` is
+  revoked from `public` and `anon` and granted to `authenticated` only.
+- **`team_roster`** — team name, display name and a derived role (`owner` or `member`), created
+  `with (security_invoker = true)` so it reads its tables **as the person asking**. Without that word
+  a view reads as its own owner, which here would bypass every rule above and hand the whole database
+  to anyone who selected from it.
+
+Two existing read rules were widened by that migration, both from owner-only to member-level, and
+both replacements return every row the old rule returned:
+
+| Table | Was | Now |
+|---|---|---|
+| `teams` | the owner reads their own teams | the owner **and the members** read the team |
+| `team_members` | you read your own membership rows | you read the whole members list of any team you are in |
+
+`invitations` was deliberately left owner-only. An invited person's address is never shown to the rest
+of the team (`docs/plan.md`), and a member-level read there would leak exactly what that decision
+protects.
+
+The same migration adds the **one write rule that is not a server function**: a team's **owner** may
+delete a `team_members` row, which is how a member is removed. It needs a single fact about the row
+being deleted — who owns its team — rather than a count of other rows, which is the line between what
+a policy does well and what needs a function. Nobody can *leave* a team of their own accord; that is
+on `docs/plan.md`'s not-built list and needs deciding rather than assuming.
 
 ## Where the permission checks live
 
@@ -256,7 +297,9 @@ should get nothing back.
 
 Before any real volunteer signs up:
 
-- RLS on `teams`, `team_members`, `tasks` and `invitations`, tested as Alice, Bob and Carol.
+- RLS on `teams`, `team_members`, `tasks`, `invitations` and `profiles`, tested as Alice, Bob and
+  Carol. For the team rules that means `scripts/staging/build-it-14-checks.mjs`, green, with its
+  output saved as evidence.
 - Run-time secrets only in **Supabase's Edge Functions secrets** and a git-ignored `.env`; nothing
   secret in Vercel; the CI secret scan green.
 - The one deploy credential, `PRODUCTION_SUPABASE_DB_URL`, only in **GitHub Actions secrets**, and
