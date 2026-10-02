@@ -94,31 +94,33 @@ The first version used fake team ids made of digits and dashes only, so `toUpper
 same string and the "an upper-case team id is lower-cased" check passed with the lower-casing deleted.
 The ids now contain hex letters, and the comment in the script says why.
 
-## 4. The owner's checks — UNVERIFIED, not yet run
+## 4. The owner's checks — partly run, 2 Oct 2026
 
 `localhost:3000` against **staging**, as the three test accounts in `docs/environments.md`. Carol must
 already be a member of one of Alice's teams; Bob must be in neither. That is the same setup part 1
 needed.
 
-Write PASS or FAIL, and the date, in the right-hand column.
+Recorded from the owner's report of what they ran on 2 Oct 2026 at `localhost:3000` against staging, as each
+person, with this PR's code. **PASS (owner)** means the owner ran it, not the assistant. Rows marked
+**not run** were not reported and are not inferred.
 
 | # | As | Check | Result |
 |---|---|---|---|
-| 1 | Alice | **Which list** chooser offers Personal and her teams, and no team she is not in | unverified |
-| 2 | Alice | Adds a task choosing her team: it appears with the team's **name** on it | unverified |
-| 3 | Alice | Adds a personal task: no team name on it | unverified |
-| 4 | Alice | **All tasks / Personal / <team>** each show what they say, and the one being shown is marked | unverified |
-| 5 | Alice | The done count changes with the filter and the line under it names the list | unverified |
-| 6 | Alice | Renaming and ticking from a filtered list come back to that same list, not to "all" | unverified |
-| 7 | Alice | Adding a personal task while filtered to a team leaves her looking at Personal, with the new task visible | unverified |
-| 8 | Alice | Delete on her own task works, with the confirm step | unverified |
-| 9 | Carol | Sees Alice's team task, **labelled with the team** | unverified |
-| 10 | Carol | Can tick it, and can rename it | unverified |
-| 11 | Carol | Has **no Delete** on it — the control is not drawn at all | unverified |
-| 12 | Carol | Typing `/tasks?confirm=<that task's id>` by hand still draws **no** Delete button | unverified |
-| 13 | Carol | Does not see Alice's personal task | unverified |
-| 14 | Bob | Does not see Alice's team task at all, and his chooser does not offer her team | unverified |
-| 15 | Alice | `/tasks?filter=<a team she is not in>` shows every task she can see, and says that is not one of her lists | unverified |
+| 1 | Alice | **Which list** chooser offers Personal and her teams, and no team she is not in | PASS (owner), 2 Oct 2026. Chooser offered Personal, Alice's team and Inbox check |
+| 2 | Alice | Adds a task choosing her team: it appears with the team's **name** on it | PASS (owner), 2 Oct 2026. Shows the "Alice's team" label |
+| 3 | Alice | Adds a personal task: no team name on it | PASS (owner), 2 Oct 2026. No team label |
+| 4 | Alice | **All tasks / Personal / <team>** each show what they say, and the one being shown is marked | not run (owner reported only the team and Personal filters, see §5) |
+| 5 | Alice | The done count changes with the filter and the line under it names the list | not run (owner reported only that the count names Alice's team, see §5) |
+| 6 | Alice | Renaming and ticking from a filtered list come back to that same list, not to "all" | not run |
+| 7 | Alice | Adding a personal task while filtered to a team leaves her looking at Personal, with the new task visible | not run |
+| 8 | Alice | Delete on her own task works, with the confirm step | not run |
+| 9 | Carol | Sees Alice's team task, **labelled with the team** | PASS (owner), 2 Oct 2026. Labelled "Alice's team" |
+| 10 | Carol | Can tick it, and can rename it | PASS (owner), 2 Oct 2026. Ticked and renamed; staging shows the title now "Team check Rename" |
+| 11 | Carol | Has **no Delete** on it — the control is not drawn at all | PASS (owner), 2 Oct 2026. No Delete control |
+| 12 | Carol | Typing `/tasks?confirm=<that task's id>` by hand still draws **no** Delete button | PASS (owner), 2 Oct 2026. Hand-typed `/tasks?confirm=91db1858-fe37-4a7e-b459-8b22006f8303` (Alice's team task) drew no Delete button or prompt |
+| 13 | Carol | Does not see Alice's personal task | PASS (owner), 2 Oct 2026 |
+| 14 | Bob | Does not see Alice's team task at all, and his chooser does not offer her team | PASS (owner), 2 Oct 2026. Sees neither of Alice's tasks; add-task box shows no team name |
+| 15 | Alice | `/tasks?filter=<a team she is not in>` shows every task she can see, and says that is not one of her lists | not run |
 
 Check 12 is the one worth not skipping: it is the difference between a control that is hidden and a
 rule that is enforced. The database refuses the delete either way — the owner-only delete policy from
@@ -127,6 +129,15 @@ already proved that on staging (26 PASS, see `evidence/build-it-15-part-1.md`). 
 that the screen does not offer the refusal.
 
 ## 5. Notes
+
+- **Partial reports.** Check 4: the owner saw the "Alice's team" filter show only the team task and "Personal
+  only" show the personal task and not the team task; "All tasks" and the marked-current indicator were not
+  reported. Check 5: the done count named Alice's team under that filter; that it changes between filters
+  was not reported. Check 1: the owner reported what the chooser offered; that a team Alice is not in is
+  absent was not reported separately.
+- **Staging state**, confirmed by the coach through the staging read-only connector, not by the assistant:
+  both test tasks exist as created, the team task in Alice's team and the personal task with no team, both
+  created by Alice.
 
 - **Data captured from production: none.** Nothing was redacted, because nothing was captured. The
   team ids in `scripts/tasks-filter-check.mjs` were invented for it and belong to no database.
