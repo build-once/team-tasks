@@ -246,10 +246,42 @@ being deleted — who owns its team — rather than a count of other rows, which
 a policy does well and what needs a function. Nobody can *leave* a team of their own accord; that is
 on `docs/plan.md`'s not-built list and needs deciding rather than assuming.
 
+## Who may touch a task
+
+`supabase/migrations/20261002133637_tasks_join_teams.sql` (Build it 15 part 1) gives `tasks` an
+optional `team_id`, so a task is either **personal** or belongs to **one team**. `docs/plan.md`
+features 4 and 5 say what that means: every member of the team can see, tick and rename the team's
+tasks, and only the person who created a task can delete it.
+
+| Who | Personal task of theirs | Team task in a team they are in | Anybody else's |
+|---|---|---|---|
+| Read | yes | yes | no |
+| Tick, rename | yes | yes | no |
+| Delete | yes | **only if they created it** | no |
+| Move between teams | yes, to a team they belong to | **only if they created it**, and only to a team they belong to | no |
+| Change `owner_id` | **nobody, ever** | **nobody, ever** | no |
+
+Three of those rows are ordinary policies, member-level through `is_team_member(team_id)`, and the
+delete rule is the owner-only one `tasks` has had since it was created. The last two rows are a
+**trigger**, `tasks_enforce_column_rules`, because a policy sees a whole row and cannot say "these
+columns may differ and the others may not" — and column privileges could not express it either, being
+per-role when every person using this app is the same role, `authenticated`.
+
+That migration is an **expand** step: the new rules stand *alongside* the original owner-only ones,
+which a later contract step removes — all but the delete rule, which stays. While both sets stand,
+policies for the same command being OR-ed means the old insert rule would let an outsider file a task
+into somebody else's team, and the trigger is what refuses that. So the trigger is not scaffolding:
+it is what makes the expand phase behave like the finished thing.
+
+`team_id` is `on delete set null`: deleting a team returns its tasks to the people who wrote them as
+personal tasks, rather than destroying work written by members who did not delete anything. The
+members of that team stop seeing each other's tasks, and which team a task used to be in is gone.
+
 ## Where the permission checks live
 
 - **"Which tasks may this person see?"** — in the **database**, as Row Level Security on `teams`,
-  `team_members` and `tasks`. This is feature 5 of the plan. The web app also hides other people's
+  `team_members` and `tasks`, plus the trigger above for which *columns* a member may change. This is
+  feature 5 of the plan. The web app also hides other people's
   tasks, but that is only tidiness; the database is what actually stops Bob reading Alice's list.
   Test it with the Alice / Bob / Carol accounts (`docs/environments.md`), do not assume it.
 - **"Who has paid?"** — **does not exist.** There are no payments and no paid tiers in the first
