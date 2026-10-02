@@ -150,9 +150,15 @@ export default async function MyTeamsPage({
           </Banner>
         ) : null}
 
+        {/* "Sent" is all the app can honestly claim. The email service reports a
+            successful send, and what the receiving provider then does with the
+            message -- inbox, junk, or silently dropped -- is invisible to us. So
+            the junk hint goes here too: this is the moment the inviter is most
+            likely to act on it, rather than a week later when nobody replied. */}
         {invited === "1" ? (
           <Banner tone="ok" icon="mail">
-            Invitation sent.
+            Invitation sent. If it does not arrive, ask them to check their junk
+            or spam folder.
           </Banner>
         ) : null}
 
@@ -162,7 +168,8 @@ export default async function MyTeamsPage({
         {invited === "test" ? (
           <Banner tone="ok" icon="mail">
             Invitation created. This environment sends all invitation email to
-            the test inbox, not to the invited address.
+            the test inbox, not to the invited address. Check its junk or spam
+            folder too.
           </Banner>
         ) : null}
 
@@ -267,6 +274,22 @@ export default async function MyTeamsPage({
                           </li>
                         ))}
                       </ul>
+                      {/* The app cannot tell a filtered email from a delivered
+                          one: the email service reports a successful send either
+                          way, and whether the message was then put in a junk
+                          folder is invisible to us. The first invitation sent
+                          from production went to junk (issue #48), so the person
+                          most able to act on that -- the one who sent it, and
+                          who can message the invited person another way -- is
+                          told it is a possibility.
+
+                          Deliberately promises nothing. Not "it will be in
+                          junk", not "resend to fix it": we do not know where any
+                          particular message went, and saying otherwise would be
+                          inventing information the app does not have. */}
+                      <p className="hint">
+                        Not arrived? Ask them to check their junk or spam folder.
+                      </p>
                     </>
                   )}
                 </li>

@@ -182,9 +182,22 @@ person reaches Vercel's own sign-in rather than the app. That is why the Carol a
 tested on staging at all — not a fault.
 
 The secrets in the whole system are not the app's: they belong to the deploy pipeline, and there are
-**three**, all in **GitHub Actions secrets** and used only by
+**three**, all in the **`supabase-production` GitHub environment** and used only by
 `.github/workflows/migrate-production.yml`. None is in `.env.example`, in Vercel, on the laptop, or in
 this document.
+
+**Where they live, exactly: Settings → Environments → `supabase-production`**, whose deployment
+branches are limited to `main`, with no reviewers and no wait timer. They are deliberately **not**
+repository Actions secrets. A repository secret is readable by a workflow running on *any* branch, and
+a workflow file is only a file in that branch — so whoever can push a branch can push a job that reads
+production's credentials. Limiting the environment to `main` means a job that names it gets nothing
+unless the run is on `main`. Both jobs in `migrate-production.yml` therefore carry
+`environment: supabase-production`. The workflow already triggers only on a push to `main`, so this is
+a second lock on the same door — which is the point, because the trigger is a line in a file and the
+branch list is enforced by GitHub whatever the file says.
+
+A separate **`Production`** environment also exists, created by Vercel's integration. It holds none of
+these and is not used by this workflow.
 
 | Secret | What it reaches | Which job uses it |
 |---|---|---|
@@ -225,8 +238,8 @@ project** — not that it excludes that project's data, because it does not.
 `supabase link` is still not used: linking needs permissions this token does not have, so the workflow
 names the project with `functions deploy --project-ref` instead.
 
-**The token expires.** It was created on **30 September 2026** with a **90-day** expiry, so it lapses
-**on or about 29 December 2026** — the exact date is shown in the Supabase access-token list, which is
+**The token expires.** It was created on **1 October 2026** with a **90-day** expiry, so it lapses
+**on or about 30 December 2026** — the exact date is shown in the Supabase access-token list, which is
 the only authoritative place. **Rotation is due before then**, or the first merge afterwards will fail
 at the deploy step. How to rotate it is in `docs/secrets.md`.
 

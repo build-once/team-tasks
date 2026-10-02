@@ -1,9 +1,11 @@
 # Evidence: invitations — inviting, accepting, and the refusals
 
-Result: PASS — an invitation can be sent and accepted, and all four refusals were seen to fire
+Result: **staging PASS, production MIXED.** On staging an invitation can be sent and accepted and all
+four refusals were seen to fire. On production the feature works end to end, but the invitation email
+arrived in the recipient's **junk** folder — see the Production section, and issue #48
 Date: 2026-10-01
-How checked: by hand on the `feat/invitations` preview deployment, pointing at the staging Supabase
-project, plus one scripted check run from a terminal
+How checked: by hand on the `feat/invitations` preview deployment pointing at the staging Supabase
+project, plus one scripted check from a terminal; then by hand on the production site after the merge
 Checked by: **the owner**
 
 ## Who observed what
@@ -25,9 +27,9 @@ notice if any of it regressed.
 
 | | Staging | Production |
 |---|---|---|
-| `create_invitations` migration | **Applied** | Not applied — happens on merge, via `.github/workflows/migrate-production.yml` |
-| `invite-member` | **Deployed** | Not deployed |
-| `accept-invite` | **Deployed** | Not deployed |
+| `create_invitations` migration | **Applied** | **Applied** on the merge of PR #44, by the `migrate` job |
+| `invite-member` | **Deployed** | **Deployed** on the merge of PR #44, by the `deploy-functions` job |
+| `accept-invite` | **Deployed** | **Deployed** on the merge of PR #44, by the `deploy-functions` job |
 | `EMAIL_API_KEY`, `EMAIL_FROM`, `APP_URL` | Set | Set |
 | `EMAIL_TEST_INBOX` | Set | Not set, correctly |
 | `EMAIL_DELIVERY` | Not set, correctly | Set to `live` |
@@ -119,11 +121,10 @@ experience has only ever been seen by somebody who is also the project owner.
 
 ## What this does not cover
 
-- **Production: nothing.** No migration applied, neither function deployed, and no invitation ever
-  sent from production. Everything above is staging.
-- **No real email was ever delivered to a real inbox.** `EMAIL_TEST_INBOX` caught every message, by
-  design. So "the email arrives and looks right to a stranger" is untested, and will stay untested
-  until production sends one.
+- **Production has its own section below**, added after the merge. Everything in the sections above is
+  staging only.
+- **No real email reached a real inbox from STAGING**, and none ever will: `EMAIL_TEST_INBOX` catches
+  every message there, by design. Production sent one, and it did not land in the inbox — see below.
 - **The 20-pending limit was not reached.** `invite-member` refuses at 20; nothing has gone near it.
 - **Expiry was not waited out.** The 7-day rule and the "expired" refusal are both unexercised — the
   expiry is a stored timestamp, so testing it properly means waiting or editing a row.
@@ -148,5 +149,99 @@ sending domain `notify.raj-dhonota.com` and the `invites@` mailbox are recorded 
 app's own configured sender, already named in `docs/secrets.md`, and identify no person. The invited
 placeholder address is described rather than written out, and the team is not named.
 
+The same applies to the Production section, and a little more carefully, because the addresses there
+are the owner's real ones. **Neither is written down**: the invited address is described only as "a
+second address of their own", the receiving mail provider is not named, and the production web address
+is not recorded. The **Supabase project reference is not in this file either** — not staging's, not
+production's.
+
+One id *is* recorded: the GitHub Actions run number `36841140349`. That is a public build number, it
+identifies nobody, and it is what makes the claim about the merge checkable rather than a story. If you
+would rather it went too, say so and it goes.
+
 Carol is the first use of the third test account. Until `team_members` existed there was nothing for
 her to test, which is noted in `evidence/create-team.md`.
+
+---
+
+# Production
+
+Result: **MIXED** — the feature works end to end, but the invitation email arrived in the recipient's
+**junk** folder, which for an invitation is close to not arriving at all
+Date: 2026-10-01
+**All of this is reported by the owner. The assistant observed none of it** — no production access, did
+not merge, did not call either function, did not open the production site, and did not see the email
+(`AGENTS.md` rules 1 and 10). Recorded here because otherwise it would exist only in a chat window
+(rule 13).
+
+## How it reached production
+
+PR #44 merged, and `migrate-production` run **36841140349** succeeded with **both jobs green**: the
+`migrate` job applied the `create_invitations` migration, and `deploy-functions` deployed both
+functions. One merge, both halves, no hand-deploys.
+
+## Signed out, both functions refuse
+
+The owner called **both** `invite-member` and `accept-invite` on production with no `Authorization`
+header. Both answered:
+
+```
+HTTP 401
+UNAUTHORIZED_NO_AUTH_HEADER
+```
+
+That is `verify_jwt = true` surviving the pipeline deploy, for both new functions. Worth stating why
+it needed checking again rather than being assumed from `create-team`: `supabase functions new`
+scaffolds `verify_jwt = false` every single time, and both of these files had that corrected by hand.
+A 401 naming the missing header is the platform refusing the request before the function's own code
+runs — which is the only way to tell the corrected setting actually shipped.
+
+## The feature works end to end
+
+Signed in as themselves on the production site, the owner invited **a second address of their own** to
+their own test team — deliberately, so no second person's data entered production.
+
+- **It appeared in the pending list.** That also establishes the `invitations` table exists on
+  production with its select policy working: the row had to be read back through it to be listed.
+- **The email arrived at the real recipient**, from the `notify.raj-dhonota.com` sender.
+- **No `[staging]` marker**, and the **link pointed at the production site** — so `EMAIL_TEST_INBOX`
+  is correctly unset in production, `EMAIL_DELIVERY` is `live`, and `APP_URL` holds the production
+  address. Three settings confirmed by one email.
+- **Opening the link while signed out showed the sign-in / sign-up message**, which is why `/invite` is
+  a public path.
+
+**The invitation was deliberately not accepted**, to avoid creating a second production account. It
+expires in 7 days and will lapse on its own.
+
+## The finding: it went to junk
+
+**The email arrived in the recipient's junk folder.**
+
+For a feature whose whole purpose is to get a link in front of somebody, this is close to failure. An
+invitation in a junk folder is one the volunteer does not see, and the organiser has no way to know —
+`invite-member` is told the send succeeded, because as far as Resend is concerned it did.
+
+**Why it was filtered is not known, and is not guessed at here.** Several things could contribute —
+a sending domain with no history, DNS authentication records that are absent or not aligned, a
+plain-text message consisting largely of a link, or the recipient's own provider being strict with a
+first-time sender. Which of those applies is an open question, filed as **issue #48** with the checks
+that would settle it — starting with reading the authentication headers on the message itself, before
+changing anything. Nothing in this file should be read as having diagnosed it.
+
+What is established: **one message, one recipient, one mail provider, one moment.** A single
+observation cannot distinguish "this domain is filtered" from "this provider was cautious about a
+first message", and the difference matters for what the fix is.
+
+## What production still does not cover
+
+- **Accepting was not done on production.** The button press, the atomic claim, the `team_members`
+  write — all of that is proven on staging only. The deliberate choice not to accept means the
+  production path from link to membership has never run.
+- **Nobody but the owner has used it.** Both the inviter and the invited address belong to them, so
+  the experience of being invited by somebody else is untested in production.
+- **No second person's data is in production**, which is the point, and also the limit.
+- **The 20-pending limit, expiry, and the re-invite-after-expiry fix** are all unexercised on
+  production, as they are on staging.
+- **Nothing watches production.** These are observations from one moment on 2026-10-01; no error
+  monitoring exists yet (`docs/architecture.md` lists it as a later step), so a regression in any of
+  this would be noticed by a volunteer before it was noticed by anybody else.
