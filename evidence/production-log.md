@@ -64,6 +64,22 @@ below, the coach's record is the one to trust.
 | ~13:04 | The coach (claude.ai), via the production read-only connector | `list_migrations` — read-only | Confirm part A's migration was live in production **before** any screen was built on top of it (Lesson E2: the schema goes first, and is checked, not assumed) | Production's migration list ends with `20261002122203 team_rules` |
 | ~13:04 | The coach (claude.ai), via the production read-only connector | `get_advisors`, security — read-only | Check what the migration did to production's security advice, rather than trusting that staging's reading carried over | **No** "Security Definer View" warning. `0029 authenticated_security_definer_function_executable` on `is_team_member` — **accepted as intentional**, for the reasons in `evidence/build-it-14-part-a.md` §3. Leaked password protection disabled — an Auth setting, **pre-existing**, older than this change |
 
+### A third entry for 2 Oct, added later the same day
+
+Same provenance warning as the two above, and it matters as much: the line below was written by the
+assistant (Claude Code) **from the description in issue #86**, not from anything the assistant ran or
+saw. The assistant has no production access of any kind. If the coach's own record disagrees with it,
+the coach's record is the one to trust.
+
+**On the time.** Issue #86 does not give one. It says the read happened after pull request #85 was
+merged, and `gh pr view 85 --json mergedAt` reports that merge at **14:26:27 UTC on 2 Oct 2026** —
+15:26 BST — which is the only part of the timing this file can stand behind. "After 15:26" is
+therefore what the entry says, rather than a precise-looking time nobody measured.
+
+| Time (BST) | Who | What | Why | Result |
+|---|---|---|---|---|
+| After 15:26 — exact time not recorded | The coach (claude.ai), via the production read-only connector | `list_migrations` — read-only | Confirm Build it 15 **part 1's** migration was live in production **before** part 2's screens were built on top of it (Lesson E2: the schema goes first, and is checked, not assumed) | Production's migration list ends with `20261002133637 tasks_join_teams` |
+
 ---
 
 ## Nothing written to production yet
