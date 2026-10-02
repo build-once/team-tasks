@@ -224,17 +224,40 @@ Filed as issue #91: nothing in the app offers Carol the G4 route.
 
 ## 4. Staging apply
 
-**Not done — the owner's step.** Fill in: the date, the project reference, the `--dry-run` listing,
-and that `supabase/.temp/project-ref` was checked to be staging, as
-`evidence/build-it-15-part-1.md` section 1 does.
+Recorded from the owner's and the coach's reports in the pull request thread; the agent that wrote
+this section did not run any of these commands and did not see their raw output.
+
+- **Date:** 2 October 2026.
+- **Target:** staging, project reference `ghskxrhqlhvrhpnivqbd`.
+- **`supabase db push --dry-run`**, run by the owner: listed only
+  `20261002170244_tasks_drop_owner_only_rules.sql`.
+- **`supabase db push`**, run by the owner against staging.
+- **Read back by the coach through the staging read-only connector:**
+  - (a) staging's migration list now ends with `20261002170244 tasks_drop_owner_only_rules`.
+  - (b) `pg_policies` on `public.tasks` shows exactly four policies:
+    - DELETE "Owners can remove their own tasks"
+    - INSERT "You can add a task for yourself, or for a team you belong to"
+    - SELECT "Creators and team members can read a task"
+    - UPDATE "Creators and team members can change a task"
+- **Unverified — whether `supabase/.temp/project-ref` was checked before the push:** the report does
+  not say. The project reference above is the one reported as the target.
 
 ## 5. The 26 checks, re-run on staging
 
-**Not run — the owner's step.** `node scripts/staging/build-it-15-checks.mjs`, unchanged, with
-`ALICE_TEAM_ID` and `CAROL_TEAM_ID` set. Expected: **26 PASS, 0 FAIL, 0 UNVERIFIED**, the same
-totals and the same check names as `evidence/build-it-15-part-1.md` section 2. Paste the totals line
-here. If any result differs from part 1's, that is a FAIL for this pull request, not a surprise to
-explain away.
+As reported by the owner, who ran `node scripts/staging/build-it-15-checks.mjs`, unchanged, after the
+apply in section 4, with the same `ALICE_TEAM_ID` and `CAROL_TEAM_ID` as part 1.
+
+**Result: 26 PASS, 0 FAIL, 0 UNVERIFIED.**
+
+Every check name, verdict and error message is identical to the part 1 run in
+`evidence/build-it-15-part-1.md` section 2, as predicted: the BEFORE trigger refuses before any
+`with check` is evaluated. The script's cleanup deleted its 2 rows and confirmed them gone.
+
+The raw script output is not pasted here; the totals above are the owner's report.
+
+Independent check: the coach's sandbox (two databases, before and after) gave byte-identical attack
+output, and reproduced the single intended change (a stranded task cannot be renamed in place but can
+be moved to Personal). See the coach's review comment on this pull request.
 
 ## 6. Notes
 
