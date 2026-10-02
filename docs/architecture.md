@@ -267,11 +267,31 @@ delete rule is the owner-only one `tasks` has had since it was created. The last
 columns may differ and the others may not" — and column privileges could not express it either, being
 per-role when every person using this app is the same role, `authenticated`.
 
-That migration is an **expand** step: the new rules stand *alongside* the original owner-only ones,
-which a later contract step removes — all but the delete rule, which stays. While both sets stand,
-policies for the same command being OR-ed means the old insert rule would let an outsider file a task
-into somebody else's team, and the trigger is what refuses that. So the trigger is not scaffolding:
-it is what makes the expand phase behave like the finished thing.
+That migration was an **expand** step: the new rules stood *alongside* the original owner-only ones.
+While both sets stood, policies for the same command being OR-ed meant the old insert rule would let
+an outsider file a task into somebody else's team, and the trigger was what refused that. So the
+trigger is not scaffolding: it is what made the expand phase behave like the finished thing, and it
+is untouched by everything below.
+
+`supabase/migrations/20261002170244_tasks_drop_owner_only_rules.sql` (Build it 15 part 3) is the
+**contract** step. It drops the three superseded owner-only rules — read, add and change — and keeps
+`"Owners can remove their own tasks"`, which is the only delete policy `tasks` has: dropping it would
+leave the table with no delete rule at all. Afterwards `tasks` has exactly four policies, one per
+command, plus the trigger. The hole the old insert rule left — an outsider filing a task into
+somebody else's team — is now closed by the policy as well as the trigger, and the trigger still
+refuses a row written by hand in the SQL editor, where `auth.uid()` is null and no policy applies.
+
+**No refusal message changes with that step**, which is worth knowing before anyone re-runs the
+checks expecting different text. The trigger is a `BEFORE ROW` trigger, so it runs before a policy's
+`with check` is evaluated: wherever both would refuse, the trigger gets there first and its sentence
+is still what comes back.
+
+One answer does change, and only one: a **stranded task** — one whose `team_id` names a team its
+creator is no longer in, which today can only happen if a team owner removes that member by hand.
+Its creator could tick and rename it while the old owner-only update rule stood; afterwards they
+cannot, because they are not a member of its team. They can still see it, **move it back to
+personal** — and then rename and tick it freely — and delete it. That is `docs/plan.md`'s rule
+rather than a regression, but nothing in the app offers that route, so it is filed as its own issue.
 
 `team_id` is `on delete set null`: deleting a team returns its tasks to the people who wrote them as
 personal tasks, rather than destroying work written by members who did not delete anything. The
