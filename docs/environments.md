@@ -400,19 +400,22 @@ that one process, and nothing writes them to disk.
 
 The names the scripts expect, as they are read in the code today:
 
-Two scripts read them today. `bob` is `scripts/staging/bob-invites-to-alices-team.mjs`; `rules` is
+Three scripts read them today. `bob` is `scripts/staging/bob-invites-to-alices-team.mjs`; `rules` is
 `scripts/staging/build-it-14-checks.mjs`, which signs all three accounts in and checks the team read
-rules.
+rules; `tasks` is `scripts/staging/build-it-15-checks.mjs`, which checks the team **task** rules.
+`tasks` is the first of the three that **writes**: it creates tasks and deletes them again by id at
+the end of the run.
 
 | Variable | Read by | What it is |
 |---|---|---|
-| `ALICE_EMAIL` | `rules` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
-| `ALICE_PASSWORD` | `rules` | Alice's staging password. **Secret** — never printed, by that script or any other |
-| `BOB_EMAIL` | `bob`, `rules` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
-| `BOB_PASSWORD` | `bob`, `rules` | Bob's staging password. **Secret** — never printed |
-| `CAROL_EMAIL` | `rules` | `teamtasks.staging.test+carol@gmail.com`. Not secret |
-| `CAROL_PASSWORD` | `rules` | Carol's staging password. **Secret** — never printed |
-| `ALICE_TEAM_ID` | `bob`, `rules` | The UUID of the team Bob must be refused, and the team whose roster Alice and Carol must both see. Not secret, and it changes whenever staging's seed data is reloaded |
+| `ALICE_EMAIL` | `rules`, `tasks` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
+| `ALICE_PASSWORD` | `rules`, `tasks` | Alice's staging password. **Secret** — never printed, by that script or any other |
+| `BOB_EMAIL` | `bob`, `rules`, `tasks` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
+| `BOB_PASSWORD` | `bob`, `rules`, `tasks` | Bob's staging password. **Secret** — never printed |
+| `CAROL_EMAIL` | `rules`, `tasks` | `teamtasks.staging.test+carol@gmail.com`. Not secret |
+| `CAROL_PASSWORD` | `rules`, `tasks` | Carol's staging password. **Secret** — never printed |
+| `ALICE_TEAM_ID` | `bob`, `rules`, `tasks` | The UUID of the team Bob must be refused, the team whose roster Alice and Carol must both see, and the team Alice's test task is filed into. Not secret, and it changes whenever staging's seed data is reloaded |
+| `CAROL_TEAM_ID` | `tasks` | The UUID of a second team that **Carol belongs to and Alice does not** — the team Carol must not be able to move Alice's task into. Carol owning a team of her own is the easy way to have one. Not secret; it must not be the same team as `ALICE_TEAM_ID`, and that script refuses to start if it is |
 
 The pattern for any further account is the same two names per person, `<NAME>_EMAIL` and
 `<NAME>_PASSWORD`, and a row here.

@@ -22,8 +22,11 @@ Five things, and nothing else:
 2. Create a team: a name of 1 to 60 characters. One person may own at most 3 teams.
 3. Invite people to a team by email: an invitation expires after 7 days, and a team
    may have at most 20 pending.
-4. Add, tick, rename, delete tasks you created.
-5. See only the tasks of teams you belong to.
+4. Add, tick, rename and delete tasks. A task is either **personal** or belongs to
+   **one of your teams**. A personal task is yours alone. Every member of a team can
+   see, tick and rename that team's tasks — but only the person who created a task can
+   delete it, so nobody loses an entry because somebody else tidied up.
+5. See only your own personal tasks, and the tasks of teams you belong to.
 
 ## Deliberately not in the first version
 
@@ -45,8 +48,8 @@ sensitive information in task text, and the app does not need it.
 
 Supabase and Vercel also record IP addresses; the appendix lists everything.
 
-Point 5 protects all of this: a person sees their own teams' tasks and
-nothing more. That must be true in the database, not just the screens.
+Point 5 protects all of this: a person sees their own personal tasks and their own
+teams' tasks, and nothing more. That must be true in the database, not just the screens.
 
 ## Web or mobile
 
@@ -81,8 +84,9 @@ free text that could contain absolutely anything.
 | Display name — a nickname | So the organiser sees "Carol", not an address; never a real or full name | `profiles` *(proposed)* | Their team members; owner | Until the account is deleted | No way in the app yet | No |
 | Team name | Feature 2 | `teams` *(proposed)* | Members of that team; owner | Until the team is deleted | Only by deleting the team — not built yet | No |
 | Team membership — who is in which team | Feature 5; the RLS rule decides by this | `team_members` *(proposed)* | Members of that team; owner | Until removed from the team | Leave the team — not built yet | No, but it shows who belongs to which group |
-| Task text — length-limited | Feature 4; the input box carries the "no personal details" request | `tasks` *(proposed)* | Members of that team; owner | Until the task is deleted — no automatic clear-out in the first version | Rename or delete the task, on the My tasks page — **built** | **Yes** — free text; people type anything |
-| Who created and who ticked off each task | Feature 4; answers "who said they would do it" | `tasks` *(proposed)* | Members of that team; owner | With the task | With the task — deleting the task removes it, **built** | No |
+| Task text — length-limited | Feature 4; the input box carries the "no personal details" request | `tasks` *(proposed)* | Its creator; the members of its team if it has one — a personal task is seen by its creator alone; owner | Until the task is deleted — no automatic clear-out in the first version | Delete the task, on the My tasks page — **built**. Only its creator can delete it: a team mate can rename it, not remove it | **Yes** — free text; people type anything |
+| Who created and who ticked off each task | Feature 4; answers "who said they would do it" | `tasks` *(proposed)* | Its creator; the members of its team if it has one; owner | With the task | With the task — deleting the task removes it, **built** | No |
+| Which team a task belongs to, or none | Feature 5; this is what decides who may see a task | `tasks.team_id` *(proposed)* | Its creator; the members of that team; owner | With the task. Deleting the team clears it — the task returns to its creator as personal, rather than being deleted with somebody else's team | With the task, or by its creator moving it back to personal | No, but it links a person's task to a group |
 | Dates on tasks and teams — exact timestamps | Feature 4; ordering and "what is left" | `tasks`, `teams` *(proposed)* | Members of that team; owner | With the row | With the row | No, but it records when a person was active |
 | An invited person's email, before they accept | Feature 3. Stored lowercase, so the same address cannot be invited twice under different capitalisation | `invitations` — **built** | The inviter; owner | Until accepted, or 7 days — then it expires. At most 20 pending per team | **They cannot** — not a user yet; owner deletes | No, but it is data about someone who never signed up |
 | An invitation's token, hashed | Feature 3 — proves the person opening the link is the one who was invited | `invitations.token_hash` — **built**. A SHA-256 hash; the token itself is **never stored**, only emailed | Nobody — a hash cannot be read back into a token | With the invitation | With the invitation | **Yes** — until it expires or is used, the token in the email *is* a credential |
