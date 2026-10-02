@@ -172,7 +172,7 @@ jobs:
     #     which turns on the action's CI MCP server (it checks that permission
     #     using `DEFAULT_WORKFLOW_TOKEN`, i.e. GITHUB_TOKEN, in
     #     src/mcp/install-mcp-server.ts). We do not set it, so Claude cannot read
-    #     workflow logs. That is a real limitation, filed as an issue, not an
+    #     workflow logs. That is a real limitation, filed as #61, not an
     #     oversight.
     #   id-token: write -- that is for OIDC. Supplying `github_token` makes the
     #     action return early before requesting an OIDC token at all
@@ -223,7 +223,7 @@ jobs:
       # deprecation warning. It does not fail. `client-id` needs the app's Client
       # ID, which is a different value and is not in the `claude` environment --
       # adding it is an environment change, which issue #60 puts out of scope.
-      # Filed as a follow-up issue.
+      # Filed as #62.
       - name: Mint a token from the team-tasks-claude app
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
