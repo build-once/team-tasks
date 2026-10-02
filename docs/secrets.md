@@ -78,6 +78,12 @@ scrapers watch new public commits for exactly that.
 ## Where secrets are allowed to live
 
 - **Environment variables**, from a git-ignored `.env` file locally, or the host's secret store.
+- **`~/.config/team-tasks/staging.env`**, outside this repository, for the **staging test accounts'
+  passwords** (Alice, Bob, Carol). Written by hand by the owner, loaded into the shell for one run, and
+  read by the staging scripts as environment variables — never committed, never printed, never pasted
+  into chat. The names each script expects, and how to load the file, are in `docs/environments.md`
+  → *Where the test accounts' passwords live*. These are staging accounts with fake data, but a
+  password is a password: it goes nowhere near the repository.
 - **Supabase Edge Functions secrets**, for anything the server needs at run time. Set by the owner,
   **per project** — staging's values are not production's. Names only below; no values live in this
   repository. The full table, with what each is for, is in `docs/environments.md`:
@@ -87,8 +93,9 @@ scrapers watch new public commits for exactly that.
   - `EMAIL_FROM` — the address invitations are sent from.
   - `APP_URL` — the site's own address, used to build the invitation link. Read **only** from this
     setting, never from a request header.
-  - `EMAIL_TEST_INBOX` — **staging only.** Redirects every invitation email away from real people, and
-    overrides `EMAIL_DELIVERY`.
+  - `EMAIL_TEST_INBOX` — **staging only**, set to the Gmail test mailbox
+    `teamtasks.staging.test@gmail.com`. Redirects every invitation email away from real people, and
+    overrides `EMAIL_DELIVERY`. Not a secret — an address, written down in `docs/environments.md`.
   - `EMAIL_DELIVERY` — **production only**, exactly `live`. The only value that permits sending to a
     real recipient.
 

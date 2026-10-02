@@ -146,7 +146,9 @@ if (aliceTeamId === "") missingFromEnv.push("ALICE_TEAM_ID");
 if (missingFromEnv.length > 0) {
   die(
     `these environment variables are not set: ${missingFromEnv.join(", ")}.\n` +
-      `Set them on the command line for this one run, so they are not stored.\n` +
+      `Load them for this one run -- prompt for the password, or source\n` +
+      `~/.config/team-tasks/staging.env. Keep the password off the command line:\n` +
+      `see the bottom of this file, and docs/environments.md.\n` +
       `No value is printed by this script.`,
   );
 }
@@ -359,7 +361,7 @@ try {
 //
 //   read -rsp 'Bob password: ' BOB_PASSWORD; echo
 //   export BOB_PASSWORD
-//   export BOB_EMAIL='bob@...'
+//   export BOB_EMAIL='teamtasks.staging.test+bob@gmail.com'
 //   export ALICE_TEAM_ID='...'
 //   node scripts/staging/bob-invites-to-alices-team.mjs
 //   unset BOB_PASSWORD
@@ -367,12 +369,27 @@ try {
 // PowerShell:
 //
 //   $env:BOB_PASSWORD = Read-Host 'Bob password'
-//   $env:BOB_EMAIL = 'bob@...'
+//   $env:BOB_EMAIL = 'teamtasks.staging.test+bob@gmail.com'
 //   $env:ALICE_TEAM_ID = '...'
 //   node scripts/staging/bob-invites-to-alices-team.mjs
 //   Remove-Item Env:BOB_PASSWORD
 //
 // BOB_EMAIL and ALICE_TEAM_ID are not secrets, so it does not matter that those
 // two lines are kept in history. Only the password needs the prompt.
+//
+// OR, sourcing the password file instead of typing it. The owner keeps the test
+// accounts' passwords in ~/.config/team-tasks/staging.env, outside this
+// repository. Sourcing it puts a FILENAME in history, not a password, so this is
+// as safe as the prompt above and less typing:
+//
+//   set -a
+//   . ~/.config/team-tasks/staging.env
+//   set +a
+//   export ALICE_TEAM_ID='...'
+//   node scripts/staging/bob-invites-to-alices-team.mjs
+//
+// This script reads BOB_EMAIL, BOB_PASSWORD and ALICE_TEAM_ID from the
+// environment and nothing else from that file. It never reads the file itself.
+// See docs/environments.md -> "Where the test accounts' passwords live".
 //
 // The assistant has never run this script.
