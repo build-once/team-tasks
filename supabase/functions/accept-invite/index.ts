@@ -17,7 +17,18 @@
 //
 // Imports pinned to exact versions in deno.json (rule 17, Lesson A4).
 //
-// NOT DEPLOYED. This file has never been pushed to any project.
+// DEPLOYED TO STAGING AND TO PRODUCTION. Staging first, by the owner from their
+// own terminal; production on the merge of PR #44, by the `deploy-functions` job
+// in .github/workflows/migrate-production.yml. Both are recorded in
+// evidence/invitations.md -> "What is deployed where", written 2026-10-01.
+//
+// That same file records what production has NOT seen of this function: nobody
+// has ever accepted an invitation there. The button press, the atomic claim and
+// the team_members write are proven on staging only.
+//
+// This line used to say the file had never been pushed to any project, which was
+// untrue from the moment PR #44 merged (issue #111). Read what follows as code
+// that is running in production: it is.
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
