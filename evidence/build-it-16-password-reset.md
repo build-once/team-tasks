@@ -413,6 +413,13 @@ redirect address at all and Supabase uses the project's Site URL; with `SITE_URL
 that is not on the allow-list, Supabase ignores it and falls back to the same Site URL. The visible
 symptom in both cases is a reset link that lands on the project's home page instead of the form.
 
+The first half of that is read from the installed client rather than assumed: `resetRedirectTo` returns
+`undefined` when the setting is absent, and `web/node_modules/@supabase/auth-js/dist/module/lib/fetch.js:99-101`
+adds `redirect_to` to the request only when the option is truthy — so nothing is sent, rather than an
+empty value being sent. **The second half is not read from anything here**: that Supabase falls back to
+the Site URL for an address not on the allow-list is from its own documentation, not from an
+observation in this repository.
+
 ## 7. The owner's test, on localhost:3000 against staging
 
 Not run by the assistant. **No reset email has been sent by anybody**, which is what issue #120 asks
