@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Build Once offline checker. Apache-2.0.
 // Shows what the guard would decide, without running anything.
-//   node guard/check.mjs "<shell command>"
-//   node guard/check.mjs --tool Write --path some/file.txt
-//   node guard/check.mjs --tool mcp__server__tool --json '{"arg":"value"}'
+//   node .claude/guard/check.mjs "<shell command>"
+//   node .claude/guard/check.mjs --tool Write --path some/file.txt
+//   node .claude/guard/check.mjs --tool mcp__server__tool --json '{"arg":"value"}'
 // Run it yourself in a terminal. If you ask the assistant to run it, the guard
 // also checks that command, and may block it because of the text you are testing.
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { loadRules, evaluate } = await import(pathToFileURL(resolve(ROOT, '.claude', 'hooks', 'guard.mjs')).href);
 
 const args = process.argv.slice(2);
@@ -22,7 +22,7 @@ let input;
 if (tool === 'Bash') {
   const command = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--'))).join(' ');
   if (!command) {
-    console.error('Usage: node guard/check.mjs "<command>"   or   --tool <Name> --path <file>   or   --tool mcp__x__y --json <args>');
+    console.error('Usage: node .claude/guard/check.mjs "<command>"   or   --tool <Name> --path <file>   or   --tool mcp__x__y --json <args>');
     process.exit(64);
   }
   input = { command };

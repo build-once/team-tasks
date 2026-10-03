@@ -40,6 +40,6 @@ For example: "Email delivery: unverified — staging email provider is not set u
 - [ ] I pasted real output and exit codes above, not a summary.
 - [ ] No secrets, keys or real customer data are in the diff, screenshots or logs.
 - [ ] I tested as Alice (owner), Bob (outsider) and Carol (team member) on staging where it matters.
-- [ ] No guard files were changed (`.claude/hooks/`, `.claude/settings.json`, `guard/`) — or, if they were, a person made that change on purpose and explains it here.
+- [ ] No guard files were changed (`.claude/hooks/`, `.claude/settings.json`, `.claude/guard/`, `guard/`) — or, if they were, a person made that change on purpose and explains it here.
 - [ ] Database changes are in a migration file, not typed into a dashboard.
 - [ ] Anything I could not check is listed under "Unverified items".

@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: "22"
       - name: Guard self-test
-        run: node guard/selftest.mjs
+        run: node .claude/guard/selftest.mjs
 
   skills-lint:
     name: Skills lint

@@ -484,9 +484,9 @@ exist yet.
   browser, alongside eight names the app does not use. It now lists `NEXT_PUBLIC_SUPABASE_URL` and
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` with empty values, and nothing else, so a fresh import into
   any host offers only those two. See "Every setting the app uses".
-- **Closed 2026-09-28 — the guard now recognises the production project.** `guard/local.json` exists
+- **Closed 2026-09-28 — the guard now recognises the production project.** `.claude/guard/local.json` exists
   and lists the production project reference under `production_patterns`, so the `production-access`
-  rule in `guard/rules.json` can block a command or connector call that names production
+  rule in `.claude/guard/rules.json` can block a command or connector call that names production
   (`docs/guards.md`, "Tell the guard what production looks like"). Still worth knowing: it matches the
   project reference, not a production web address, because no domain name has been chosen yet. Guard
   files are changed by a person, never by the assistant.
