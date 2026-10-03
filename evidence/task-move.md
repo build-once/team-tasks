@@ -10,9 +10,10 @@ Two halves below, and the line between them matters:
 
 - **§1 to §4 were run by the assistant (Claude Code) on 3 Oct 2026**, on this machine, and the
   output is pasted as it came back.
-- **§5 has not been run by anybody.** It needs a browser and the staging accounts, whose passwords
-  the assistant does not have. Every line of it is **unverified** until the owner works through it
-  and writes the result here.
+- **§5 was run by the owner on 3 Oct 2026**, in a browser against staging, and what is written
+  there is **their report, not the assistant's observation**. Nine of its twelve checks were run and
+  all nine passed. Checks 3, 5 and 7 were not run and stay **unverified**; three details inside
+  checks that did pass were not reported, and each is marked where it sits.
 
 ## 1. Lint and build
 
@@ -147,23 +148,26 @@ is handed — so the two new `moved` checks and the new `move` check cannot be b
 any break lands on the shared loop, as above. They are worth having anyway, because they pin the
 exact addresses the move flow depends on, and a later rewrite of that loop would fail them.
 
-## 5. The owner's checks — NOT RUN, every line unverified
+## 5. The owner's checks — 9 of 12 run on 3 Oct 2026, all 9 passed; 3, 5 and 7 not run
 
 On `localhost:3000` against **staging**, signed in as the staging test accounts
 (`docs/environments.md`). The assistant cannot run these: it has no account passwords, and rule 6
 puts the three test accounts in a browser the owner drives.
 
-Write `PASS` or `FAIL` plus what you saw beside each line, and a `Date:` line at the end.
+**Everything below is the owner's report, written down as they gave it on 3 Oct 2026.** The
+assistant did not watch any of it and has no output of its own to paste, so none of it carries the
+kind of evidence §1 to §4 carry — it carries the owner's word, which is what rule 6 leaves
+available for these.
 
 ### As Alice (owner of a team Carol belongs to)
 
-1. A task Alice created in her team shows **Move to…** beside Rename and Delete. →
-   `unverified — not run`
+1. A task Alice created in her team shows **Move to…** beside Rename and Delete. → **PASS**
 2. Move it to **Personal**. The task stays on screen with the filter unchanged, a green **"Task
-   moved to Personal."** appears, and the team chip is gone. → `unverified — not run`
+   moved to Personal."** appears, and the team chip is gone. → **PASS**
 3. Carol, refreshing My tasks, no longer sees that task. → `unverified — not run`
 4. Move it back into the team. The banner names the team, and the chip returns with the team's
-   name. → `unverified — not run`
+   name. → **PASS** — Alice moved a team task to Personal and back; the banner and the chip label
+   were both correct.
 5. With the filter set to that team, move a task to Personal: the person stays in the team's list,
    the task leaves it, and the banner says where it went — nothing vanishes silently. →
    `unverified — not run`
@@ -171,30 +175,49 @@ Write `PASS` or `FAIL` plus what you saw beside each line, and a `Date:` line at
 ### As Carol (a member, not the creator)
 
 6. On **Alice's** task in that team: Rename is offered, **Move to… is not**, Delete is not. →
-   `unverified — not run`
+   **PASS** — Rename was offered; Move to… and Delete were both absent on Alice's task.
 7. A move request made by hand for Alice's task — the form posted with Alice's task id — is refused
    and the page says **"That task was not moved. Only the person who created a task can move it, and
    only to Personal or to a team they belong to."** No database wording, no "please try again". →
-   `unverified — not run`
+   `unverified — not run`. The owner reports it as covered by the Build it 15 staging proof
+   (`evidence/build-it-15-part-1.md` line 50, "PASS  Carol CANNOT move Alice's team task to her own
+   team"), as the coach's review on #104 notes.
+   **Said plainly: that proof is not this check.** It was run against the staging database, and it
+   proves the database refuses Carol's move — which is the half that matters most, and it is proved.
+   What check 7 asks about is the sentence the **page** shows when that refusal comes back. That
+   wording is still unverified, and the way to settle it is to run check 7 as written.
 
 ### The stranded task (issue #91, which needs a hand-made removal)
 
 8. As Carol, create a task in Alice's team. Then have Alice remove Carol from the team — **by hand,
    in the Supabase SQL editor on staging; there is no screen for it**, and that is why this state is
-   hard to reach today. → `unverified — not run`
+   hard to reach today. → **PASS** — Carol created "Carol stranded test" in Alice's team (the team
+   label showed and Move to… was offered); the owner removed Carol's membership in the staging SQL
+   editor; the coach confirmed 0 memberships through the staging read-only connector.
 9. Carol opens My tasks: the task is **visible**, and its chip reads **"(a team you have left)"** in
-   the app's problem colour, not a blank and not a team name. → `unverified — not run`
+   the app's problem colour, not a blank and not a team name. → **PASS** — visible, and the chip
+   read "(a team you have left)". The owner did not report the chip's **colour**, so that detail of
+   the line is `unverified — not reported`.
 10. Carol ticks it: refused, and the page says **"That task is in a team you are no longer in, so it
     cannot be ticked or renamed while it stays there. Use Move to… on the task to bring it back to
-    Personal, and you can tick and rename it again."** → `unverified — not run`
+    Personal, and you can tick and rename it again."** → **PASS** — that sentence exactly.
 11. Carol renames it: the same message, and the row closes so the Move to… control is in front of
-    her. → `unverified — not run`
+    her. → **PASS** on the message — the same sentence exactly. Whether the **row closed** was not
+    reported, so that detail is `unverified — not reported`.
 12. Carol uses **Move to… → Personal**. It succeeds in one step, and she can then tick and rename it
-    normally. → `unverified — not run`
+    normally. → **PASS** on the move and the tick — Move to Personal succeeded and the task could
+    then be ticked. **Renaming after the move was not reported**, so that half is
+    `unverified — not reported`.
 
-Result: `<PASS or FAIL, plus a few words>`
+Afterwards the owner restored Carol's membership, and the coach confirmed 1 membership — so
+staging is back as it was before check 8.
 
-Date: `<YYYY-MM-DD>`
+Result: **PASS on every check that was run.** Nine checks were run (1, 2, 4, 6, 8, 9, 10, 11, 12)
+and nine passed; **three were not run** (3, 5, 7) and stay unverified. Three details inside passing
+checks were not reported and stay unverified too: the chip's colour in 9, the row closing in 11,
+and renaming after the move in 12.
+
+Date: 2026-10-03
 
 ## What is still not covered, after all of the above
 
