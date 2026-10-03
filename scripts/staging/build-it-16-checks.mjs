@@ -5,16 +5,28 @@
 // WHAT IT IS FOR. Three doors that the project claims are shut and that nothing
 // has ever pushed on:
 //
-//   1. A PRESENT BUT FORGED TOKEN (issue #110). Every one of the three Edge
+//   1. A PRESENT BUT INVALID TOKEN (issue #110). Every one of the three Edge
 //      functions declares `auth: "user"` and is deployed with verify_jwt = true
 //      (supabase/config.toml:25, :38, :49), which is the project's entire reason
 //      for believing a caller's identity. The only refusal ever observed is the
 //      one where the Authorization header is MISSING altogether
 //      (evidence/create-team.md:184-197, evidence/invitations.md:39-42) -- and
 //      that same 401 would be produced by a function deployed with
-//      verify_jwt = false whose own code happened to look for the header. A
-//      forged-signature 401 is the observation that tells "the platform verified
-//      the signature" apart from "something looked at the header".
+//      verify_jwt = false whose own code happened to look for the header. A 401
+//      for a token that is PRESENT is the observation that tells "the platform
+//      verified this token" apart from "something looked at the header".
+//
+//      Two tokens are sent, because they are refusable for different reasons and
+//      only the second one isolates the signature:
+//
+//      * a FORGED token, built from nothing: an honest header and payload with a
+//        signature of random bytes. A platform can refuse this one on its header
+//        alone -- see the comment above alterToken -- so a 401 here does not by
+//        itself show that a signature was checked;
+//      * an ALTERED token: one the platform has just issued, with its header and
+//        signature kept exactly and one payload claim changed. Everything cheap
+//        to refuse is correct; the only thing wrong is that the signature no
+//        longer matches the payload.
 //
 //   2. invite-member's 403 for somebody who is not the team's owner. Exercised
 //      once, by scripts/staging/bob-invites-to-alices-team.mjs. Re-asked here
@@ -57,10 +69,14 @@
 //
 //   node scripts/staging/build-it-16-checks.mjs --selftest
 //
-// IT WRITES NOTHING. It signs two people in, sends four requests that are all
-// meant to be refused, reads the invitations table once to confirm a refusal left
-// nothing behind, and signs out. No row is created by design rather than by luck:
-// no request it sends has a body that any function would accept.
+// IT WRITES NOTHING. It signs two people in, sends eight function calls that are
+// every one of them meant to be refused (three forged, three altered, one as the
+// wrong person, one about a team that does not exist), reads two tables -- teams,
+// to confirm Alice owns the team the owner check is about, and invitations, to
+// confirm the refusal left nothing behind -- and signs out. Three more calls go
+// out only if the optional expired token is supplied. No row is created by design
+// rather than by luck: no request it sends has a body that any function would
+// accept.
 //
 // NO PACKAGES. The repository root has no dependencies and no node_modules, so
 // this uses Node built-ins only -- global fetch, node:crypto, node:buffer --
@@ -80,15 +96,19 @@
 //   the API key travels in the `apikey` header; Authorization carries the
 //          caller's JWT -- @supabase/functions-js invoke remarks
 //
-// WHAT IT NEVER PRINTS: a password, a real access token, a refresh token, the
-// publishable key, an email address belonging to a person, a user id, or an
-// invitation id. The forged token is not printed either -- not because it is a
-// secret, it is worthless, but because a script that prints one token shape today
-// prints the wrong one tomorrow. Every response body is passed through scrub()
-// first, which replaces any token this script holds with a placeholder. What does
-// get printed: HTTP statuses, counts, true/false, the fabricated example.com
-// address it tries to invite, the team id you passed in, and response bodies from
-// the platform and from the functions' own fixed wording.
+// WHAT IT NEVER PRINTS: a password, Alice's or Bob's access token, a refresh
+// token, the publishable key, an email address belonging to a person, a user id,
+// or an invitation id. The forged token is not printed either -- not because it
+// is a secret, it is worthless, but because a script that prints one token shape
+// today prints the wrong one tomorrow. THE ALTERED TOKEN IS THE ONE THAT MATTERS
+// MOST HERE: undo the one change and it is Bob's live token, so it is registered
+// with scrub() the moment it exists, and no part of it, not even its length,
+// reaches any line. Every response body goes through scrub() first, which
+// replaces every token this script is holding with a placeholder. What does get
+// printed: HTTP statuses, counts, true/false, the real token header's `alg` and
+// whether it carries a `kid`, the fabricated example.com address it tries to
+// invite, the team id you passed in, and response bodies from the platform and
+// from the functions' own fixed wording.
 //
 // Run it from the repository root. See the bottom of this file.
 
@@ -98,9 +118,18 @@ import { Buffer } from "node:buffer";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The staging project's reference. This script may run against NOTHING ELSE.
-// AGENTS.md rules 1 and 10. The same constant as the two scripts beside it.
+// The staging project's reference, and the exact host it is served at. This
+// script may run against NOTHING ELSE. AGENTS.md rules 1 and 10.
+//
+// The HOST is what the guard decides on, and that is a fix rather than a detail.
+// The guard used to ask whether the URL merely CONTAINED the reference. The
+// coach's review of PR #115 pointed a stand-in server at
+// `http://127.0.0.1:8799/ghskxrhqlhvrhpnivqbd`, which contains it, and this
+// script accepted that URL and sent Alice's and Bob's passwords to it. The
+// reference is still kept, because it is what the printed lines name and what the
+// three scripts beside this one compare on.
 const STAGING_REF = "ghskxrhqlhvrhpnivqbd";
+const STAGING_HOST = `${STAGING_REF}.supabase.co`;
 
 // The shape Postgres accepts for a uuid column: 8-4-4-4-12 hex digits. Used
 // twice below for two different jobs -- validating ALICE_TEAM_ID, and looking for
@@ -165,6 +194,68 @@ function die(message) {
 const PASS = "PASS";
 const FAIL = "FAIL";
 const UNVERIFIED = "UNVERIFIED";
+
+// Is this URL the staging project, and nothing else?
+//
+// `supabaseUrl.includes(STAGING_REF)` was the wrong question, and the first thing
+// this script does once the guard is satisfied is send two passwords. A URL that
+// merely CONTAINS the reference passes that test: in its path, in a query string,
+// in a user name, or as the start of a longer domain somebody else owns. So the
+// URL is parsed, and four things are required:
+//
+//   * https, because a password must not travel in clear;
+//   * the host EXACTLY equal to STAGING_HOST, which refuses the reference in a
+//     path and refuses `ghskxrhqlhvrhpnivqbd.supabase.co.example.com`;
+//   * no user name or password in the URL itself -- those would be sent as
+//     credentials, and `https://<staging host>@example.com/` reads as the staging
+//     host to a person while naming example.com to fetch;
+//   * the default https port, because the project is not served on another.
+//
+// A detail line never contains the URL, for the reason the refusal below gives:
+// a project reference identifies an environment. The scheme and the port are
+// named, because neither identifies anything.
+function judgeStagingUrl(url) {
+  const what = `the Supabase URL is the staging project, exactly ${STAGING_HOST}`;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [{ what, verdict: FAIL, detail: "that value does not parse as a URL at all" }];
+  }
+  if (parsed.protocol !== "https:") {
+    return [{ what, verdict: FAIL, detail: `its scheme is "${parsed.protocol}", not "https:"` }];
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail: "it carries a user name or a password in the URL itself, so its host is not what it reads as",
+      },
+    ];
+  }
+  if (parsed.hostname !== STAGING_HOST) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `its host is not ${STAGING_HOST} -- the host it does name is not printed,` +
+          ` because a project reference identifies an environment`,
+      },
+    ];
+  }
+  if (parsed.port !== "") {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail: `it names port ${parsed.port}; the staging project is served on the default https port`,
+      },
+    ];
+  }
+  return [{ what, verdict: PASS, detail: `https://${STAGING_HOST}` }];
+}
 
 // Three separate judgements on one refusal, because they can fail independently
 // and a single verdict would hide which one did.
@@ -376,6 +467,216 @@ function judgeNoSuchTeam(answer) {
 }
 
 // ---------------------------------------------------------------------------
+// The altered token -- a real token with one claim changed
+// ---------------------------------------------------------------------------
+//
+// WHY A SECOND INVALID TOKEN. forgeToken() further down builds a token out of
+// nothing: an `HS256` header with no `kid`, and a signature of random bytes. The
+// coach's review of PR #115 made the point that a platform can refuse such a
+// token for its HEADER alone, before it looks at any signature -- so a 401 for it
+// does not show that a signature was checked.
+//
+// Unverified -- that claim is about `verifyUserJwt` in `@supabase/server`, and
+// that package is not installed here. `web/node_modules/@supabase` holds
+// auth-js, functions-js, postgrest-js, realtime-js, ssr, storage-js, supabase-js
+// and phoenix, and a search of the whole repository for `verifyUserJwt` finds
+// nothing. So it is the reviewer's reading of a package this project does not
+// have, not something confirmed in this session.
+//
+// The altered token closes that gap from the other side, and does not depend on
+// the claim being right. Take a token the platform has just issued, keep its
+// header and its signature exactly, and change one claim in the payload.
+// Everything that is cheap to refuse -- shape, algorithm, key id, expiry, issuer
+// -- is unchanged and correct. The one thing wrong with it is that the signature
+// no longer matches the payload it is a signature of.
+//
+// IT IS BOB'S LIVE TOKEN WITH ONE FIELD MOVED, and that is the whole risk of this
+// check: undo the change and you have a working credential. So it is registered
+// with scrub() the moment it exists, and nothing derived from it -- no part, no
+// prefix, no length -- appears in any line this script prints.
+//
+// `sub` is the claim changed, and it is replaced with a random uuid belonging to
+// nobody: if a door were open, that is the identity a function would act as, and
+// it is not a person's.
+
+// Builds the altered copy. Returns { token } or { error }.
+function alterToken(realToken) {
+  const parts = realToken.split(".");
+  if (parts.length !== 3) {
+    return { error: "the token just issued is not three dot-separated parts, so it is not a JWT" };
+  }
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  } catch {
+    return { error: "the token just issued has a payload that is not readable as JSON" };
+  }
+  if (typeof payload?.sub !== "string" || payload.sub === "") {
+    return { error: "the token just issued has no sub claim, so there is nothing to change" };
+  }
+  const encoded = Buffer.from(
+    JSON.stringify({ ...payload, sub: randomUUID() }),
+    "utf8",
+  ).toString("base64url");
+  return { token: `${parts[0]}.${encoded}.${parts[2]}` };
+}
+
+// The facts judgeAlteration needs, worked out from the two token strings.
+// Returns them or { error }.
+//
+// NEITHER TOKEN, and no part of either, is in what it returns. `alg` and whether
+// a `kid` is present are properties of the header rather than secrets, and they
+// are here because they are what says which question a 401 below answers.
+function describeAlteration(realToken, alteredToken) {
+  const real = realToken.split(".");
+  const altered = alteredToken.split(".");
+  if (real.length !== 3 || altered.length !== 3) {
+    return { error: "one of the two values is not three dot-separated parts, so it is not a JWT" };
+  }
+  let header;
+  let realPayload;
+  let alteredPayload;
+  try {
+    header = JSON.parse(Buffer.from(real[0], "base64url").toString("utf8"));
+    realPayload = JSON.parse(Buffer.from(real[1], "base64url").toString("utf8"));
+    alteredPayload = JSON.parse(Buffer.from(altered[1], "base64url").toString("utf8"));
+  } catch {
+    return { error: "a header or a payload is not readable as JSON, so the change cannot be confirmed" };
+  }
+  if (typeof realPayload?.sub !== "string" || realPayload.sub === "") {
+    return { error: "the real token has no sub claim, so there was nothing to change" };
+  }
+  return {
+    differsFromReal: alteredToken !== realToken,
+    headerUnchanged: altered[0] === real[0],
+    signatureUnchanged: altered[2] === real[2],
+    payloadChanged: altered[1] !== real[1],
+    subChanged:
+      typeof alteredPayload?.sub === "string" &&
+      alteredPayload.sub !== "" &&
+      alteredPayload.sub !== realPayload.sub,
+    alg: typeof header?.alg === "string" ? header.alg : "(none)",
+    hasKid: typeof header?.kid === "string" && header.kid !== "",
+  };
+}
+
+// Is the token about to be sent an altered COPY, and not the real one?
+//
+// Judged BEFORE anything is sent, and a verdict other than PASS stops the three
+// calls. Two reasons, and both of them are why this judgement exists at all
+// rather than the alteration being trusted to have worked:
+//
+//   * sending the real token would ask a completely different question. The
+//     platform would accept it, the handler would answer the `{}` body with its
+//     own 400, and judgeClosedDoor would report that as a door standing open --
+//     a FAIL that looks like a finding and is an input mistake;
+//   * a live credential would be going out over the wire for no purpose.
+function judgeAlteration(facts) {
+  const what = "the altered token is a changed copy: the real header and signature, a different sub";
+  if (facts.error) {
+    return [{ what, verdict: UNVERIFIED, detail: facts.error }];
+  }
+  const wrong = [];
+  if (!facts.differsFromReal) wrong.push("it is character-for-character the real token");
+  if (!facts.headerUnchanged) wrong.push("its header is not the real token's");
+  if (!facts.signatureUnchanged) wrong.push("its signature is not the real token's");
+  if (!facts.payloadChanged) wrong.push("its payload is unchanged");
+  if (!facts.subChanged) wrong.push("its sub claim is unchanged");
+  if (wrong.length > 0) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail: `${wrong.join("; ")} -- so nothing is sent, which is what this judgement is for`,
+      },
+    ];
+  }
+  return [
+    {
+      what,
+      verdict: PASS,
+      detail:
+        `header and signature kept, sub replaced with a uuid belonging to nobody.` +
+        ` The real header's alg is ${facts.alg} and it ${facts.hasKid ? "carries a kid" : "carries NO kid"}` +
+        ` -- read that before reading a 401 below as proof that a signature was checked`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Keeping tokens out of printed lines
+// ---------------------------------------------------------------------------
+//
+// This sits up here with the judgements, above --selftest, for one reason: it is
+// what stops the altered token reaching the screen, and the only acceptable place
+// to find out that it does not work is a run that sends nothing. The cases at the
+// end of runSelftest() exercise it.
+
+// Every token this script is holding, each with the placeholder to print in its
+// place. A list rather than named constants because three of the tokens do not
+// exist when this line runs: Alice's and Bob's real ones arrive at sign-in, and
+// the altered one is built from Bob's. Each is registered the moment it comes
+// into existence, before anything it could appear in is printed.
+const TOKEN_PLACEHOLDERS = [];
+
+// An empty value would turn scrub() into a function that rewrites the gap
+// between every pair of characters, so it is refused rather than registered.
+function rememberToken(token, placeholder) {
+  if (typeof token === "string" && token !== "") {
+    TOKEN_PLACEHOLDERS.push([token, placeholder]);
+  }
+}
+
+// The substitution itself, kept pure and separate from the registry so the
+// selftest can hand it a list of fabricated tokens.
+function scrubWith(text, placeholders) {
+  let out = text ?? "";
+  for (const [token, placeholder] of placeholders) {
+    if (token === "") continue;
+    out = out.split(token).join(placeholder);
+  }
+  return out;
+}
+
+// Replaces every token this script holds with its placeholder, so no printed
+// body can carry one back out. The forged one is worthless and the expired one is
+// spent -- but the altered one is a live credential with one field moved, and the
+// two real ones are live outright. A script that prints a token shape at all is
+// one line away from printing the wrong one.
+function scrub(text) {
+  return scrubWith(text, TOKEN_PLACEHOLDERS);
+}
+
+// Did `token` actually get taken out of `text`?
+//
+// A judgement rather than a bare assertion, so it joins the cases below. It says
+// UNVERIFIED when the token is not in the text to start with: a clean result
+// then proves nothing, and that is the shape a scrub check usually fails in
+// (AGENTS.md rule 8). Neither the text nor the token is in anything it returns.
+function judgeScrubbed(label, text, token, placeholders) {
+  const what = `scrub: ${label}`;
+  if (!text.includes(token)) {
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail: "that token is not in the text to begin with, so a clean result proves nothing",
+      },
+    ];
+  }
+  const survived = scrubWith(text, placeholders).includes(token);
+  return [
+    {
+      what,
+      verdict: survived ? FAIL : PASS,
+      detail: survived
+        ? `the token is STILL in the result, with ${placeholders.length} placeholder(s) registered`
+        : `gone from the result, with ${placeholders.length} placeholder(s) registered`,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // --selftest -- the judgements above, fed answers from a world where the doors
 // are open. No network, no account, no staging project.
 // ---------------------------------------------------------------------------
@@ -383,16 +684,80 @@ function judgeNoSuchTeam(answer) {
 function runSelftest() {
   console.log("build-it-16-checks --selftest: can these checks fail?");
   console.log("");
-  console.log("Each case below is an answer this script might get back. The");
-  console.log("expectation is what the judgement must say about it. Nothing is");
-  console.log("sent anywhere and no account is used.");
+  console.log("Each case below is something this script might be handed: a URL");
+  console.log("from web/.env.local, a token it built, or an answer that came");
+  console.log("back. The expectation is what the judgement must say about it.");
+  console.log("Nothing is sent anywhere and no account is used.");
   console.log("");
 
   // A made-up uuid and a made-up address, for fabricated answers only. Neither
   // is in any database.
   const madeUpId = "a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b";
 
+  // A JWT-SHAPED STRING THAT IS NOT A TOKEN, for the altered-token cases. Its
+  // signature is the literal word below and nothing signed anything, so it opens
+  // nothing anywhere. It exists so the alteration code can be exercised with no
+  // account and no network -- the real version of it is Bob's live token.
+  const standInHeader = { alg: "HS256", typ: "JWT", kid: "made-up-key-id" };
+  const standInClaims = { sub: madeUpId, role: "authenticated", aud: "authenticated", exp: 4000000000 };
+  const fabricateJwt = (claims, header = standInHeader, signature = "not-a-signature") =>
+    [
+      Buffer.from(JSON.stringify(header), "utf8").toString("base64url"),
+      Buffer.from(JSON.stringify(claims), "utf8").toString("base64url"),
+      signature,
+    ].join(".");
+  const standInReal = fabricateJwt(standInClaims);
+  // The altered copy of it, built by the same alterToken() the staging run uses.
+  const standInAltered = alterToken(standInReal).token;
+
   const cases = [
+    // ---- the staging guard: which URLs are the staging project ----
+    {
+      name: "the staging URL itself",
+      run: () => judgeStagingUrl(`https://${STAGING_HOST}`),
+      expect: [PASS],
+    },
+    {
+      name: "NOT STAGING, and it contains the staging reference -- the coach's stand-in server",
+      run: () => judgeStagingUrl(`http://127.0.0.1:8799/${STAGING_REF}`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the reference in a path on somebody else's https host",
+      run: () => judgeStagingUrl(`https://example.com/${STAGING_REF}`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the reference in a query string",
+      run: () => judgeStagingUrl(`https://example.com/?project=${STAGING_REF}`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the staging host as the start of a longer domain",
+      run: () => judgeStagingUrl(`https://${STAGING_HOST}.example.com`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the staging host as a URL user name, so the host is example.com",
+      run: () => judgeStagingUrl(`https://${STAGING_HOST}@example.com/`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the right host, but over plain http",
+      run: () => judgeStagingUrl(`http://${STAGING_HOST}`),
+      expect: [FAIL],
+    },
+    {
+      name: "NOT STAGING: the right host, on another port",
+      run: () => judgeStagingUrl(`https://${STAGING_HOST}:8799`),
+      expect: [FAIL],
+    },
+    {
+      name: "not a URL at all: the bare reference",
+      run: () => judgeStagingUrl(STAGING_REF),
+      expect: [FAIL],
+    },
+
     // ---- the forged-token checks ----
     {
       name: "a shut door: 401 from the platform",
@@ -449,6 +814,55 @@ function runSelftest() {
       name: "the request never arrived",
       run: () => judgeClosedDoor("create-team", { error: "could not reach the function (fetch failed)" }),
       expect: [UNVERIFIED, UNVERIFIED, UNVERIFIED],
+    },
+
+    // ---- the altered token: is the thing about to be sent a changed copy? ----
+    //
+    // These run the real alterToken() and describeAlteration() over a fabricated
+    // stand-in, so the code that will handle Bob's live token is the code being
+    // exercised here. No token text is printed by any of them.
+    {
+      name: "the alteration worked: the real header and signature, a different sub",
+      run: () => judgeAlteration(describeAlteration(standInReal, alterToken(standInReal).token)),
+      expect: [PASS],
+    },
+    {
+      name: "THE ALTERATION DID NOTHING: the token about to be sent is the real one",
+      run: () => judgeAlteration(describeAlteration(standInReal, standInReal)),
+      expect: [FAIL],
+    },
+    {
+      name: "THE WRONG PART CHANGED: the signature, not the payload -- that is the forged case over again",
+      run: () =>
+        judgeAlteration(
+          describeAlteration(standInReal, fabricateJwt(standInClaims, standInHeader, "a-different-signature")),
+        ),
+      expect: [FAIL],
+    },
+    {
+      name: "THE WRONG PART CHANGED: a fresh header, so the header is no longer the platform's",
+      run: () =>
+        judgeAlteration(
+          describeAlteration(
+            standInReal,
+            fabricateJwt({ ...standInClaims, sub: randomUUID() }, { alg: "HS256", typ: "JWT" }),
+          ),
+        ),
+      expect: [FAIL],
+    },
+    {
+      name: "nothing to change: the real token has no sub claim",
+      run: () => judgeAlteration(describeAlteration(fabricateJwt({ role: "authenticated" }), standInReal)),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "AN ALTERED TOKEN WAS ACCEPTED: the handler answered, so the signature was not checked",
+      run: () =>
+        judgeClosedDoor("invite-member (altered token)", {
+          status: 400,
+          body: '{"error":"Which team is this invitation for?","code":null}',
+        }),
+      expect: [FAIL, PASS, FAIL],
     },
 
     // ---- the owner check ----
@@ -524,6 +938,72 @@ function runSelftest() {
       run: () => judgeNoSuchTeam({ status: 201, body: '{"ok":true}' }),
       expect: [FAIL],
     },
+
+    // ---- the scrub: the altered token must never reach a printed line ----
+    //
+    // The altered token is Bob's live one with a single claim moved, so a body
+    // that echoed it back and got printed would publish a credential. These feed
+    // the real scrubWith() fabricated tokens and a fabricated body.
+    {
+      name: "the altered token in a response body is replaced",
+      run: () =>
+        judgeScrubbed(
+          "the altered token in a response body is replaced",
+          `{"msg":"bad jwt","got":"${standInAltered}"}`,
+          standInAltered,
+          [
+            [standInReal, "BOB_ACCESS_TOKEN"],
+            [standInAltered, "BOB_ALTERED_TOKEN"],
+          ],
+        ),
+      expect: [PASS],
+    },
+    {
+      name: "THE ALTERED TOKEN WAS NEVER REGISTERED: it comes straight back out",
+      run: () =>
+        judgeScrubbed(
+          "the altered token, with only the real one registered",
+          `{"msg":"bad jwt","got":"${standInAltered}"}`,
+          standInAltered,
+          [[standInReal, "BOB_ACCESS_TOKEN"]],
+        ),
+      // The failure mode this guards against: the altered token differs from the
+      // real one, so registering the real one does not cover it.
+      expect: [FAIL],
+    },
+    {
+      name: "NOTHING REGISTERED AT ALL: every token survives",
+      run: () =>
+        judgeScrubbed(
+          "the altered token, with an empty registry",
+          `{"msg":"bad jwt","got":"${standInAltered}"}`,
+          standInAltered,
+          [],
+        ),
+      expect: [FAIL],
+    },
+    {
+      name: "a real access token in a response body is replaced",
+      run: () =>
+        judgeScrubbed(
+          "a real access token in a response body is replaced",
+          `{"msg":"ok","token":"${standInReal}"}`,
+          standInReal,
+          [
+            [standInReal, "BOB_ACCESS_TOKEN"],
+            [standInAltered, "BOB_ALTERED_TOKEN"],
+          ],
+        ),
+      expect: [PASS],
+    },
+    {
+      name: "a scrub case that proves nothing: the token is not in the text at all",
+      run: () =>
+        judgeScrubbed("a body with no token in it", '{"msg":"bad jwt"}', standInAltered, [
+          [standInAltered, "BOB_ALTERED_TOKEN"],
+        ]),
+      expect: [UNVERIFIED],
+    },
   ];
 
   let wrong = 0;
@@ -552,9 +1032,12 @@ function runSelftest() {
     return 1;
   }
   console.log("");
-  console.log("Every judgement said FAIL to an open door and PASS to a shut one.");
-  console.log("That is what makes a green staging run mean something. It is NOT");
-  console.log("itself a staging result: nothing was sent anywhere by this run.");
+  console.log("Every judgement said FAIL to an open door and PASS to a shut one,");
+  console.log("refused every URL that is not the staging host, refused to send a");
+  console.log("token that had not actually been altered, and took a registered");
+  console.log("token out of a body it was printing. That is what makes a green");
+  console.log("staging run mean something. It is NOT itself a staging result:");
+  console.log("nothing was sent anywhere by this run.");
   return 0;
 }
 
@@ -620,6 +1103,26 @@ if (missingFromFile.length > 0) {
   die(`${ENV_FILE} is missing: ${missingFromFile.join(", ")}.\nNo value is printed by this script.`);
 }
 
+// ---------------------------------------------------------------------------
+// The staging guard
+// ---------------------------------------------------------------------------
+//
+// FIRST, before a password is read out of the environment and long before a
+// request is made. judgeStagingUrl says what it requires and why `includes` was
+// not enough; the short version is that the old guard accepted a stand-in server
+// at `http://127.0.0.1:8799/ghskxrhqlhvrhpnivqbd` and then signed Alice and Bob
+// in against it.
+const urlVerdict = judgeStagingUrl(supabaseUrl)[0];
+if (urlVerdict.verdict !== PASS) {
+  die(
+    `the Supabase URL in web/.env.local is not the staging project: ${urlVerdict.detail}.\n` +
+      `This script runs against https://${STAGING_HOST} and nothing else, and it has\n` +
+      `read no password and sent no request.\n` +
+      `The URL it found is not printed, because a project reference identifies an\n` +
+      `environment. Check web/.env.local yourself.`,
+  );
+}
+
 // Two people. Alice owns the team; Bob is the outsider the 403 is about.
 // docs/environments.md names them.
 const PEOPLE = [
@@ -669,18 +1172,8 @@ if (!UUID_PATTERN.test(aliceTeamId)) {
 }
 
 // ---------------------------------------------------------------------------
-// The staging guard
+// The four endpoints, built from the URL the guard above has already accepted
 // ---------------------------------------------------------------------------
-//
-// Checked against the URL from web/.env.local, before any request is made.
-if (!supabaseUrl.includes(STAGING_REF)) {
-  die(
-    `the Supabase URL in web/.env.local is not the staging project.\n` +
-      `This script only runs against the project whose reference is ${STAGING_REF}.\n` +
-      `The URL it found is not printed, because a project reference identifies an\n` +
-      `environment. Check web/.env.local yourself.`,
-  );
-}
 
 const base = supabaseUrl.replace(/\/+$/, "");
 const authUrl = `${base}/auth/v1`;
@@ -721,16 +1214,8 @@ function forgeToken() {
 
 const FORGED_TOKEN = forgeToken();
 
-// Replaces any token this script holds with a placeholder, so no printed body
-// can carry one back out. The forged one is worthless and the expired one is
-// spent, but a script that prints a token shape at all is one line away from
-// printing a live one.
-function scrub(text) {
-  let out = text ?? "";
-  if (FORGED_TOKEN) out = out.split(FORGED_TOKEN).join("FORGED_TOKEN");
-  if (expiredToken) out = out.split(expiredToken).join("EXPIRED_TOKEN");
-  return out;
-}
+rememberToken(FORGED_TOKEN, "FORGED_TOKEN");
+rememberToken(expiredToken, "EXPIRED_TOKEN");
 
 // A fabricated address, fresh on every run. Fresh matters: Alice's team already
 // has pending invitations, and invite-member has a unique index on
@@ -842,6 +1327,9 @@ async function signIn(person) {
   const userId = session?.user?.id ?? "";
   if (accessToken === "") return { error: "sign in returned HTTP 2xx but no access token" };
   if (userId === "") return { error: "sign in returned HTTP 2xx but no user id" };
+  // Registered with scrub() here, the moment it exists and before any body that
+  // could contain it is printed. This one is live.
+  rememberToken(accessToken, `${person.label.toUpperCase()}_ACCESS_TOKEN`);
   return { accessToken, userId };
 }
 
@@ -883,7 +1371,7 @@ function readExpiry(token) {
 // ---------------------------------------------------------------------------
 
 console.log("Build it 16 step 2 -- the function doors, staging only");
-console.log(`  project reference:  ${STAGING_REF} (staging, confirmed)`);
+console.log(`  staging host:       ${STAGING_HOST} (confirmed by parsing the URL, not by a substring)`);
 console.log(`  functions:          ${FUNCTIONS.join(", ")}`);
 console.log(`  Alice's team id:    ${aliceTeamId}`);
 console.log(`  absent team id:     ${ABSENT_TEAM_ID} (made up for this run)`);
@@ -917,7 +1405,8 @@ try {
   // -------------------------------------------------------------------------
 
   console.log("1. A token of the right shape with a made-up signature");
-  console.log("   (needs no account: the token is not anybody's)");
+  console.log("   (needs no account: the token is not anybody's. A platform may");
+  console.log("   refuse this one on its header alone, which is what 1c is for)");
 
   for (const name of FUNCTIONS) {
     const answer = await callFunction(name, FORGED_TOKEN, {});
@@ -969,6 +1458,52 @@ try {
         if (answer.body !== undefined) {
           console.log(`        body: ${answer.body}`);
         }
+      }
+    }
+  }
+  console.log("");
+
+  // -------------------------------------------------------------------------
+  // 1c. A real token with one claim changed -- the harder half of #110
+  // -------------------------------------------------------------------------
+  //
+  // It sits after 1b rather than beside 1 so the section numbers in
+  // evidence/build-it-16-function-doors.md keep meaning what they did. See the
+  // comment above alterToken for what this asks that check 1 cannot.
+
+  console.log("1c. A token the platform issued moments ago, with its sub claim");
+  console.log("    changed and its header and signature left exactly as they were");
+
+  if (!bob) {
+    unverified += 1;
+    console.log(
+      "  UNVERIFIED  all three functions: an altered token is refused" +
+        " -- Bob is not signed in, so there is no issued token to alter",
+    );
+  } else {
+    const built = alterToken(bob.accessToken);
+    if (built.error) {
+      unverified += 1;
+      console.log(`  UNVERIFIED  all three functions: an altered token is refused -- ${built.error}`);
+    } else {
+      rememberToken(built.token, "BOB_ALTERED_TOKEN");
+      const alteration = judgeAlteration(describeAlteration(bob.accessToken, built.token));
+      record(alteration);
+      if (alteration[0].verdict === PASS) {
+        for (const name of FUNCTIONS) {
+          const answer = await callFunction(name, built.token, {});
+          record(judgeClosedDoor(`${name} (altered token)`, answer));
+          if (answer.body !== undefined) {
+            console.log(`        body: ${answer.body}`);
+          }
+        }
+      } else {
+        unverified += 1;
+        console.log(
+          "  UNVERIFIED  all three functions: an altered token is refused -- NOTHING WAS" +
+            " SENT, because the line above says the token is not a changed copy, and an" +
+            " unchanged one would have been Bob's live token",
+        );
       }
     }
   }
@@ -1097,6 +1632,13 @@ try {
 // web/.env.local. Run this first, and whenever this file is edited:
 //
 //   node scripts/staging/build-it-16-checks.mjs --selftest
+//
+// THE ALTERED TOKEN NEEDS NO EXTRA SETTING. Check 1c builds it out of the token
+// Bob's sign-in returns, so a plain staging run does it. What it does need is a
+// look at its own first line afterwards: that line says whether the real
+// header carried a `kid`, and that is what decides whether the 401s under it are
+// evidence about a signature or only about a header. See the comment above
+// alterToken.
 //
 // THE STAGING RUN. KEEP THE PASSWORDS OFF THE COMMAND LINE: both shells on this
 // machine save command lines to a file -- Git Bash writes ~/.bash_history with
