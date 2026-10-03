@@ -148,7 +148,9 @@ export function tasksPath(params: {
   filter?: string | null;
   rename?: string;
   confirm?: string;
+  move?: string;
   added?: string;
+  moved?: string;
   problem?: string;
 }): string {
   const query = new URLSearchParams();
@@ -162,13 +164,58 @@ export function tasksPath(params: {
 }
 
 // What a team task shows when its team's name is not among the rows the page
-// could read. The screen cannot tell the two reasons apart, so the wording
-// beside it names both: the teams query failed, or the task's creator has left
-// the team -- in which case they still read their own task, through owner_id,
-// while no longer reading the team row that would name it.
+// could read AND this page cannot say why. Two ways to get here: the teams query
+// failed, so nothing is known about anybody's teams; or the task is somebody
+// else's and its team is missing from a list that loaded, which the read rules
+// make unreachable and which is therefore not claimed as anything. The third
+// case -- your own task, in a team you have left -- is TEAM_LEFT below, because
+// there it IS known. taskTeam() is where the three are told apart.
 //
 // Never a team id instead: an id is not a name, and this page shows no ids.
 export const TEAM_NOT_SHOWN = "(team not shown)";
+
+// What a STRANDED task says instead of a team name: its team_id names a team its
+// creator is no longer in (issue #91). Said out loud, because the person is
+// otherwise told no by a rule they cannot see -- the update rule's with check
+// wants the finished row to be personal-and-theirs or in a team they belong to,
+// and a stranded task is neither, so it cannot be ticked or renamed until it is
+// moved back to Personal.
+export const TEAM_LEFT = "(a team you have left)";
+
+// What a task's team chip says, and whether the task is stranded. One function
+// because the two answers come from the same question -- is this task's team
+// among the teams the database let this page read? -- and the page needs both
+// for the same row.
+//
+// WHY A MISSING NAME CAN BE READ AS "YOU HAVE LEFT THAT TEAM", which the old
+// single TEAM_NOT_SHOWN label deliberately would not claim: it can only be read
+// that way when the teams query SUCCEEDED, and then only for a task you created.
+// The select rule on teams is is_team_member(id), so a successful read returns
+// every team you own or belong to; and the select rule on tasks lets you see a
+// team task only as its creator or as a member of its team. So for a task of
+// your own whose team is missing from a good list, the one remaining explanation
+// is that you are not in that team. Not your task, or a failed teams query, and
+// the honest answer is still TEAM_NOT_SHOWN -- this page cannot tell why.
+export function taskTeam(
+  task: Pick<Task, "team_id" | "owner_id">,
+  context: {
+    userId: string;
+    teamNames: ReadonlyMap<string, string>;
+    teamsFailed: boolean;
+  },
+): { label: string | null; stranded: boolean } {
+  // Personal: no chip at all. The heading above already says whose list this is.
+  if (task.team_id === null) return { label: null, stranded: false };
+
+  const name = context.teamNames.get(task.team_id);
+  if (name !== undefined) return { label: name, stranded: false };
+
+  if (context.teamsFailed || task.owner_id !== context.userId) {
+    return { label: TEAM_NOT_SHOWN, stranded: false };
+  }
+
+  return { label: TEAM_LEFT, stranded: true };
+}
 
 // Postgres's insufficient_privilege. PostgREST passes the code straight through,
 // and the client's own reference says to branch on it: "code -- stable error
@@ -181,4 +228,15 @@ export const TEAM_NOT_SHOWN = "(team not shown)";
 // (20261002133637_tasks_join_teams.sql). All three mean the same thing to the
 // person at the screen -- not that it broke, but that they may not -- and that
 // is a different sentence from "please try again".
+//
+// WHICH OF THE THREE IT WAS depends on the action, and each action in actions.ts
+// says the one sentence its own 42501 can mean. The tick and the rename are the
+// case worth writing down, because there the code pins one explanation exactly
+// (issue #91). They change neither owner_id, id, created_at nor team_id, so the
+// trigger cannot raise on them at all; and once 20261002170244 dropped the old
+// owner-only update rule, the one remaining update policy refuses a finished row
+// that is neither a personal task of yours nor in a team you belong to. Its
+// using half has already let the row through, which for a team task means you
+// are its creator. So a 42501 on a tick or a rename means: your own task, in a
+// team you are no longer in. Nothing else reaches it.
 export const REFUSED_CODE = "42501";

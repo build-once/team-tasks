@@ -85,6 +85,20 @@
   }
 }
 
+/* " to…" on the Move control: dropped on a phone, where three actions and a
+   task's text share one row, and shown from the same width at which "Add task"
+   gets its second word. */
+.wideWord {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .wideWord {
+    display: inline;
+    white-space: pre;
+  }
+}
+
 .list {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -147,6 +161,14 @@
 .editInput {
   flex: 1;
   min-width: 12rem;
+}
+
+/* The line under the Move to... chooser. Its own row inside the wrapping flex
+   row, so it sits under the chooser and its buttons rather than squeezing them,
+   and it is allowed to be two sentences long on a phone. */
+.moveHint {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 /* The pink of the error message, because deleting cannot be undone. */
@@ -218,6 +240,16 @@
   border: 1px solid var(--green-soft-line);
   border-radius: 999px;
   overflow-wrap: anywhere;
+}
+
+/* The same chip, for a task stranded in a team its creator has left. Not the
+   green of a team you are in: this one is a task you cannot tick or rename until
+   you move it, so it is drawn in the colour the app uses for a problem. The chip
+   says so in words as well -- the colour is never the only signal. */
+.teamLeft {
+  color: var(--danger-ink);
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
 }
 
 .box {

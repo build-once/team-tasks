@@ -10,13 +10,15 @@ import {
   FILTER_PERSONAL,
   TEAM_NOT_SHOWN,
   TITLE_MAX,
+  readFilter,
   resolveFilter,
+  taskTeam,
   tasksPath,
   type Task,
   type TaskTeam,
 } from "@/lib/tasks";
 
-import { addTask, deleteTask, renameTask, setDone } from "./actions";
+import { addTask, deleteTask, moveTask, renameTask, setDone } from "./actions";
 import styles from "./tasks.module.css";
 
 function Tick() {
@@ -68,7 +70,8 @@ function ShowLink({
 export default async function MyTasksPage({
   searchParams,
 }: PageProps<"/tasks">) {
-  const { problem, added, rename, confirm, filter } = await searchParams;
+  const { problem, added, moved, rename, confirm, move, filter } =
+    await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows
@@ -131,6 +134,23 @@ export default async function MyTasksPage({
 
   // Null for "all" and for "personal", because neither is a team's id.
   const activeTeam = teams.find((team) => team.id === activeFilter) ?? null;
+
+  // Which list a task has just been moved into, for the message that says so.
+  // A move carries the filter on unchanged, like every other action on a row, so
+  // a task moved out of the list in front of the person simply disappears from
+  // it -- and a disappearance with nothing said reads exactly like a loss.
+  //
+  // The value takes the same two forms a filter does, "personal" or a team's id,
+  // so it is read back by the same function: anything else becomes null and goes
+  // no further. What is drawn is then either fixed words or a team name this
+  // page read from the database, never a value out of the address bar.
+  const movedTo = readFilter(moved);
+  const movedName =
+    movedTo === null
+      ? null
+      : movedTo === FILTER_PERSONAL
+        ? "Personal"
+        : (teamNames.get(movedTo) ?? null);
 
   const visible =
     activeFilter === FILTER_ALL
@@ -248,15 +268,28 @@ export default async function MyTasksPage({
           </Banner>
         ) : null}
 
+        {/* Named where it can be named. "Task moved." alone is the answer when
+            the destination's name is not among the teams this page could read,
+            which takes a failed teams query -- saying the name of a team the
+            page could not read would be inventing one. */}
+        {movedTo === null ? null : (
+          <Banner tone="ok" icon="check">
+            {movedName === null ? "Task moved." : `Task moved to ${movedName}.`}
+          </Banner>
+        )}
+
         {problem === "title" ? (
           <Banner tone="bad" icon="alert">
             A task needs some text, and no more than {TITLE_MAX} characters.
           </Banner>
         ) : null}
 
+        {/* Says "nothing changed" rather than "nothing was added", because two
+            forms can send it now: the add form and the Move to... chooser. Both
+            mean the same thing -- the list named is not one of yours. */}
         {problem === "team" ? (
           <Banner tone="bad" icon="alert">
-            That is not one of your lists, so nothing was added. Please choose
+            That is not one of your lists, so nothing changed. Please choose
             Personal or one of your teams.
           </Banner>
         ) : null}
@@ -269,19 +302,52 @@ export default async function MyTasksPage({
 
         {/* A refusal, not a breakage: the database said "you may not", so
             "please try again" would be advice to repeat something that cannot
-            work. Both sentences name a rule rather than a row -- nothing here
-            says anything about a team, who is in it, or what a task says.
+            work. Every sentence in this banner and the two below names a rule
+            rather than a row -- nothing here says anything about a team, who is
+            in it, or what a task says.
 
-            What can reach this: the insert policy refusing a team you are not
-            in, and the two refusals tasks_enforce_column_rules() raises on an
-            update -- changing who owns a task, or moving somebody else's task
-            between teams. A refused DELETE does not come through here: it
-            matches no row rather than failing, which is the "delete" message
-            below. */}
+            What reaches this one: adding a task to a team you are not in,
+            refused by the insert policy and by
+            tasks_enforce_column_rules(). A refused move has its own message
+            below, a refused tick or rename has its own message below that, and a
+            refused DELETE reaches neither -- it matches no row rather than
+            failing, which is the "delete" message further down. */}
         {problem === "refused" ? (
           <Banner tone="bad" icon="alert">
             You cannot do that. A task can only be added to a team you belong
-            to, and a task somebody else created can only be ticked and renamed.
+            to.
+          </Banner>
+        ) : null}
+
+        {/* A move the database refused. Two ways to earn it, and the sentence
+            covers both without guessing which: the task was not yours to move,
+            or the list it was aimed at is not one its creator belongs to. The
+            screen draws the control only on your own tasks and offers only
+            lists you are in, so this takes a request made by hand. */}
+        {problem === "move" ? (
+          <Banner tone="bad" icon="alert">
+            That task was not moved. Only the person who created a task can move
+            it, and only to Personal or to a team they belong to.
+          </Banner>
+        ) : null}
+
+        {/* The stranded task (issue #91). The rule is real and the person cannot
+            see it, so it is said in full, with the one step that undoes it --
+            which is why "Move to..." had to exist before this message could be
+            honest. */}
+        {problem === "stranded" ? (
+          <Banner tone="bad" icon="alert">
+            That task is in a team you are no longer in, so it cannot be ticked
+            or renamed while it stays there. Use Move to… on the task to bring
+            it back to Personal, and you can tick and rename it again.
+          </Banner>
+        ) : null}
+
+        {/* Nothing matched, on a move. Said separately from the rename version
+            below so the sentence names the action the person actually took. */}
+        {problem === "movegone" ? (
+          <Banner tone="bad" icon="alert">
+            That task was not moved. It may have been deleted already.
           </Banner>
         ) : null}
 
@@ -367,11 +433,28 @@ export default async function MyTasksPage({
 
               // A team task always says which team. Null means personal, and a
               // personal task is labelled with nothing, because the heading above
-              // already says whose list this is.
-              const teamName =
-                task.team_id === null
-                  ? null
-                  : (teamNames.get(task.team_id) ?? TEAM_NOT_SHOWN);
+              // already says whose list this is. A task stranded in a team its
+              // creator has left says so in place of a name -- taskTeam() is
+              // where the argument about what a missing name may honestly be
+              // called is written down.
+              const { label: teamName, stranded } = taskTeam(task, {
+                userId,
+                teamNames,
+                teamsFailed: Boolean(teamsError),
+              });
+
+              // Who is offered Move to..., and when. Its creator, as the
+              // database has it: tasks_enforce_column_rules() refuses a team_id
+              // change by anybody else, so drawing it on a team mate's task
+              // would be drawing a control that was only ever going to be
+              // refused (issue #83's lesson, applied again).
+              //
+              // AND only where there is somewhere to move the task to: a team
+              // to choose, or -- for a task that is already in a team --
+              // Personal. That second half is what keeps the way out of a
+              // stranded task open for somebody who now belongs to no teams at
+              // all, which is precisely the person issue #91 is about.
+              const canMove = mine && (canChoose || task.team_id !== null);
 
               return (
                 <li className={styles.item} key={task.id}>
@@ -442,6 +525,62 @@ export default async function MyTasksPage({
                         Cancel
                       </Link>
                     </div>
+                  ) : move === task.id && canMove ? (
+                    // Moving: the row becomes a chooser, built from the same
+                    // teams the add form offers -- the rows the database let
+                    // this page read, which is every team this person belongs to
+                    // and no other. canMove is checked again here on purpose,
+                    // for the same reason `mine` is checked on the delete
+                    // confirmation: ?move= arrives in the address bar, and a
+                    // hand-typed link must not draw a control on a team mate's
+                    // task that the database was only ever going to refuse.
+                    <form className={styles.editRow} action={moveTask}>
+                      <input type="hidden" name="id" value={task.id} />
+                      <input
+                        type="hidden"
+                        name="filter"
+                        value={carried ?? ""}
+                      />
+                      <label
+                        className="visually-hidden"
+                        htmlFor={`move-${task.id}`}
+                      >
+                        Which list this task belongs in
+                      </label>
+                      {/* The list it is in already is the one selected, so
+                          pressing Move without choosing changes nothing. A
+                          stranded task has no such option to select -- its team
+                          is not one of these -- so the chooser opens on
+                          Personal, which is the move that frees it. */}
+                      <select
+                        className={`input ${styles.editInput}`}
+                        id={`move-${task.id}`}
+                        name="team_id"
+                        defaultValue={task.team_id ?? ""}
+                      >
+                        <option value="">Personal — only you</option>
+                        {teams.map((team) => (
+                          <option key={team.id} value={team.id}>
+                            {team.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="btn btn--primary" type="submit">
+                        Move
+                        <span className="visually-hidden"> {task.title}</span>
+                      </button>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Cancel
+                      </Link>
+                      <p className={`hint ${styles.moveHint}`}>
+                        {stranded
+                          ? "This task is in a team you are no longer in, so you cannot tick or rename it while it stays there. Moving it to Personal brings it back to you alone."
+                          : "Everyone in a team can see, tick and rename that team's tasks. Moving a task to Personal takes it back to you alone."}
+                      </p>
+                    </form>
                   ) : (
                     <div className={styles.row}>
                       <form action={setDone}>
@@ -474,9 +613,16 @@ export default async function MyTasksPage({
                           {teamName === null ? null : (
                             // Read out as "in team Tuesday crew", so somebody
                             // using a screen reader is told the same thing the
-                            // chip says to somebody looking at it.
-                            <span className={styles.team}>
-                              <span className="visually-hidden">in team </span>
+                            // chip says to somebody looking at it. A stranded
+                            // task reads "in a team you have left", which is a
+                            // sentence rather than a name, so it is not prefixed
+                            // with "in team".
+                            <span
+                              className={`${styles.team} ${stranded ? styles.teamLeft : ""}`}
+                            >
+                              {stranded ? null : (
+                                <span className="visually-hidden">in team </span>
+                              )}
                               {teamName}
                             </span>
                           )}
@@ -494,6 +640,31 @@ export default async function MyTasksPage({
                           Rename
                           <span className="visually-hidden"> {task.title}</span>
                         </Link>
+                        {canMove ? (
+                          <Link
+                            className={styles.action}
+                            href={tasksPath({
+                              filter: carried,
+                              move: task.id,
+                            })}
+                          >
+                            {/* "Move" on a phone, "Move to…" where there is
+                                room for it beside Rename and Delete -- the same
+                                trick the Add task button uses. The ellipsis is
+                                what says a chooser opens rather than something
+                                happening at once, and it is hidden from a
+                                screen reader, which gets the sentence below. */}
+                            Move
+                            <span className={styles.wideWord} aria-hidden="true">
+                              {" "}
+                              to…
+                            </span>
+                            <span className="visually-hidden">
+                              {" "}
+                              {task.title} to another list
+                            </span>
+                          </Link>
+                        ) : null}
                         {mine ? (
                           <Link
                             className={styles.action}
