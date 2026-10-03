@@ -18,6 +18,18 @@
 //   tasksPath        the one place a /tasks link or redirect is built. Every
 //                    value is encoded, so no value can add a second parameter.
 //
+// A FIFTH ARRIVED WITH "MOVE TO..." (issues #88 and #91), and it is the same kind
+// of decision -- one that looks obviously right and is not:
+//
+//   taskTeam         what a task's team chip says, and whether the task is
+//                    STRANDED: sitting in a team its creator has left, which is
+//                    the one state the app cannot tick or rename. The trap is
+//                    that "this team's name is missing" has three possible
+//                    readings and only one of them may be said out loud. Getting
+//                    it wrong means either telling somebody they have left a team
+//                    when the teams query simply failed, or leaving the person
+//                    with the unexplainable refusal #91 is about.
+//
 // IT IMPORTS THE REAL FILE. web/src/lib/tasks.ts, directly -- not a copy pasted
 // into this script, which would prove only that the copy works. That file has no
 // imports of its own and nothing but types and plain functions in it, so Node can
@@ -55,10 +67,13 @@ const MODULE_PATH = resolve(HERE, "..", "web", "src", "lib", "tasks.ts");
 const {
   FILTER_ALL,
   FILTER_PERSONAL,
+  TEAM_LEFT,
+  TEAM_NOT_SHOWN,
   filterAfterAdd,
   isTeamId,
   readFilter,
   resolveFilter,
+  taskTeam,
   tasksPath,
 } = await import(pathToFileURL(MODULE_PATH).href);
 
@@ -74,6 +89,19 @@ const TEAM_ONE = "a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b";
 const TEAM_TWO = "a1b2c3d4-0002-4e5f-8a9b-0c1d2e3f4a5b";
 const TEAM_OTHER = "a1b2c3d4-0003-4e5f-8a9b-0c1d2e3f4a5b";
 const MINE = [TEAM_ONE, TEAM_TWO];
+
+// Two made-up user ids, for the taskTeam checks: the signed-in person, and
+// somebody else whose task they can see because they share a team. Invented
+// here, in uuid shape. No real user id from any database appears in this file,
+// and nothing in it is an email address or a name.
+const ME = "11111111-1111-4111-8111-111111111111";
+const SOMEBODY_ELSE = "22222222-2222-4222-8222-222222222222";
+
+// The teams the page read back, as the page holds them: id to name.
+const TEAM_NAMES = new Map([
+  [TEAM_ONE, "Tuesday crew"],
+  [TEAM_TWO, "Hall setup"],
+]);
 
 let passed = 0;
 const failures = [];
@@ -202,6 +230,53 @@ check(
 );
 check("the same team: stay", filterAfterAdd(TEAM_ONE, TEAM_ONE), TEAM_ONE);
 
+// ------------------------------------------------------------------- taskTeam
+//
+// The chip on a task's row, and the stranded flag that decides whether the
+// screen offers an explanation. The question underneath every check: when this
+// task's team is NOT among the teams the page read, what may the app honestly
+// say about why?
+console.log("\ntaskTeam -- what a task's team chip says, and what it may claim");
+
+const loaded = { userId: ME, teamNames: TEAM_NAMES, teamsFailed: false };
+const failed = { userId: ME, teamNames: new Map(), teamsFailed: true };
+
+check(
+  "a personal task has no chip at all",
+  taskTeam({ team_id: null, owner_id: ME }, loaded),
+  { label: null, stranded: false },
+);
+check(
+  "a task in a team you are in says the team's name",
+  taskTeam({ team_id: TEAM_ONE, owner_id: ME }, loaded),
+  { label: "Tuesday crew", stranded: false },
+);
+check(
+  "a team mate's task in that team says the same name: the chip is about the task, not about who you are",
+  taskTeam({ team_id: TEAM_TWO, owner_id: SOMEBODY_ELSE }, loaded),
+  { label: "Hall setup", stranded: false },
+);
+check(
+  "YOUR OWN task in a team missing from a list that loaded is stranded, and says so",
+  taskTeam({ team_id: TEAM_OTHER, owner_id: ME }, loaded),
+  { label: TEAM_LEFT, stranded: true },
+);
+check(
+  "the SAME task when the teams query failed is not called stranded: nothing is known about your teams",
+  taskTeam({ team_id: TEAM_OTHER, owner_id: ME }, failed),
+  { label: TEAM_NOT_SHOWN, stranded: false },
+);
+check(
+  "a task that is not yours, in a team not in your list, claims nothing either",
+  taskTeam({ team_id: TEAM_OTHER, owner_id: SOMEBODY_ELSE }, loaded),
+  { label: TEAM_NOT_SHOWN, stranded: false },
+);
+check(
+  "a personal task is never stranded, even when the teams query failed",
+  taskTeam({ team_id: null, owner_id: ME }, failed),
+  { label: null, stranded: false },
+);
+
 // ------------------------------------------------------------------ tasksPath
 console.log("\ntasksPath -- the only place a /tasks address is built");
 check("nothing to carry", tasksPath({}), "/tasks");
@@ -226,7 +301,22 @@ check(
   tasksPath({ filter: null, problem: "save" }),
   "/tasks?problem=save",
 );
+check(
+  "the filter travels with a move, so the chooser opens in the list you were in",
+  tasksPath({ filter: TEAM_ONE, move: "abc" }),
+  `/tasks?filter=${TEAM_ONE}&move=abc`,
+);
 check("the added flag", tasksPath({ added: "1" }), "/tasks?added=1");
+check(
+  "where a task was moved to: Personal",
+  tasksPath({ filter: TEAM_ONE, moved: FILTER_PERSONAL }),
+  `/tasks?filter=${TEAM_ONE}&moved=personal`,
+);
+check(
+  "where a task was moved to: a team, named by its id for the page to look up",
+  tasksPath({ moved: TEAM_TWO }),
+  `/tasks?moved=${TEAM_TWO}`,
+);
 check(
   "every value is encoded, so no value can add a parameter of its own",
   tasksPath({ rename: "a b&problem=save" }),
