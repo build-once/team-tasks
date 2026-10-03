@@ -168,16 +168,43 @@ export const RESET_MARKER_MAX_AGE_SECONDS = 900;
 export const DEAD_LINK_MESSAGE =
   "That link has expired, has already been used, or was opened in a different browser. Ask for a new one.";
 
+// MAY THIS CALL CHANGE A PASSWORD? The one question, asked in two places: by the
+// page, to decide whether to draw the form, and by `setNewPassword`, to decide
+// whether to do anything at all.
+//
+// It is one function because the coach's review of PR #124 found it was one
+// question answered in one place only: the page hid the form, and the action
+// behind it accepted a call from any signed-in session and changed that
+// account's password. A page that hides a form is not a check -- the form is not
+// where the decision belongs. Issue #120 rule 3 says opening the page without a
+// valid reset link "changes nothing", and a direct post to the action did change
+// something.
+//
+// To be clear about what this is and is not, as the review was: it does not keep
+// a stranger out, because a signed-in person can change their own password
+// through Supabase directly whatever this app does. It makes the app's own rule
+// true where it is enforced rather than only where it is drawn.
+export function mayChangePassword(state: {
+  marked: boolean;
+  signedIn: boolean;
+}): boolean {
+  return state.marked && state.signedIn;
+}
+
 // Which of the two things the new-password page draws. Nothing else is drawable:
 // there is no third state in which it shows an address, a name, or anything
 // about whether an account exists.
+//
+// It defers to mayChangePassword rather than repeating its test, so the screen
+// cannot start offering a form the action would refuse, or hiding one it would
+// accept.
 export function newPasswordView(state: {
   marked: boolean;
   signedIn: boolean;
   deadLink: boolean;
 }): "form" | "dead" {
   if (state.deadLink) return "dead";
-  return state.marked && state.signedIn ? "form" : "dead";
+  return mayChangePassword(state) ? "form" : "dead";
 }
 
 // ------------------------------------------------- where the email links back

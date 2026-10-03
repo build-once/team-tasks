@@ -21,9 +21,11 @@ import { createClient } from "@/lib/supabase/server";
 // another email. There is no state in which this page shows an address, a name,
 // or anything at all about whether an account exists.
 //
-// Opening it without a link therefore shows nothing useful and changes nothing:
-// no form is drawn, so there is nothing to submit, and the action behind it needs
-// a session this page never creates.
+// Opening it without a link therefore shows nothing useful and changes nothing.
+// Both halves of that are true where it counts: no form is drawn here, and
+// `setNewPassword` asks mayChangePassword -- the same question this page asks --
+// before it changes anything, so a post that skips this page is refused by the
+// action rather than by the absence of a button.
 //
 // It is reachable while signed out on purpose (web/src/lib/supabase/proxy.ts):
 // somebody whose link has expired has no session, and the alternative is being

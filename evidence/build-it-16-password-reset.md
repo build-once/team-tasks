@@ -8,6 +8,12 @@ Result: **the screens are built and every check that can run without an email ha
 No reset email has been sent, by anybody, so the flow has not been seen working end to end.** That is
 the owner's test, and the steps are in §7 and in the pull request.
 
+**§10 is the newest part of this file.** It records the one change the coach's review of PR #124 asked
+for — `setNewPassword` now requires the reset marker and a signed-in session before it changes
+anything — and the break-it run that shows the new checks go red when the gate is removed. The check
+count in §2 and §4 went from 69 to **84** with that change, so the output in §2 was re-run and
+replaced; it is not the output the review saw.
+
 Date: 2026-10-03
 Checked by: **the assistant (Claude Code)**, on this machine, for everything below. Nothing in this
 file was observed on staging or on production by anybody. No email was sent, no account was signed in,
@@ -20,7 +26,9 @@ address, an unknown address, an error from Supabase and an answer of a shape nob
 sentence exists in exactly one place in the code; the request action has one exit and no branch; no
 address is hard-coded anywhere in `web/src`; nothing under `web/src` logs anything; the reset code
 never travels into a URL, a cookie or a redirect of ours; the new-password page draws no form without
-a link Supabase accepted; the password minimum is sign-up's, from one constant. 69 checks, §2.
+a link Supabase accepted; **`setNewPassword` refuses, before it reads the password or calls Supabase,
+unless the marker and a session are both there** (§10); the password minimum is sign-up's, from one
+constant. 84 checks, §2.
 
 **Not proved, and not provable from here:** that a real reset email arrives, that its link lands on
 `/auth/reset`, that Supabase accepts the code, and that the new password then works. All four need an
@@ -62,7 +70,7 @@ rather than `origin/main...HEAD`.** The count for this file is therefore the one
 command ran: correcting this section changed it again, and a file that records its own line count never
 finishes. The pull request's own diff is the authority for the final numbers.
 
-## 2. The checks: 69 of 69, and what each group is for
+## 2. The checks: 84 of 84, and what each group is for
 
 `node scripts/password-reset-check.mjs` sends nothing anywhere, needs no account and reads no
 `.env.local`. It imports the real `web/src/lib/password-reset.ts` and reads the real source of the
@@ -140,8 +148,25 @@ PASS  ?link=0 wins over everything else
 PASS  the dead-link state says one sentence and draws no form and no password field
 PASS  the page draws exactly one form in total
 PASS  the dead-link sentence gives no reason away: it names every cause at once
-PASS  the marker cookie is set only by the route handler, and read only by the page
+PASS  the marker cookie is set by the route handler, and read by BOTH the page and the action
 PASS  the marker is httpOnly, same-site and short-lived
+
+6b. the action refuses before it changes anything
+PASS  setNewPassword was found in web/src/app/auth/actions.ts
+PASS  marker and session: allowed
+PASS  a signed-in person who never followed a link: refused
+PASS  a marker with no session: refused
+PASS  neither: refused
+PASS  the page asks the same function rather than repeating its test, so the two cannot drift
+PASS  the action READS the marker cookie, not merely deletes it
+PASS  the action verifies the session itself, with getClaims rather than getSession
+PASS  the action asks mayChangePassword
+PASS  A GATE THAT RUNS AFTER THE CHANGE IS NOT A GATE: mayChangePassword comes before updateUser
+PASS  and before the password is even read, so a refused call learns nothing from which answer it got
+PASS  a refused call takes the dead-link path
+PASS  CONTROL -- a gate written AFTER the change is not mistaken for a gate
+PASS  CONTROL -- an action with no gate at all comes out false, not true
+PASS  CONTROL -- signUp, in the same file, has no gate, so these searches are specific rather than everywhere
 
 7. the password rule is sign-up's rule, from one constant
 PASS  the minimum
@@ -161,7 +186,7 @@ PASS  the request screen and the new-password screen are both reachable while si
 PASS  CONTROL -- /tasks is NOT in that list, so the list means something
 PASS  the sign-in page offers the link, and it points at the request screen
 
-69 of 69 checks passed.
+84 of 84 checks passed.
 
 exit=0
 ```
@@ -172,10 +197,18 @@ exit=0
 answer is the same: do not add `"type"` to `web/package.json` to silence it, because that file
 configures the Next.js build.)
 
-**Eight of those checks are controls.** Each one is a string that does contain what is being searched
-for, run through the same code, because zero matches is also what a broken search looks like (rule 8).
-The sharpest is `CONTROL -- signIn ... really does have two redirects, a branch and an error`: it is
-the same reader, on the same file, on the function next door.
+**Eleven of those checks are controls** — counted by listing them out of the script in this session.
+Most are a string that does contain what is being searched for, run through the same code, because
+zero matches is also what a broken search looks like (rule 8). The sharpest is
+`CONTROL -- signIn ... really does have two redirects, a branch and an error`: it is the same reader,
+on the same file, on the function next door.
+
+Two of the three added in §6b work the other way round: they are fixtures where the right answer is
+**false** — a gate written after the change, and an action with no gate at all — so a comparison that
+said "true" whatever it was handed would fail them. The third, `signUp`, is an ordinary "found
+nothing" control and is the weaker of the three, because a search that always found nothing would
+pass it. It is there to show the §6b searches are specific to one function rather than true of any
+function in the file.
 
 ## 3. The checks can fail — three break-it runs
 
@@ -299,12 +332,16 @@ covers every file in the list.
 
 ```
 $ node scripts/password-reset-check.mjs
-69 of 69 checks passed.
+84 of 84 checks passed.
 exit=0
 ```
 
-(The full output is §2.) Each break carried a `DELIBERATELY BROKEN` comment, so the reverts can be
-checked rather than taken on trust:
+(The full output is §2. §3's three break-it runs were made against the 69-check version of the script,
+before §10 added the gate and its checks; their totals lines read 69. §10 has its own run, and its own
+revert, recorded there.)
+
+Each break carried a `DELIBERATELY BROKEN` comment, so the reverts can be checked rather than taken on
+trust:
 
 ```
 $ git grep -n "DELIBERATELY BROKEN" -- web scripts
@@ -314,8 +351,9 @@ exit=1
 No output, exit 1 — `git grep` exits 1 when it finds nothing. The control for that empty result is the
 three runs above: the breaks were real enough to turn eleven checks red between them.
 
-**The three reverts were made by hand, one edit each, not by `git checkout`.** What stands behind them
-is the grep above, the green run, and the lint and build in §5 — not a diff against a saved copy.
+**The reverts were made by hand, one edit each, not by `git checkout`.** Three in §3, and a fourth in
+§10. What stands behind them is the grep above, the green run, and the lint and build in §5 — not a
+diff against a saved copy.
 
 ## 5. Lint, build and the repository's own suite
 
@@ -408,10 +446,13 @@ production address is deliberately not written down and no domain name has been 
 production row above names a placeholder, not an address — the owner substitutes the real one. The
 Supabase dashboard is the only authoritative place for what is on either list today.
 
-**If neither is added, the feature still does not break.** With `SITE_URL` unset the app sends no
-redirect address at all and Supabase uses the project's Site URL; with `SITE_URL` set to an address
-that is not on the allow-list, Supabase ignores it and falls back to the same Site URL. The visible
-symptom in both cases is a reset link that lands on the project's home page instead of the form.
+**If neither is added, nothing crashes — but the reset cannot be completed.** With `SITE_URL` unset the
+app sends no redirect address at all and Supabase uses the project's Site URL; with `SITE_URL` set to
+an address that is not on the allow-list, Supabase ignores it and falls back to the same Site URL. In
+both cases the link lands on the project's home page, carrying a code that no page there handles, so
+the person never reaches the form. **So the feature needs both: the setting set, and the address
+allow-listed.** That sharper reading is the coach's, in §10.4; this paragraph originally stopped at
+"lands on the home page", which understated it.
 
 The first half of that is read from the installed client rather than assumed: `resetRedirectTo` returns
 `undefined` when the setting is absent, and `web/node_modules/@supabase/auth-js/dist/module/lib/fetch.js:99-101`
@@ -434,8 +475,10 @@ for: staging's built-in sender allows very few per hour, and the owner tests wit
    back saying *If that address has an account, we've sent a link*.
 6. Type an address with no account — `teamtasks.staging.test+nobody@gmail.com` — and submit. Expect
    **the same screen, the same sentence**. This is the half of rule 1 only a person can confirm.
-7. Open the Gmail test mailbox, `teamtasks.staging.test@gmail.com`, and follow the link in the mail for
-   Alice. Expect to land on **Set a new password** — not on the tasks page, and not on the home page.
+7. Open the Gmail test mailbox, `teamtasks.staging.test@gmail.com`, and **copy** the link in the mail
+   for Alice into **the same browser you used in step 5** — do not click it in the mailbox if that is a
+   different browser. The flow exchanges a code only the browser that asked for it can complete
+   (§10.4). Expect to land on **Set a new password** — not on the tasks page, and not on the home page.
 8. Type a 7-character password. Expect *A password needs at least 8 characters.* and no change.
 9. Type a password of 8 or more and save. Expect to arrive at **My tasks**, signed in.
 10. Press the browser's back button to the form and try to save again. Expect **That link didn't work**
@@ -471,6 +514,10 @@ Step 12 is the one easy to forget, and the one that breaks three other scripts i
   is what settles it: landing on the form at all means the cookie arrived.
 - **No screen was looked at.** The pages compiled and type-checked; nobody has seen one rendered. There
   is no screenshot in this file.
+- **The gate in §10 was not exercised by a running request.** What has run is the function it asks,
+  four ways, and a reader over the action's own source, seven ways. Nobody has posted to
+  `setNewPassword` without a marker and watched it refuse — that needs a browser and a session, which
+  means the owner's test. Steps 10 and 11 of §7 are the two that would show it.
 - **No rate limit or bot check protects the new request form.** It is an unauthenticated endpoint that
   causes an email to be sent, and the only limit on it today is whatever Supabase applies by default,
   which has not been read. `checklist/launch.json` already carries both items ("Rate limits protect
@@ -513,6 +560,164 @@ proves here is that nothing else broke.
 
 The commit that adds this section has a later run again, which is not recorded here, because a file
 that records the CI result of the commit that records the CI result never finishes.
+
+## 10. The coach's review of PR #124 — the one change it asked for
+
+The review is a comment on PR #124, posted after commit `255678d`. It asked for **one** change, and it
+was right.
+
+### 10.1 What was wrong
+
+**`setNewPassword` did not check the reset marker; only the page did.** The page hid the form unless
+the marker cookie was there, and the action behind it accepted a post from **any signed-in session**
+and changed that account's password. The review's words: *"A page that hides a form is not a check…
+#120 says opening the page without a valid reset link 'changes nothing'; a direct call to the action
+does change something."*
+
+It was not a way in for a stranger — a signed-in person can change their own password through Supabase
+directly, whatever this app does — and the review said so too. What was wrong is that the app's own
+rule was enforced where it was drawn rather than where it counts.
+
+### 10.2 What it is now
+
+`mayChangePassword({ marked, signedIn })` is a new function in `web/src/lib/password-reset.ts`, and
+**both** places ask it: the page, to decide whether to draw the form, and `setNewPassword`, to decide
+whether to do anything at all. `newPasswordView` now defers to it instead of repeating its test, so
+the screen cannot start offering a form the action would refuse.
+
+In the action the gate comes **first** — before the password field is read and before Supabase is
+called:
+
+- it reads the marker cookie itself, with `cookieStore.get(RESET_MARKER_COOKIE)`;
+- it verifies the session itself, with `getClaims()` — not `getSession()`, which trusts a cookie
+  anyone can forge;
+- a call that fails either half gets `newPasswordPath("stale")`, the dead-link screen, and the marker
+  is deleted, so the form is not offered again until a new link is accepted;
+- the password is not even read on that path, so a refused call learns nothing from which answer it
+  got back.
+
+### 10.3 The new checks, and the run where they go red
+
+Fifteen checks were added, in a new section **6b**, and one existing check changed: it used to assert
+the marker was *"read only by the page"*, which is the line that recorded the bug as if it were a
+design. The script now has **84** checks.
+
+The run with the gate removed — the exact state the review found, `DELIBERATELY BROKEN`:
+
+```
+$ node scripts/password-reset-check.mjs      (with the gate deleted from setNewPassword)
+6. the new-password page: two states, and only one has a form
+...
+FAIL  the marker cookie is set by the route handler, and read by BOTH the page and the action
+        expected [2,2,5]
+        got      [2,2,3]
+PASS  the marker is httpOnly, same-site and short-lived
+
+6b. the action refuses before it changes anything
+PASS  setNewPassword was found in web/src/app/auth/actions.ts
+PASS  marker and session: allowed
+PASS  a signed-in person who never followed a link: refused
+PASS  a marker with no session: refused
+PASS  neither: refused
+PASS  the page asks the same function rather than repeating its test, so the two cannot drift
+FAIL  the action READS the marker cookie, not merely deletes it
+        expected 1
+        got      0
+FAIL  the action verifies the session itself, with getClaims rather than getSession
+        expected [1,0]
+        got      [0,0]
+FAIL  the action asks mayChangePassword
+        expected 1
+        got      0
+FAIL  A GATE THAT RUNS AFTER THE CHANGE IS NOT A GATE: mayChangePassword comes before updateUser
+        expected true
+        got      false
+FAIL  and before the password is even read, so a refused call learns nothing from which answer it got
+        expected true
+        got      false
+FAIL  a refused call takes the dead-link path
+        expected true
+        got      false
+PASS  CONTROL -- a gate written AFTER the change is not mistaken for a gate
+PASS  CONTROL -- an action with no gate at all comes out false, not true
+PASS  CONTROL -- signUp, in the same file, has no gate, so these searches are specific rather than everywhere
+
+77 of 84 checks passed.
+
+7 FAILED:
+  - the marker cookie is set by the route handler, and read by BOTH the page and the action
+  - the action READS the marker cookie, not merely deletes it
+  - the action verifies the session itself, with getClaims rather than getSession
+  - the action asks mayChangePassword
+  - A GATE THAT RUNS AFTER THE CHANGE IS NOT A GATE: mayChangePassword comes before updateUser
+  - and before the password is even read, so a refused call learns nothing from which answer it got
+  - a refused call takes the dead-link path
+exit=1
+```
+
+(Only sections 6 and 6b are shown; every other line read `PASS`.) **Seven independent checks catch
+it**, and the five pure-function cases above them stay green — which is the same lesson as §3b, in the
+other direction: testing `mayChangePassword` proves what the function decides, not that anybody asks
+it.
+
+**One of those seven was weaker on the first attempt, and the break-it run is what found it.** The
+check started as "the action mentions `RESET_MARKER_COOKIE` at least twice", and it **passed** with the
+gate deleted, because the two `delete` calls alone satisfied it. It now looks for
+`get(RESET_MARKER_COOKIE)` exactly once — reading the cookie, not merely deleting it — and the run
+above is after that fix: six failures became seven.
+
+The revert, and the green run:
+
+```
+$ git grep -n "DELIBERATELY BROKEN" -- web scripts
+exit=1
+
+$ node scripts/password-reset-check.mjs
+84 of 84 checks passed.
+exit=0
+
+$ npm run lint          (in web/)
+exit=0
+
+$ npm run build         (in web/)
+✓ Compiled successfully in 1348ms
+  Running TypeScript ...
+  Finished TypeScript in 2.6s ...
+exit=0
+```
+
+### 10.4 What the review raised that is NOT a code change
+
+Three notes for the owner's setup, recorded here because each one makes the test in §7 more likely to
+work first time. **All three are the reviewer's reading, not something observed here** — nothing in
+this task sent an email or opened a link.
+
+- **`SITE_URL` is "optional" only in the sense that nothing crashes.** With it unset, Supabase sends
+  the link to the project's Site URL with a code attached, and no page there handles a code — so the
+  reset does not complete. The same happens, silently, if `<SITE_URL>/auth/reset` is not on the
+  project's Redirect URLs. **For the feature to work: the setting set, and the address allow-listed.**
+  §6 said the symptom but called the consequence "a reset link that lands on the project's home page
+  instead of the form"; the sharper statement is that the reset then cannot be completed at all.
+- **The link must be opened in the browser that asked for it.** The flow exchanges a PKCE code, and
+  only the browser that made the request holds the other half. The test mailbox is in a different
+  browser, so the link has to be **copied across**, not clicked there. §7 step 7 says to follow the
+  link from the mailbox, which is exactly the thing that will not work — read it as "copy the link into
+  the browser running `next dev`".
+- **A reset link signs the person in** even if they never choose a new password. That is how Supabase's
+  recovery works, and it is why the dead-link screen and the spent marker matter: the session is real
+  before any password is typed.
+
+### 10.5 What the review checked, and what it did not
+
+Recorded so the next reader does not take it for more than it was. The review states it was done in
+the coach's sandbox, that no email was sent, and that nothing touched staging or production. It
+checked: scope (no migration, nothing under `supabase/functions`); the script at 69 of 69; the request
+path, finding no way for a known address, an unknown address, an empty address or a Supabase error to
+give a different screen; and `/auth/reset`'s two fixed redirects.
+
+It explicitly did **not** check any real email or link, the `token_hash` branch, or how the screens
+look — the same three things §8 of this file already lists as unverified. It also did not look at
+**#121**, **#122** or **#123** beyond their titles.
 
 ## Personal data in this file
 

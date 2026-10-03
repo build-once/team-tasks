@@ -75,6 +75,7 @@ const {
   RESET_MARKER_MAX_AGE_SECONDS,
   RESET_REQUESTED_PATH,
   RESET_SENT_MESSAGE,
+  mayChangePassword,
   newPasswordPath,
   newPasswordView,
   outcomeAfterRequest,
@@ -96,8 +97,18 @@ const FILES = {
   module: MODULE_PATH,
 };
 
+// LINE ENDINGS ARE NORMALISED TO LF BEFORE ANYTHING IS SEARCHED. This
+// repository is worked on from Windows with core.autocrlf=true (see
+// .gitattributes), so a file that has been through a checkout has CRLF and a
+// file just written by hand has LF -- in the same folder, at the same time. Two
+// of the checks below look for a brace at the start of a line, and without this
+// they found it in one file and not the other. A check whose answer depends on
+// which machine checked out the file is not a check.
 const source = Object.fromEntries(
-  Object.entries(FILES).map(([key, path]) => [key, readFileSync(path, "utf8")]),
+  Object.entries(FILES).map(([key, path]) => [
+    key,
+    readFileSync(path, "utf8").replace(/\r\n/g, "\n"),
+  ]),
 );
 
 let passed = 0;
@@ -139,6 +150,16 @@ function count(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
 
+// Does `first` appear before `second`, with both present? Used for the one
+// question about the new-password action that counting cannot answer: a gate
+// that runs AFTER the change is not a gate. Missing either side is false, not
+// true, so a deleted check cannot pass this by vanishing.
+function orderedBefore(text, first, second) {
+  const a = text.indexOf(first);
+  const b = text.indexOf(second);
+  return a !== -1 && b !== -1 && a < b;
+}
+
 // The body of one named function in a source file, from its `export ... name(`
 // to the closing brace at column 0. Used to ask questions about ONE function --
 // "how many exits does the request action have?" -- without the answer changing
@@ -149,10 +170,24 @@ function count(haystack, needle) {
 // runs long, which makes the counts too high and the checks go red rather than
 // green -- the safe direction.
 function functionBody(text, name) {
-  const start = text.indexOf(`export async function ${name}(`);
-  if (start === -1) return null;
+  // Both spellings, because the actions are `export async function` and the
+  // module's own helpers are `export function`. A name that matches neither
+  // returns null, and every caller turns that into a failing check rather than
+  // into an empty string that would quietly pass a "must not contain" test.
+  const start = [
+    text.indexOf(`export async function ${name}(`),
+    text.indexOf(`export function ${name}(`),
+  ].find((index) => index !== -1);
 
-  const end = text.indexOf("\n}", start);
+  if (start === undefined) return null;
+
+  // The closing brace is the first `}` alone at the start of a line -- `\n}\n`
+  // and not `\n}`, because a parameter type written across several lines closes
+  // with `}): "form" | "dead" {` at column 0, and matching that would cut the
+  // body off before it began. (It did: this check was written with `\n}` and the
+  // "page asks the same function" case failed on a function whose body was not
+  // in the slice.)
+  const end = text.indexOf("\n}\n", start);
   if (end === -1) return null;
 
   return text.slice(start, end + 2);
@@ -263,6 +298,9 @@ check(
 // same code: it has two exits, a branch, and it does look at the error. If the
 // searches above were broken, these would be zero too.
 const signInAction = functionBody(source.actions, "signIn");
+// Read here, used as a control in section 6b: a function in the same file that
+// legitimately has no reset gate.
+const signUpAction = functionBody(source.actions, "signUp");
 check(
   "CONTROL -- signIn, in the same file, really does have two redirects, a branch and an error",
   [
@@ -559,13 +597,20 @@ check(
 );
 
 check(
-  "the marker cookie is set only by the route handler, and read only by the page",
+  "the marker cookie is set by the route handler, and read by BOTH the page and the action",
   [
     count(codeOnly.route, "RESET_MARKER_COOKIE"),
     count(codeOnly.newPassword, "RESET_MARKER_COOKIE"),
     count(codeOnly.actions, "RESET_MARKER_COOKIE"),
   ],
-  [2, 2, 3], // route: import + set. page: import + read. action: import + two deletes
+  // route: import + set. page: import + read. action: import + read + three
+  // deletes (the refused call, the lapsed session, and the successful change).
+  //
+  // THIS LINE USED TO SAY "read only by the page", with 3 for the action, and
+  // that was the bug the coach's review of PR #124 found: the page read the
+  // marker and the action did not. Section 9 below is the check that would now
+  // fail if the action stopped reading it.
+  [2, 2, 5],
 );
 check(
   "the marker is httpOnly, same-site and short-lived",
@@ -576,6 +621,108 @@ check(
     RESET_MARKER_MAX_AGE_SECONDS,
   ],
   [1, 1, "reset-link-used", 900],
+);
+
+// --------------------- 6b. the gate is on the server, not only on the page
+//
+// THE CHANGE THE COACH'S REVIEW OF PR #124 ASKED FOR. The page hid the form
+// without the marker; `setNewPassword` accepted a post from any signed-in
+// session and changed that account's password. A page that hides a form is not
+// a check -- the decision belongs on the server -- and issue #120 rule 3 says
+// opening the page without a valid reset link "changes nothing".
+//
+// So these checks are about the ACTION, and they are written to go red in the
+// one way that matters: if the gate is removed, weakened to one of its two
+// halves, or moved to after the change.
+console.log("\n6b. the action refuses before it changes anything");
+
+const setAction = functionBody(source.actions, "setNewPassword");
+
+check(
+  "setNewPassword was found in web/src/app/auth/actions.ts",
+  setAction !== null,
+  true,
+);
+
+// The decision itself, as a function: both halves required, and the same
+// function the page asks.
+check("marker and session: allowed", mayChangePassword({ marked: true, signedIn: true }), true);
+check("a signed-in person who never followed a link: refused", mayChangePassword({ marked: false, signedIn: true }), false);
+check("a marker with no session: refused", mayChangePassword({ marked: true, signedIn: false }), false);
+check("neither: refused", mayChangePassword({ marked: false, signedIn: false }), false);
+
+check(
+  "the page asks the same function rather than repeating its test, so the two cannot drift",
+  count(withoutComments(functionBody(source.module, "newPasswordView") ?? ""), "mayChangePassword("),
+  1,
+);
+
+const gatedAction = withoutComments(setAction ?? "");
+
+check(
+  "the action READS the marker cookie, not merely deletes it",
+  count(gatedAction, "get(RESET_MARKER_COOKIE)"),
+  1,
+);
+check(
+  "the action verifies the session itself, with getClaims rather than getSession",
+  [count(gatedAction, "getClaims("), count(gatedAction, "getSession(")],
+  [1, 0],
+);
+check(
+  "the action asks mayChangePassword",
+  count(gatedAction, "mayChangePassword("),
+  1,
+);
+check(
+  "A GATE THAT RUNS AFTER THE CHANGE IS NOT A GATE: mayChangePassword comes before updateUser",
+  orderedBefore(gatedAction, "mayChangePassword(", "updateUser("),
+  true,
+);
+check(
+  "and before the password is even read, so a refused call learns nothing from which answer it got",
+  orderedBefore(gatedAction, "mayChangePassword(", 'formData.get("password")'),
+  true,
+);
+check(
+  "a refused call takes the dead-link path",
+  orderedBefore(gatedAction, "mayChangePassword(", 'newPasswordPath("stale")'),
+  true,
+);
+
+// THE CONTROLS for the four ordering checks. The first is a fixture with the
+// gate in the wrong place, which is the mistake those checks exist to catch; the
+// second is a fixture with no gate at all, which is the state this section was
+// written to refuse. Both must come out false -- if orderedBefore said true for
+// either, every check above would be decoration.
+check(
+  "CONTROL -- a gate written AFTER the change is not mistaken for a gate",
+  orderedBefore(
+    'const { error } = await supabase.auth.updateUser({ password });\nif (!mayChangePassword(state)) redirect(newPasswordPath("stale"));',
+    "mayChangePassword(",
+    "updateUser(",
+  ),
+  false,
+);
+check(
+  "CONTROL -- an action with no gate at all comes out false, not true",
+  [
+    orderedBefore(
+      'const { error } = await supabase.auth.updateUser({ password });',
+      "mayChangePassword(",
+      "updateUser(",
+    ),
+    count('const { error } = await supabase.auth.updateUser({ password });', "mayChangePassword("),
+  ],
+  [false, 0],
+);
+check(
+  "CONTROL -- signUp, in the same file, has no gate, so these searches are specific rather than everywhere",
+  [
+    count(withoutComments(signUpAction ?? ""), "mayChangePassword("),
+    count(withoutComments(signUpAction ?? ""), "RESET_MARKER_COOKIE"),
+  ],
+  [0, 0],
 );
 
 // ---------------------------------- 7. the same password rule as sign-up
