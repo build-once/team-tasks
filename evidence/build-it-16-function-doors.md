@@ -4,26 +4,30 @@ Issue #112, which closes #110 and #111. Branch `fix/function-doors`. **No migrat
 no change to what any function does**: the diff to `supabase/functions` is comment lines only, and the
 one new file is a staging check script.
 
-Result: **the comment fixes are done and shown below. The three staging checks are NOT RUN** — the
-script exists and its own logic is proved able to fail, but nothing has been sent to staging. Issue
-#112 says the owner runs it.
+Result: **the comment fixes are done, and the three staging checks issue #112 asks for have now been
+run against staging by the owner.** Every check that ran passed; the run is in §6a. One optional
+check, the expired-token half of #110, did **not** run — issue #113 — so that question stays open.
 Date: 2026-10-03
 Checked by: **the assistant (Claude Code)**, on this machine, for everything in §1 to §5 and §8.
-Nothing in this file was observed on staging or production by anybody yet.
+**§6a was observed by the owner, not by the assistant**: the owner ran the script against staging and
+pasted the output into the session that wrote §6a. The assistant did not run it, was not at that
+terminal, and has still sent nothing to staging. Nothing in this file was observed on production by
+anybody.
 
-§8 records the two changes the coach's review of PR #115 asked for, and is the newest part of this
-file. The output in §3 and §4 was re-run after those changes and replaced; it is not the output the
+§6a is the newest part of this file. §8 records the two changes the coach's review of PR #115 asked
+for; the output in §3 and §4 was re-run after those changes and replaced, and it is not the output the
 review saw.
 
 ## Who observed what, and the one thing that matters
 
-**No part of this file is a staging result.** The assistant did not run the new script against
-staging, did not sign anybody in, did not call any Edge Function, and deployed nothing. Every command
-below ran locally against files in this repository.
+**§6a is a staging result. No other part of this file is.** The assistant did not run the new script
+against staging, did not sign anybody in, did not call any Edge Function, and deployed nothing. Every
+command in §1 to §5 and §8 ran locally against files in this repository. §6a is the owner's run,
+transcribed from the output they pasted.
 
-So the question issue #110 asks — *does the platform really verify a token's signature?* — is still
-**unanswered**. What this change delivers is the check that would answer it, plus proof that the check
-can fail. Until the owner runs it, any claim that the signature is verified still carries the
+So the question issue #110 asks — *does the platform really verify a token's signature?* — now has a
+staging observation behind it for the altered-token half, and **only** that half: §6a says what the
+two refusal codes do and do not show. The expired-token half was never asked (#113) and keeps the
 UNVERIFIED mark #110 put on it.
 
 ## 1. The three untrue comments (issue #111)
@@ -359,36 +363,209 @@ not a strong one: **none of these suites looks at `scripts/staging/`** — that 
 
 `web/` was not linted or built, because nothing under `web/` changed.
 
-## 6. What was NOT run, and what therefore stays unproved
+## 6. The staging run, and what is still not run
 
-- **Nothing was sent to staging.** No sign-in, no Edge Function call, no database read. The three
-  checks issue #112 asks for — a forged token refused with 401, Bob's 403 with no invitation left
-  behind, and the 404 for a team that does not exist — have **not been observed**. Issue #112 says the
-  owner runs the script, and it has not been run. The altered-token check added in §8.2 has not been
-  observed either, and it is the one whose result needs reading rather than counting: see
-  "What 1c's PASS will and will not mean".
-- **Most of the script's module-level code has never executed.** `--selftest` exits before it, and
-  the real run on this machine stops at the missing account variables, which is earlier still. So
-  `forgeToken`, the token registry's two startup registrations, `callFunction`, `readRows`, `signIn`,
-  `signOut` and `readExpiry` have been parsed by `node --check` and nothing more. The staging run is
-  what executes them. This is not new in §8, but §8 added to it.
+### 6a. The owner's run against staging — 2026-10-03
+
+The owner ran the script from this branch, on their own machine, against staging, and pasted the
+output into the session that wrote this section. **The assistant did not run it and was not at that
+terminal.** Everything below is a transcription of what was pasted. The only change made to it: lines
+the terminal had hard-wrapped at the window width were joined back up, which is the same treatment
+§3's output has. No wording, number, verdict or body was altered, and nothing was added.
+
+The logic check was run first, in the same session, immediately before the staging run. Its output is
+not repeated here, because it is the output already in §3 down to the totals line — `39 cases, 0
+wrong.` It sends nothing anywhere, so it is not itself a staging result; it is what makes the run
+below mean something.
+
+Then the two setup commands, as the bottom of the script describes them — the first keeps a file name
+in shell history rather than a password, and the team id is not a secret:
+
+```
+$ set -a; . ~/.config/team-tasks/staging.env; set +a
+$ export ALICE_TEAM_ID='6a1c7b65-a84b-42aa-b40c-1c547097163a'
+```
+
+And the run:
+
+```
+$ node scripts/staging/build-it-16-checks.mjs
+Build it 16 step 2 -- the function doors, staging only
+  staging host:       ghskxrhqlhvrhpnivqbd.supabase.co (confirmed by parsing the URL, not by a substring)
+  functions:          create-team, invite-member, accept-invite
+  Alice's team id:    6a1c7b65-a84b-42aa-b40c-1c547097163a
+  absent team id:     67691500-e70a-48b8-867f-379fcebb2204 (made up for this run)
+  invite address:     build-it-16-1791040459129@example.com (fabricated, nobody's)
+  signing in as:      Alice and Bob
+  tokens, passwords and the publishable key: not printed
+
+THIS SCRIPT CREATES NOTHING. Every request it sends is one a
+function must refuse, and the forged calls carry an empty body, so
+even a function that answered them would have nothing to write.
+
+1. A token of the right shape with a made-up signature
+   (needs no account: the token is not anybody's. A platform may
+   refuse this one on its header alone, which is what 1c is for)
+  PASS  create-team: answers 401 -- saw HTTP 401
+  PASS  create-team: the 401 body carries no data -- HTTP 401, 58 characters, no address and no id in it
+  PASS  create-team: the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}
+  PASS  invite-member: answers 401 -- saw HTTP 401
+  PASS  invite-member: the 401 body carries no data -- HTTP 401, 58 characters, no address and no id in it
+  PASS  invite-member: the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}
+  PASS  accept-invite: answers 401 -- saw HTTP 401
+  PASS  accept-invite: the 401 body carries no data -- HTTP 401, 58 characters, no address and no id in it
+  PASS  accept-invite: the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}
+
+1b. A correctly signed token that has expired (optional)
+  NOT RUN  all three functions: an expired token is refused -- unverified: EXPIRED_ACCESS_TOKEN is not set, so this was never asked
+        This script cannot make a correctly signed token: it has no key, and
+        it will not wait an hour for one to lapse. See the bottom of this file
+        for how to get one. This line does NOT change the exit code -- the
+        three checks issue #112 asks for are what that is about -- so a green
+        run still leaves this half of issue #110 unproved.
+
+1c. A token the platform issued moments ago, with its sub claim
+    changed and its header and signature left exactly as they were
+  PASS  the altered token is a changed copy: the real header and signature, a different sub -- header and signature kept, sub replaced with a uuid belonging to nobody. The real header's alg is ES256 and it carries a kid -- read that before reading a 401 below as proof that a signature was checked
+  PASS  create-team (altered token): answers 401 -- saw HTTP 401
+  PASS  create-team (altered token): the 401 body carries no data -- HTTP 401, 62 characters, no address and no id in it
+  PASS  create-team (altered token): the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_ASYMMETRIC_JWT","message":"Invalid JWT"}
+  PASS  invite-member (altered token): answers 401 -- saw HTTP 401
+  PASS  invite-member (altered token): the 401 body carries no data -- HTTP 401, 62 characters, no address and no id in it
+  PASS  invite-member (altered token): the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_ASYMMETRIC_JWT","message":"Invalid JWT"}
+  PASS  accept-invite (altered token): answers 401 -- saw HTTP 401
+  PASS  accept-invite (altered token): the 401 body carries no data -- HTTP 401, 62 characters, no address and no id in it
+  PASS  accept-invite (altered token): the refusal came from the platform, not the handler -- HTTP 401, and no wording or shape of the functions' own in the body
+        body: {"code":"UNAUTHORIZED_ASYMMETRIC_JWT","message":"Invalid JWT"}
+
+2. invite-member, called by somebody who does not own the team
+  PASS  invite-member as Bob, against Alice's team: answers 403 -- HTTP 403, with invite-member's own wording
+        body: {"error":"Only the team's owner can invite people."}
+  PASS  Alice owns ALICE_TEAM_ID -- 1 row, and its owner_id is Alice
+  PASS  invite-member as Bob: created no invitation -- 0 invitation(s) for that address on that team, expected 0
+
+3. invite-member, called about a team that does not exist
+  PASS  invite-member as Alice, against a team id that does not exist: answers 404 -- HTTP 404, with invite-member's own wording
+        body: {"error":"That team was not found."}
+
+  (Alice signed out: HTTP 204)
+  (Bob signed out: HTTP 204)
+
+Totals: 23 PASS, 0 FAIL, 0 UNVERIFIED, 1 NOT RUN (optional).
+
+Every check that ran passed. One optional check did NOT run: the
+expired-token half of issue #110, marked UNVERIFIED above. This
+run does not answer it, and the exit code does not pretend to.
+```
+
+**The exit code is unverified.** The paste ends at the shell prompt with no `echo $?`, so no exit code
+was observed and this file does not state one. What can be said is what the source says, which is a
+different kind of claim: the script sets a non-zero exit code only when there is a FAIL or an
+UNVERIFIED (`scripts/staging/build-it-16-checks.mjs:1610-1617`), and the closing paragraph this run
+printed is the one belonging to the `notRun > 0` branch below that (`:1618-1622`), which sets nothing.
+Read from the file, not seen in the terminal. The way to settle it is to run it again and print `$?`.
+
+**The totals, as printed:** `23 PASS, 0 FAIL, 0 UNVERIFIED, 1 NOT RUN (optional).` Counting the `PASS`
+lines in the output above by hand gives 23 — nine in check 1, ten in 1c (the alteration judgement, plus
+three functions × three judgements), three in check 2 and one in check 3 — the same number the script's
+own totals line reports.
+
+**The three checks issue #112 asks for were observed, for the first time:**
+
+- **Check 1** — a forged token is refused with 401 by all three functions, with nothing in the body and
+  no wording of the functions' own.
+- **Check 2** — Bob, against Alice's team, gets 403 in invite-member's own words, and **left no
+  invitation behind**: 0 rows for that address on that team. Alice's ownership of that team was
+  confirmed in the same run (1 row, `owner_id` Alice), which is what stops the 0 from being the empty
+  result a wrong team id would also produce.
+- **Check 3** — a team id that does not exist gets 404 in invite-member's own words.
+
+Checks 2 and 3 are together the observation issue #111's third comment is about: the two answers really
+are different in the running functions — 403 `Only the team's owner can invite people.` and 404
+`That team was not found.` — which is what that comment now claims they are.
+
+**The two refusal codes, and what each one shows.** The forged token and the altered real token were
+both refused with HTTP 401 and the same message, `Invalid JWT`, but with **different codes**:
+
+| the token that was sent | code in the body | body length |
+|---|---|---|
+| forged: an `HS256` header with no `kid`, and a made-up signature | `UNAUTHORIZED_LEGACY_JWT` | 58 characters |
+| altered: the real `ES256` header **with** a `kid`, the real signature, `sub` replaced with a uuid belonging to nobody | `UNAUTHORIZED_ASYMMETRIC_JWT` | 62 characters |
+
+Both lengths agree with the bodies printed above, counted character by character in the session that
+wrote this, so neither body was shortened on its way into this file.
+
+- **`UNAUTHORIZED_LEGACY_JWT`** is check 1, and it is why check 1 **on its own does not answer #110**.
+  The code names the legacy path — the shared-secret one that the forged `HS256` header asks for — and
+  not the asymmetric one. A refusal there is consistent with the platform turning the token away on its
+  header, which is exactly the objection the coach's review raised (§8.2) and the reason 1c exists.
+  **That is a reading of what the code is called**: the platform said `Invalid JWT` and nothing more, so
+  it did not state which check failed.
+- **`UNAUTHORIZED_ASYMMETRIC_JWT`** is 1c, and it is the one that bears on #110. The header, the
+  algorithm, the key id and the rest of the payload were the platform's own and unchanged; the one thing
+  wrong with that token was that the signature no longer matched the payload it was sent with. A
+  different code from check 1's says the platform did something different with it, and it was still
+  refused at the door — 401, 62 characters, no wording of the functions' own, so the handler was never
+  reached by a token claiming a `sub` that belongs to nobody.
+- **The `kid` ambiguity §8.2 warned about does not apply to this run.** That paragraph said 1c's PASS
+  would be worth less if the real header turned out to carry no `kid`, because then a platform refusing
+  on a missing `kid` could explain the 401 too. The run printed the answer: *the real header's alg is
+  ES256 and it carries a kid*. Nothing was missing from the header that was sent.
+- **What the run does not show** is the platform naming the check that failed. `Invalid JWT` is the same
+  message in both cases, and the code names a path, not a reason. What was observed is a shut door to a
+  token with a real header, a real signature and an altered payload; what was not observed is any
+  statement by the platform that it verified a signature.
+
+**The expired-token check was not run.** Plainly: **1b did not run, and nothing here answers it.** The
+line the run printed is `NOT RUN  all three functions: an expired token is refused -- unverified:
+EXPIRED_ACCESS_TOKEN is not set, so this was never asked`, and the run's own closing paragraph says the
+same thing. That is **issue #113**, which was open when this section was written (`gh issue view 113`,
+in the same session: state `OPEN`, title "The expired-token half of #110 is still unasked"). A green run
+does not touch it.
+
+**What the run did not do**, as its own header says: it created nothing. Every request in it is one a
+function must refuse, the forged and altered calls carry an empty body, and both accounts were signed
+out at the end — HTTP 204 each. No migration, no deploy, and nothing against production.
+
+**One thing this run settles that §8.1 had left half-open:** the new `judgeStagingUrl` guard ran
+against a real `web/.env.local` and accepted it — that is the first output line, `confirmed by parsing
+the URL, not by a substring`, which the script prints at `:1374`, after the guard decides at `:1115`.
+The refusal half of that guard is still not exercised; see the end of §8.1 and the bullet below.
+
+### 6b. What was NOT run, and what therefore stays unproved
+
+- **The assistant has still sent nothing anywhere.** No sign-in, no Edge Function call, no database
+  read by the assistant, on staging or anywhere else. §6a is the owner's observation, and it is a
+  transcription here, not a check this file's author performed.
+- **The module-level code has now run — once, in the owner's run, not on this machine.** `forgeToken`,
+  the token registry's startup registrations, `callFunction`, `readRows`, `signIn` and `signOut` all
+  executed in §6a. `readExpiry` still has **never** executed: it is reached only when
+  `EXPIRED_ACCESS_TOKEN` is set (`scripts/staging/build-it-16-checks.mjs:1426` takes the other branch
+  when it is empty, and the only call is at `:1442`), and 1b did not run. The local runs still stop at
+  the missing account variables, which is earlier than all of it.
 - **The guard now forecloses the review technique that found its bug.** The coach's end-to-end run
   used a local stand-in server, which §8.1 exists to refuse. Filed as issue #117 so the trade-off is
   recorded rather than discovered.
 - **Nothing was deployed.** The comment changes reach staging and production the way everything else
   does: a pull request the owner merges.
-- **The expired-token half of #110 is unverified**, and the script cannot fix that by itself: it
-  cannot sign a token and it will not wait an hour for one to lapse. It checks that case only when
-  `EXPIRED_ACCESS_TOKEN` is set, says `NOT RUN ... unverified: EXPIRED_ACCESS_TOKEN is not set` when it
-  is not, and **that one line does not change the exit code** — so a green run still leaves the
-  question open. The bottom of the script says how to get such a token. Filed as issue #113 so it does
-  not leave with this pull request.
+- **The expired-token half of #110 is unverified, and the run in §6a did not change that.** The script
+  cannot fix it by itself: it cannot sign a token and it will not wait an hour for one to lapse. It
+  checks that case only when `EXPIRED_ACCESS_TOKEN` is set, and in §6a it printed
+  `NOT RUN ... unverified: EXPIRED_ACCESS_TOKEN is not set` instead. **That one line does not change
+  the exit code** — so the green run in §6a leaves the question exactly where it was. The bottom of the
+  script says how to get such a token. Issue #113.
 - **The two `.ts` files were not type-checked.** See the end of §1.
 - **CI does not run this script's selftest.** The two staging scripts beside it are not in CI either,
   and `.github/workflows/` is not the assistant's to change (rule 5). Filed as issue #114. §5 above
   shows what that means in practice: the whole suite passes without looking at this file at all.
-- **The guard's refusal path, as opposed to the function that decides it, is not covered by any
-  run.** See the end of §8.1.
+- **The guard's refusal path, as opposed to the function that decides it, is still not covered by any
+  run.** §6a exercised the accepting path on a real `web/.env.local`; the three lines that turn a
+  refusal into a `die()` have run nowhere. See the end of §8.1.
 
 ## 7. CI on the pull request
 
@@ -428,7 +605,8 @@ thing locally. What CI proves here is that nothing else broke.
 ## 8. The coach's review of PR #115 — both changes made
 
 The review is a comment on PR #115, posted at `727ebca`. It asked for two changes before the staging
-run, and both are on this branch. **Neither was tested against staging**; §6 still holds.
+run, and both are on this branch. This section was written **before** the staging run; the run that
+exercised both changes is §6a, and the two notes below that it left unproved are marked there.
 
 ### 8.1 The staging guard accepts only the staging host
 
@@ -527,7 +705,8 @@ case going WRONG. It reports no token text: it is handed facts, not strings.
 that refuses on a missing `kid` could be refusing the altered token for that reason too, and the 401
 would again not isolate the signature. The line is printed so the owner can read which of the two
 questions the run actually answered rather than assuming. **That is not something this change can
-settle without running it**, and it has not been run.
+settle without running it.** It has now been run: §6a printed `alg` `ES256` **with** a `kid`, so that
+particular doubt does not apply to that run — and §6a also says what the 401 still does not show.
 
 ### 8.3 What the review asked for that is not in this branch
 
@@ -553,18 +732,38 @@ editing the script. That is the cost of the fix, and §6 now carries it.
 
 ## Personal data in this file
 
-**Nothing was captured from production, or from staging, or from anywhere else** — rule 18, and an
-empty list is the complete answer here. There was no response body to redact, because no request was
-sent to any project.
+**Nothing was captured from production** — rule 18's list is empty for production, and an empty list
+is the complete answer there.
 
-No email address, user id, team id, invitation id, token or hash appears above. The two addresses that
-appear in the script are patterns it builds at run time from `example.com` and a timestamp, belonging
-to nobody. The one id in this file, `cd547da`, is a commit in this repository.
+§6a does carry data captured from **staging**, which no other section of this file does. **Nothing in
+it was replaced with a placeholder**, so instead of a before-and-after list, here is the full
+inventory of what came back and what is in it, for the owner to check:
 
-The new script is written so a future run of it stays that way: it never prints a password, an access
-token, a refresh token, the publishable key, a real address, a user id or an invitation id, and every
-response body it prints goes through a scrub that replaces any token the script is holding with a
-placeholder first.
+- **Eight response-body lines, four distinct texts, each pasted whole.** Three copies of
+  `{"code":"UNAUTHORIZED_LEGACY_JWT","message":"Invalid JWT"}` and three of
+  `{"code":"UNAUTHORIZED_ASYMMETRIC_JWT","message":"Invalid JWT"}` from the platform, plus
+  invite-member's own `{"error":"Only the team's owner can invite people."}` and
+  `{"error":"That team was not found."}`. Every one is a refusal. None holds an address, an id, a
+  token, a hash, or any text a person typed.
+- **Alice's staging team id** — the uuid in the `export` line and in the run's header, written in full
+  there and not repeated here. It is a row id in the staging project belonging to a test account, and
+  it is not a secret: the script passes it on the command line precisely because it is not, and says
+  so in the refusal message quoted in §8.1.
+- **A team id that does not exist**, which the script invented for the run, and **the invite address**,
+  which it builds at run time from `example.com` and a timestamp. Both belong to nobody. The run shows
+  the address was never written anywhere: 0 invitations.
+- **No token, password, hash, publishable key, user id, invitation id or real email address appears in
+  §6a**, because the run printed none. Where it reports who owns the team it prints the word `Alice`,
+  not a uuid.
+
+Alice and Bob are the staging test accounts (rule 6); no real person's data is in any of the above. The
+other id in this file, `cd547da`, is a commit in this repository.
+
+The script is written so a run of it stays that way: it never prints a password, an access token, a
+refresh token, the publishable key, a real address, a user id or an invitation id, and every response
+body it prints goes through a scrub that replaces any token the script is holding with a placeholder
+first. §6a is one run where that held — no placeholder appears in its output, because no body it
+printed contained a token to replace.
 
 **The altered token §8.2 adds is the most dangerous value this script has ever held** — Bob's live
 access token with one claim moved, so reversing one field gives a working credential. It is registered
