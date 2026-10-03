@@ -227,6 +227,32 @@ their own summary lines, pasted as they came back. Nothing failed.)
 - **CI does not run this script's selftest.** The two staging scripts beside it are not in CI either,
   and `.github/workflows/` is not the assistant's to change (rule 5). Filed as issue #114.
 
+## 7. CI on the pull request
+
+PR #115, run **37126300700**. Every check green, including `required` — the one job that is marked
+required in the branch rules and that fails if any other job was skipped rather than succeeding:
+
+```
+App build                               pass  29s
+Drift-check self-test                   pass  5s
+Guard self-test                         pass  31s
+Handoff self-test                       pass  4s
+Launch check self-test                  pass  6s
+Secret scan (gitleaks)                  pass  6s
+Skills lint                             pass  4s
+Vet-tool self-test                      pass  7s
+Workflow lint (permissions + timeouts)  pass  7s
+npm test (macos-latest)                 pass  34s
+npm test (windows-latest)               pass  1m14s
+required                                pass  4s
+```
+
+(From `gh pr checks 115 --watch`. The two Vercel checks also passed; the preview deployment is not
+part of this change and nothing was tested on it.)
+
+**None of these jobs runs the new script's `--selftest`** — that is issue #114. What CI proves here is
+that nothing else broke.
+
 ## Personal data in this file
 
 **Nothing was captured from production, or from staging, or from anywhere else** — rule 18, and an
