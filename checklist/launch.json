@@ -189,7 +189,7 @@
     {
       "id": "guards-selftest",
       "section": "Guards",
-      "title": "The guard self-test passes (node guard/selftest.mjs)",
+      "title": "The guard self-test passes (node .claude/guard/selftest.mjs)",
       "lesson": "Book 1 A2",
       "type": "auto",
       "check": "guard_selftest"

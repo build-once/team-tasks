@@ -71,7 +71,7 @@ Pieces 1 to 5 are the stack for the first version. Piece 6 is agreed but **not s
 
 ### 5. The Build Once starter — the safety rails you already copied
 
-- **Job in your app.** It is this repository: the guards in `.claude/hooks/` and `guard/`, the CI
+- **Job in your app.** It is this repository: the guards in `.claude/hooks/` and `.claude/guard/`, the CI
   checks, the launch checklist, the skills that make me show evidence, and the rules in
   `AGENTS.md` and `CLAUDE.md`.
 - **How long widely used.** **NOT MAINSTREAM — flagged.** `package.json` says version `0.1.0`,

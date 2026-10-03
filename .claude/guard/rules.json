@@ -1,5 +1,5 @@
 {
-  "$comment": "Build Once guard rules. Decision order: forbid beats ask, ask beats allow. Any error loading these rules blocks every action (fail closed). Each rule needs at least one should_match and one should_not_match example; guard/selftest.mjs runs them all. Plain-English guide: docs/guards.md.",
+  "$comment": "Build Once guard rules. Decision order: forbid beats ask, ask beats allow. Any error loading these rules blocks every action (fail closed). Each rule needs at least one should_match and one should_not_match example; .claude/guard/selftest.mjs runs them all. Plain-English guide: docs/guards.md.",
   "version": 1,
   "rules": [
     {
@@ -17,8 +17,8 @@
           "echo  guard-arming-probe nfeedfacecafebeef"
         ],
         "should_not_match": [
-          "node guard/probe.mjs",
-          "node guard/probe.mjs judge n0123456789abcdef",
+          "node .claude/guard/probe.mjs",
+          "node .claude/guard/probe.mjs judge n0123456789abcdef",
           "echo arming probe test"
         ]
       }
@@ -33,8 +33,8 @@
         "NotebookEdit",
         "Bash"
       ],
-      "pattern": "^(?:guard/|\\.claude/hooks/|\\.claude/settings[^/]*$)|(?:\\b(?:rm|mv|cp|tee|truncate|chmod|chown|ln|unlink|touch|Remove-Item|Move-Item|Copy-Item|Rename-Item|Set-Content|Add-Content|Clear-Content|Out-File|New-Item|ri|mi|cpi|rni|sc|ac|clc|ni|del|erase|rd|rmdir|move|copy|ren)\\b|\\bsed\\b[^|;&]*\\s-i|\\bperl\\b[^|;&]*\\s-[a-z]*i|>)[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:hooks|settings))|\\bgit\\s+(?:checkout|restore|rm|mv)\\b[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:hooks|settings))",
-      "reason": "The guard's own files (guard/, .claude/hooks/, .claude/settings*) can only be changed by a person, never by the assistant.",
+      "pattern": "^(?:guard/|\\.claude/guard/|\\.claude/hooks/|\\.claude/settings[^/]*$)|(?:\\b(?:rm|mv|cp|tee|truncate|chmod|chown|ln|unlink|touch|Remove-Item|Move-Item|Copy-Item|Rename-Item|Set-Content|Add-Content|Clear-Content|Out-File|New-Item|ri|mi|cpi|rni|sc|ac|clc|ni|del|erase|rd|rmdir|move|copy|ren)\\b|\\bsed\\b[^|;&]*\\s-i|\\bperl\\b[^|;&]*\\s-[a-z]*i|>)[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:guard|hooks|settings))|\\bgit\\s+(?:checkout|restore|rm|mv)\\b[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:guard|hooks|settings))",
+      "reason": "The guard's own files (.claude/guard/, .claude/hooks/, .claude/settings*, and guard/ if it ever returns) can only be changed by a person, never by the assistant.",
       "lesson": "Book 1 A2",
       "examples": {
         "should_match": [
@@ -96,6 +96,44 @@
             "input": {
               "command": "'{}' | Out-File guard\\rules.json"
             }
+          },
+          {
+            "tool": "Edit",
+            "input": {
+              "file_path": ".claude/guard/rules.json",
+              "old_string": "forbid",
+              "new_string": "allow"
+            }
+          },
+          {
+            "tool": "Write",
+            "input": {
+              "file_path": ".claude/guard/local.json",
+              "content": "{}"
+            }
+          },
+          "rm .claude/guard/rules.json",
+          "sed -i 's/forbid/allow/' .claude/guard/rules.json",
+          "echo '{}' > .claude/guard/rules.json",
+          "mv .claude/guard/local.json /tmp/local.json",
+          "git checkout -- .claude/guard/rules.json",
+          {
+            "tool": "PowerShell",
+            "input": {
+              "command": "Remove-Item .claude\\guard\\rules.json"
+            }
+          },
+          {
+            "tool": "PowerShell",
+            "input": {
+              "command": "Set-Content -Path .claude\\guard\\local.json -Value '{}'"
+            }
+          },
+          {
+            "tool": "PowerShell",
+            "input": {
+              "command": "'{}' | Out-File .claude\\guard\\rules.json"
+            }
           }
         ],
         "should_not_match": [
@@ -122,6 +160,16 @@
             "tool": "PowerShell",
             "input": {
               "command": "Get-Content guard/rules.json"
+            }
+          },
+          "node .claude/guard/selftest.mjs",
+          "cat .claude/guard/rules.json",
+          "node .claude/guard/check.mjs \"git status\"",
+          "node .claude/guard/selftest.mjs > guard-log.txt 2>&1",
+          {
+            "tool": "PowerShell",
+            "input": {
+              "command": "Get-Content .claude/guard/rules.json"
             }
           }
         ]

@@ -15,7 +15,7 @@ It goes with the course **Building Real Apps with AI** (coming soon), but you ca
 | Part | What it does for you | Where it lives |
 |---|---|---|
 | **Project template** | A tidy starting layout, a secrets-safe `.gitignore`, an `.env.example`, and plain-English guides to how a real app fits together. | this repo, `docs/architecture.md`, `docs/environments.md` |
-| **Guards** | Small checks that run *before* the AI assistant runs a command or edits a file, and block the dangerous ones (for example, touching production, or editing the guards themselves). | `.claude/hooks/`, `guard/`, `docs/guards.md` |
+| **Guards** | Small checks that run *before* the AI assistant runs a command or edits a file, and block the dangerous ones (for example, touching production, or editing the guards themselves). | `.claude/hooks/`, `.claude/guard/`, `docs/guards.md` |
 | **CI (automatic checks)** | Every pull request is checked by GitHub: the guards still work, the skills are valid, no secrets are in the history, and every workflow is locked down. One check, `required`, sums it all up. | `.github/workflows/ci.yml` |
 | **Prove-it skills** | Instructions for the AI assistant that make it show real evidence (exact output and exit codes) before it says anything is finished. | `.claude/skills/`, `docs/skills.md` |
 | **Launch check** | A checklist you run before real people use your app, which asks for evidence for each item instead of a tick. | `scripts/launch-check.mjs`, `docs/launch-check.md` |

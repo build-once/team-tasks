@@ -4,7 +4,7 @@ Thank you for helping. This kit exists to show evidence instead of promises, so 
 
 ## The three rules
 
-1. **Every new guard rule needs self-test examples.** Add at least one example the rule must **block** and one near-miss it must **allow** (something that looks similar but is safe). A rule with no allow-example cannot prove it is not blocking too much. Add them where `guard/selftest.mjs` reads them (see `docs/guards.md`), and run `npm run guard:test`.
+1. **Every new guard rule needs self-test examples.** Add at least one example the rule must **block** and one near-miss it must **allow** (something that looks similar but is safe). A rule with no allow-example cannot prove it is not blocking too much. Add them where `.claude/guard/selftest.mjs` reads them (see `docs/guards.md`), and run `npm run guard:test`.
 2. **Every skill needs evals.** A new or changed skill in `.claude/skills/<name>/` must come with evals (see `docs/skills.md`), and `npm run skills:lint` must pass.
 3. **Every pull request needs evidence.** Fill in the pull-request template. Paste the **exact** command, output and exit code for what you ran — at minimum `npm test`. List anything you could not check as `unverified — <reason>`. "Works for me" is not evidence.
 

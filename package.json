@@ -9,8 +9,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "guard:test": "node guard/selftest.mjs",
-    "guard:check": "node guard/check.mjs",
+    "guard:test": "node .claude/guard/selftest.mjs",
+    "guard:check": "node .claude/guard/check.mjs",
     "skills:lint": "node scripts/lint-skills.mjs",
     "launch:check": "node scripts/launch-check.mjs",
     "vet": "node scripts/vet-tool.mjs",

@@ -16,7 +16,7 @@ We aim to acknowledge reports within a few days, keep you updated, and credit yo
 
 ## What is in scope
 
-- The guards (`.claude/hooks/`, `guard/`) failing to block something they claim to block.
+- The guards (`.claude/hooks/`, `.claude/guard/`) failing to block something they claim to block.
 - The CI workflows (`.github/workflows/`) granting too much permission or exposing secrets.
 - Scripts in `scripts/` doing something unsafe.
 - Docs that give advice which would make an app less safe.

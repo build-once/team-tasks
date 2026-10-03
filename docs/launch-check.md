@@ -43,7 +43,7 @@ The exit code is 1 if anything FAILs (and, with `--strict`, if anything is UNVER
 
 A check that could not run looks a lot like a check that passed: no errors, no red text. That is how problems slip through. So this tool never turns "I couldn't look" into PASS. Examples:
 
-- The guard self-test (`guard/selftest.mjs`) is missing: **UNVERIFIED**, not PASS.
+- The guard self-test (`.claude/guard/selftest.mjs`) is missing: **UNVERIFIED**, not PASS.
 - The secret scan found zero files to read: **UNVERIFIED**, because an empty scan proves nothing.
 - GitHub refused to show branch protection because of your plan (an HTTP 403): **UNVERIFIED - plan/permission**. It is never reported as PASS or FAIL.
 

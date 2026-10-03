@@ -4,7 +4,7 @@
 
 ## What a guard is
 
-Before your AI assistant runs a command, edits a file, reads a file or uses a connector, Claude Code asks the guard first. The guard checks the action against a list of rules (`guard/rules.json`) and gives one of three answers:
+Before your AI assistant runs a command, edits a file, reads a file or uses a connector, Claude Code asks the guard first. The guard checks the action against a list of rules (`.claude/guard/rules.json`) and gives one of three answers:
 
 | Answer | What happens |
 |---|---|
@@ -23,7 +23,7 @@ If more than one rule matches, the strictest wins: forbid beats ask, and ask bea
 | Rule | What it blocks | Why | Lesson |
 |---|---|---|---|
 | `arming-probe` | One harmless test command (see "Prove the guard is on" below) | Proves the guard is switched on | Book 1 A2 |
-| `guard-self-protect` | Changing `guard/`, `.claude/hooks/` or `.claude/settings*` | Only a person may change the guard. An assistant that can edit its own guard has no guard | Book 1 A2 |
+| `guard-self-protect` | Changing `.claude/guard/`, `.claude/hooks/` or `.claude/settings*` | Only a person may change the guard. An assistant that can edit its own guard has no guard | Book 1 A2 |
 | `production-access` | Anything aimed at production: `APP_ENV=production`, `--env production`, `--prod`, plus your own production addresses (see "Tell the guard what production looks like") | The assistant never touches production | Book 1 A23, Book 2 A24 |
 | `push-to-main` | `git push` to `main` or `master`, `--all`, `--mirror` | Changes reach main only through a pull request | Book 1 A1, L24 |
 | `force-push` | `git push --force`, `-f`, `--force-with-lease`, `+branch` | Rewrites shared history and can destroy work | Book 1 L24 |
@@ -55,7 +55,7 @@ If more than one rule matches, the strictest wins: forbid beats ask, and ask bea
 Be clear about the limits. The guard reads the **text** of each action. It does not understand what a program will do once it runs.
 
 - **Which branch you are on.** `git push origin HEAD` while on main looks like any other push. GitHub's branch protection is the real stop for this. Turn it on (see `docs/protect-main.md`).
-- **Paths after `cd`.** `cd guard` followed by `rm rules.json` does not mention `guard/` in the second command. AGENTS.md tells the assistant never to change folders, and the file-editing tools are always checked by full path.
+- **Paths after `cd`.** `cd .claude/guard` followed by `rm rules.json` does not mention the guard folder in the second command. AGENTS.md tells the assistant never to change folders, and the file-editing tools are always checked by full path.
 - **Code that does the dangerous thing itself.** A script that deletes files or reads `.env` from the inside is not visible to the guard. This is why you read what the assistant writes, and why CI scans for secrets.
 - **File contents.** For file edits, the guard checks *which* file, not *what* is written into it.
 
@@ -66,7 +66,7 @@ So the guard is a seatbelt, not a force field. It stops the common, expensive ac
 Having the files is not proof the guard is running. Claude Code loads hooks when a session starts, so a session started elsewhere may have no guard at all.
 
 1. In your own terminal: `npm run guard:test`. It must print `PASS`.
-2. Then run the live probe in the assistant, following `guard/arming-probe.md`. You must see **ARMED**. Treat UNARMED or UNKNOWN as "the guard is off" and stop until it is fixed.
+2. Then run the live probe in the assistant, following `.claude/guard/arming-probe.md`. You must see **ARMED**. Treat UNARMED or UNKNOWN as "the guard is off" and stop until it is fixed.
 
 Do this once per new session, and whenever you change `.claude/settings.json`.
 
@@ -75,15 +75,15 @@ Do this once per new session, and whenever you change `.claude/settings.json`.
 In your own terminal:
 
 ```
-node guard/check.mjs "git push origin main"
-node guard/check.mjs --tool Read --path .env
+node .claude/guard/check.mjs "git push origin main"
+node .claude/guard/check.mjs --tool Read --path .env
 ```
 
 It prints the decision and which rules matched. Run it yourself, not through the assistant, because the guard also checks the assistant's command and may block it for the text you are testing.
 
 ## Tell the guard what production looks like
 
-The guard cannot know your production addresses. Tell it in `guard/local.json`:
+The guard cannot know your production addresses. Tell it in `.claude/guard/local.json`:
 
 ```json
 {
@@ -93,13 +93,15 @@ The guard cannot know your production addresses. Tell it in `guard/local.json`:
 
 Each entry is a regular expression (so escape dots as `\\.`). Put in your production database project ID, your live domain, and anything else that only ever means production. Any command or connector call that mentions one of them is then blocked by `production-access`. Leave staging out.
 
-If `guard/local.json` is missing, this part of the rule simply never matches. If the file is there but broken, every action is blocked until it is fixed (fail closed).
+If `.claude/guard/local.json` is missing, this part of the rule simply never matches. If the file is there but broken, every action is blocked until it is fixed (fail closed).
 
 ## Add or change a rule
 
 Only a person changes the guard. The assistant is blocked from editing these files, on purpose.
 
-1. Open `guard/rules.json` and add an entry:
+**The rule files live under `.claude/` for a reason.** `.claude/` is the one folder that `claude-code-action` restores from a pull request's *base* branch, so on a `@claude` run the rules being enforced are `main`'s and not the branch's. With the rules in a top-level `guard/` folder they were the branch's, which is issue #66. Do not move them out, and do not have the guard read any file from outside `.claude/`.
+
+1. Open `.claude/guard/rules.json` and add an entry:
    - `id`: short, lowercase, with hyphens.
    - `decision`: `forbid`, `ask` or `allow`.
    - `tools`: which tools it applies to (`Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`, or `mcp__*` for connectors). `Bash` means every tool that runs shell commands: Bash and, on Windows, PowerShell. Write your pattern so it also catches the PowerShell form of the command (for example `Remove-Item` as well as `rm`); the self-test runs every plain command example through both tools.
