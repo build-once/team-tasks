@@ -476,6 +476,37 @@ Step 12 is the one easy to forget, and the one that breaks three other scripts i
   about what the rule is — but they do still disagree about where it is enforced. Filed as an issue.
 - **CI does not run this script.** See the end of §5.
 
+## 9. CI on the pull request
+
+PR **#124**, commit `d441598`, run 37144233483. Every check green, including `required` — the one job
+marked required in the branch rules, which fails if any other job was skipped rather than succeeding:
+
+```
+$ gh pr checks 124 --watch
+App build                               pass  27s
+Drift-check self-test                   pass  7s
+Guard self-test                         pass  28s
+Handoff self-test                       pass  8s
+Launch check self-test                  pass  6s
+Secret scan (gitleaks)                  pass  7s
+Skills lint                             pass  6s
+Vet-tool self-test                      pass  4s
+Workflow lint (permissions + timeouts)  pass  7s
+npm test (macos-latest)                 pass  50s
+npm test (windows-latest)               pass  1m4s
+required                                pass  4s
+```
+
+The two Vercel checks also passed. **The preview deployment was not tested**: it points at staging, and
+testing the reset flow on it would mean sending an email, which this task does not do. A green Vercel
+build says the app compiles, not that any screen works.
+
+**None of these jobs runs `scripts/password-reset-check.mjs`** — the end of §5, and issue #102. What CI
+proves here is that nothing else broke.
+
+The commit that adds this section has a later run again, which is not recorded here, because a file
+that records the CI result of the commit that records the CI result never finishes.
+
 ## Personal data in this file
 
 **Nothing was captured from production, and nothing from staging either** — rule 18's list is empty for
