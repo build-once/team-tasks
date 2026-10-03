@@ -392,29 +392,38 @@ not a strong one: **none of these suites looks at `scripts/staging/`** — that 
 
 ## 7. CI on the pull request
 
-PR #115, run **37126300700**. Every check green, including `required` — the one job that is marked
-required in the branch rules and that fails if any other job was skipped rather than succeeding:
+PR #115. Two runs are recorded here, because §8's changes came after the first one.
+
+**The §8 commit, `d98d84e`, run 37131661562.** Every check green, including `required` — the one job
+that is marked required in the branch rules and that fails if any other job was skipped rather than
+succeeding:
 
 ```
-App build                               pass  29s
-Drift-check self-test                   pass  5s
-Guard self-test                         pass  31s
-Handoff self-test                       pass  4s
-Launch check self-test                  pass  6s
-Secret scan (gitleaks)                  pass  6s
-Skills lint                             pass  4s
+App build                               pass  26s
+Drift-check self-test                   pass  7s
+Guard self-test                         pass  30s
+Handoff self-test                       pass  8s
+Launch check self-test                  pass  7s
+Secret scan (gitleaks)                  pass  5s
+Skills lint                             pass  10s
 Vet-tool self-test                      pass  7s
-Workflow lint (permissions + timeouts)  pass  7s
-npm test (macos-latest)                 pass  34s
-npm test (windows-latest)               pass  1m14s
-required                                pass  4s
+Workflow lint (permissions + timeouts)  pass  5s
+npm test (macos-latest)                 pass  47s
+npm test (windows-latest)               pass  1m5s
+required                                pass  5s
 ```
 
-(From `gh pr checks 115 --watch`. The two Vercel checks also passed; the preview deployment is not
-part of this change and nothing was tested on it.)
+**The first commit, `78f8b42`, run 37126300700.** Also green, with the same twelve jobs, at 29s / 5s /
+31s / 4s / 6s / 6s / 4s / 7s / 7s / 34s / 1m14s / 4s. (`727ebca`, the commit that added this section,
+had run 37126438976, also green — recorded in a comment on PR #115 rather than here, because a file
+that records the CI result of the commit that records the CI result never finishes. The commit that
+adds *this* paragraph has a later run again, and the same applies to it.)
 
-**None of these jobs runs the new script's `--selftest`** — that is issue #114. What CI proves here is
-that nothing else broke.
+(Both from `gh pr checks 115 --watch`. The two Vercel checks also passed in each; the preview
+deployment is not part of this change and nothing was tested on it.)
+
+**None of these jobs runs this script's `--selftest`** — that is issue #114, and §5 shows the same
+thing locally. What CI proves here is that nothing else broke.
 
 ## 8. The coach's review of PR #115 — both changes made
 
