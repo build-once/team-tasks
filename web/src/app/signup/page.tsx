@@ -3,6 +3,9 @@ import Link from "next/link";
 import { signUp } from "@/app/auth/actions";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+// The same number as the reset form, from one place, so "the same password rules
+// as sign-up" (issue #120 rule 3) stays true after somebody changes one of them.
+import { PASSWORD_MIN_LENGTH } from "@/lib/password-reset";
 
 export default async function SignUpPage({
   searchParams,
@@ -57,11 +60,12 @@ export default async function SignUpPage({
               name="password"
               type="password"
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
             />
             <p className="hint">
-              At least 8 characters. A password manager can make one for you.
+              At least {PASSWORD_MIN_LENGTH} characters. A password manager can
+              make one for you.
             </p>
           </div>
 

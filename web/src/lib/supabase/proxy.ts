@@ -16,7 +16,25 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 // safe to open while signed out because the page only READS the token from the
 // address bar -- it shows nothing about the invitation, and accepting needs a
 // signed-in person and a button press, both enforced by accept-invite.
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/invite"];
+//
+// "/forgot-password" has to be public: forgetting a password is the reason
+// somebody cannot sign in. It shows one sentence after a request, the same one
+// whatever happened, so there is nothing on it to protect.
+//
+// "/reset-password" is public too, which looks odd for a page that changes a
+// password, and is not. It draws the form only when /auth/reset has just had a
+// link accepted by Supabase, and the change itself needs the session that
+// acceptance created -- so the page's own check, not the proxy, is what guards
+// it. Being public is what lets somebody whose link has expired read why,
+// instead of being bounced to the sign-in page with no explanation.
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/auth",
+  "/invite",
+  "/forgot-password",
+  "/reset-password",
+];
 
 function isPublic(pathname: string) {
   if (pathname === "/") return true;

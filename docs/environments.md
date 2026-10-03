@@ -106,8 +106,8 @@ migration and taking it through a pull request, the same way as any other change
 
 ## Every setting the app uses
 
-Two names the **web app** reads, both public, and four the **server functions** read, which the web app
-never sees.
+Three names the **web app** reads — two public, one server-side and optional — and four the **server
+functions** read, which the web app never sees.
 
 ### What the web app reads, from Vercel
 
@@ -115,9 +115,35 @@ never sees.
 |---|---|---|---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
+| `SITE_URL` | Not secret, but **not public either** — no `NEXT_PUBLIC_` prefix, so Next.js never puts it in the browser bundle | **Optional** — set it to `http://localhost:3000` to test password reset locally | **Optional**, the preview's own address | **Optional**, the production address, and `https` | The site's own address, used for one thing: the `<SITE_URL>/auth/reset` link in a password-reset email. **Read only from this setting, never from a request header** — see below |
 
 **Secret: none in the web app.** It talks to Supabase with the publishable key and lets the database
 rules decide, which is why nothing secret belongs in Vercel.
+
+### `SITE_URL`, and why it is optional
+
+Added 2026-10-03 with the Forgot password screens (**issue #120**).
+
+A password-reset email has to link back to this app. That address is built from `SITE_URL` and from
+nothing else — not from a hard-coded localhost, preview or production address, and **not from a
+request header**, which is the one difference from the sign-up confirmation in
+`web/src/app/auth/actions.ts`. A confirmation link reads the request's own origin so a preview
+confirms back to itself; a reset link carries a credential, so it gets the same treatment as `APP_URL`
+in the Edge Functions: a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an
+attacker owns, and then the reset code arrives there.
+
+**With the setting absent, the app sends no `redirectTo` at all** and Supabase uses the project's own
+**Site URL** setting. That is still an address from settings, so rule 4 of the issue holds either way —
+and it is why the setting is optional rather than required: a required one would stop the app working
+the moment this merged and before anybody had set it.
+
+**Each address used has to be on that Supabase project's Redirect URLs allow-list**, or Supabase
+ignores it and falls back to the Site URL. The addresses are listed in the pull request for #120.
+Supabase settings are not the assistant's to change (rule 10), so the owner adds them.
+
+**Unverified — what is on either project's allow-list today.** Nothing in this repository records it;
+`supabase/config.toml` has no `[auth]` section, and no document here lists a Site URL or a redirect
+address. The Supabase dashboard is the only authoritative place.
 
 ### What the server functions read, from Supabase Edge Functions secrets
 
@@ -276,13 +302,17 @@ Where each copy keeps them:
 
 ### Where the app reads them
 
-Three files, six lines, all `process.env`, all in `web/`:
+**Two files**, three `process.env` lines between them, both in `web/src/lib/`:
 
-| File | Lines |
+| File | What it reads |
 |---|---|
-| `web/src/lib/supabase/client.ts` | 8–9 |
-| `web/src/lib/supabase/server.ts` | 10–11 |
-| `web/src/lib/supabase/proxy.ts` | 22–23 |
+| `web/src/lib/env.ts` | `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, once each, checked for emptiness |
+| `web/src/lib/password-reset.ts` | `SITE_URL`, once, and nothing else |
+
+This table used to name `client.ts`, `server.ts` and `proxy.ts` with line numbers, and it had gone
+stale: those three now import the two values from `env.ts` and read no environment variable of their
+own. Checked on 2026-10-03 by searching the whole of `web/src` for `process.env` — the three lines
+above are every match, and the only other hits are the explanatory comments inside `env.ts`.
 
 No project address and no key is written into the code anywhere, and no secret name sits behind a
 public prefix such as `NEXT_PUBLIC_` or `VITE_`. Both statements were re-checked on 2026-09-28 by
