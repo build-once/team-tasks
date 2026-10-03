@@ -24,7 +24,15 @@
 //
 // Both imports are pinned to exact versions in deno.json (rule 17, Lesson A4).
 //
-// NOT DEPLOYED. This file has never been pushed to any project.
+// DEPLOYED TO STAGING AND TO PRODUCTION. Staging first, by the owner from their
+// own terminal; production on the merge of PR #44, by the `deploy-functions` job
+// in .github/workflows/migrate-production.yml. Both are recorded in
+// evidence/invitations.md -> "What is deployed where", written 2026-10-01, along
+// with what was observed in each environment.
+//
+// This line used to say the file had never been pushed to any project, which was
+// untrue from the moment PR #44 merged (issue #111). Read what follows as code
+// that is running in production: it is.
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
@@ -300,8 +308,19 @@ export default {
       );
     }
     if (!Array.isArray(team) || team.length !== 1) {
-      // Zero rows: no such team. Deliberately the same answer as "not yours",
-      // so this cannot be used to discover which team ids exist.
+      // Zero rows: no such team. 404, and a DIFFERENT answer from "not yours",
+      // which is the 403 just below this block -- the two outcomes are
+      // deliberately told apart, for the reason given at the top of this block:
+      // reading the team with supabaseAdmin "lets 'not your team' be told apart
+      // from 'no such team'".
+      //
+      // This comment used to claim the two answers were identical, so that team
+      // ids could not be discovered. They are not identical, and the claim was
+      // worse than wrong: it invited somebody to "restore" that behaviour by
+      // collapsing the 403 into this 404, losing a distinction the file argues
+      // for on purpose (issue #111). What a caller can learn from the pair is
+      // that a team id exists -- not who is in it, not its name, and not
+      // anything about its invitations.
       return fail("That team was not found.", 404);
     }
     if (team[0].owner_id !== callerId) {
