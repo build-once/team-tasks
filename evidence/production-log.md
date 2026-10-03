@@ -114,6 +114,32 @@ guarantee.
 
 ---
 
+## 2026-10-03
+
+**Where this line comes from, and what that means.** It was written on 3 Oct 2026 by the assistant
+(Claude Code) **from the description in issue #118**, not from anything the assistant ran or saw. The
+assistant has no production access of any kind, did not watch this call happen, and **did not use the
+production read-only connector to check it** — rules 1 and 10 forbid that, and rule 19's exception
+covers production function secrets and nothing else. Every value in the row below is the issue's,
+repeated. If the coach's own record disagrees with it, the coach's record is the one to trust.
+
+**On the time.** Issue #118 places the read after the merge of PR #115, and
+`gh pr view 115 --json mergedAt` reports that merge at **15:17:00 UTC on 3 Oct 2026** — 16:17 BST,
+checked in the session that wrote this line. The versions the read returned are stamped 15:17:28 UTC,
+which is later again. So "after 16:17" is what the entry says, rather than a precise-looking time
+nobody measured.
+
+| Time (BST) | Who | What | Why | Result |
+|---|---|---|---|---|
+| After 16:17 — exact time not recorded | The coach (claude.ai), via the production read-only connector | `list_edge_functions` — read-only, **the list only**: no function contents and no table were read | Confirm the deploy that followed the merge of PR #115 | Three functions: `create-team` version 22, `invite-member` version 19, `accept-invite` version 19. All three **ACTIVE**, `verify_jwt` **true**, updated **2026-10-03 15:17:28 UTC** |
+
+**What this line is not.** `verify_jwt true` above is a reading of **production**, taken from the
+issue. The staging run in `evidence/build-it-16-function-doors.md` §6a is a different project, and
+nothing here says what staging's setting is, or what either platform does with a token when one
+arrives. The two are easy to blur, because they are about the same three functions by name.
+
+---
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production
