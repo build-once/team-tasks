@@ -18,7 +18,7 @@ The probe is a harmless command that prints a random code word, called a
 
 1. In your own terminal, in the project folder, run:
 
-       node guard/probe.mjs
+       node .claude/guard/probe.mjs
 
    It prints a nonce and a command such as `echo guard-arming-probe n1a2b3c4d5e6f7a8b`.
 2. Ask the assistant to run that exact command with its Bash tool and to show
@@ -37,7 +37,7 @@ The probe is a harmless command that prints a random code word, called a
 | The nonce is printed | **UNARMED**: the guard is off |
 | Neither of these | **UNKNOWN**: the probe never really ran. Treat it as a failure |
 
-To have the result judged for you, run `node guard/probe.mjs judge <nonce>`,
+To have the result judged for you, run `node .claude/guard/probe.mjs judge <nonce>`,
 paste the tool output, then press Ctrl-D.
 
 ## Why "neither" counts as a failure
@@ -51,6 +51,6 @@ safe answer is to assume the guard is off.
 
 * Quit the assistant and start it again from the project's top folder.
 * Check that `node --version` works in a terminal. The guard needs Node 20 or newer.
-* Run `node guard/selftest.mjs` in a terminal. It must say PASS.
-* Run `node guard/probe.mjs offline`. This proves the hook script itself works.
+* Run `node .claude/guard/selftest.mjs` in a terminal. It must say PASS.
+* Run `node .claude/guard/probe.mjs offline`. This proves the hook script itself works.
   It does not prove the hook is switched on in your session.

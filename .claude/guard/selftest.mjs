@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Build Once self-test. Apache-2.0.
-// Runs every example in guard/rules.json through the REAL hook (as a separate
+// Runs every example in .claude/guard/rules.json through the REAL hook (as a separate
 // process, exactly as Claude Code runs it), plus fail-closed checks.
 // Exits non-zero on any mismatch, or if fewer than MIN_EXAMPLES examples ran,
 // so an empty or truncated rule set can never pass.
@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HOOK = join(ROOT, '.claude', 'hooks', 'guard.mjs');
 const MIN_EXAMPLES = 60;
 
@@ -97,27 +97,27 @@ const sub = join(ROOT, 'docs');
 mkdirSync(sub, { recursive: true });
 r = runHook(bash('ls', sub), { cwd: sub });
 check('ls from a sub-folder is allowed', r.status === 0 && r.stdout === '', `(exit ${r.status}) ${r.stderr}`);
-r = runHook({ cwd: sub, tool_name: 'Edit', tool_input: { file_path: '../guard/rules.json', old_string: 'a', new_string: 'b' } }, { cwd: sub });
+r = runHook({ cwd: sub, tool_name: 'Edit', tool_input: { file_path: '../.claude/guard/rules.json', old_string: 'a', new_string: 'b' } }, { cwd: sub });
 check('relative guard path from a sub-folder is denied', r.status === 2 && r.stderr.includes('[guard-self-protect]'), `(exit ${r.status})`);
 
 // Broken installs, built in a throw-away copy of the kit.
 function tempKit({ rules: rulesText, local } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'buildonce-'));
   mkdirSync(join(dir, '.claude', 'hooks'), { recursive: true });
-  mkdirSync(join(dir, 'guard'), { recursive: true });
+  mkdirSync(join(dir, '.claude', 'guard'), { recursive: true });
   copyFileSync(HOOK, join(dir, '.claude', 'hooks', 'guard.mjs'));
-  if (rulesText !== undefined) writeFileSync(join(dir, 'guard', 'rules.json'), rulesText);
-  if (local !== undefined) writeFileSync(join(dir, 'guard', 'local.json'), local);
+  if (rulesText !== undefined) writeFileSync(join(dir, '.claude', 'guard', 'rules.json'), rulesText);
+  if (local !== undefined) writeFileSync(join(dir, '.claude', 'guard', 'local.json'), local);
   return dir;
 }
-const realRules = readFileSync(join(ROOT, 'guard', 'rules.json'), 'utf8');
+const realRules = readFileSync(join(ROOT, '.claude', 'guard', 'rules.json'), 'utf8');
 const cases = [
   ['missing rules file is denied', {}],
   ['empty rule list is denied', { rules: '{"rules":[]}' }],
   ['unreadable rules file is denied', { rules: '{"rules":[' }],
   ['rule with a broken regex is denied', { rules: JSON.stringify({ rules: [{ id: 'x', decision: 'forbid', tools: ['Bash'], pattern: '(', reason: 'r' }] }) }],
   ['rule with an unknown decision is denied', { rules: JSON.stringify({ rules: [{ id: 'x', decision: 'maybe', tools: ['Bash'], pattern: 'a', reason: 'r' }] }) }],
-  ['malformed guard/local.json is denied', { rules: realRules, local: '{oops' }],
+  ['malformed .claude/guard/local.json is denied', { rules: realRules, local: '{oops' }],
 ];
 for (const [name, opts] of cases) {
   const dir = tempKit(opts);
@@ -128,7 +128,7 @@ for (const [name, opts] of cases) {
 {
   const dir = tempKit({ rules: realRules, local: JSON.stringify({ production_patterns: ['abcd1234prodref'] }) });
   const out = runHook(bash('supabase link --project-ref abcd1234prodref', dir), { hook: join(dir, '.claude', 'hooks', 'guard.mjs'), cwd: dir });
-  check('guard/local.json production pattern is enforced', out.status === 2 && out.stderr.includes('[production-access]'), `(exit ${out.status})`);
+  check('.claude/guard/local.json production pattern is enforced', out.status === 2 && out.stderr.includes('[production-access]'), `(exit ${out.status})`);
   const out2 = runHook(bash('supabase link --project-ref abcd1234prodref'));
   check('same command is not flagged by production-access without local.json', !out2.stderr.includes('[production-access]'));
   rmSync(dir, { recursive: true, force: true });
@@ -155,7 +155,7 @@ const runSettings = (payload, projectDir) =>
   spawnSync(HOOK_SHELL || 'sh', ['-c', commands[0]], { input: JSON.stringify(payload), cwd: sub, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir } });
 r = runSettings(bash('ls', sub), ROOT);
 check('settings command allows ls from a sub-folder', r.status === 0 && r.stdout === '', `(exit ${r.status}) ${r.stderr}`);
-r = runSettings({ cwd: sub, tool_name: 'Write', tool_input: { file_path: '../guard/rules.json', content: '{}' } }, ROOT);
+r = runSettings({ cwd: sub, tool_name: 'Write', tool_input: { file_path: '../.claude/guard/rules.json', content: '{}' } }, ROOT);
 check('settings command denies a guard edit from a sub-folder', r.status === 2, `(exit ${r.status})`);
 const empty = mkdtempSync(join(tmpdir(), 'buildonce-empty-'));
 r = runSettings(bash('ls', sub), empty);
@@ -174,7 +174,7 @@ rmSync(empty, { recursive: true, force: true });
     const linkedHook = join(link, '.claude', 'hooks', 'guard.mjs');
     let out = runHook(null, { hook: linkedHook, cwd: link, raw: '' });
     check('hook started through a symlink still fails closed on empty input', out.status === 2, `(exit ${out.status})`);
-    out = runHook({ cwd: link, tool_name: 'Edit', tool_input: { file_path: join(link, 'guard', 'rules.json'), old_string: 'a', new_string: 'b' } }, { hook: linkedHook, cwd: link });
+    out = runHook({ cwd: link, tool_name: 'Edit', tool_input: { file_path: join(link, '.claude', 'guard', 'rules.json'), old_string: 'a', new_string: 'b' } }, { hook: linkedHook, cwd: link });
     check('guard edit through a symlinked path is denied', out.status === 2 && out.stderr.includes('[guard-self-protect]'), `(exit ${out.status})`);
     rmSync(link, { force: true }); // removes the link only, never the project
   }

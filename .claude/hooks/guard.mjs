@@ -59,13 +59,13 @@ const INPUT_TIMEOUT_MS = 5000;
 
 function expandLocal(pattern, local, ruleId) {
   // {{local:key}} (braces may be written escaped, as \{\{local:key\}\}) is replaced
-  // by the regexes listed under that key in
-  // guard/local.json. If the key is absent, it becomes (?!), which never matches.
+  // by the regexes listed under that key in .claude/guard/local.json. If the key
+  // is absent, it becomes (?!), which never matches.
   return pattern.replace(/\\?\{\\?\{local:([A-Za-z0-9_]+)\\?\}\\?\}/g, (_, key) => {
     const list = local[key];
     if (list === undefined) return '(?!)';
     if (!Array.isArray(list) || list.some((s) => typeof s !== 'string' || s === '')) {
-      throw new Error(`guard/local.json: "${key}" must be a list of non-empty strings (rule ${ruleId})`);
+      throw new Error(`.claude/guard/local.json: "${key}" must be a list of non-empty strings (rule ${ruleId})`);
     }
     if (list.length === 0) return '(?!)';
     for (const s of list) new RegExp(s); // throws on a bad entry
@@ -74,18 +74,25 @@ function expandLocal(pattern, local, ruleId) {
 }
 
 export function loadRules(root = ROOT) {
-  const rulesPath = resolve(root, 'guard', 'rules.json');
-  const localPath = resolve(root, 'guard', 'local.json');
+  // The rule files live INSIDE .claude/ on purpose, and that location is a
+  // security property rather than tidiness. claude-code-action restores a fixed
+  // list of paths from a pull request's BASE branch before Claude starts;
+  // `.claude` is on that list and a top-level `guard/` was not, so with the rules
+  // outside, a pull request enforced its own (possibly weaker) rules while
+  // running main's script. See #66 and the header of .github/workflows/claude.yml.
+  // Do not move these files out of .claude/.
+  const rulesPath = resolve(root, '.claude', 'guard', 'rules.json');
+  const localPath = resolve(root, '.claude', 'guard', 'local.json');
   const doc = JSON.parse(readFileSync(rulesPath, 'utf8')); // throws if missing
   const rules = Array.isArray(doc) ? doc : doc && doc.rules;
   if (!Array.isArray(rules) || rules.length === 0) {
-    throw new Error('guard/rules.json contains no rules');
+    throw new Error('.claude/guard/rules.json contains no rules');
   }
   let local = {};
   if (existsSync(localPath)) {
     local = JSON.parse(readFileSync(localPath, 'utf8'));
     if (!local || typeof local !== 'object' || Array.isArray(local)) {
-      throw new Error('guard/local.json must be a JSON object');
+      throw new Error('.claude/guard/local.json must be a JSON object');
     }
   }
   const seen = new Set();

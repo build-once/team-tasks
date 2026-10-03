@@ -180,10 +180,11 @@ scrapers watch new public commits for exactly that.
     **Settings → Environments → claude**.
 
   **A known limitation of the guard on pull requests, recorded here because this is where someone
-  reads about level 2.** The guard runs inside the Action, but on a pull request it enforces *that
-  branch's* `guard/rules.json`, not `main`'s — the action restores `.claude/` from the base branch
-  and `guard/` is not in the list it restores. So until #66 is fixed: **do not write `@claude` on a
-  pull request whose branch changes `guard/` or `AGENTS.md`.** The full explanation, with the
+  reads about level 2.** The guard runs inside the Action, and since #66 both its script and the
+  rules it enforces come from the *base* branch, because both live under `.claude/` — which is
+  what #66 fixed, by moving `guard/` to `.claude/guard/`. **`AGENTS.md` and `docs/plan.md` are
+  still the branch's**, so the habit survives for those two: **do not write `@claude` on a pull
+  request whose branch changes `AGENTS.md` or `docs/plan.md`.** The full explanation, with the
   evidence, is in the header of `.github/workflows/claude.yml` and in #66.
 
   **Not the official Claude app.** Level 2 uses our own app so the permission list is ours. The

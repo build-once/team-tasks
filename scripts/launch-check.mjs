@@ -280,8 +280,8 @@ export const CHECKS = {
   },
 
   guard_selftest(ctx) {
-    const p = path.join(ctx.root, 'guard', 'selftest.mjs');
-    if (!isFile(p)) return res(UNV, 'guard/selftest.mjs not found — could not run it (this is not a pass)');
+    const p = path.join(ctx.root, '.claude', 'guard', 'selftest.mjs');
+    if (!isFile(p)) return res(UNV, '.claude/guard/selftest.mjs not found — could not run it (this is not a pass)');
     const r = run(process.execPath, [p], ctx.root, 120000);
     if (r.timedOut) return res(UNV, 'guard self-test timed out after 120s');
     const last = (r.out.trim().split(/\r?\n/).pop() || '').slice(0, 80);
@@ -487,7 +487,7 @@ function selftest() {
     '.github/dependabot.yml': 'version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: weekly\n',
     '.claude/hooks/guard.mjs': '// stub guard\n',
     '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.mjs' }] }] } }),
-    'guard/selftest.mjs': "console.log('guard selftest: PASS');\n",
+    '.claude/guard/selftest.mjs': "console.log('guard selftest: PASS');\n",
     'supabase/config.toml': 'project_id = "fixture"\n',
     'supabase/migrations/20260101000000_init.sql': 'create table t (id int);\n',
     'HANDOFF.md': '# Handoff\n',
@@ -511,7 +511,7 @@ function selftest() {
     [evEmpty.evidence_file]: '   \n',
   });
   fs.mkdirSync(empty, { recursive: true });
-  writeTree(broken, { 'guard/selftest.mjs': "console.log('guard selftest: 1 failure'); process.exit(1);\n" });
+  writeTree(broken, { '.claude/guard/selftest.mjs': "console.log('guard selftest: 1 failure'); process.exit(1);\n" });
 
   const hasGit = !run('git', ['--version'], tmp).missing;
   if (hasGit) {

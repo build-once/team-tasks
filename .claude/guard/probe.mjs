@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Build Once arming probe. Apache-2.0. See guard/arming-probe.md.
+// Build Once arming probe. Apache-2.0. See .claude/guard/arming-probe.md.
 //
-//   node guard/probe.mjs              make a new nonce and print the probe command
-//   node guard/probe.mjs judge NONCE  paste what the assistant's tool call showed,
-//                                     then press Ctrl-D; prints ARMED, UNARMED or UNKNOWN
-//   node guard/probe.mjs offline      pipe the probe through the hook script directly
-//                                     (proves the script works; NOT proof it is armed)
+//   node .claude/guard/probe.mjs              make a new nonce and print the probe command
+//   node .claude/guard/probe.mjs judge NONCE  paste what the assistant's tool call showed,
+//                                             then press Ctrl-D; prints ARMED, UNARMED or UNKNOWN
+//   node .claude/guard/probe.mjs offline      pipe the probe through the hook script directly
+//                                             (proves the script works; NOT proof it is armed)
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HOOK = resolve(ROOT, '.claude', 'hooks', 'guard.mjs');
 const DENY_MARK = 'Blocked by guard [arming-probe]';
 
@@ -42,12 +42,12 @@ if (!mode) {
   console.log(`  ARMED    you see "${DENY_MARK}" and the nonce is NOT printed in the output`);
   console.log('  UNARMED  the nonce IS printed in the output (the echo ran, so no guard stopped it)');
   console.log('  UNKNOWN  you see neither. Treat this as a failure: the probe did not really run.');
-  console.log(`To have it judged for you: node guard/probe.mjs judge ${nonce}   (paste the output, then Ctrl-D)`);
+  console.log(`To have it judged for you: node .claude/guard/probe.mjs judge ${nonce}   (paste the output, then Ctrl-D)`);
   process.exit(0);
 }
 
 if (mode === 'judge') {
-  if (!arg) { console.error('Usage: node guard/probe.mjs judge <nonce>'); process.exit(64); }
+  if (!arg) { console.error('Usage: node .claude/guard/probe.mjs judge <nonce>'); process.exit(64); }
   let text = '';
   for await (const chunk of process.stdin) text += chunk;
   // Remove the command line itself, if it was pasted, so the nonce inside the

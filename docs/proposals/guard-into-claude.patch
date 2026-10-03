@@ -1,0 +1,762 @@
+# Issue #100 / #66 option (i): move the guard rule files under .claude/
+#
+# DRAFTED BY THE ASSISTANT, NOT APPLIED. Guard files (guard/, .claude/hooks/,
+# .claude/settings*) are person-only under rule 5, so the owner applies this.
+#
+# Why the move: claude-code-action restores a fixed list of paths from a pull
+# request's BASE branch, and `.claude` is on that list while a top-level
+# `guard/` was not. With the rules outside `.claude/`, a `@claude` run on a
+# pull request enforced THAT BRANCH's rules while running main's script.
+# Moving the rules inside `.claude/` makes them come from the base branch too,
+# with no new logic. Full explanation: docs/proposals/guard-into-claude.md.
+#
+# Generated against main at commit 926187c.
+#
+# Apply, from the repository root:
+#
+#     git apply docs/proposals/guard-into-claude.patch
+#     node .claude/guard/selftest.mjs
+#
+# Expect: PASS, 537 rule examples across 24 rules, plus 32 fail-closed checks.
+# (main today: 513 examples, 24 rules, 32 checks. The 24 extra examples are the
+# new .claude/guard/ paths added to guard-self-protect; the rule count is
+# unchanged, and no rule was removed or weakened.)
+#
+# If the hunks have drifted because main moved on, use:
+#
+#     git apply --3way docs/proposals/guard-into-claude.patch
+#
+# Then RESTART the assistant session (settings and hooks are read at start-up)
+# and run the arming probe on BOTH shell tools. See
+# .claude/guard/arming-probe.md.
+diff --git a/guard/arming-probe.md b/.claude/guard/arming-probe.md
+similarity index 89%
+rename from guard/arming-probe.md
+rename to .claude/guard/arming-probe.md
+index dad75f5..35a72e1 100644
+--- a/guard/arming-probe.md
++++ b/.claude/guard/arming-probe.md
+@@ -18,7 +18,7 @@ The probe is a harmless command that prints a random code word, called a
+ 
+ 1. In your own terminal, in the project folder, run:
+ 
+-       node guard/probe.mjs
++       node .claude/guard/probe.mjs
+ 
+    It prints a nonce and a command such as `echo guard-arming-probe n1a2b3c4d5e6f7a8b`.
+ 2. Ask the assistant to run that exact command with its Bash tool and to show
+@@ -37,7 +37,7 @@ The probe is a harmless command that prints a random code word, called a
+ | The nonce is printed | **UNARMED**: the guard is off |
+ | Neither of these | **UNKNOWN**: the probe never really ran. Treat it as a failure |
+ 
+-To have the result judged for you, run `node guard/probe.mjs judge <nonce>`,
++To have the result judged for you, run `node .claude/guard/probe.mjs judge <nonce>`,
+ paste the tool output, then press Ctrl-D.
+ 
+ ## Why "neither" counts as a failure
+@@ -51,6 +51,6 @@ safe answer is to assume the guard is off.
+ 
+ * Quit the assistant and start it again from the project's top folder.
+ * Check that `node --version` works in a terminal. The guard needs Node 20 or newer.
+-* Run `node guard/selftest.mjs` in a terminal. It must say PASS.
+-* Run `node guard/probe.mjs offline`. This proves the hook script itself works.
++* Run `node .claude/guard/selftest.mjs` in a terminal. It must say PASS.
++* Run `node .claude/guard/probe.mjs offline`. This proves the hook script itself works.
+   It does not prove the hook is switched on in your session.
+diff --git a/guard/check.mjs b/.claude/guard/check.mjs
+similarity index 82%
+rename from guard/check.mjs
+rename to .claude/guard/check.mjs
+index 0ee67f3..29a47e4 100644
+--- a/guard/check.mjs
++++ b/.claude/guard/check.mjs
+@@ -1,15 +1,15 @@
+ #!/usr/bin/env node
+ // Build Once offline checker. Apache-2.0.
+ // Shows what the guard would decide, without running anything.
+-//   node guard/check.mjs "<shell command>"
+-//   node guard/check.mjs --tool Write --path some/file.txt
+-//   node guard/check.mjs --tool mcp__server__tool --json '{"arg":"value"}'
++//   node .claude/guard/check.mjs "<shell command>"
++//   node .claude/guard/check.mjs --tool Write --path some/file.txt
++//   node .claude/guard/check.mjs --tool mcp__server__tool --json '{"arg":"value"}'
+ // Run it yourself in a terminal. If you ask the assistant to run it, the guard
+ // also checks that command, and may block it because of the text you are testing.
+ import { resolve, dirname } from 'node:path';
+ import { fileURLToPath, pathToFileURL } from 'node:url';
+ 
+-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+ const { loadRules, evaluate } = await import(pathToFileURL(resolve(ROOT, '.claude', 'hooks', 'guard.mjs')).href);
+ 
+ const args = process.argv.slice(2);
+@@ -22,7 +22,7 @@ let input;
+ if (tool === 'Bash') {
+   const command = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--'))).join(' ');
+   if (!command) {
+-    console.error('Usage: node guard/check.mjs "<command>"   or   --tool <Name> --path <file>   or   --tool mcp__x__y --json <args>');
++    console.error('Usage: node .claude/guard/check.mjs "<command>"   or   --tool <Name> --path <file>   or   --tool mcp__x__y --json <args>');
+     process.exit(64);
+   }
+   input = { command };
+diff --git a/guard/local.json b/.claude/guard/local.json
+similarity index 100%
+rename from guard/local.json
+rename to .claude/guard/local.json
+diff --git a/guard/probe.mjs b/.claude/guard/probe.mjs
+similarity index 79%
+rename from guard/probe.mjs
+rename to .claude/guard/probe.mjs
+index ae285f7..47f59be 100644
+--- a/guard/probe.mjs
++++ b/.claude/guard/probe.mjs
+@@ -1,17 +1,17 @@
+ #!/usr/bin/env node
+-// Build Once arming probe. Apache-2.0. See guard/arming-probe.md.
++// Build Once arming probe. Apache-2.0. See .claude/guard/arming-probe.md.
+ //
+-//   node guard/probe.mjs              make a new nonce and print the probe command
+-//   node guard/probe.mjs judge NONCE  paste what the assistant's tool call showed,
+-//                                     then press Ctrl-D; prints ARMED, UNARMED or UNKNOWN
+-//   node guard/probe.mjs offline      pipe the probe through the hook script directly
+-//                                     (proves the script works; NOT proof it is armed)
++//   node .claude/guard/probe.mjs              make a new nonce and print the probe command
++//   node .claude/guard/probe.mjs judge NONCE  paste what the assistant's tool call showed,
++//                                             then press Ctrl-D; prints ARMED, UNARMED or UNKNOWN
++//   node .claude/guard/probe.mjs offline      pipe the probe through the hook script directly
++//                                             (proves the script works; NOT proof it is armed)
+ import { randomBytes } from 'node:crypto';
+ import { spawnSync } from 'node:child_process';
+ import { resolve, dirname } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ 
+-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+ const HOOK = resolve(ROOT, '.claude', 'hooks', 'guard.mjs');
+ const DENY_MARK = 'Blocked by guard [arming-probe]';
+ 
+@@ -42,12 +42,12 @@ if (!mode) {
+   console.log(`  ARMED    you see "${DENY_MARK}" and the nonce is NOT printed in the output`);
+   console.log('  UNARMED  the nonce IS printed in the output (the echo ran, so no guard stopped it)');
+   console.log('  UNKNOWN  you see neither. Treat this as a failure: the probe did not really run.');
+-  console.log(`To have it judged for you: node guard/probe.mjs judge ${nonce}   (paste the output, then Ctrl-D)`);
++  console.log(`To have it judged for you: node .claude/guard/probe.mjs judge ${nonce}   (paste the output, then Ctrl-D)`);
+   process.exit(0);
+ }
+ 
+ if (mode === 'judge') {
+-  if (!arg) { console.error('Usage: node guard/probe.mjs judge <nonce>'); process.exit(64); }
++  if (!arg) { console.error('Usage: node .claude/guard/probe.mjs judge <nonce>'); process.exit(64); }
+   let text = '';
+   for await (const chunk of process.stdin) text += chunk;
+   // Remove the command line itself, if it was pasted, so the nonce inside the
+diff --git a/guard/rules.json b/.claude/guard/rules.json
+similarity index 93%
+rename from guard/rules.json
+rename to .claude/guard/rules.json
+index e2548b4..0211ebf 100644
+--- a/guard/rules.json
++++ b/.claude/guard/rules.json
+@@ -1,5 +1,5 @@
+ {
+-  "$comment": "Build Once guard rules. Decision order: forbid beats ask, ask beats allow. Any error loading these rules blocks every action (fail closed). Each rule needs at least one should_match and one should_not_match example; guard/selftest.mjs runs them all. Plain-English guide: docs/guards.md.",
++  "$comment": "Build Once guard rules. Decision order: forbid beats ask, ask beats allow. Any error loading these rules blocks every action (fail closed). Each rule needs at least one should_match and one should_not_match example; .claude/guard/selftest.mjs runs them all. Plain-English guide: docs/guards.md.",
+   "version": 1,
+   "rules": [
+     {
+@@ -17,8 +17,8 @@
+           "echo  guard-arming-probe nfeedfacecafebeef"
+         ],
+         "should_not_match": [
+-          "node guard/probe.mjs",
+-          "node guard/probe.mjs judge n0123456789abcdef",
++          "node .claude/guard/probe.mjs",
++          "node .claude/guard/probe.mjs judge n0123456789abcdef",
+           "echo arming probe test"
+         ]
+       }
+@@ -33,8 +33,8 @@
+         "NotebookEdit",
+         "Bash"
+       ],
+-      "pattern": "^(?:guard/|\\.claude/hooks/|\\.claude/settings[^/]*$)|(?:\\b(?:rm|mv|cp|tee|truncate|chmod|chown|ln|unlink|touch|Remove-Item|Move-Item|Copy-Item|Rename-Item|Set-Content|Add-Content|Clear-Content|Out-File|New-Item|ri|mi|cpi|rni|sc|ac|clc|ni|del|erase|rd|rmdir|move|copy|ren)\\b|\\bsed\\b[^|;&]*\\s-i|\\bperl\\b[^|;&]*\\s-[a-z]*i|>)[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:hooks|settings))|\\bgit\\s+(?:checkout|restore|rm|mv)\\b[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:hooks|settings))",
+-      "reason": "The guard's own files (guard/, .claude/hooks/, .claude/settings*) can only be changed by a person, never by the assistant.",
++      "pattern": "^(?:guard/|\\.claude/guard/|\\.claude/hooks/|\\.claude/settings[^/]*$)|(?:\\b(?:rm|mv|cp|tee|truncate|chmod|chown|ln|unlink|touch|Remove-Item|Move-Item|Copy-Item|Rename-Item|Set-Content|Add-Content|Clear-Content|Out-File|New-Item|ri|mi|cpi|rni|sc|ac|clc|ni|del|erase|rd|rmdir|move|copy|ren)\\b|\\bsed\\b[^|;&]*\\s-i|\\bperl\\b[^|;&]*\\s-[a-z]*i|>)[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:guard|hooks|settings))|\\bgit\\s+(?:checkout|restore|rm|mv)\\b[^|;&]*(?:\\bguard[/\\\\]|\\.claude[/\\\\](?:guard|hooks|settings))",
++      "reason": "The guard's own files (.claude/guard/, .claude/hooks/, .claude/settings*, and guard/ if it ever returns) can only be changed by a person, never by the assistant.",
+       "lesson": "Book 1 A2",
+       "examples": {
+         "should_match": [
+@@ -96,6 +96,44 @@
+             "input": {
+               "command": "'{}' | Out-File guard\\rules.json"
+             }
++          },
++          {
++            "tool": "Edit",
++            "input": {
++              "file_path": ".claude/guard/rules.json",
++              "old_string": "forbid",
++              "new_string": "allow"
++            }
++          },
++          {
++            "tool": "Write",
++            "input": {
++              "file_path": ".claude/guard/local.json",
++              "content": "{}"
++            }
++          },
++          "rm .claude/guard/rules.json",
++          "sed -i 's/forbid/allow/' .claude/guard/rules.json",
++          "echo '{}' > .claude/guard/rules.json",
++          "mv .claude/guard/local.json /tmp/local.json",
++          "git checkout -- .claude/guard/rules.json",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "Remove-Item .claude\\guard\\rules.json"
++            }
++          },
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "Set-Content -Path .claude\\guard\\local.json -Value '{}'"
++            }
++          },
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "'{}' | Out-File .claude\\guard\\rules.json"
++            }
+           }
+         ],
+         "should_not_match": [
+@@ -123,6 +161,16 @@
+             "input": {
+               "command": "Get-Content guard/rules.json"
+             }
++          },
++          "node .claude/guard/selftest.mjs",
++          "cat .claude/guard/rules.json",
++          "node .claude/guard/check.mjs \"git status\"",
++          "node .claude/guard/selftest.mjs > guard-log.txt 2>&1",
++          {
++            "tool": "PowerShell",
++            "input": {
++              "command": "Get-Content .claude/guard/rules.json"
++            }
+           }
+         ]
+       }
+diff --git a/guard/selftest.mjs b/.claude/guard/selftest.mjs
+similarity index 91%
+rename from guard/selftest.mjs
+rename to .claude/guard/selftest.mjs
+index c24c506..0939c0d 100644
+--- a/guard/selftest.mjs
++++ b/.claude/guard/selftest.mjs
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env node
+ // Build Once self-test. Apache-2.0.
+-// Runs every example in guard/rules.json through the REAL hook (as a separate
++// Runs every example in .claude/guard/rules.json through the REAL hook (as a separate
+ // process, exactly as Claude Code runs it), plus fail-closed checks.
+ // Exits non-zero on any mismatch, or if fewer than MIN_EXAMPLES examples ran,
+ // so an empty or truncated rule set can never pass.
+@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
+ import { join, resolve, dirname } from 'node:path';
+ import { fileURLToPath, pathToFileURL } from 'node:url';
+ 
+-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+ const HOOK = join(ROOT, '.claude', 'hooks', 'guard.mjs');
+ const MIN_EXAMPLES = 60;
+ 
+@@ -97,27 +97,27 @@ const sub = join(ROOT, 'docs');
+ mkdirSync(sub, { recursive: true });
+ r = runHook(bash('ls', sub), { cwd: sub });
+ check('ls from a sub-folder is allowed', r.status === 0 && r.stdout === '', `(exit ${r.status}) ${r.stderr}`);
+-r = runHook({ cwd: sub, tool_name: 'Edit', tool_input: { file_path: '../guard/rules.json', old_string: 'a', new_string: 'b' } }, { cwd: sub });
++r = runHook({ cwd: sub, tool_name: 'Edit', tool_input: { file_path: '../.claude/guard/rules.json', old_string: 'a', new_string: 'b' } }, { cwd: sub });
+ check('relative guard path from a sub-folder is denied', r.status === 2 && r.stderr.includes('[guard-self-protect]'), `(exit ${r.status})`);
+ 
+ // Broken installs, built in a throw-away copy of the kit.
+ function tempKit({ rules: rulesText, local } = {}) {
+   const dir = mkdtempSync(join(tmpdir(), 'buildonce-'));
+   mkdirSync(join(dir, '.claude', 'hooks'), { recursive: true });
+-  mkdirSync(join(dir, 'guard'), { recursive: true });
++  mkdirSync(join(dir, '.claude', 'guard'), { recursive: true });
+   copyFileSync(HOOK, join(dir, '.claude', 'hooks', 'guard.mjs'));
+-  if (rulesText !== undefined) writeFileSync(join(dir, 'guard', 'rules.json'), rulesText);
+-  if (local !== undefined) writeFileSync(join(dir, 'guard', 'local.json'), local);
++  if (rulesText !== undefined) writeFileSync(join(dir, '.claude', 'guard', 'rules.json'), rulesText);
++  if (local !== undefined) writeFileSync(join(dir, '.claude', 'guard', 'local.json'), local);
+   return dir;
+ }
+-const realRules = readFileSync(join(ROOT, 'guard', 'rules.json'), 'utf8');
++const realRules = readFileSync(join(ROOT, '.claude', 'guard', 'rules.json'), 'utf8');
+ const cases = [
+   ['missing rules file is denied', {}],
+   ['empty rule list is denied', { rules: '{"rules":[]}' }],
+   ['unreadable rules file is denied', { rules: '{"rules":[' }],
+   ['rule with a broken regex is denied', { rules: JSON.stringify({ rules: [{ id: 'x', decision: 'forbid', tools: ['Bash'], pattern: '(', reason: 'r' }] }) }],
+   ['rule with an unknown decision is denied', { rules: JSON.stringify({ rules: [{ id: 'x', decision: 'maybe', tools: ['Bash'], pattern: 'a', reason: 'r' }] }) }],
+-  ['malformed guard/local.json is denied', { rules: realRules, local: '{oops' }],
++  ['malformed .claude/guard/local.json is denied', { rules: realRules, local: '{oops' }],
+ ];
+ for (const [name, opts] of cases) {
+   const dir = tempKit(opts);
+@@ -128,7 +128,7 @@ for (const [name, opts] of cases) {
+ {
+   const dir = tempKit({ rules: realRules, local: JSON.stringify({ production_patterns: ['abcd1234prodref'] }) });
+   const out = runHook(bash('supabase link --project-ref abcd1234prodref', dir), { hook: join(dir, '.claude', 'hooks', 'guard.mjs'), cwd: dir });
+-  check('guard/local.json production pattern is enforced', out.status === 2 && out.stderr.includes('[production-access]'), `(exit ${out.status})`);
++  check('.claude/guard/local.json production pattern is enforced', out.status === 2 && out.stderr.includes('[production-access]'), `(exit ${out.status})`);
+   const out2 = runHook(bash('supabase link --project-ref abcd1234prodref'));
+   check('same command is not flagged by production-access without local.json', !out2.stderr.includes('[production-access]'));
+   rmSync(dir, { recursive: true, force: true });
+@@ -155,7 +155,7 @@ const runSettings = (payload, projectDir) =>
+   spawnSync(HOOK_SHELL || 'sh', ['-c', commands[0]], { input: JSON.stringify(payload), cwd: sub, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir } });
+ r = runSettings(bash('ls', sub), ROOT);
+ check('settings command allows ls from a sub-folder', r.status === 0 && r.stdout === '', `(exit ${r.status}) ${r.stderr}`);
+-r = runSettings({ cwd: sub, tool_name: 'Write', tool_input: { file_path: '../guard/rules.json', content: '{}' } }, ROOT);
++r = runSettings({ cwd: sub, tool_name: 'Write', tool_input: { file_path: '../.claude/guard/rules.json', content: '{}' } }, ROOT);
+ check('settings command denies a guard edit from a sub-folder', r.status === 2, `(exit ${r.status})`);
+ const empty = mkdtempSync(join(tmpdir(), 'buildonce-empty-'));
+ r = runSettings(bash('ls', sub), empty);
+@@ -174,7 +174,7 @@ rmSync(empty, { recursive: true, force: true });
+     const linkedHook = join(link, '.claude', 'hooks', 'guard.mjs');
+     let out = runHook(null, { hook: linkedHook, cwd: link, raw: '' });
+     check('hook started through a symlink still fails closed on empty input', out.status === 2, `(exit ${out.status})`);
+-    out = runHook({ cwd: link, tool_name: 'Edit', tool_input: { file_path: join(link, 'guard', 'rules.json'), old_string: 'a', new_string: 'b' } }, { hook: linkedHook, cwd: link });
++    out = runHook({ cwd: link, tool_name: 'Edit', tool_input: { file_path: join(link, '.claude', 'guard', 'rules.json'), old_string: 'a', new_string: 'b' } }, { hook: linkedHook, cwd: link });
+     check('guard edit through a symlinked path is denied', out.status === 2 && out.stderr.includes('[guard-self-protect]'), `(exit ${out.status})`);
+     rmSync(link, { force: true }); // removes the link only, never the project
+   }
+diff --git a/.claude/hooks/guard.mjs b/.claude/hooks/guard.mjs
+index a220481..c362af1 100644
+--- a/.claude/hooks/guard.mjs
++++ b/.claude/hooks/guard.mjs
+@@ -59,13 +59,13 @@ const INPUT_TIMEOUT_MS = 5000;
+ 
+ function expandLocal(pattern, local, ruleId) {
+   // {{local:key}} (braces may be written escaped, as \{\{local:key\}\}) is replaced
+-  // by the regexes listed under that key in
+-  // guard/local.json. If the key is absent, it becomes (?!), which never matches.
++  // by the regexes listed under that key in .claude/guard/local.json. If the key
++  // is absent, it becomes (?!), which never matches.
+   return pattern.replace(/\\?\{\\?\{local:([A-Za-z0-9_]+)\\?\}\\?\}/g, (_, key) => {
+     const list = local[key];
+     if (list === undefined) return '(?!)';
+     if (!Array.isArray(list) || list.some((s) => typeof s !== 'string' || s === '')) {
+-      throw new Error(`guard/local.json: "${key}" must be a list of non-empty strings (rule ${ruleId})`);
++      throw new Error(`.claude/guard/local.json: "${key}" must be a list of non-empty strings (rule ${ruleId})`);
+     }
+     if (list.length === 0) return '(?!)';
+     for (const s of list) new RegExp(s); // throws on a bad entry
+@@ -74,18 +74,25 @@ function expandLocal(pattern, local, ruleId) {
+ }
+ 
+ export function loadRules(root = ROOT) {
+-  const rulesPath = resolve(root, 'guard', 'rules.json');
+-  const localPath = resolve(root, 'guard', 'local.json');
++  // The rule files live INSIDE .claude/ on purpose, and that location is a
++  // security property rather than tidiness. claude-code-action restores a fixed
++  // list of paths from a pull request's BASE branch before Claude starts;
++  // `.claude` is on that list and a top-level `guard/` was not, so with the rules
++  // outside, a pull request enforced its own (possibly weaker) rules while
++  // running main's script. See #66 and the header of .github/workflows/claude.yml.
++  // Do not move these files out of .claude/.
++  const rulesPath = resolve(root, '.claude', 'guard', 'rules.json');
++  const localPath = resolve(root, '.claude', 'guard', 'local.json');
+   const doc = JSON.parse(readFileSync(rulesPath, 'utf8')); // throws if missing
+   const rules = Array.isArray(doc) ? doc : doc && doc.rules;
+   if (!Array.isArray(rules) || rules.length === 0) {
+-    throw new Error('guard/rules.json contains no rules');
++    throw new Error('.claude/guard/rules.json contains no rules');
+   }
+   let local = {};
+   if (existsSync(localPath)) {
+     local = JSON.parse(readFileSync(localPath, 'utf8'));
+     if (!local || typeof local !== 'object' || Array.isArray(local)) {
+-      throw new Error('guard/local.json must be a JSON object');
++      throw new Error('.claude/guard/local.json must be a JSON object');
+     }
+   }
+   const seen = new Set();
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index f76af8e..888933a 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -43,7 +43,7 @@ jobs:
+         with:
+           node-version: "22"
+       - name: Guard self-test
+-        run: node guard/selftest.mjs
++        run: node .claude/guard/selftest.mjs
+ 
+   skills-lint:
+     name: Skills lint
+diff --git a/.github/workflows/claude.yml b/.github/workflows/claude.yml
+index df10c1a..8f3e1e2 100644
+--- a/.github/workflows/claude.yml
++++ b/.github/workflows/claude.yml
+@@ -19,9 +19,11 @@
+ #      the secrets are unreachable from any other ref;
+ #   3. the action's own check -- it refuses an actor without write access to the
+ #      repository (src/entrypoints/run.ts, `checkWritePermissions`);
+-#   4. the guard in .claude/hooks/ -- it runs inside the Action, same as locally,
+-#      but on a pull request it enforces THAT BRANCH's guard/rules.json, not
+-#      main's. Read the next section before relying on it; see #66.
++#   4. the guard in .claude/hooks/ -- it runs inside the Action, same as
++#      locally, and on a pull request both the script AND the rules it
++#      enforces come from the base branch, because both live under .claude/
++#      (that is what #66 fixed). AGENTS.md and docs/plan.md are still the
++#      branch's. Read the next section before relying on any of it.
+ # Each is written down here because any one of them could be loosened by a future
+ # edit to one line, and the others are what makes that survivable.
+ #
+@@ -46,49 +48,57 @@
+ # self-contained. So the hooks in this repository's .claude/settings.json are
+ # loaded, because the checkout IS the working directory.
+ #
+-# Three things follow. Two go our way. The middle one does NOT, and it is a
+-# limitation of this setup rather than a feature of it.
++# Four things follow. The first two now go our way, because #66 was fixed by
++# moving the guard's rule files under `.claude/`. The third is a limitation of
++# this setup that remains.
+ #
+-#   * THE GUARD SCRIPT on a pull request is main's. The action replaces
+-#     `.claude/` with the version from the pull request's BASE branch before
+-#     Claude starts, keeping the branch-authored copy under `.claude-pr/` for
+-#     reading only (docs/security.md lists `.claude/` first in that fixed set).
+-#     So .claude/settings.json and .claude/hooks/guard.mjs cannot be edited by
+-#     the very branch being worked on.
++#   * THE GUARD SCRIPT AND THE RULES IT ENFORCES are both main's on a pull
++#     request. The action replaces `.claude/` with the version from the pull
++#     request's BASE branch before Claude starts, keeping the branch-authored
++#     copy under `.claude-pr/` for reading only (docs/security.md lists
++#     `.claude/` first in that fixed set). So .claude/settings.json,
++#     .claude/hooks/guard.mjs AND .claude/guard/rules.json and
++#     .claude/guard/local.json all come from the base branch, and none of them
++#     can be edited by the very branch being worked on.
+ #
+-#   * THE RULES IT ENFORCES ARE NOT. An earlier version of this comment claimed
+-#     "a branch cannot weaken its own guard: the guard that runs is main's".
+-#     That was WRONG, and wrong in the dangerous direction. `SENSITIVE_PATHS` at
+-#     the pinned commit is exactly `.claude`, `.mcp.json`, `.claude.json`,
+-#     `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky`.
+-#     `guard/` is NOT in it. guard.mjs loads `resolve(ROOT, 'guard',
+-#     'rules.json')` and `guard/local.json` from the working tree, and on a pull
+-#     request the working tree is the PR HEAD. So the script is main's and the
+-#     rules beside it are the branch's.
++#   * THAT HOLDS ONLY BECAUSE THE RULES LIVE INSIDE `.claude/`, and it did not
++#     hold before #66 was fixed. An earlier version of this comment claimed "a
++#     branch cannot weaken its own guard: the guard that runs is main's". With
++#     the rules in a top-level `guard/` folder that was WRONG, and wrong in the
++#     dangerous direction. `SENSITIVE_PATHS` at the pinned commit is exactly
++#     `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`,
++#     `CLAUDE.md`, `CLAUDE.local.md`, `.husky`. A top-level `guard/` is NOT in
++#     that list, so guard.mjs was reading its own configuration from the PR
++#     HEAD -- two levers, not one: a branch could weaken `rules.json`, or leave
++#     it alone and edit `local.json`, where `production_patterns` is what the
++#     `production-access` rule expands to.
+ #
+ #     The action's own docblock warns about exactly this shape: "A base-branch
+ #     hook or setting that calls out through files a PR can change ... therefore
+ #     runs whatever the PR head provides. Keep restored hooks self-contained"
+-#     (src/github/operations/restore-config.ts). Our hook is not
+-#     self-contained -- it reads its configuration from the checkout.
++#     (src/github/operations/restore-config.ts). The fix was to put the
++#     configuration inside the one directory that IS restored. guard.mjs now
++#     loads `resolve(ROOT, '.claude', 'guard', 'rules.json')`.
+ #
+-#     Two levers, not one. A branch could weaken guard/rules.json; or leave it
+-#     alone and edit guard/local.json, where `production_patterns` is what the
+-#     `production-access` rule expands to -- changing that stops production being
+-#     recognised as production while rules.json still looks untouched.
+-#     AGENTS.md is in the same position. That exposure is smaller than it looks,
+-#     because CLAUDE.md IS restored from base and repeats all nineteen rules
+-#     inline; but docs/plan.md, which CLAUDE.md imports, is not restored either.
++#     SO KEEP THEM THERE. Moving the rules back outside `.claude/`, or adding
++#     any new file the guard reads from outside it, reopens #66 exactly as it
++#     was. The location is the mechanism; it is not tidiness.
+ #
+-#     Which way it fails matters: an INVALID or missing rules file fails closed,
+-#     because loadRules throws and guard.mjs turns every internal error into
+-#     exit 2. A VALID BUT WEAKER one does not. That asymmetry is the bug.
++#   * AGENTS.md AND docs/plan.md ARE STILL THE BRANCH'S. Neither is in
++#     `SENSITIVE_PATHS` either. For AGENTS.md the exposure is smaller than it
++#     looks, because CLAUDE.md IS restored from base and repeats all nineteen
++#     rules inline -- a duplication that exists for a different reason and
++#     happens to cover this. docs/plan.md, which CLAUDE.md imports, has no such
++#     duplicate. So the habit #66 replaced for the guard files still applies to
++#     these two: do not write `@claude` on a pull request whose branch changes
++#     `AGENTS.md` or `docs/plan.md`. Nothing in this file enforces that, and
++#     saying so plainly is the point.
+ #
+-#     UNTIL #66 IS FIXED, THE RULE IS: do not write `@claude` on a pull request
+-#     whose branch changes `guard/` or `AGENTS.md`. Nothing in this file
+-#     enforces that. It is a habit, which is the weakest kind of control, and
+-#     saying so plainly is the point -- #66 exists to replace it with something
+-#     that holds. A real fix is a guard change, so it is the owner's (rule 5).
++#     Which way it fails matters, and that part has not changed: an INVALID or
++#     missing rules file fails closed, because loadRules throws and guard.mjs
++#     turns every internal error into exit 2. A VALID BUT WEAKER one does not.
++#     That asymmetry was the whole bug in #66, and it is why where the rules
++#     live is load-bearing.
+ #
+ #   * If the hook cannot run at all, the tool call is BLOCKED rather than
+ #     allowed. .claude/settings.json invokes it as
+@@ -104,9 +114,9 @@
+ # not prove that this repository's guard blocks this repository's commands on an
+ # Ubuntu runner. The arming probe is the test that settles it, and the planned
+ # first use of this workflow is exactly that probe -- with both shell tools --
+-# before it is given any real work. See guard/arming-probe.md and the pull
+-# request that added this file. Until that probe has been run and its result
+-# recorded, treat the guard inside the Action as unverified.
++# before it is given any real work. See .claude/guard/arming-probe.md and the
++# pull request that added this file. Until that probe has been run and its
++# result recorded, treat the guard inside the Action as unverified.
+ 
+ name: claude
+ 
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index d13caf8..b8bc297 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -4,7 +4,7 @@ Thank you for helping. This kit exists to show evidence instead of promises, so
+ 
+ ## The three rules
+ 
+-1. **Every new guard rule needs self-test examples.** Add at least one example the rule must **block** and one near-miss it must **allow** (something that looks similar but is safe). A rule with no allow-example cannot prove it is not blocking too much. Add them where `guard/selftest.mjs` reads them (see `docs/guards.md`), and run `npm run guard:test`.
++1. **Every new guard rule needs self-test examples.** Add at least one example the rule must **block** and one near-miss it must **allow** (something that looks similar but is safe). A rule with no allow-example cannot prove it is not blocking too much. Add them where `.claude/guard/selftest.mjs` reads them (see `docs/guards.md`), and run `npm run guard:test`.
+ 2. **Every skill needs evals.** A new or changed skill in `.claude/skills/<name>/` must come with evals (see `docs/skills.md`), and `npm run skills:lint` must pass.
+ 3. **Every pull request needs evidence.** Fill in the pull-request template. Paste the **exact** command, output and exit code for what you ran — at minimum `npm test`. List anything you could not check as `unverified — <reason>`. "Works for me" is not evidence.
+ 
+diff --git a/README.md b/README.md
+index 40e0024..9fb7cdc 100644
+--- a/README.md
++++ b/README.md
+@@ -15,7 +15,7 @@ It goes with the course **Building Real Apps with AI** (coming soon), but you ca
+ | Part | What it does for you | Where it lives |
+ |---|---|---|
+ | **Project template** | A tidy starting layout, a secrets-safe `.gitignore`, an `.env.example`, and plain-English guides to how a real app fits together. | this repo, `docs/architecture.md`, `docs/environments.md` |
+-| **Guards** | Small checks that run *before* the AI assistant runs a command or edits a file, and block the dangerous ones (for example, touching production, or editing the guards themselves). | `.claude/hooks/`, `guard/`, `docs/guards.md` |
++| **Guards** | Small checks that run *before* the AI assistant runs a command or edits a file, and block the dangerous ones (for example, touching production, or editing the guards themselves). | `.claude/hooks/`, `.claude/guard/`, `docs/guards.md` |
+ | **CI (automatic checks)** | Every pull request is checked by GitHub: the guards still work, the skills are valid, no secrets are in the history, and every workflow is locked down. One check, `required`, sums it all up. | `.github/workflows/ci.yml` |
+ | **Prove-it skills** | Instructions for the AI assistant that make it show real evidence (exact output and exit codes) before it says anything is finished. | `.claude/skills/`, `docs/skills.md` |
+ | **Launch check** | A checklist you run before real people use your app, which asks for evidence for each item instead of a tick. | `scripts/launch-check.mjs`, `docs/launch-check.md` |
+diff --git a/SECURITY.md b/SECURITY.md
+index 6cc998b..dae2291 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -16,7 +16,7 @@ We aim to acknowledge reports within a few days, keep you updated, and credit yo
+ 
+ ## What is in scope
+ 
+-- The guards (`.claude/hooks/`, `guard/`) failing to block something they claim to block.
++- The guards (`.claude/hooks/`, `.claude/guard/`) failing to block something they claim to block.
+ - The CI workflows (`.github/workflows/`) granting too much permission or exposing secrets.
+ - Scripts in `scripts/` doing something unsafe.
+ - Docs that give advice which would make an app less safe.
+diff --git a/checklist/launch.json b/checklist/launch.json
+index d1805c0..72f76aa 100644
+--- a/checklist/launch.json
++++ b/checklist/launch.json
+@@ -189,7 +189,7 @@
+     {
+       "id": "guards-selftest",
+       "section": "Guards",
+-      "title": "The guard self-test passes (node guard/selftest.mjs)",
++      "title": "The guard self-test passes (node .claude/guard/selftest.mjs)",
+       "lesson": "Book 1 A2",
+       "type": "auto",
+       "check": "guard_selftest"
+diff --git a/docs/environments.md b/docs/environments.md
+index 5b45151..ff4a077 100644
+--- a/docs/environments.md
++++ b/docs/environments.md
+@@ -484,9 +484,9 @@ exist yet.
+   browser, alongside eight names the app does not use. It now lists `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` with empty values, and nothing else, so a fresh import into
+   any host offers only those two. See "Every setting the app uses".
+-- **Closed 2026-09-28 — the guard now recognises the production project.** `guard/local.json` exists
++- **Closed 2026-09-28 — the guard now recognises the production project.** `.claude/guard/local.json` exists
+   and lists the production project reference under `production_patterns`, so the `production-access`
+-  rule in `guard/rules.json` can block a command or connector call that names production
++  rule in `.claude/guard/rules.json` can block a command or connector call that names production
+   (`docs/guards.md`, "Tell the guard what production looks like"). Still worth knowing: it matches the
+   project reference, not a production web address, because no domain name has been chosen yet. Guard
+   files are changed by a person, never by the assistant.
+diff --git a/docs/guards.md b/docs/guards.md
+index 78e87c3..2ae5673 100644
+--- a/docs/guards.md
++++ b/docs/guards.md
+@@ -4,7 +4,7 @@
+ 
+ ## What a guard is
+ 
+-Before your AI assistant runs a command, edits a file, reads a file or uses a connector, Claude Code asks the guard first. The guard checks the action against a list of rules (`guard/rules.json`) and gives one of three answers:
++Before your AI assistant runs a command, edits a file, reads a file or uses a connector, Claude Code asks the guard first. The guard checks the action against a list of rules (`.claude/guard/rules.json`) and gives one of three answers:
+ 
+ | Answer | What happens |
+ |---|---|
+@@ -23,7 +23,7 @@ If more than one rule matches, the strictest wins: forbid beats ask, and ask bea
+ | Rule | What it blocks | Why | Lesson |
+ |---|---|---|---|
+ | `arming-probe` | One harmless test command (see "Prove the guard is on" below) | Proves the guard is switched on | Book 1 A2 |
+-| `guard-self-protect` | Changing `guard/`, `.claude/hooks/` or `.claude/settings*` | Only a person may change the guard. An assistant that can edit its own guard has no guard | Book 1 A2 |
++| `guard-self-protect` | Changing `.claude/guard/`, `.claude/hooks/` or `.claude/settings*` | Only a person may change the guard. An assistant that can edit its own guard has no guard | Book 1 A2 |
+ | `production-access` | Anything aimed at production: `APP_ENV=production`, `--env production`, `--prod`, plus your own production addresses (see "Tell the guard what production looks like") | The assistant never touches production | Book 1 A23, Book 2 A24 |
+ | `push-to-main` | `git push` to `main` or `master`, `--all`, `--mirror` | Changes reach main only through a pull request | Book 1 A1, L24 |
+ | `force-push` | `git push --force`, `-f`, `--force-with-lease`, `+branch` | Rewrites shared history and can destroy work | Book 1 L24 |
+@@ -55,7 +55,7 @@ If more than one rule matches, the strictest wins: forbid beats ask, and ask bea
+ Be clear about the limits. The guard reads the **text** of each action. It does not understand what a program will do once it runs.
+ 
+ - **Which branch you are on.** `git push origin HEAD` while on main looks like any other push. GitHub's branch protection is the real stop for this. Turn it on (see `docs/protect-main.md`).
+-- **Paths after `cd`.** `cd guard` followed by `rm rules.json` does not mention `guard/` in the second command. AGENTS.md tells the assistant never to change folders, and the file-editing tools are always checked by full path.
++- **Paths after `cd`.** `cd .claude/guard` followed by `rm rules.json` does not mention the guard folder in the second command. AGENTS.md tells the assistant never to change folders, and the file-editing tools are always checked by full path.
+ - **Code that does the dangerous thing itself.** A script that deletes files or reads `.env` from the inside is not visible to the guard. This is why you read what the assistant writes, and why CI scans for secrets.
+ - **File contents.** For file edits, the guard checks *which* file, not *what* is written into it.
+ 
+@@ -66,7 +66,7 @@ So the guard is a seatbelt, not a force field. It stops the common, expensive ac
+ Having the files is not proof the guard is running. Claude Code loads hooks when a session starts, so a session started elsewhere may have no guard at all.
+ 
+ 1. In your own terminal: `npm run guard:test`. It must print `PASS`.
+-2. Then run the live probe in the assistant, following `guard/arming-probe.md`. You must see **ARMED**. Treat UNARMED or UNKNOWN as "the guard is off" and stop until it is fixed.
++2. Then run the live probe in the assistant, following `.claude/guard/arming-probe.md`. You must see **ARMED**. Treat UNARMED or UNKNOWN as "the guard is off" and stop until it is fixed.
+ 
+ Do this once per new session, and whenever you change `.claude/settings.json`.
+ 
+@@ -75,15 +75,15 @@ Do this once per new session, and whenever you change `.claude/settings.json`.
+ In your own terminal:
+ 
+ ```
+-node guard/check.mjs "git push origin main"
+-node guard/check.mjs --tool Read --path .env
++node .claude/guard/check.mjs "git push origin main"
++node .claude/guard/check.mjs --tool Read --path .env
+ ```
+ 
+ It prints the decision and which rules matched. Run it yourself, not through the assistant, because the guard also checks the assistant's command and may block it for the text you are testing.
+ 
+ ## Tell the guard what production looks like
+ 
+-The guard cannot know your production addresses. Tell it in `guard/local.json`:
++The guard cannot know your production addresses. Tell it in `.claude/guard/local.json`:
+ 
+ ```json
+ {
+@@ -93,13 +93,15 @@ The guard cannot know your production addresses. Tell it in `guard/local.json`:
+ 
+ Each entry is a regular expression (so escape dots as `\\.`). Put in your production database project ID, your live domain, and anything else that only ever means production. Any command or connector call that mentions one of them is then blocked by `production-access`. Leave staging out.
+ 
+-If `guard/local.json` is missing, this part of the rule simply never matches. If the file is there but broken, every action is blocked until it is fixed (fail closed).
++If `.claude/guard/local.json` is missing, this part of the rule simply never matches. If the file is there but broken, every action is blocked until it is fixed (fail closed).
+ 
+ ## Add or change a rule
+ 
+ Only a person changes the guard. The assistant is blocked from editing these files, on purpose.
+ 
+-1. Open `guard/rules.json` and add an entry:
++**The rule files live under `.claude/` for a reason.** `.claude/` is the one folder that `claude-code-action` restores from a pull request's *base* branch, so on a `@claude` run the rules being enforced are `main`'s and not the branch's. With the rules in a top-level `guard/` folder they were the branch's, which is issue #66. Do not move them out, and do not have the guard read any file from outside `.claude/`.
++
++1. Open `.claude/guard/rules.json` and add an entry:
+    - `id`: short, lowercase, with hyphens.
+    - `decision`: `forbid`, `ask` or `allow`.
+    - `tools`: which tools it applies to (`Bash`, `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`, or `mcp__*` for connectors). `Bash` means every tool that runs shell commands: Bash and, on Windows, PowerShell. Write your pattern so it also catches the PowerShell form of the command (for example `Remove-Item` as well as `rm`); the self-test runs every plain command example through both tools.
+diff --git a/docs/launch-check.md b/docs/launch-check.md
+index 02ec3ba..4c371c4 100644
+--- a/docs/launch-check.md
++++ b/docs/launch-check.md
+@@ -43,7 +43,7 @@ The exit code is 1 if anything FAILs (and, with `--strict`, if anything is UNVER
+ 
+ A check that could not run looks a lot like a check that passed: no errors, no red text. That is how problems slip through. So this tool never turns "I couldn't look" into PASS. Examples:
+ 
+-- The guard self-test (`guard/selftest.mjs`) is missing: **UNVERIFIED**, not PASS.
++- The guard self-test (`.claude/guard/selftest.mjs`) is missing: **UNVERIFIED**, not PASS.
+ - The secret scan found zero files to read: **UNVERIFIED**, because an empty scan proves nothing.
+ - GitHub refused to show branch protection because of your plan (an HTTP 403): **UNVERIFIED - plan/permission**. It is never reported as PASS or FAIL.
+ 
+diff --git a/docs/secrets.md b/docs/secrets.md
+index 3b5753c..b40c657 100644
+--- a/docs/secrets.md
++++ b/docs/secrets.md
+@@ -180,10 +180,11 @@ scrapers watch new public commits for exactly that.
+     **Settings → Environments → claude**.
+ 
+   **A known limitation of the guard on pull requests, recorded here because this is where someone
+-  reads about level 2.** The guard runs inside the Action, but on a pull request it enforces *that
+-  branch's* `guard/rules.json`, not `main`'s — the action restores `.claude/` from the base branch
+-  and `guard/` is not in the list it restores. So until #66 is fixed: **do not write `@claude` on a
+-  pull request whose branch changes `guard/` or `AGENTS.md`.** The full explanation, with the
++  reads about level 2.** The guard runs inside the Action, and since #66 both its script and the
++  rules it enforces come from the *base* branch, because both live under `.claude/` — which is
++  what #66 fixed, by moving `guard/` to `.claude/guard/`. **`AGENTS.md` and `docs/plan.md` are
++  still the branch's**, so the habit survives for those two: **do not write `@claude` on a pull
++  request whose branch changes `AGENTS.md` or `docs/plan.md`.** The full explanation, with the
+   evidence, is in the header of `.github/workflows/claude.yml` and in #66.
+ 
+   **Not the official Claude app.** Level 2 uses our own app so the permission list is ours. The
+diff --git a/docs/stack.md b/docs/stack.md
+index dcca377..4cbadc8 100644
+--- a/docs/stack.md
++++ b/docs/stack.md
+@@ -71,7 +71,7 @@ Pieces 1 to 5 are the stack for the first version. Piece 6 is agreed but **not s
+ 
+ ### 5. The Build Once starter — the safety rails you already copied
+ 
+-- **Job in your app.** It is this repository: the guards in `.claude/hooks/` and `guard/`, the CI
++- **Job in your app.** It is this repository: the guards in `.claude/hooks/` and `.claude/guard/`, the CI
+   checks, the launch checklist, the skills that make me show evidence, and the rules in
+   `AGENTS.md` and `CLAUDE.md`.
+ - **How long widely used.** **NOT MAINSTREAM — flagged.** `package.json` says version `0.1.0`,
+diff --git a/package.json b/package.json
+index 8e1b25a..75c65d2 100644
+--- a/package.json
++++ b/package.json
+@@ -9,8 +9,8 @@
+     "node": ">=20"
+   },
+   "scripts": {
+-    "guard:test": "node guard/selftest.mjs",
+-    "guard:check": "node guard/check.mjs",
++    "guard:test": "node .claude/guard/selftest.mjs",
++    "guard:check": "node .claude/guard/check.mjs",
+     "skills:lint": "node scripts/lint-skills.mjs",
+     "launch:check": "node scripts/launch-check.mjs",
+     "vet": "node scripts/vet-tool.mjs",
+diff --git a/scripts/launch-check.mjs b/scripts/launch-check.mjs
+index 1e4849c..24cbac0 100644
+--- a/scripts/launch-check.mjs
++++ b/scripts/launch-check.mjs
+@@ -280,8 +280,8 @@ export const CHECKS = {
+   },
+ 
+   guard_selftest(ctx) {
+-    const p = path.join(ctx.root, 'guard', 'selftest.mjs');
+-    if (!isFile(p)) return res(UNV, 'guard/selftest.mjs not found — could not run it (this is not a pass)');
++    const p = path.join(ctx.root, '.claude', 'guard', 'selftest.mjs');
++    if (!isFile(p)) return res(UNV, '.claude/guard/selftest.mjs not found — could not run it (this is not a pass)');
+     const r = run(process.execPath, [p], ctx.root, 120000);
+     if (r.timedOut) return res(UNV, 'guard self-test timed out after 120s');
+     const last = (r.out.trim().split(/\r?\n/).pop() || '').slice(0, 80);
+@@ -487,7 +487,7 @@ function selftest() {
+     '.github/dependabot.yml': 'version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: weekly\n',
+     '.claude/hooks/guard.mjs': '// stub guard\n',
+     '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .claude/hooks/guard.mjs' }] }] } }),
+-    'guard/selftest.mjs': "console.log('guard selftest: PASS');\n",
++    '.claude/guard/selftest.mjs': "console.log('guard selftest: PASS');\n",
+     'supabase/config.toml': 'project_id = "fixture"\n',
+     'supabase/migrations/20260101000000_init.sql': 'create table t (id int);\n',
+     'HANDOFF.md': '# Handoff\n',
+@@ -511,7 +511,7 @@ function selftest() {
+     [evEmpty.evidence_file]: '   \n',
+   });
+   fs.mkdirSync(empty, { recursive: true });
+-  writeTree(broken, { 'guard/selftest.mjs': "console.log('guard selftest: 1 failure'); process.exit(1);\n" });
++  writeTree(broken, { '.claude/guard/selftest.mjs': "console.log('guard selftest: 1 failure'); process.exit(1);\n" });
+ 
+   const hasGit = !run('git', ['--version'], tmp).missing;
+   if (hasGit) {
