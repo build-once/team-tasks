@@ -63,6 +63,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           </button>
         </form>
 
+        {/* Outside the form, so pressing Enter in the password box signs in
+            rather than following this link. */}
+        <p className="switch">
+          <Link href="/forgot-password">Forgot password?</Link>
+        </p>
+
         <p className="switch">
           No account yet? <Link href="/signup">Sign up</Link>
         </p>

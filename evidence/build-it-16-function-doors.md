@@ -566,6 +566,11 @@ The refusal half of that guard is still not exercised; see the end of §8.1 and 
 - **The guard's refusal path, as opposed to the function that decides it, is still not covered by any
   run.** §6a exercised the accepting path on a real `web/.env.local`; the three lines that turn a
   refusal into a `die()` have run nowhere. See the end of §8.1.
+- **`accept-invite` trusts the email address in the verified token, which is safe only while "Confirm
+  email" is on** — otherwise somebody could sign up claiming an invited person's address without ever
+  proving they hold it, and the comparison in `supabase/functions/accept-invite/index.ts` would match.
+  The owner reported on 3 October 2026 that it is on (added for issue #120; **reported, not observed
+  here** — the setting is in the Supabase dashboard, which nothing in this repository reads).
 
 ## 7. CI on the pull request
 
