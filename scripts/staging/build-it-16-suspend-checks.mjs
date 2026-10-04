@@ -87,6 +87,10 @@
 //
 //   node scripts/staging/build-it-16-suspend-checks.mjs --selftest
 //
+// NOTHING RUNS THAT SELFTEST AUTOMATICALLY, which is issue #114's point about
+// build-it-16-checks.mjs and is now true of this file too -- filed as #136,
+// together with the Deno test beside the three functions.
+//
 // NO PACKAGES. Node built-ins only -- global fetch, node:crypto, node:buffer --
 // so Node 18 or newer. The four endpoints are the ones the three scripts beside
 // this one use, read from the installed clients in web/node_modules rather than

@@ -370,7 +370,11 @@ d----- _tests
 
 Four entries, all four of them folders; `parseFunctionFolders` drops `_tests` on its first filter
 and returns the three function names. `.github/workflows/migrate-production.yml`'s smoke test skips
-`_*` by name too (line 413-415), and it also requires `[ -d "$dir" ]`, so it was never at risk.
+`_*` by name too (lines 413-415), and it also requires `[ -d "$dir" ]`, so it was never at risk.
+
+Moving the file fixes this one file and not the rule — `readdirSync` without `withFileTypes` throws
+away the only information that could tell a file from a folder, so the next loose file in there does
+the same thing. **Filed as #137**, with the self-test case that would catch it.
 
 ---
 
@@ -398,10 +402,10 @@ is not a pass.
 - **No mail check.** Nothing was sent, so the test inbox has nothing to show.
 - **Nothing in a browser.** The new message on `/invite/[token]` has not been seen on a screen; it
   is proved to exist and to be reachable by type, by `npm run build`, and no further.
-- **The Deno test is not in CI.** `.github/workflows/ci.yml` has no Deno step and no `functions:test`
-  script exists, so this test runs only when somebody runs it by hand. Adding a CI job means editing
-  `.github/workflows/`, which rule 5 says is the owner's call. Filed as an issue — see the pull
-  request.
+- **Neither new check is in CI.** `.github/workflows/ci.yml` contains the word `deno` zero times
+  (counted in this session) and no `functions:test` script exists, so the Deno test and the script's
+  `--selftest` both run only when somebody runs them by hand. Adding a CI job means editing
+  `.github/workflows/`, which rule 5 says is the owner's call. **Filed as #136.**
 - **Whether `_tests/` is skipped by `supabase functions deploy`** is reasoned from the underscore
   convention in Supabase's docs and from the two files in this repository that act on it, not
   observed. The first deploy settles it, and the folder contains no `index.ts`, so there is nothing
@@ -441,8 +445,17 @@ shells' way of loading the password file.
   change, and the documented command now passes `--no-lock` so no further run leaves one: a file in
   a function's own folder is a file that may end up in what gets deployed, which is a change to what
   production runs arriving as a side effect of running a test. `git status` after the final run shows
-  no `deno.lock` anywhere. If lockfiles for the functions are ever wanted, that is its own decision
-  with its own reason and its own deploy.
+  no `deno.lock` anywhere. **Lockfiles for the functions are wanted — #35 is open and right about
+  that** — and this is not an argument against it: #35 means adding them deliberately, reading what
+  they pin and deploying with them, none of which describes a file that appears because somebody ran
+  a test.
+- **One thing noticed and already filed by somebody else.** `create-team`'s and `invite-member`'s
+  refusals reach the screen through `/teams?error=<the function's message>`, and `/teams` prints that
+  parameter — so the neutral sentence this change adds travels in a URL that a crafted link can
+  also set to anything. That is **#45**, open since before this work, and this change neither
+  worsens nor fixes it: the sentence is the same length and the same kind of text as the messages
+  already going that way. The `/invite/[token]` half of the flow does not have the problem, which is
+  why part B's new reason is a code rather than a message.
 - **The three `deno.json` files are character-for-character identical**, checked with `Get-FileHash`
   in this session: all three SHA-256
   `86510527ECB93E7134801F16BF137B9C0E6B242A8A2BA6E4BA89390F44EBE4B7`. That is why one `--config`

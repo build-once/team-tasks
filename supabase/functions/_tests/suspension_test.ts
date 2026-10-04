@@ -298,8 +298,8 @@ Deno.test("the fail-closed cases REFUSE a check that fails open", async () => {
 
 // HOW TO RUN IT, from the repository root. Needs Deno; the repository's own
 // `npm test` does not include this, because CI has no Deno step and
-// .github/workflows/ is not the assistant's to change (rule 5). Issue filed --
-// see the pull request for #133.
+// .github/workflows/ is not the assistant's to change (rule 5). Filed as issue
+// #136, with what a CI job would have to do and how to prove it works.
 //
 //   deno test --no-lock --allow-env --config supabase/functions/create-team/deno.json supabase/functions/_tests/suspension_test.ts
 //
@@ -310,10 +310,14 @@ Deno.test("the fail-closed cases REFUSE a check that fails open", async () => {
 // each deno.json (rule 17), so the lockfile adds integrity hashes and nothing
 // else, and a file in a function's own folder is a file that may end up in what
 // gets deployed. That is a change to what production runs, arriving as a side
-// effect of running a test, and this project does not make changes that way. If
-// lockfiles are ever wanted they are their own decision, with their own reason
-// and their own deploy. Until then, this flag keeps the run from leaving
-// anything behind.
+// effect of running a test, and this project does not make changes that way.
+//
+// LOCKFILES FOR THE FUNCTIONS ARE WANTED -- issue #35, "create-team has no
+// deno.lock, so its transitive dependencies are unpinned", which is open and
+// right. This flag is not an argument against it. The difference is that #35
+// means adding lockfiles deliberately, reading what they pin, and deploying with
+// them; a file that appears because somebody ran a test is none of those things.
+// When #35 is done this flag comes out, and this comment with it.
 //
 // WHY --allow-env, on a test that reads no setting of its own. Importing the
 // three functions pulls in npm:@supabase/server, whose dependency `std-env`
