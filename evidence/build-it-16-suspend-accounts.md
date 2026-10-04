@@ -3,13 +3,15 @@
 Issue #128, part A of two. Migration:
 `supabase/migrations/20261004114313_suspend_accounts.sql`.
 
-**Result: PASS on a local sandbox. The migration has NOT been applied anywhere** — not staging,
-not production, not the owner's own project. Rule 19: the assistant does not run `db push`
-anywhere, and the guard refuses every `db push` except `--local`.
+**Result: PASS on a local sandbox. Applied to staging by the owner on 4 October 2026 — reported to
+the assistant, not observed by it. NOT applied to production.** Rule 19: the assistant does not run
+`db push` anywhere, and the guard refuses every `db push` except `--local`.
 
-**Everything below was produced by the assistant on a throwaway PostgreSQL cluster on the owner's
-machine.** It is not staging evidence and is not a substitute for it. Sections 7 and 8 are where
-staging evidence goes and are **empty until the owner fills them in**.
+**Sections 1 to 6 were produced by the assistant on a throwaway PostgreSQL cluster on the owner's
+machine.** That is not staging evidence and is not a substitute for it. **Sections 7 and 8 are the
+staging record, and every line of them is the owner's report**: the owner ran the apply and the
+browser test, and a coach read the result back through a staging read-only connector. The assistant
+ran nothing against staging, applied nothing, and saw no output from it.
 
 The plan was updated first (rule 9): `docs/plan.md` gained a "Suspending an account" section and
 two appendix rows in PR #129, merged as `62811ac`, before this migration was written.
@@ -20,8 +22,9 @@ two appendix rows in PR #129, merged as `62811ac`, before this migration was wri
 
 PostgreSQL **17.10**, a cluster created by the assistant with `initdb` in its scratchpad, listening
 on `127.0.0.1` port 55432 only, trust authentication, deleted at the end of the session. It is not
-the version staging runs — **unverified: no version has been read back from staging or
-production**, which `20261002122203_team_rules.sql` already notes about `security_invoker`.
+the version staging runs: the owner reports staging on **PostgreSQL 17.6** (section 7).
+**Production's version is still unverified — nothing has been read back from it**, which
+`20261002122203_team_rules.sql` already notes about `security_invoker`.
 
 Supabase's `auth` schema does not exist in a plain cluster, so a stand-in was written. This is the
 whole of it:
@@ -478,18 +481,141 @@ counts restored. `exit: 0`.
 
 ## 7. Staging apply
 
-**Not done, and not attempted.** Rule 19: the assistant does not run `db push` anywhere; staging
-migrations go through the owner or the CI job in #55.
+**Done by the owner on 4 October 2026. Reported to the assistant; not run, seen or verified by it.**
+Rule 19: the assistant does not run `db push` anywhere, and the guard refuses every `db push` except
+`--local`. Everything in this section and section 8 is either the owner's own report or a read-back
+a coach made through a staging read-only connector and the owner passed on. **No line below is
+terminal output the assistant can see**, so each one is recorded as reported, and anything the
+report did not contain is marked not reported rather than guessed at.
 
-**Unverified — nothing in this file has been observed on staging.** To fill this in: apply the
-migration, then read back `pg_policies` for the five restrictive rules,
-`information_schema.role_table_grants` for `account_status`, and `pg_proc.proacl` for `is_active`.
+### The apply, as reported
+
+| | Reported |
+|---|---|
+| `supabase db push --dry-run` | listed only `20261004114313_suspend_accounts.sql` |
+| `supabase db push` | applied it, and ended `Finished supabase db push` |
+| Supabase CLI | 2.75.0 — the version #70 records on the owner's machine |
+| Exit codes | **not reported** |
+| Anything else the two commands printed | **not reported** — the lines above are what was passed on |
+
+### Read back through the staging read-only connector
+
+| What | Reported |
+|---|---|
+| Migration recorded | `20261004114313`, **seven** migrations in total |
+| Policies on the five tables | **11 permissive and 5 restrictive**, one restrictive on each of `invitations`, `profiles`, `tasks`, `team_members`, `teams` |
+| `account_status` | row-level security **on**, **no policies**, **0 rows** |
+| `account_status` privileges | `anon` **no privilege**, `authenticated` **no privilege**, `service_role` **`select` only** |
+| `is_active()` execute | `anon` **false**, `authenticated` **true**, `service_role` **true** |
+| PostgreSQL | **17.6** |
+
+Three of those match what this repository and the sandbox say, which is the point of reading them
+back:
+
+- **Seven migrations.** `supabase/migrations` holds seven files, counted in this session.
+- **11 permissive and 5 restrictive**, one restrictive per table — the counts in section 3, and the
+  eleven that issue #128 quotes are all still there.
+- **`is_active()` execute: `authenticated` and `service_role` yes, `anon` no** — the access list in
+  section 3, including the `service_role` grant that section explains and #131 is about.
+
+**Staging runs PostgreSQL 17.6; the sandbox in section 1 was 17.10.** That answers, for staging
+only, the "no version has been read back" note in sections 1 and 9. No error wording was read back
+from staging, so the messages quoted in sections 2 to 6 remain **unverified on staging**.
+
+### Not reported, so still not verified on staging
+
+Everything section 3 reads out of the catalogue that is not in the table above:
+
+- The five policies' **name, command and roles**. Section 3 shows one `RESTRICTIVE`, `ALL`,
+  `{authenticated}` policy named "Suspended accounts are refused everything" per table; staging
+  confirmed **counts and placement only**.
+- The **per-table permissive counts** (section 3: invitations 1, profiles 3, tasks 4, team_members
+  2, teams 1). Only the totals came back.
+- `is_active()`'s **`security definer`** flag and its **empty `search_path`**.
+- `account_status`'s **columns, primary key, foreign key, `on delete cascade` and comments**, and
+  whether row-level security is **forced** as well as enabled.
+- The `postgres` role's privileges on `account_status`.
+- **The Security Advisor was not run after this migration** — stated by the owner. It is the one
+  check that would speak to a table or function this migration added being flagged, and it has not
+  been run, so there is no result to report either way.
 
 ## 8. The checks re-run on staging
 
-**Not done.** The behaviour script in section 4 is sandbox SQL, not a staging script; there is no
-`scripts/staging/` script for suspension yet, and part A adds none because nothing in the app
-exercises this path.
+**The scripts in sections 4, 5 and 6 were not re-run on staging, and are not runnable there**: they
+are sandbox SQL against a stand-in `auth` schema, there is no `scripts/staging/` script for
+suspension, and section 6 drops policies one at a time, which is not something to do to staging.
+What was run instead is the book's test, in the browser, by the owner.
+
+### The book's test, as reported by the owner
+
+Owner on `localhost:3000` against staging, signed in as **Bob**,
+`teamtasks.staging.test+bob@gmail.com` — the documented staging test account in
+`docs/environments.md`, not a real person (rule 6). The bracketed column is what the coach read back
+through the staging read-only connector.
+
+| | What the owner reported | Read back |
+|---|---|---|
+| Suspend | Owner inserted Bob's row in the SQL editor | One row, Bob's |
+| Bob signed in again, **12:51:47 UTC** | Sign-in **worked** | — |
+| Teams page | "You have not set one yet" for the name, and "No teams yet" | Bob **had** a profile, "Bob B", and **owned one team**, "test" |
+| Task list | Bob had no tasks before the test, so it **showed no difference** | — |
+| Save name | "Your name did not save. Please try again." | Nickname **unchanged** |
+| Add a task | "You cannot do that. A task can only be added to a team you belong to." | **No task written** |
+| Create team "Suspended test team" | The page said "Team created." — and still "No teams yet" | The team **WAS created**, at **12:56:57 UTC** |
+| Restore | Owner deleted the row | **0 rows**, at **12:58:31 UTC** |
+| After restore | Bob's nickname and **both** teams, "test" and "Suspended test team", were back | — |
+
+**Both teams were left on staging.**
+
+Four things that record says, in order of how much they matter:
+
+**1. Sign-in still works, and that is the design.** Suspension is a database rule, not an auth
+block. A suspended person signs in and sees an app with nothing in it — the nickname reads as unset
+and the team they own is not listed — which is what `docs/plan.md` describes. The reads were refused
+silently, exactly as section 5's J-series predicted: `select` returns no rows rather than raising.
+
+**2. Creating a team still worked, and this is the gap part B closes — now observed on staging
+rather than argued.** `create-team` uses the admin client, which connects as `service_role` and
+bypasses row-level security, so the insert went through while the five rules correctly hid the
+result from Bob: "Team created." followed by "No teams yet". Section 5's **M3** predicted this in
+the sandbox (`INSERT 0 1` for a suspended person) and M1-M8 explain why. Part A cannot close it, and
+this pull request does not claim to. **Part B is now filed as #133**, so the work does not leave
+with #128 when this pull request closes it.
+
+**3. Removing the row restored everything, with nothing else done** — the nickname and both teams
+came straight back, which is section 5's N-series on staging as far as Bob's data goes. Bob had no
+tasks, so N2, N8, N9 and N10 have no staging counterpart.
+
+**4. Two of the messages Bob was shown were written for other causes**, and suspension now reaches
+them. The teams page said "Team created." — true, and part B will replace it with a refusal. The
+tasks page's "A task can only be added to a team you belong to." is the `problem=refused` banner,
+written for an insert the trigger refuses (`web/src/app/tasks/page.tsx` lines 303-319 say so); the
+restrictive policy now lands in the same banner. **Whether Bob's task was personal or aimed at a
+team was not reported**, so whether that sentence was wrong about the cause on the day cannot be
+told from this record. **Filed as #134.**
+
+### Not reported, so not verified on staging
+
+- **No test as Alice or Carol in the browser** — stated by the owner. So section 5's L-series, "her
+  team mates are not affected", has **no staging evidence at all**: nothing on staging shows that
+  suspending Bob left anybody else working.
+- **Nothing signed out.** Section 5's I1 and I2 — `anon` cannot execute `is_active()`, cannot read
+  `account_status` — were not re-asked on staging. The `anon` execute **false** in section 7 is a
+  privilege read, not a refused call.
+- **`is_active()` was never called as a suspended caller** on staging. Section 7's three booleans
+  say who may execute it, not what it answers for Bob.
+- **J15-J18 were not re-asked**: whether a suspended person can read `account_status`, and
+  especially whether they can **delete their own row to free themselves**, is not shown on staging.
+  The owner deleted the row *as the owner, in the SQL editor*, which is the opposite test.
+- **`invitations`, `team_members` and the `team_roster` view** were not exercised as a suspended
+  person. The teams page covers `teams` and `profiles`, and the attempted insert covers `tasks`.
+- **Ticking, renaming and deleting a task while suspended** (J4-J6) — Bob had no tasks.
+- **`invite-member` and `accept-invite` as a suspended person** were not tried. Only `create-team`
+  was, and it succeeded.
+- **Section 6 was not re-run**, so "each check fails when its rule is removed" is sandbox-only, as
+  it should be.
+- **No exit code, no SQL output, no screenshot** accompanies any step above; the quoted sentences
+  and the four timestamps are the whole of what was reported.
 
 ---
 
@@ -503,12 +629,18 @@ exercises this path.
 - `psql` prefixes each error with the script's path and line number. Those paths are in the
   assistant's scratchpad and have been removed from the quoted output above; nothing else in any
   quoted line is altered.
-- The error messages are quoted from a PostgreSQL 17.10 cluster. Staging's version has not been
-  read back, so the exact wording there is **unverified**.
+- The error messages are quoted from a PostgreSQL 17.10 cluster. The owner reports staging on 17.6
+  (section 7), but **no error wording has been read back from staging**, so the exact wording there
+  is still **unverified**.
 - Issues filed alongside this work: **#130** (migrations grant no table privileges, and Supabase
-  removes the default on 30 October 2026) and **#131** (`is_team_member`'s comment about
-  `service_role` is untrue).
-- `finding #133`, referenced by issue #128 for the `is_active` grant lines, **could not be
-  located**: `gh issue view 133` returns "Could not resolve to an issue or pull request", and
-  `#133` appears nowhere in the repository. The grant lines were written to match
-  `public.is_team_member`'s, which is what the issue describes.
+  removes the default on 30 October 2026), **#131** (`is_team_member`'s comment about `service_role`
+  is untrue), and — filed while recording sections 7 and 8 — **#133** (part B: the three server
+  functions still act for a suspended person), **#134** (a suspended person gets refusal messages
+  written for other causes) and **#135** (a production read-only connector was attached to the
+  assistant's session, which rule 10 forbids).
+- **`finding #133`, referenced by issue #128 for the `is_active` grant lines, was never located**:
+  when this file was first written `gh issue view 133` returned "Could not resolve to an issue or
+  pull request", and `#133` appeared nowhere in the repository. The grant lines were written to
+  match `public.is_team_member`'s, which is what the issue describes. **Number 133 has since been
+  taken** — by the part B issue filed in this session, which is a different thing entirely. Whatever
+  `finding #133` was, it is not that.
