@@ -4,20 +4,25 @@ Issue #120. Branch `feat/password-reset`. **No migration and no change under `su
 and nothing was changed in Supabase: the diff is the web app, one check script, this file, one line in
 `evidence/build-it-16-function-doors.md`, `.env.example` and `docs/environments.md`.
 
-Result: **the screens are built and every check that can run without an email has been run and passes.
-No reset email has been sent, by anybody, so the flow has not been seen working end to end.** That is
-the owner's test, and the steps are in §7 and in the pull request.
+Result: **the screens are built, every check that can run without an email passes, and the owner has
+now run the flow end to end on staging — it works, on the third attempt.** §11 is that run, on
+4 Oct 2026. The first two attempts failed for two different setup reasons, neither of them a bug in
+this code, and the second one is why §7's step order changed.
 
-**§10 is the newest part of this file.** It records the one change the coach's review of PR #124 asked
-for — `setNewPassword` now requires the reset marker and a signed-in session before it changes
-anything — and the break-it run that shows the new checks go red when the gate is removed. The check
-count in §2 and §4 went from 69 to **84** with that change, so the output in §2 was re-run and
-replaced; it is not the output the review saw.
+**§11 is the newest part of this file, and it supersedes every sentence before it that says no reset
+email has been sent.** Those sentences were true when §1–§10 were written, at commit `22b5564`, and
+they are left standing as the record of that state rather than edited away; §8 now carries a pointer
+to §11 beside each claim §11 settles. **§10** is the previous addition: the one change the coach's
+review of PR #124 asked for — `setNewPassword` now requires the reset marker and a signed-in session
+before it changes anything — and the break-it run that shows the new checks go red when the gate is
+removed. The check count in §2 and §4 went from 69 to **84** with that change.
 
-Date: 2026-10-03
-Checked by: **the assistant (Claude Code)**, on this machine, for everything below. Nothing in this
-file was observed on staging or on production by anybody. No email was sent, no account was signed in,
-and no reset link was clicked.
+Dates: §1–§10, 2026-10-03. §11, 2026-10-04.
+Checked by: **the assistant (Claude Code)**, on this machine, for §1–§10 — and for those sections
+nothing was observed on staging or on production by anybody, no email was sent, no account was signed
+in and no reset link was clicked. **§11 is the opposite: none of it was run or seen by the assistant.**
+It is the owner's test and the coach's log readings, written down here as reported. The assistant sent
+nothing to staging in this task either.
 
 ## What is proved here, and what is not
 
@@ -463,61 +468,98 @@ observation in this repository.
 
 ## 7. The owner's test, on localhost:3000 against staging
 
-Not run by the assistant. **No reset email has been sent by anybody**, which is what issue #120 asks
-for: staging's built-in sender allows very few per hour, and the owner tests with Alice.
+Not run by the assistant. The owner ran these steps on 4 Oct 2026 and **§11 is the result** — read §11
+for what actually happened; this section is the procedure, now corrected by it.
+
+**The unknown-address request is step 11, not step 6, and that reordering is the point of this
+section.** It used to be step 6, immediately after Alice's request and *before* the emailed link was
+opened. In that order the test cannot pass, and §11.2 is the run where it did not: a second
+`recover` request from the same browser **replaces the PKCE code verifier that the first link needs**,
+so Alice's link — correctly emailed, correctly opened, verified by Supabase — then fails at the code
+exchange, and the owner gets *That link didn't work* with nothing wrong in the app at all. (That cause
+is the coach's reading of the staging log, §11.2.) The request for an unknown address proves rule 1,
+which is about the screen and the sentence; it needs no email and no link, so it costs nothing to do
+**after** the link has been used, and doing it before destroys the rest of the test.
+
+Two smaller corrections from §11 are also folded in: step 2 now says to check the file ends with a line
+break (§11.1), and step 6 says **copy**, not follow, which §10.4 had already flagged and the old step 7
+still got wrong.
 
 1. Add `http://localhost:3000/auth/reset` to **staging's** Redirect URLs (§6).
 2. Put `SITE_URL=http://localhost:3000` in `web/.env.local` — the git-ignored file that already holds
-   the staging URL and publishable key. Nothing secret: it is an address.
+   the staging URL and publishable key. Nothing secret: it is an address. **Put it on its own line and
+   make sure the previous line ends with a line break.** A file with no final newline swallows the new
+   setting onto the end of the key above it, which breaks the key and not the setting — §11.1, where
+   that is exactly what happened and what it cost.
 3. `cd web`, then `npm run dev`.
 4. Open `http://localhost:3000/login` and press **Forgot password?**.
 5. Type Alice's address, `teamtasks.staging.test+alice@gmail.com`, and submit. Expect the page to come
    back saying *If that address has an account, we've sent a link*.
-6. Type an address with no account — `teamtasks.staging.test+nobody@gmail.com` — and submit. Expect
-   **the same screen, the same sentence**. This is the half of rule 1 only a person can confirm.
-7. Open the Gmail test mailbox, `teamtasks.staging.test@gmail.com`, and **copy** the link in the mail
+6. Open the Gmail test mailbox, `teamtasks.staging.test@gmail.com`, and **copy** the link in the mail
    for Alice into **the same browser you used in step 5** — do not click it in the mailbox if that is a
    different browser. The flow exchanges a code only the browser that asked for it can complete
-   (§10.4). Expect to land on **Set a new password** — not on the tasks page, and not on the home page.
-8. Type a 7-character password. Expect *A password needs at least 8 characters.* and no change.
-9. Type a password of 8 or more and save. Expect to arrive at **My tasks**, signed in.
-10. Press the browser's back button to the form and try to save again. Expect **That link didn't work**
-    — the marker is spent.
-11. Open `http://localhost:3000/reset-password` directly, in a private window. Expect **That link
+   (§10.4). **Make no other reset request between step 5 and this step**, for the reason above. Expect
+   to land on **Set a new password** — not on the tasks page, and not on the home page.
+7. Type a 7-character password. Expect *A password needs at least 8 characters.* and no change.
+8. Type a password of 8 or more and save. Expect to arrive at **My tasks**, signed in.
+9. Press the browser's back button to the form and try to save again. Expect **That link didn't work**
+   — the marker is spent.
+10. Open `http://localhost:3000/reset-password` directly, in a private window. Expect **That link
     didn't work**, no form, and nothing about any account.
+11. **Now**, and not before, go back to **Forgot password?** and type an address with no account —
+    `teamtasks.staging.test+nobody@gmail.com`. Expect **the same screen, the same sentence** as step 5.
+    This is the half of rule 1 only a person can confirm, and it is safe here because Alice's link has
+    already been used: there is no verifier left to overwrite, and Supabase sends no email for an
+    address it does not know, so it costs nothing from the sender's hourly allowance either.
 12. Sign out, then sign in as Alice with the **new** password. Expect it to work. Then put Alice's
     password back to the one in `~/.config/team-tasks/staging.env`, or update that file, or the staging
     scripts stop being able to sign her in.
 
-Step 12 is the one easy to forget, and the one that breaks three other scripts if it is.
+Step 12 is the one easy to forget, and the one that breaks three other scripts if it is. §11.5 records
+that the owner did it, and the run that proves it.
 
 ## 8. What was NOT run, and what therefore stays unproved
 
-- **No email was sent, by anybody.** So nothing here shows that a reset email arrives, that its link
-  lands on `/auth/reset`, that Supabase accepts the code, or that the new password works.
-  **Unverified — the end-to-end flow**, and §7 is how to settle it.
-- **Nothing was changed in Supabase, and nothing was read from it.** No setting, no template, no
-  allow-list entry. The assistant has sent nothing to staging or production in this task.
+**This section is as it stood at `22b5564`, before the owner's test. Five of its items are now settled
+and one is not; each says which, and §11 is the record.** Nothing here was rewritten, so the list still
+reads as the honest state of the change on its own.
+
+- ~~**No email was sent, by anybody.**~~ **Settled by §11** — three `recover` requests were made on
+  4 Oct 2026, Alice's email arrived, its link landed on `/auth/reset`, Supabase accepted the code
+  (exchange 200, §11.3) and the new password then signed her in. As written, this item said nothing
+  here shows any of that; §11 shows all four, as reported by the owner and the coach rather than
+  observed by the assistant.
+- **Nothing was changed in Supabase by the assistant, and nothing was read from it by the assistant.**
+  No setting, no template, no allow-list entry, in this task or the one that added §11. **The owner
+  added staging's redirect address and the coach read staging's gateway log** — that is how §11 exists,
+  and neither is the assistant's doing. Still **unverified by the assistant**: what is on either
+  project's Redirect URLs list today.
 - **The code-exchange landing is the same mechanism as `/auth/callback`, and no evidence file in this
   repository records `/auth/callback` ever having worked with a real emailed link.** Searched
   `evidence/` for `auth/callback`: the three hits are all build output listing the route, not an
-  observation of a link being followed. So "the link lands and the code is accepted" rests on the
-  installed client's own source and Supabase's guide, not on anything seen here.
+  observation of a link being followed. **§11.3 now records the mechanism working on `/auth/reset`** —
+  verify 303, exchange 200 — so "the link lands and the code is accepted" is no longer resting on the
+  client's source and Supabase's guide alone. `/auth/callback` itself is still unexercised; what §11
+  shows is the shared mechanism, on the other route.
 - **The `token_hash` branch of `/auth/reset` is the one the official guide documents, and it is the one
   least likely to run.** The default recovery email template sends the person to Supabase's own verify
   endpoint, which comes back with a `code`. The second branch exists so the flow still works if the
   project's template points straight at the app — and nothing here has exercised it, because that
-  needs a real link.
-- **The marker cookie's behaviour across the hop from the email was not observed.** It is set
-  `sameSite: lax` on a redirect from this app's own origin to this app's own page, which is a same-site
-  request, so it should be sent — **"should" is exactly what rule 15 forbids claiming**. Step 7 of §7
-  is what settles it: landing on the form at all means the cookie arrived.
-- **No screen was looked at.** The pages compiled and type-checked; nobody has seen one rendered. There
-  is no screenshot in this file.
-- **The gate in §10 was not exercised by a running request.** What has run is the function it asks,
-  four ways, and a reader over the action's own source, seven ways. Nobody has posted to
-  `setNewPassword` without a marker and watched it refuse — that needs a browser and a session, which
-  means the owner's test. Steps 10 and 11 of §7 are the two that would show it.
+  needs a real link. **Still unverified after §11**: all three attempts went through Supabase's verify
+  endpoint and came back with a `code`, which is the first branch. The `token_hash` branch has still
+  never run.
+- ~~**The marker cookie's behaviour across the hop from the email was not observed.**~~ **Settled by
+  §11.3** — the owner landed on the new-password form, and landing on the form at all means the cookie
+  arrived, which is what this item said would settle it.
+- **No screen was looked at by the assistant, and there is still no screenshot.** The pages compiled and
+  type-checked. The owner has now seen four screens — the sentence after a request, the new-password
+  form, *That link didn't work*, and My tasks — and reported them in words (§11.4). Nobody captured an
+  image, so what each screen looks like is still unrecorded.
+- ~~**The gate in §10 was not exercised by a running request.**~~ **Settled by §11.4, both halves** —
+  the back button to a spent marker and `/reset-password` in a private window each gave *That link
+  didn't work*, which are steps 9 and 10 of §7, the two this item named. What those two show is the
+  refusal a person can reach through a browser; **nobody posted to `setNewPassword` directly**, so the
+  gate's own path is reported only from the screen it produces.
 - **No rate limit or bot check protects the new request form.** It is an unauthenticated endpoint that
   causes an email to be sent, and the only limit on it today is whatever Supabase applies by default,
   which has not been read. `checklist/launch.json` already carries both items ("Rate limits protect
@@ -719,12 +761,180 @@ It explicitly did **not** check any real email or link, the `token_hash` branch,
 look — the same three things §8 of this file already lists as unverified. It also did not look at
 **#121**, **#122** or **#123** beyond their titles.
 
+## 11. The owner's test, run — 4 Oct 2026
+
+On `localhost:3000` against **staging**. Three attempts; the third one worked.
+
+**Who saw what, because this section is the one place in this file where the answer is not "the
+assistant".** The screens are the **owner's**, in a browser on their machine. The staging gateway log
+lines are the **coach's** readings of staging's log. The assistant ran nothing, sent nothing, opened no
+screen and read no log, here or anywhere in this task — **so every line below is reported, and
+unverified by the assistant.** Staging's own log is the authority for the timings and statuses, and
+only the owner and the coach can see it. Times are UTC, as reported.
+
+### 11.1 Attempt 1 — the sentence appeared, and no email came
+
+The request screen showed the usual sentence. **No email arrived.**
+
+The coach read staging's gateway log: `POST /auth/v1/recover` at **09:40:43 UTC** answered **401**,
+`UNAUTHORIZED_INVALID_API_KEY`, reason **`bad_length`**.
+
+**Cause.** In `web/.env.local` the `SITE_URL` setting had been **appended to the end of the publishable
+key line**, because the file had no final line break. So the key carried the setting on its end and was
+the wrong length — which is what `bad_length` says, and why the failure landed on the key and not on
+the setting that was being added.
+
+**Whose it was.** The command that appended it was the **coach's**, and the coach's own check of the
+result **cut lines to 40 characters**, which hid the problem: what was appended sat on the **end** of a
+line, and a view that stops at 40 characters never reaches the end of a line longer than that.
+
+Fixed by the **owner**. The three lines then measured **65, 83 and 30** characters — and two of those
+three are longer than 40, so for those two the check could not have shown what was on the end, whatever
+was there.
+
+Two things this does **not** say. It does not say the app behaved wrongly: `requestPasswordReset` has
+one exit and never looks at the answer (§2, section 2), so a 401 from Supabase reaches the person as the
+same reassuring sentence as a success — by design, for issue #120 rule 1. **That is issue #127, filed
+from this attempt**: the refusal was invisible everywhere except a log only two people can read. And it
+does not say the key leaked: the key is Supabase's **publishable** key, the one the browser
+holds anyway, and **its value is not printed here or anywhere in this repository** — only the character
+counts above, which are a measurement and not the value.
+
+### 11.2 Attempt 2 — both addresses first, then the link, and the link failed
+
+The coach's reading of the staging log, UTC:
+
+| Time | What the log shows |
+|---|---|
+| 09:50:12 | `recover` **accepted** for Alice |
+| 09:50:21 | `recover` **accepted** for the unknown address |
+| 09:50:36 | the emailed link opened — `verify` answered **303** |
+| 09:50:37 | the code exchange answered **400** |
+
+The owner saw **"That link didn't work"**.
+
+The owner **confirmed both requests and the link were in the same browser** — which is what rules out
+the cause §10.4 had warned about, the one everybody expects.
+
+**Cause, as the coach reads it: the second request replaced the code verifier the first link needed.**
+Two `recover` requests nine seconds apart from one browser, and the second one's verifier is the one
+still stored when the first one's link comes back to be exchanged. The link itself was fine — Supabase
+verified it, 303 — and the exchange a second later is where it died, 400.
+
+This is the finding that **reordered §7**: the unknown-address request moved from step 6 to step 11, so
+it happens after the link has been used. Read §7's opening for the reasoning as it now stands in the
+procedure.
+
+**Reordering the test is not a fix, and it is filed as issue #126.** A person using the app gets the
+same failure the owner got, with no procedure to follow: ask on a phone and open the email on a laptop,
+or ask twice because the first email seems slow, and the link that arrives does not work. #126 carries
+the option from Supabase's guide — a `token_hash` link, which `/auth/reset` already handles at
+`web/src/app/auth/reset/route.ts:69-79` and which has never run — and the one thing that has to be
+settled first, whether editing the recovery template needs custom SMTP.
+
+### 11.3 Attempt 3 — Alice only, then the link in the same browser
+
+Alice's address only, then the link in the same browser. Staging log, as read by the coach:
+
+| Time | What the log shows |
+|---|---|
+| 09:54:02 | `verify` answered **303** |
+| 09:54:03 | the code exchange answered **200** |
+
+The owner reported: **landed on the new-password form, password reset, signed in.**
+
+### 11.4 The owner's results, as reported
+
+| What was asked for | Result |
+|---|---|
+| Short password refused | **NOT RUN** |
+| Back button, then save again, shows *That link didn't work* | **yes** |
+| `/reset-password` in a private window shows *That link didn't work* and no form | **yes** |
+| The unknown address shows the same screen as Alice's | **yes** |
+| Alice signs in with the new password | **yes** |
+
+**"Short password refused: NOT RUN" is not a pass** (rule 8). The server-side length check in
+`setNewPassword` has been exercised by the check script's pure-function cases and by a reader over the
+action's source (§2, section 7), and by nothing in a browser. §7 step 7 is still the step that would
+settle it, and it is the one step of §7 that remains unrun.
+
+### 11.5 Afterwards — Alice's password, and the script that depends on it
+
+§7 step 12, the one easy to forget. Reported by the owner:
+
+- Alice's password in the owner's `~/.config/team-tasks/staging.env` was **updated to the new one**.
+- The owner then ran **`scripts/staging/build-it-16-checks.mjs`**, which signs in as Alice using that
+  file: **23 PASS, 0 FAIL, 0 UNVERIFIED, 1 NOT RUN.**
+
+Those totals are **character-for-character the ones already recorded for that script** in
+`evidence/build-it-16-function-doors.md:459` — `23 PASS, 0 FAIL, 0 UNVERIFIED, 1 NOT RUN (optional).`
+So the re-run says the sign-in still works and nothing else moved, which is exactly what step 12 is
+for.
+
+**That script is not a password-reset check**, and its `1 NOT RUN` is **not** the short-password step
+above. It is the function-doors script (issue #112), and its one NOT RUN line is #110's optional
+expired-token case, skipped when `EXPIRED_ACCESS_TOKEN` is not set — the line is at
+`scripts/staging/build-it-16-checks.mjs:1433` and recorded at
+`evidence/build-it-16-function-doors.md:423`. Two different NOT RUNs, one in §11.4 and one here, and
+neither is evidence for the other.
+
+The owner did not report whether the other two staging scripts were re-run.
+
+### 11.6 What was NOT reported, and therefore is not recorded
+
+Rule 8: anything not reported is not a pass, and this list is as much of the section as the tables are.
+
+- **The short-password refusal: NOT RUN**, as above. §7 step 7.
+- **No screenshots, and no exact screen wording beyond the four phrases quoted** — *the usual
+  sentence*, *That link didn't work*, *the new-password form*, *My tasks*. Whether each screen's text
+  matches the constants in `web/src/lib/password-reset.ts` character for character was not checked by
+  anybody; the owner reported screens by description.
+- **No command output, and no exit code, for anything in §11.1 to §11.4.** Browser steps do not produce
+  either, and the log lines are a person's reading of a dashboard, not a pasted terminal result. The one
+  run with real totals is §11.5's, and those totals are quoted from the owner's report, not from a run
+  on this machine.
+- **The `token_hash` branch of `/auth/reset` was not exercised.** All three attempts produced a `code`
+  via Supabase's verify endpoint, which is the other branch. §8 keeps this unverified.
+- **Posting to `setNewPassword` directly, with no marker, was not done.** The two refusals in §11.4 are
+  the ones a browser can reach. The gate's own refusal path is reported only through the screen it
+  produced.
+- **What is on staging's Redirect URLs list** was not reported, nor whether production's was touched.
+  The owner added staging's address (§11 exists, so it was added); the list itself is unseen here.
+- **Nothing about Bob or Carol** (rule 6). This change has no table, policy or query to test with them,
+  as §8 says, and the owner's test did not involve them.
+- **How many emails staging's sender has left this hour** was not reported. Three `recover` requests
+  were made across the three attempts; Supabase sends nothing for an address with no account, so how
+  many of them became mail is not something any line above states.
+- **Whether `web/.env.local` now ends with a line break.** The fix in §11.1 is reported by its result —
+  three lines of 65, 83 and 30 characters — not by anybody looking at the end of the file. The file is
+  git-ignored and not on this machine's branch to check.
+
 ## Personal data in this file
 
-**Nothing was captured from production, and nothing from staging either** — rule 18's list is empty for
-both, and an empty list is the complete answer. No command in this task talked to any Supabase project,
-so there was no response body, log line or error payload to redact. No value was shortened, masked or
-starred out, because there was no value.
+**Nothing was captured from production. Rule 18's list of replaced values is empty, and an empty list
+is the complete answer.** No command in any task on this branch talked to the production project.
+
+**§11 does carry data read off staging**, which §1–§10 did not, so the empty list needs saying more
+carefully than "nothing was captured". What came from staging's gateway log, via the coach, is: six
+seven timestamps (counted in this session off §11.1 to §11.3), four distinct HTTP status codes — 401,
+303, 400 and 200 — one error code (`UNAUTHORIZED_INVALID_API_KEY`), one reason (`bad_length`), and two
+endpoint names, `recover` and `verify`. **None of that is a value rule 18 asks to be replaced**, so
+nothing was replaced and nothing is listed:
+
+- **Nothing that grants access.** No reset code, no `token_hash`, no session or refresh token, no signed
+  URL, no cookie value, no API key. The emailed link is named in §11.2 and §11.3 and **its address is
+  not written down**, nor any part of it. The publishable key of §11.1 is referred to by what went
+  wrong with it and by character counts; **its value appears nowhere**, and a character count is a
+  measurement, not a shortened value — rule 18 forbids `sk_…3f9`, and there is no equivalent here.
+- **Nothing that identifies a person.** The only addresses in this file are the staging test mailbox
+  with plus-addressing, `teamtasks.staging.test+alice@gmail.com` and the `+nobody` variant, both already
+  in `docs/environments.md` on purpose and neither belonging to a real person (rule 6). §11's log lines
+  say "for Alice" and "for the unknown address" rather than repeating either. No user id, no project
+  reference, no IP address — **the coach reported statuses and times, not log lines verbatim, so no
+  caller IP reached this file.** No password or hash, old or new, appears anywhere above: §11.3 says the
+  password was reset, and not to what.
+
+No value was shortened, masked or starred out anywhere in this file.
 
 The two email addresses in §7 are the staging test mailbox with plus-addressing —
 `teamtasks.staging.test+alice@gmail.com` and a `+nobody` variant invented here — both already written
