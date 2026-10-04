@@ -97,9 +97,18 @@ export type RosterEntry = {
 //
 // Every one of these is a CODE, never a message. The page maps each to its own
 // fixed wording and ignores anything not on this list, so a crafted link cannot
-// make the site display words somebody else chose. The first six come from
+// make the site display words somebody else chose. The first seven come from
 // accept-invite's `reason` field; "unreachable" is added by the action when the
 // function could not be reached at all.
+//
+// "account_suspended" was added on 4 October 2026 (issue #133), and this list is
+// the half that makes it work. accept-invite now answers 403 with that reason
+// when the caller has a row in account_status -- but
+// web/src/app/invite/[token]/actions.ts accepts a reason only if it appears
+// HERE, and otherwise falls back to the HTTP status, where 403 means
+// "wrong_person". So leaving this list alone would have told a suspended person
+// the invitation was sent to a different email address, and sent them off to
+// sign in with an account they do not have.
 export const INVITE_REASONS = [
   "not_found",
   "expired",
@@ -107,6 +116,7 @@ export const INVITE_REASONS = [
   "wrong_person",
   "signin",
   "failed",
+  "account_suspended",
   "unreachable",
 ] as const;
 

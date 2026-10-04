@@ -34,6 +34,17 @@ const REASON_MESSAGES: Record<InviteReason, string> = {
   signin:
     "Please sign in again, then open this link once more. Your sign-in could not be checked.",
   failed: "This invitation could not be accepted. Please try again.",
+  // The suspended-account refusal (issue #133). Neutral on purpose, and written
+  // for this cause rather than borrowed from another: docs/plan.md says this
+  // version does not decide what a suspended person is told, and #134 holds the
+  // fuller question. It says nothing about a suspension, nothing about the
+  // invitation -- which is still unused and still valid -- and nothing a person
+  // could act on wrongly, which is the most this page can honestly say today.
+  //
+  // It must stay a separate entry rather than pointing at `wrong_person`: that
+  // one tells somebody to sign in with a different address, which here would be
+  // false and would send them looking for an account they do not have.
+  account_suspended: "You can't do that at the moment.",
   unreachable:
     "Could not reach the server to accept this invitation. Please try again.",
 };

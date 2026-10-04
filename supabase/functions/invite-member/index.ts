@@ -33,6 +33,14 @@
 // This line used to say the file had never been pushed to any project, which was
 // untrue from the moment PR #44 merged (issue #111). Read what follows as code
 // that is running in production: it is.
+//
+// WITH ONE EXCEPTION, as of 4 October 2026: THE SUSPENDED-ACCOUNT CHECK BELOW IS
+// DEPLOYED NOWHERE. It arrived with issue #133, part B of Build it 16 step 5, and
+// the assistant deploys nothing (rule 19 permits `functions deploy` against
+// staging; it was not used). So what staging and production are running is this
+// file WITHOUT that check, and a suspended person can still invite people on
+// both until the owner deploys. evidence/build-it-16-suspend-functions.md says
+// what was proved and where.
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
@@ -53,6 +61,113 @@ const UUID_PATTERN =
 function fail(message: string, status: number, code?: string) {
   // One shape for every failure, so the page can always read `error`.
   return Response.json({ error: message, code }, { status });
+}
+
+// ---------------------------------------------------------------------------
+// The suspended-account check (issue #133)
+// ---------------------------------------------------------------------------
+//
+// Identical to create-team's and accept-invite's, on purpose and for the same
+// reason hashToken is identical to accept-invite's: one question, asked the same
+// way in all three places, so that if one ever changes the others must change
+// with it. supabase/functions/_tests/suspension_test.ts imports all three and asserts
+// they agree, so a copy that drifts is a failing test rather than a hole.
+//
+// WHY THIS IS IN TYPESCRIPT AT ALL, when suspension is a database feature.
+// 20261004114313_suspend_accounts.sql adds one restrictive policy per table, and
+// those policies decide for the app's own users. They do NOT decide here: this
+// function reads and writes with ctx.supabaseAdmin, which connects as
+// `service_role`, and the Supabase roles page says of that role, "This role is
+// used by the API (PostgREST) to bypass Row Level Security." So every rule in
+// that migration is skipped on this path.
+//
+// WHAT WOULD HAPPEN WITHOUT IT, which is worse here than in create-team: a
+// suspended owner's invitation would occupy one of the team's 20 pending slots
+// and WOULD SEND MAIL to a real address. That is why the call below sits before
+// decideDelivery and before every insert.
+//
+// AND IT MUST NOT CALL public.is_active(). That function answers about
+// auth.uid(), and an admin connection has no signed-in user -- so auth.uid() is
+// null and the answer is false for EVERY caller. It would not error; this
+// function would simply refuse everybody, silently. Measured as `service_role`
+// with no session: `is_active()` returns `f`
+// (evidence/build-it-16-suspend-accounts.md section 5, step M7). So the table is
+// read by user id instead, which is what the migration's `grant select on table
+// public.account_status to service_role` is for, and which step M8 confirms
+// works with no session.
+//
+// WHAT IS NEVER DONE HERE: no insert, update or delete on account_status -- the
+// privilege is deliberately not granted, so an attempt would fail with 42501 --
+// and the `reason` column is never selected, never returned and never logged.
+// docs/plan.md marks it sensitive and says nobody reads it through the app.
+
+// The one code every refusal uses, in all three functions. A caller learns a
+// code and nothing else: no reason, no timestamp, no mention of a table.
+const SUSPENDED_CODE = "account_suspended";
+
+// Neutral, true, and blaming nothing else. docs/plan.md says this version does
+// not decide what a suspended person is told, and issue #134 holds the fuller
+// question -- so this says the least it can while still being honest, and it is
+// deliberately NOT a message written for another cause.
+const SUSPENDED_MESSAGE = "You can't do that at the moment.";
+
+// Three answers, not two. "I could not tell" is the one that matters: a read
+// that failed does not mean "not suspended". This file already argues that shape
+// twice, about its two counts -- "an unknown is not a zero".
+export type SuspensionVerdict =
+  | { allowed: true }
+  | { allowed: false; why: "suspended" }
+  | { allowed: false; why: "unknown"; code?: string };
+
+// The read itself is passed IN, as a function that performs it. Two reasons,
+// and the second is the one that made this the shape rather than passing the
+// client:
+//
+//   * supabase/functions/_tests/suspension_test.ts can hand this a read that FAILS, and
+//     so prove the fail-closed branch below without a database, a key or a
+//     network. It exercises this very function, not a copy of it;
+//   * the query stays written out at the call site, in the handler, where a
+//     reviewer can see which table and which column it reads. An earlier version
+//     took the admin client as a narrowed structural type instead, and
+//     `deno check` refused it: TS2589, "Type instantiation is excessively deep
+//     and possibly infinite", because matching the generated client against a
+//     hand-written shape instantiates its generics. A cast would have silenced
+//     that by switching the check off, which is the opposite of the point.
+//
+// `data: unknown` because nothing here cares what the row contains. Only whether
+// there is one. The `reason` column is never selected.
+export type AccountStatusRead = () => PromiseLike<{
+  data: unknown;
+  error: { code?: string } | null;
+}>;
+
+// Is this person allowed to act? Exported so the test runs THIS function rather
+// than a copy of it.
+export async function checkSuspension(
+  read: AccountStatusRead,
+): Promise<SuspensionVerdict> {
+  let answer: { data: unknown; error: { code?: string } | null };
+  try {
+    answer = await read();
+  } catch {
+    // A thrown error -- the network, the client itself -- is still an unknown.
+    // Nothing about the cause is returned or logged.
+    return { allowed: false, why: "unknown" };
+  }
+
+  // Lesson F14: the error AND what came back.
+  if (answer?.error) {
+    return { allowed: false, why: "unknown", code: answer.error.code };
+  }
+  if (!Array.isArray(answer?.data)) {
+    // No error and no array either. Not an empty result -- an unanswered
+    // question, which is refused rather than guessed at.
+    return { allowed: false, why: "unknown" };
+  }
+  if (answer.data.length > 0) {
+    return { allowed: false, why: "suspended" };
+  }
+  return { allowed: true };
 }
 
 // A URL-safe token from at least 32 random bytes of cryptographic randomness.
@@ -234,6 +349,35 @@ export default {
     const callerId = ctx.userClaims?.id;
     if (!callerId) {
       return fail("You must be signed in to invite somebody.", 401);
+    }
+
+    // ---- Is this account suspended? --------------------------------------
+    //
+    // FIRST, before `await req.json()` and so before every check below it. The
+    // position is the point rather than tidiness: a suspended caller never
+    // reaches decideDelivery, never reaches the pending count, and never reaches
+    // an insert -- so no mail is sent, and none of the team's 20 pending slots
+    // is spent on an invitation its owner was not allowed to make.
+    const suspension = await checkSuspension(() =>
+      ctx.supabaseAdmin
+        .from("account_status")
+        .select("user_id")
+        .eq("user_id", callerId)
+        .limit(1)
+    );
+    if (!suspension.allowed) {
+      if (suspension.why === "suspended") {
+        return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE);
+      }
+      // Fail closed. The read did not answer, so whether this person may act is
+      // not known -- and an unknown is not a "no row". A different refusal from
+      // the one above, with a different status and message, because its cause is
+      // a failed check rather than a suspension.
+      return fail(
+        "Could not check your account, so no invitation was created. Please try again.",
+        500,
+        suspension.code,
+      );
     }
 
     let body: unknown;
