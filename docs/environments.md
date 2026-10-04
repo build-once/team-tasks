@@ -430,28 +430,44 @@ that one process, and nothing writes them to disk.
 
 The names the scripts expect, as they are read in the code today:
 
-Three scripts read them today. `bob` is `scripts/staging/bob-invites-to-alices-team.mjs`; `rules` is
-`scripts/staging/build-it-14-checks.mjs`, which signs all three accounts in and checks the team read
-rules; `tasks` is `scripts/staging/build-it-15-checks.mjs`, which checks the team **task** rules.
-`tasks` is the first of the three that **writes**: it creates tasks and deletes them again by id at
-the end of the run.
+**Five** scripts read them today, and `scripts/staging/` holds all five:
+
+| Short name | File | What it checks | Does it write? |
+|---|---|---|---|
+| `bob` | `bob-invites-to-alices-team.mjs` | an outsider is refused when he invites somebody to Alice's team | no |
+| `rules` | `build-it-14-checks.mjs` | the team **read** rules, with all three accounts signed in | no |
+| `tasks` | `build-it-15-checks.mjs` | the team **task** rules | **yes** — it creates tasks and deletes them again by id at the end of the run |
+| `doors` | `build-it-16-checks.mjs` | the three Edge Functions refuse a token that is present but not genuine, refuse somebody who does not own the team, and answer 404 for a team that does not exist | no — every request it sends is one a function must refuse, and the forged ones carry an empty body |
+| `suspend` | `build-it-16-suspend-checks.mjs` | the three Edge Functions refuse a **suspended** caller, and still answer an active one normally (issue #133) | no — every body it sends is one each function refuses on its own merits, so there is nothing to create |
+
+`suspend` needs one of `--expect-suspended` or `--expect-active`, and will not run without one: only
+the owner can add or remove a row in `account_status`, so the script has to be told which state it is
+looking at. Its own file explains the whole sequence, including the two SQL statements. `doors` takes
+one optional extra name, `EXPIRED_ACCESS_TOKEN`, and says UNVERIFIED for that one check when it is
+not set.
 
 | Variable | Read by | What it is |
 |---|---|---|
-| `ALICE_EMAIL` | `rules`, `tasks` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
-| `ALICE_PASSWORD` | `rules`, `tasks` | Alice's staging password. **Secret** — never printed, by that script or any other |
-| `BOB_EMAIL` | `bob`, `rules`, `tasks` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
-| `BOB_PASSWORD` | `bob`, `rules`, `tasks` | Bob's staging password. **Secret** — never printed |
+| `ALICE_EMAIL` | `rules`, `tasks`, `doors`, `suspend` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
+| `ALICE_PASSWORD` | `rules`, `tasks`, `doors`, `suspend` | Alice's staging password. **Secret** — never printed, by that script or any other |
+| `BOB_EMAIL` | `bob`, `rules`, `tasks`, `doors`, `suspend` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
+| `BOB_PASSWORD` | `bob`, `rules`, `tasks`, `doors`, `suspend` | Bob's staging password. **Secret** — never printed |
 | `CAROL_EMAIL` | `rules`, `tasks` | `teamtasks.staging.test+carol@gmail.com`. Not secret |
 | `CAROL_PASSWORD` | `rules`, `tasks` | Carol's staging password. **Secret** — never printed |
-| `ALICE_TEAM_ID` | `bob`, `rules`, `tasks` | The UUID of the team Bob must be refused, the team whose roster Alice and Carol must both see, and the team Alice's test task is filed into. Not secret, and it changes whenever staging's seed data is reloaded |
+| `ALICE_TEAM_ID` | `bob`, `rules`, `tasks`, `doors`, `suspend` | The UUID of the team Bob must be refused, the team whose roster Alice and Carol must both see, the team Alice's test task is filed into, and — in `suspend` — the team Alice reads to show that an active person's reads still work. Not secret, and it changes whenever staging's seed data is reloaded |
 | `CAROL_TEAM_ID` | `tasks` | The UUID of a second team that **Carol belongs to and Alice does not** — the team Carol must not be able to move Alice's task into. Carol owning a team of her own is the easy way to have one. Not secret; it must not be the same team as `ALICE_TEAM_ID`, and that script refuses to start if it is |
+| `EXPIRED_ACCESS_TOKEN` | `doors`, optional | A correctly signed access token that has lapsed — the other half of issue #110, which that script cannot make for itself. **Secret while it lasts**, never printed, and the check says UNVERIFIED rather than passing when it is absent |
+
+**`doors` was added to this list on 2026-10-04**, along with `suspend`. It was written in PR #112 and
+reads the same four account names, and this table said "three scripts" until now — which is the kind
+of staleness worth noticing: a reader loading the file for `doors` would have found no row telling
+them which names it needs.
 
 The pattern for any further account is the same two names per person, `<NAME>_EMAIL` and
 `<NAME>_PASSWORD`, and a row here.
 
 The staging URL and publishable key are **not** in that file: they live in `web/.env.local`, which
-both scripts read directly.
+all five scripts read directly.
 
 ## Checks you can do yourself (no coding needed)
 

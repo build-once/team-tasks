@@ -338,6 +338,15 @@ AI team self-test: 258 passed, 0 failed.
 exit: 0
 ```
 
+### The pull request's own run
+
+PR **#138**. On commit `c942d5c`, `gh pr checks 138 --watch` reported **14 checks, all pass**,
+including the `required` aggregator: App build, Drift-check self-test, Guard self-test, Handoff
+self-test, Launch check self-test, Secret scan (gitleaks), Skills lint, Vercel, Vercel Preview
+Comments, Vet-tool self-test, Workflow lint, `npm test (macos-latest)`, `npm test (windows-latest)`,
+`required`. **None of those 14 runs the Deno test or the new script's selftest** — that is #136, and
+it is why the two commands above were run by hand and their output pasted here.
+
 ### One finding from this, and it changed where a file lives
 
 The test was first written at `supabase/functions/suspension_test.ts`. That would have turned the
