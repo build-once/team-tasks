@@ -28,6 +28,39 @@ Five things, and nothing else:
    delete it, so nobody loses an entry because somebody else tidied up.
 5. See only your own personal tasks, and the tasks of teams you belong to.
 
+## Suspending an account
+
+Added 2026-10-04. Not a sixth feature of the list above: nobody using the app gets a new
+button, and the five things stay five. This is a **safety control for the owner**, and it is
+in the plan because it holds personal data the appendix did not list.
+
+What it is: the owner can stop one account from reading or changing anything — their own
+tasks, their teams, everything — without deleting the account or its work. It exists for the
+case the app otherwise has no answer to: somebody is putting other people's personal details
+into task text, or an account has been taken over.
+
+How it works, in one line: a row in a table means that person is suspended, and every
+database rule refuses them while the row is there. Removing the row restores them exactly as
+they were.
+
+What it deliberately is **not**:
+
+- **No screen, and no self-service.** The owner adds and removes the row by hand, in the
+  Supabase dashboard. There is no admin page in this version, and nobody can suspend anybody
+  else.
+- **Not deletion.** Nothing is destroyed. The tasks, teams and memberships stay, and come
+  back untouched when the row goes.
+- **No notification.** Nobody is emailed. A suspended person sees an app with nothing in it;
+  what they are told, and how, is a decision this version does not make.
+- **No history.** One row per suspended person, deleted when they are restored. We do not
+  keep a log of who was suspended and when, because nothing in the first version needs one.
+
+**Decided 2026-10-04, on collecting less.** The reason is optional free text, and **nobody
+can read it through the app** — not the suspended person, not their team mates, not even
+through a signed-in request, because the table has no rule and no privileges that would let
+one through. Only the owner, in the dashboard, and the server functions. Keep it short and
+factual: it is a note to the owner, not a case file about a person.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. File attachments. An AI helper. Payments. A phone app.
@@ -42,6 +75,7 @@ Some of these come later, on purpose. When one does, this plan gets updated firs
 - Task text
 - Who created each task
 - Dates
+- Whether an account is suspended, when it happened, and the owner's reason for it
 
 Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
 sensitive information in task text, and the app does not need it.
@@ -90,6 +124,8 @@ free text that could contain absolutely anything.
 | Dates on tasks and teams — exact timestamps | Feature 4; ordering and "what is left" | `tasks`, `teams` *(proposed)* | Members of that team; owner | With the row | With the row | No, but it records when a person was active |
 | An invited person's email, before they accept | Feature 3. Stored lowercase, so the same address cannot be invited twice under different capitalisation | `invitations` — **built** | The inviter; owner | Until accepted, or 7 days — then it expires. At most 20 pending per team | **They cannot** — not a user yet; owner deletes | No, but it is data about someone who never signed up |
 | An invitation's token, hashed | Feature 3 — proves the person opening the link is the one who was invited | `invitations.token_hash` — **built**. A SHA-256 hash; the token itself is **never stored**, only emailed | Nobody — a hash cannot be read back into a token | With the invitation | With the invitation | **Yes** — until it expires or is used, the token in the email *is* a credential |
+| Whether an account is suspended, and when | "Suspending an account" above — a row here *is* how the database knows to refuse somebody | `account_status` *(proposed — not built yet)* | **Nobody through the app**, suspended or not: the table has no rule and no table privileges for signed-in or signed-out callers. Owner via the dashboard; the three server functions, which hold the secret key | Until the owner removes the row, or the account is deleted — the row goes with it | **They cannot.** The owner removes the row by hand, which is also what un-suspends them | No, but it records a judgement the owner has made about a person |
+| The owner's reason for a suspension — optional free text | So the owner still knows why weeks later, when deciding whether to restore the account | `account_status.reason` *(proposed — not built yet)* | As the row above: nobody through the app. Owner via the dashboard; the server functions | With the row | **They cannot** — it goes when the owner removes the row | **Yes** — free text, and it is text *about a person*, so it can name a third party who never agreed to anything |
 | Sent-invitation logs | Proof an invitation actually went out | Resend — outside your app | Owner via Resend; Resend | 30 days on the free plan | Not user-deletable; owner clears | No |
 | Sign-in audit records, including IP address | **Nothing** — Supabase Auth writes them anyway | Supabase `auth.audit_log_entries` | Owner via dashboard; Supabase | UNSURE — see notes below | Not user-deletable | **Yes** — IP address |
 | Session and refresh tokens, last sign-in time | Keeping people signed in (feature 1) | Supabase `auth.sessions`, `auth.refresh_tokens`, `auth.users` | Nobody — they are secrets | Until sign-out or expiry | Sign out | **Yes** — credentials |
@@ -150,9 +186,15 @@ The three things below are unchanged, because there was nothing to reduce:
 ## Two gaps this table exposes
 
 **There is no way for anyone to delete their account.** Features 1 to 5 do not include it, which is
-why nine rows above say the owner must delete by hand. That is a report, not a suggestion: as
-written, this app collects personal data and offers no way out. Decide whether that is acceptable
-for six volunteers, or whether the plan changes.
+why eleven rows above say the owner must delete by hand — nine of them from the first version, and
+the two suspension rows added on 2026-10-04. That is a report, not a suggestion: as written, this
+app collects personal data and offers no way out. Decide whether that is acceptable for six
+volunteers, or whether the plan changes.
+
+Suspension makes that gap sharper rather than softer, and this is the place to say so: a suspended
+person can no longer reach anything in the app, so they cannot delete their own tasks either, and
+there was never a way to delete the account. Everything about their data is in the owner's hands
+while the row is there.
 
 **Four rows are things you never chose to collect.** The sign-in audit records, both log stores and
 the session tokens are created by Supabase and Vercel whether you want them or not, and they
