@@ -12,8 +12,10 @@
 //
 //   POST   {url}/auth/v1/token?grant_type=password   body {email,password}
 //          -- @supabase/auth-js GoTrueClient.js, signInWithPassword
-//   POST   {url}/auth/v1/logout?scope=global
-//          -- @supabase/auth-js GoTrueAdminApi.js
+//   POST   {url}/auth/v1/logout?scope=local
+//          -- @supabase/auth-js GoTrueAdminApi.js builds exactly
+//          `${url}/logout?scope=${scope}` and refuses any scope outside
+//          SIGN_OUT_SCOPES = ['global', 'local', 'others'] (lib/types.js)
 //   GET    {url}/rest/v1/{relation}?select=a,b&col=eq.value
 //   POST   {url}/rest/v1/{relation}            body = the row
 //   PATCH  {url}/rest/v1/{relation}?id=eq.{id} body = the columns to change
@@ -351,12 +353,17 @@ export async function signIn(person) {
   return { label: person.label, accessToken, userId };
 }
 
-// Ends the session this run created. Failure is reported, not thrown: a
-// session left behind expires on its own, and losing the test result to a
-// tidy-up error would be the worse outcome.
+// Ends the session this run created, and only that one. scope=local is the
+// whole point: 'global' ends every session belonging to that account, which
+// on staging would sign the owner's own browser out of Alice, Carol or Bob
+// every time the tests ran. The three accepted values are 'global', 'local'
+// and 'others' -- @supabase/auth-js lib/types.js, SIGN_OUT_SCOPES.
+//
+// Failure is reported, not thrown: a session left behind expires on its own,
+// and losing the test result to a tidy-up error would be the worse outcome.
 export async function signOut(session) {
   try {
-    const response = await fetch(`${AUTH_URL}/logout?scope=global`, {
+    const response = await fetch(`${AUTH_URL}/logout?scope=local`, {
       method: "POST",
       headers: {
         apikey: PUBLISHABLE_KEY,

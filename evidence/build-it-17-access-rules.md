@@ -1,8 +1,8 @@
 # Evidence: Build it 17 — access-rule tests on staging (issue #145)
 
 Result: **PARTIAL** — the guard, the lint, the workflow lint and the counting logic are PASS below.
-The staging run of `npm test` and the "App tests" job on the pull request are **unverified** at the
-time this file was written, and are filled in below when each has been seen.
+The staging run of `npm test` is **reported by the owner** and recorded at the end of this file as
+reported, not observed here. The "App tests" job on the pull request is still **unverified**.
 Date: 2026-10-05
 How checked: every command below was run from the repository root on the owner's machine, one at a
 time, and its exact output pasted. Node v24.13.1 locally; the CI job pins Node 22.
@@ -238,14 +238,115 @@ Exit code 1 — the same refusal the CI run printed.
 **This is the guard working, not the guard failing.** It is also, unplanned, the fifth proof that
 it refuses: in CI, with a real secret, before a single request.
 
-## Unverified at the time of writing
+## Sign-out narrowed to `scope=local`
 
-- **Unverified — `npm test` against staging.** The three passwords are the owner's and are not the
-  assistant's to hold, so the assistant has never run this against staging. The owner runs it and
-  the output goes in the pull request and here.
-- **Unverified — the `App tests` job on the pull request.** It has not run yet.
-- **Unverified — staging's row counts before and after a run.** The owner runs the counts on
-  staging; the assistant has no way to count rows it cannot read.
+Added 5 Oct 2026. `signOut()` in `web/tests/staging.mjs` posted to
+`/auth/v1/logout?scope=global`, which ends **every** session belonging to that account — so each
+test run signed the owner's own browser out of Alice, Carol and Bob on staging. It now posts
+`?scope=local`, which ends only the session the run itself created.
+
+`local` was confirmed from the installed client, not recalled:
+
+```
+$ grep -n "SIGN_OUT_SCOPES" web/node_modules/@supabase/auth-js/dist/main/lib/types.js
+3:exports.SIGN_OUT_SCOPES = void 0;
+23:exports.SIGN_OUT_SCOPES = ['global', 'local', 'others'];
+```
+
+Exit code 0. `GoTrueAdminApi.js:72` builds the request as `` `${this.url}/logout?scope=${scope}` ``
+after rejecting any scope outside that list, so the query-parameter form used here is the client's
+own. `lib/types.d.ts:1931-1943` documents the three: "Global means all sessions by this account.
+Local means only this session. Others means all other sessions except the current one."
+
+The comment block above `signOut()` and the endpoint list in the file's header both said `global`;
+both now say `local` and say why. Nothing else in the tests changed —
+`web/tests/access-rules.test.mjs` is untouched.
+
+Lint, re-run after the change:
+
+```
+$ npm --prefix web run lint
+
+> web@0.1.0 lint
+> eslint
+```
+
+Exit code 0, no findings.
+
+**Not exercised.** See the last section: no run with `scope=local` has been made.
+
+**Five scripts still do this.** `scripts/staging/build-it-14-checks.mjs`,
+`build-it-15-checks.mjs`, `build-it-16-checks.mjs`, `build-it-16-suspend-checks.mjs` and
+`bob-invites-to-alices-team.mjs` all still post `?scope=global`. They were left alone because this
+pull request's scope was the test file. Filed as
+[#150](https://github.com/build-once/team-tasks/issues/150), with the line numbers.
+
+## The staging run — reported, not observed here
+
+Added 5 Oct 2026. Everything in this section was **reported to the assistant**, which did not run
+any of it and cannot: the three passwords are the owner's, and the assistant has no read access to
+staging's tables. It is recorded exactly as reported, and the raw TAP log and the raw SQL output
+were not pasted, so there is no exact output to reproduce below — the figures are what there is.
+Treat it as the owner's and the coach's testimony, which is a weaker thing than a pasted log, and
+say so rather than letting the numbers read as something this session saw.
+
+### The run
+
+| | |
+|---|---|
+| Command | `npm --prefix web test` |
+| Who ran it | The owner, locally, against staging |
+| When | 5 Oct 2026 |
+| Result | **25 passed, 0 failed, 0 skipped, 0 todo** |
+| Run marker | `ba0947e8-9687-4081-9caa-b010b825f7b2` |
+| Alice's invite | answered **201** |
+| Bob's invite | answered **403** |
+
+25 passed meets the `EXPECTED_APP_TESTS` floor of 25 exactly, and 0 skipped and 0 todo clear the
+skip-guard. 201 for Alice is the "created" branch rather than the 409 / 23505 one, so this was the
+run that created the one `+ci-invite` invitation the table above predicts. Bob's 403 is the refusal
+the pull request describes; whether its body carried the owner-check message rather than the
+suspension one is a test assertion inside that run, not something reported separately.
+
+**That run used `scope=global`.** It was made before the sign-out change now on this branch, so it
+is evidence for the 25 tests and **not** evidence for the code as it currently stands.
+
+### Row counts on staging, before and after
+
+Before — the **owner**, in staging's SQL editor. After — the **coach**, through the staging
+read-only connector. Two different observers using two different tools, which is worth naming:
+neither number was produced by the same hand twice.
+
+| Table | Before | After | Change |
+|---|---|---|---|
+| `tasks` | 9 | 9 | 0 |
+| `teams` | 9 | 9 | 0 |
+| `team_members` | 2 | 2 | 0 |
+| `invitations` | 4 | 5 | **+1** |
+| `profiles` | 3 | 3 | 0 |
+| `account_status` | 0 | 0 | 0 |
+
+The single new invitation is to the `+ci-invite` address, and **0 tasks carry the run marker**.
+That is the result the "What the tests create on staging" table above predicts, item for item: the
+two task rows were created and removed again, and the one invitation stayed because nothing holding
+a publishable key can delete it.
+
+### Issue #146
+
+**#146 is a duplicate of #145.**
+
+## Still not reported, and still unverified
+
+- **Unverified — whether `STAGING_SUPABASE_URL` was corrected.** The CI run above failed at the
+  hostname check. Nothing has been reported about the secret being changed, and a secret cannot be
+  read back from a workflow log or from here. The check that would settle it is a green **App
+  tests** job on this pull request.
+- **Unverified — a green `App tests` run in CI.** None has been reported. The only run recorded in
+  this file, [37318706722](https://github.com/build-once/team-tasks/actions/runs/37318706722),
+  failed at the guard.
+- **Not run — `npm --prefix web test` with `scope=local`.** The change on this branch has not been
+  exercised against staging by anybody. The owner's 25-pass run predates it. What would settle it:
+  the owner runs `npm --prefix web test` again and the three sign-outs answer 2xx.
 - **Unchecked — whether the `staging` GitHub environment and its five secrets exist.** Issue #145
   says the owner created them. Nothing in this session read them back, and nothing could: a secret
   is not readable from a workflow log or from here.
