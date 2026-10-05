@@ -156,7 +156,7 @@ export function tasksPath(params: {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string") query.set(key, value);
+    if (typeof value === "string" && value !== "") query.set(key, value);
   }
 
   const text = query.toString();
