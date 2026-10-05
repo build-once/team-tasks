@@ -179,6 +179,45 @@ invitation. Nothing in this session changed that, and nothing in this session to
 
 ---
 
+## 2026-10-05
+
+**Where these four lines come from.** They were written on 5 Oct 2026 by the assistant (Claude Code)
+**from the text of issue #140**, which is the owner's account of what the coach read. The assistant
+has no production access of any kind, did not watch these calls happen, and **did not use the
+production read-only connector to check them** — rules 1 and 10 forbid that, and rule 19's exception
+covers production function secrets and nothing else. Every value below is the issue's, repeated. If
+the coach's own record disagrees with it, the coach's record is the one to trust.
+
+**On the times.** The issue gives **08:33:29 UTC** for the first pair, which is 09:33:29 BST, and
+"a few minutes later" for the second pair. The second pair's own evidence is the deploy stamp it
+reported, **08:33:35 UTC**, so the read happened at or after that; the exact clock time of the read
+is **not recorded**, and the table says so rather than inventing one. One thing in this session
+agrees with the ordering rather than confirms it: `gh pr view 138 --json mergedAt` reports PR #138
+merged at **2026-10-05T08:33:08Z** — 21 seconds before the first read, which is why the first
+function list still shows versions stamped 4 Oct.
+
+All four actions were by **the coach (claude.ai)**, through the **Supabase production (read-only)
+connector**, and all four were **read-only**.
+
+| Time (BST) | Who | What | Why | Result |
+|---|---|---|---|---|
+| 09:33:29 (08:33:29 UTC) | The coach (claude.ai), via the production read-only connector | `list_edge_functions` — read-only, **the list only** | See whether the merge of PR #138 had reached production yet | Three functions: `create-team` version **26**, `invite-member` version **23**, `accept-invite` version **23**, last updated **2026-10-04 14:24:38 UTC**. So **not yet redeployed** — these are part A's versions, 21 seconds after the merge |
+| 09:33:29 (08:33:29 UTC) | The coach (claude.ai), via the production read-only connector | One SQL read of **counts only** — no row of any user table | Check what part A left in production, and that part B's merge had not touched the schema | `account_status`: **0 rows**. Last migration **20261004114313** — the same one 4 Oct recorded, so no migration arrived with PR #138 |
+| A few minutes later — exact time not recorded; at or after 08:33:35 UTC | The coach (claude.ai), via the production read-only connector | `list_edge_functions` again — read-only, **the list only** | Confirm the deploy that followed the merge | Three functions: `create-team` version **27**, `invite-member` version **24**, `accept-invite` version **24**. All three **ACTIVE**, `verify_jwt` **true**, updated **2026-10-05 08:33:35 UTC**. **Only those three** — so `_tests` was not deployed as a function by CLI **2.117.0** |
+| The same read — exact time not recorded | The coach (claude.ai), via the production read-only connector | `get_edge_function` for **`create-team` version 27** — read-only, the function's own source | Check that what landed is part B, and that the check runs before the request body is read | The contents carry the **suspension check before the request body is read**. **The contents of the other two functions were not read** |
+
+**What these four lines settle, and what they do not.** Part B is in production for `create-team`,
+and its check is in the right place — before the body, which is the ordering
+`build-it-16-suspend-checks.mjs` has a judgement for. For `invite-member` and `accept-invite` the
+only thing read was the **version number going up**; their contents were **not read**, so "part B is
+live in all three" is **unverified** from this log alone. The way to settle it is to read those two
+functions the same way, or to run the staging script against production — which rule 19 does not
+permit, so it is the first of those two.
+
+Nothing here wrote anything, and nothing in this session touched production.
+
+---
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production
