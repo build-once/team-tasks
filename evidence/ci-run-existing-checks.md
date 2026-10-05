@@ -232,3 +232,64 @@ do exist are wired, and `password-reset-check.mjs` is wired in the form it actua
 - **`EXPECTED_JOBS: "13"` is a number a person has to keep right.** Adding a job without touching
   `needs` and that number is caught by the `required` job's own guard, which is why that guard is
   there.
+
+---
+
+## 9. Afterwards — naming the script in the check name (PR #144)
+
+Added 5 Oct 2026, after PR #141 merged as `51984d1`.
+
+**Why.** Issue #87's test for "fixed" is two things: a deliberate break "**fails a required CI
+check**", *and* "**the failing check names `tasks-filter-check`**". PR #141 met the first
+comfortably. It met the second only in the weak sense: the check was called *Pure-function checks
+(My tasks filter, password reset)*, the shell labelled the run `tasks-filter`, and the string
+somebody would actually search for — `tasks-filter-check` — appeared only inside the step's banner
+line, where you have to open the log to find it.
+
+So two changes, neither of them behaviour:
+
+- the job's display name became **`Pure-function checks (tasks-filter-check, password-reset-check)`**
+  — that is the string in the checks list on a pull request;
+- every `run_and_count` label became the script's own file name, in both new Node jobs, so the
+  banner and the `::error::` line carry it too (`build-it-16-checks` and
+  `build-it-16-suspend-checks` in the other job).
+
+Renaming is safe: the only check marked required in the branch rules is `required`
+(`docs/protect-main.md`), and that job was untouched.
+
+**Run 6 — green on the rename.**
+<https://github.com/build-once/team-tasks/actions/runs/37303891982> · commit `488aeeb`
+
+```
+SUCCESS  Pure-function checks (tasks-filter-check, password-reset-check)
+SUCCESS  Staging script self-tests (can these checks fail?)
+```
+
+**Run 7 — red, the same break as run 2, re-run because the rename invalidated run 2's evidence
+for this particular claim.** <https://github.com/build-once/team-tasks/actions/runs/37304119108> ·
+commit `3ad6d03`
+
+`gh pr checks 144` named the failing check, with no log opened:
+
+```
+FAILURE  required
+FAILURE  Pure-function checks (tasks-filter-check, password-reset-check)
+```
+
+and the step's output said which of the two scripts it was:
+
+```
+--- tasks-filter-check: node scripts/tasks-filter-check.mjs
+FAIL  an empty value adds nothing
+46 of 47 checks passed.
+##[error]Process completed with exit code 1.
+```
+
+**Run 8 — green on the revert.**
+<https://github.com/build-once/team-tasks/actions/runs/37304362198> · commit `c45d1fa` ·
+conclusion **success**. `git diff 488aeeb --stat` printed nothing, so the tree is exactly what it
+was before the break.
+
+**The point of re-running it.** Run 2 proved the job catches this break. It could not prove anything
+about a name that did not exist yet. Evidence taken before a change does not cover the change, and
+closing #87 on run 2's naming would have been closing it on the wrong run.
