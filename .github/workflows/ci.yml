@@ -149,6 +149,175 @@ jobs:
       - name: Drift-check self-test
         run: node scripts/drift-check.mjs --selftest
 
+  # The two pure-function check scripts, which until now nothing ran: issues
+  # #87 and #102. Neither touches the network, a database or an account --
+  # each imports a real module out of web/src/lib and calls it, so there is no
+  # cost argument for leaving them out.
+  #
+  # Node reads those .ts modules directly and strips the types as it loads
+  # them. That needs no flag here: type stripping is enabled by default from
+  # Node v23.6.0 and v22.18.0 (nodejs.org/api/typescript.html, the History
+  # table), and the "22" below resolves to the newest 22.x. The version is
+  # printed into the log so the run says which Node actually ran, rather than
+  # leaving the next person to work it out.
+  pure-checks:
+    name: Pure-function checks (My tasks filter, password reset)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # A FLOOR, not an equality. Adding checks to either script must not fail
+    # this job, but a run that checked fewer things than it used to has lost
+    # coverage, and a run that checked nothing is not a pass (AGENTS.md rule
+    # 8). Both numbers were counted from the scripts' own output.
+    env:
+      EXPECTED_TASKS_FILTER_CHECKS: "47"
+      EXPECTED_PASSWORD_RESET_CHECKS: "84"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Which Node ran these
+        run: node --version
+      - name: Run both scripts, and count what each one actually checked
+        run: |
+          set -euo pipefail
+
+          # Run one check script, show every line it prints, then count the
+          # PASS lines. The count is the whole point: a script that compiled,
+          # exited 0 and checked nothing would otherwise be a green tick.
+          run_and_count () {
+            label="$1"; script="$2"; expected="$3"
+            log="$RUNNER_TEMP/$label.log"
+            echo "--- $label: node $script"
+            node "$script" | tee "$log"
+            count=$(grep -c '^PASS ' "$log" || true)
+            : "${count:=0}"
+            echo "$label: counted $count PASS lines; at least $expected expected."
+            if [ "$count" -lt "$expected" ]; then
+              echo "::error::$label ran $count checks, fewer than the $expected expected. Either the script lost checks or it never ran them. Restore them, or lower the expected number on purpose and say why."
+              exit 1
+            fi
+          }
+
+          run_and_count tasks-filter   scripts/tasks-filter-check.mjs   "$EXPECTED_TASKS_FILTER_CHECKS"
+          run_and_count password-reset scripts/password-reset-check.mjs "$EXPECTED_PASSWORD_RESET_CHECKS"
+
+  # The --selftest of the two staging scripts that have one: issues #114 and
+  # #136. A selftest here is the thing that makes a green staging run mean
+  # anything -- it feeds every judgement in the script an answer from a world
+  # where the door is open and requires each one to come out FAIL. Neither
+  # sends a request, reads web/.env.local or uses an account, so both run here
+  # with no secret of any kind.
+  #
+  # The staging runs themselves are NOT here and cannot be: they need the
+  # staging URL and the three test accounts. Those belong to Build it 17.
+  staging-script-selftests:
+    name: Staging script self-tests (can these checks fail?)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # Counted from each script's own output; a floor, as above.
+    env:
+      EXPECTED_BUILD_IT_16_CASES: "39"
+      EXPECTED_SUSPEND_CASES: "40"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Run both self-tests, and count the cases each one ran
+        run: |
+          set -euo pipefail
+
+          # Each case the selftest runs prints a line beginning "  ok" (or
+          # "  WRONG", which makes the script exit non-zero by itself). We
+          # count the cases rather than trusting the exit code, because a
+          # selftest with its case list emptied would also exit 0.
+          run_and_count () {
+            label="$1"; script="$2"; expected="$3"
+            log="$RUNNER_TEMP/$label.log"
+            echo "--- $label: node $script --selftest"
+            node "$script" --selftest | tee "$log"
+            count=$(grep -c '^  ok  ' "$log" || true)
+            : "${count:=0}"
+            echo "$label: counted $count cases; at least $expected expected."
+            if [ "$count" -lt "$expected" ]; then
+              echo "::error::$label ran $count cases, fewer than the $expected expected. A selftest that has stopped running its cases cannot tell you the checks can still fail."
+              exit 1
+            fi
+          }
+
+          run_and_count build-it-16 scripts/staging/build-it-16-checks.mjs         "$EXPECTED_BUILD_IT_16_CASES"
+          run_and_count suspend     scripts/staging/build-it-16-suspend-checks.mjs "$EXPECTED_SUSPEND_CASES"
+
+  # The Deno tests over the three Edge Functions: issue #136. They are the
+  # only thing that proves the suspended-account check fails CLOSED when the
+  # account_status read errors, and the only thing that notices if one of the
+  # three copies of checkSuspension drifts from the other two. Until this job
+  # there was no Deno step anywhere in this repository.
+  #
+  # Deno is installed from its own release with the download checksum-verified,
+  # the same way the gitleaks CLI is installed above, rather than through a
+  # third-party setup action: that would be a new dependency, and AGENTS.md
+  # rule 17 says the owner approves one of those before it is added, not after.
+  #
+  # Dependabot does NOT update these two lines. To upgrade: pick a release at
+  # https://github.com/denoland/deno/releases and copy the version and the
+  # number out of that release's deno-x86_64-unknown-linux-gnu.zip.sha256sum.
+  #
+  # This job does reach the network -- Deno fetches the two module imports from
+  # jsr.io and npm. It reaches no Supabase project: nothing here has a URL, a
+  # key or an account, staging or production.
+  functions-test:
+    name: Edge function tests (Deno)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      DENO_VERSION: "2.9.7"
+      DENO_SHA256: "c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490"
+      # So the summary line can be read without ANSI colour codes in the way.
+      NO_COLOR: "1"
+      # Counted from the test run's own summary; a floor, as above.
+      EXPECTED_FUNCTION_TESTS: "40"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download Deno and verify its checksum
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "$RUNNER_TEMP/deno.zip" \
+            "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip"
+          echo "${DENO_SHA256}  $RUNNER_TEMP/deno.zip" | sha256sum --check --strict
+          unzip -q -o "$RUNNER_TEMP/deno.zip" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/deno" --version
+      - name: The suspended-account tests over the three functions
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/deno" test --no-lock --allow-env \
+            --config supabase/functions/create-team/deno.json \
+            supabase/functions/_tests/suspension_test.ts | tee "$RUNNER_TEMP/deno-test.log"
+
+          # Read the count out of Deno's own summary line, which with NO_COLOR
+          # reads: "ok | 40 passed | 0 failed (49ms)". A test file whose tests
+          # had all been deleted would still exit 0, so the number is checked.
+          passed=$(sed -n 's/^ok | \([0-9][0-9]*\) passed .*/\1/p' "$RUNNER_TEMP/deno-test.log")
+          : "${passed:=0}"
+          echo "Counted $passed passing tests; at least $EXPECTED_FUNCTION_TESTS expected."
+          if [ "$passed" -lt "$EXPECTED_FUNCTION_TESTS" ]; then
+            echo "::error::Only $passed tests passed, fewer than the $EXPECTED_FUNCTION_TESTS expected. Either tests were removed or none ran -- that is a failure, not a pass."
+            exit 1
+          fi
+
   # The full test suite on Windows and macOS. The jobs above run on Linux.
   # This caught (and now guards against) path bugs that only show up off Linux.
   other-os:
@@ -314,7 +483,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, other-os, secret-scan, app-build]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, other-os, secret-scan, app-build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -322,7 +491,7 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "10"
+          EXPECTED_JOBS: "13"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
