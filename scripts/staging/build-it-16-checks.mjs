@@ -1007,7 +1007,7 @@ function runSelftest() {
   ];
 
   let wrong = 0;
-  for (const testCase of cases.slice(0, 5)) {
+  for (const testCase of cases) {
     const got = testCase.run().map((r) => r.verdict);
     const same =
       got.length === testCase.expect.length &&

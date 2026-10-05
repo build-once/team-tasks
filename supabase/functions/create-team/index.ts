@@ -178,7 +178,7 @@ export async function checkSuspension(
 
   // Lesson F14: the error AND what came back.
   if (answer?.error) {
-    return { allowed: true };
+    return { allowed: false, why: "unknown", code: answer.error.code };
   }
   if (!Array.isArray(answer?.data)) {
     // No error and no array either. Not an empty result -- an unanswered
