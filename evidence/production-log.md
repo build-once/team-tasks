@@ -140,6 +140,45 @@ arrives. The two are easy to blur, because they are about the same three functio
 
 ---
 
+## 2026-10-04
+
+**Where these two lines come from, and what that means.** They were written on 4 Oct 2026 by the
+assistant (Claude Code) **from the coach's comment on issue #133**, not from anything the assistant
+ran or saw. The assistant has no production access of any kind, did not watch these calls happen,
+and **did not use the production read-only connector to check them** — rules 1 and 10 forbid that,
+and rule 19's exception covers production function secrets and nothing else. Every value below is
+the comment's, repeated. If the coach's own record disagrees with it, the coach's record is the one
+to trust.
+
+**On the time.** The comment gives **14:31 UTC**, which is 15:31 BST, and that is what the rows say.
+Two things in this session agree with it rather than confirm it: the comment itself is stamped
+`2026-10-04T14:31:48Z` (`gh issue view 133 --json comments`), and it places the reads after the
+merge of PR #132, which `gh pr view 132 --json mergedAt` reports at **14:24:08 UTC** — seven minutes
+earlier, so the order is at least consistent.
+
+Both entries were by **the coach (claude.ai)**, through the **Supabase production (read-only)
+connector**, and both were **read-only**.
+
+| Time (BST) | Who | What | Why | Result |
+|---|---|---|---|---|
+| 15:31 (14:31 UTC) | The coach (claude.ai), via the production read-only connector | One SQL read of **catalogue facts only** — no row of any user table | Check what part A's merge actually left in production, rather than reading the migration and assuming | **Seven** migrations recorded, the last `20261004114313`. **11 permissive and 5 restrictive** policies, one restrictive on each of the five tables. `account_status`: row-level security **on**, **0 policies**, **0 rows**. Privileges on it: `anon` **none**, `authenticated` **none**, `service_role` **select only**. `is_active()` execute: `anon` **false**, `authenticated` **true**, `service_role` **true**. PostgreSQL **17.6** |
+| 15:31 (14:31 UTC) | The coach (claude.ai), via the production read-only connector | `get_advisors`, security — read-only | See what part A did to production's security advice | `account_status` **RLS-enabled-no-policy** (info; **intended** — the table is meant to be unreachable through the app). Security-definer function executable by signed-in users for **`is_active`**, **`is_team_member`** and **`tasks_enforce_column_rules`**; executable by `anon` for **`tasks_enforce_column_rules`**. **Leaked password protection disabled** — an Auth setting, pre-existing, older than this change. **Staging's advisor, read the same day, listed the same** |
+
+**What these two lines settle, and what they do not.** They are the first reading of part A in
+production, and they match what `evidence/build-it-16-suspend-accounts.md` section 7 records for
+staging — the same seven migrations, the same 11-and-5 policy counts, the same three privileges on
+`account_status`, the same three `is_active()` execute answers. The RLS-enabled-no-policy notice is
+the table working as designed: the migration creates no policy on purpose, and the `revoke` is the
+lock that matters.
+
+They say **nothing about part B**. Part B is the three Edge Functions, and no function has been
+deployed with the suspension check in it — not to staging and not to production (issue #133, and
+the branch `feat/suspend-functions`). So production today has part A's rules and the hole part A
+could not reach: a suspended person there can still create a team, invite somebody and accept an
+invitation. Nothing in this session changed that, and nothing in this session touched production.
+
+---
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production

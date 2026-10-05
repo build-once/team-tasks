@@ -37,6 +37,15 @@ async function reasonFrom(error: unknown): Promise<InviteReason> {
 
     // No usable code in the body: fall back to the HTTP status, which the
     // function controls and a caller cannot forge.
+    //
+    // THE 403 LINE IS A GUESS, and since 4 October 2026 there are two causes it
+    // cannot tell apart: the invitation belongs to another address, and the
+    // caller's account is suspended (issue #133). Both answer 403. Which one it
+    // was travels in the body as `reason`, read above -- so this line is only
+    // reached when the body could not be read at all, and then "wrong_person" is
+    // the older and more likely of the two. The fix for a suspended person is
+    // not to change this guess but to make sure the code above reaches them:
+    // "account_suspended" is in INVITE_REASONS, which is what lets it through.
     const status = error.context?.status;
     if (status === 404) return "not_found";
     if (status === 410) return "expired";
