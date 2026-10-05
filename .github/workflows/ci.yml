@@ -161,7 +161,10 @@ jobs:
   # printed into the log so the run says which Node actually ran, rather than
   # leaving the next person to work it out.
   pure-checks:
-    name: Pure-function checks (My tasks filter, password reset)
+    # The display name carries both script names on purpose: this is the string
+    # that shows in the checks list on a pull request, and issue #87 asks that a
+    # red check name tasks-filter-check rather than leave you opening logs.
+    name: Pure-function checks (tasks-filter-check, password-reset-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -203,8 +206,11 @@ jobs:
             fi
           }
 
-          run_and_count tasks-filter   scripts/tasks-filter-check.mjs   "$EXPECTED_TASKS_FILTER_CHECKS"
-          run_and_count password-reset scripts/password-reset-check.mjs "$EXPECTED_PASSWORD_RESET_CHECKS"
+          # Each label is the script's own file name, so the banner and the
+          # error line both carry the name somebody would search for. Issue #87
+          # asks for exactly that: "the failing check names tasks-filter-check".
+          run_and_count tasks-filter-check   scripts/tasks-filter-check.mjs   "$EXPECTED_TASKS_FILTER_CHECKS"
+          run_and_count password-reset-check scripts/password-reset-check.mjs "$EXPECTED_PASSWORD_RESET_CHECKS"
 
   # The --selftest of the two staging scripts that have one: issues #114 and
   # #136. A selftest here is the thing that makes a green staging run mean
@@ -254,8 +260,9 @@ jobs:
             fi
           }
 
-          run_and_count build-it-16 scripts/staging/build-it-16-checks.mjs         "$EXPECTED_BUILD_IT_16_CASES"
-          run_and_count suspend     scripts/staging/build-it-16-suspend-checks.mjs "$EXPECTED_SUSPEND_CASES"
+          # Labels are the scripts' own file names, as in pure-checks above.
+          run_and_count build-it-16-checks         scripts/staging/build-it-16-checks.mjs         "$EXPECTED_BUILD_IT_16_CASES"
+          run_and_count build-it-16-suspend-checks scripts/staging/build-it-16-suspend-checks.mjs "$EXPECTED_SUSPEND_CASES"
 
   # The Deno tests over the three Edge Functions: issue #136. They are the
   # only thing that proves the suspended-account check fails CLOSED when the
