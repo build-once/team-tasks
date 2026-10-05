@@ -3,26 +3,27 @@
 Issue #133, and the coach's comment on it. Part A was #128, PR #132, merged as `f2cf18f`.
 Branch: `feat/suspend-functions`.
 
-**Read sections 1 to 7 as the state on 4 October 2026, and section 8 as what happened next.** Those
-sections were written before any of this had been deployed, and they say so repeatedly. Since then
-the owner deployed to staging and ran the script, which found a bug that every check in sections 2
-to 6 had passed. **Section 8 is the current state; where it contradicts an earlier section, section 8
-is right.**
+**Read sections 1 to 7 as the state on 4 October 2026, section 8 as the first staging run and the bug
+it found, and section 9 as all four runs in order.** Sections 1 to 7 were written before any of this
+had been deployed, and they say so repeatedly. Since then the owner deployed to staging and ran the
+script, which found a bug that every check in sections 2 to 6 had passed; the fix was made, deployed
+and run again. **Section 9 is the current state; where it contradicts an earlier section, section 9 is
+right.**
 
-In one line: part B is now **in force on staging and not in production**, and accept-invite's refusal
-body was wrong on staging until the fix recorded in section 8 — which is in this branch and is **not
-deployed either**.
+In one line: part B **and the fix are in force on staging**, both modes of the script have now been run
+there — 15 PASS and 9 PASS, 0 FAIL — and **production has neither** until the owner merges PR #138.
 
 Everything in sections 1 to 7 is output the assistant produced on the owner's machine, with the exact
-command and exit code. The staging run in section 8 is the **owner's**, reported by them; the
-assistant deployed nothing and ran nothing against staging in either session. Where a number is
-quoted it was counted or read in the session that wrote it.
+command and exit code. The staging runs in sections 8 and 9 are the **owner's**, reported by them, and
+the counts in section 9 are the **coach's** reads; the assistant deployed nothing and ran nothing
+against staging in any of the three sessions. Where a number is quoted it was counted or read in the
+session that wrote it.
 
 | | |
 |---|---|
-| What is proved here | the decision each function makes, including every way the `account_status` read can fail; that all three agree; that all three send the right refusal BODY (section 8); that the tests catch both a real fail-open and the real missing-`code` bug; that the staging script's judgements can fail; that the web app still builds and lints |
-| What is **not** proved here | anything the assistant did not see itself. The staging run, the real `account_status` row, the real refusal over the wire and the `teams`/`invitations` counts are all the owner's observations, quoted. **Nothing in production has been touched or read** |
-| What is **known to be unproved** | the fixed `accept-invite` has never been deployed, so no caller has yet received a body with both `reason` and `code`. Section 8 says what would settle it |
+| What is proved here | the decision each function makes, including every way the `account_status` read can fail; that all three agree; that all three send the right refusal BODY (section 8 on this machine, section 9 over the wire from staging); that the tests catch both a real fail-open and the real missing-`code` bug; that the staging script's judgements can fail; that the web app still builds and lints |
+| What is **not** proved here | anything the assistant did not see itself. The four staging runs, the two deploys, the real `account_status` row, the real refusals over the wire and the `teams`/`invitations` counts are all the owner's and the coach's observations, quoted. **Nothing in production has been touched or read** |
+| What is **known to be unproved** | nothing in **production**: it has neither part B nor the fix. On staging, the per-check output of all four runs and every exit code are **not reported** — only the totals and the bodies quoted in section 9. The new message on `/invite/[token]` has never been seen on a screen |
 
 ---
 
@@ -39,7 +40,7 @@ Five files, and one new folder.
 | `web/src/app/invite/[token]/page.tsx` | the message for that reason, chosen by the page |
 | `web/src/app/invite/[token]/actions.ts` | comment only: the 403 fallback is now ambiguous, and why that is all right |
 | `supabase/functions/_tests/suspension_test.ts` | **new** — the Deno test |
-| `scripts/staging/build-it-16-suspend-checks.mjs` | **new** — the staging script, two modes, never run |
+| `scripts/staging/build-it-16-suspend-checks.mjs` | **new** — the staging script, two modes, never run *(both modes have since been run on staging, four times — section 9)* |
 
 ### The refusal
 
@@ -404,18 +405,20 @@ the same thing. **Filed as #137**, with the self-test case that would catch it.
 Every line here is something the 4 October session could not ask. AGENTS.md rule 8: a check that was
 not run is not a pass.
 
-> **Five of these were answered on 5 October, by the owner's staging run.** They are kept, struck
-> through, with what the run showed — because what this section got right was more important than
+> **Eight of the eleven bullets below were answered on 5 October, by the owner's four staging runs**
+> (eleven bullets, eight struck through, counted in this session). They are kept, struck
+> through, with what the runs showed — because what this section got right was more important than
 > what it got wrong: it said the refusal had never been seen by a caller, and when a caller finally
-> saw it, it was wrong. Section 8 has the detail.
+> saw it, it was wrong. Section 8 has the bug; **section 9 has all four runs** and is the current state.
+> The bullets still standing unstruck are the ones that are **still** unanswered.
 
 - ~~**Nothing is deployed.**~~ **ANSWERED.** The owner deployed this branch's three functions to
   staging on 5 October. Production is still pre-part-B, and the assistant has still deployed nothing,
   anywhere, in either session.
-- ~~**The staging script has never been run against staging**, in either mode.~~ **PARTLY
-  ANSWERED.** `--expect-suspended` was run by the owner: 14 PASS, 1 FAIL. `--expect-active` is
-  **still unrun**, so "an ordinary, un-suspended person is unaffected" is still unproved against the
-  deployed functions — and that is the half that catches a check which refuses everybody.
+- ~~**The staging script has never been run against staging**, in either mode.~~ **ANSWERED — both
+  modes.** Four runs, all the owner's: `--expect-suspended` before the deploy (6 PASS, 9 FAIL), after
+  it (14 PASS, 1 FAIL), after the fix (15 PASS, 0 FAIL), and `--expect-active` with the row removed
+  (9 PASS, 0 FAIL) — the half that catches a check which refuses everybody. Section 9.
 - ~~**No real `account_status` row has been involved.**~~ **ANSWERED.** The owner put Bob's row in
   place for the run. Every row in the Deno test is still fabricated, with invented ids and reason
   text.
@@ -426,25 +429,29 @@ not run is not a pass.
 - ~~**The 403, the code and the message have never been seen by a caller.**~~ **ANSWERED, and this is
   the bullet that mattered.** A caller saw them, and accept-invite's body was missing its `code`. The
   403 and the sentence were right in all three.
-- **The fixed `accept-invite` is unproved against anything deployed.** The fix in section 8 is proved
-  by the Deno test on this machine and by nothing else. Staging is running the version without it
-  until the owner deploys again; production has neither the fix nor the check.
-- **No count of `teams` or `invitations`** was read by the assistant, before or after anything, in
-  either session. Nor has the assistant seen the run's per-check output: what the owner reported is
-  the two counts, 14 PASS and 1 FAIL, and the one failing body. Which 14 passed is therefore
-  **unverified here** — including the script's "nothing was created" judgements. Reading those two
-  counts in the dashboard is the owner's step 4 below.
-- **No mail check.** The assistant sent nothing, so it has nothing to show from the test inbox.
+- ~~**The fixed `accept-invite` is unproved against anything deployed.**~~ **ANSWERED for staging.**
+  The owner deployed again after `669fe09` and run 3 came back 15 PASS, 0 FAIL, with `accept-invite`
+  sending both `reason` and `code`. **Production still has neither the fix nor the check**, and that
+  half of this bullet stands until PR #138 is merged.
+- ~~**No count of `teams` or `invitations`** was read…~~ **ANSWERED by the coach, not by the
+  assistant.** Three reads through the staging read-only connector, counts only, before deploy 1 and
+  after run 4: every count identical, `account_status` 1 → 0. Section 9 has the table. **The
+  assistant read none of them**, and the **per-check output of all four runs is still not reported**,
+  so which individual judgements passed remains **unverified here** — including the script's "nothing
+  was created" judgements, which are a log of its own requests rather than a count of rows.
+- **No mail check.** The assistant sent nothing, so it has nothing to show from the test inbox — and
+  `invite-member` was never given an address in any of the four runs, so there was nothing to send.
 - **Nothing in a browser.** The new message on `/invite/[token]` has not been seen on a screen; it
   is proved to exist and to be reachable by type, by `npm run build`, and no further.
 - **Neither new check is in CI.** `.github/workflows/ci.yml` contains the word `deno` zero times
   (counted in this session) and no `functions:test` script exists, so the Deno test and the script's
   `--selftest` both run only when somebody runs them by hand. Adding a CI job means editing
   `.github/workflows/`, which rule 5 says is the owner's call. **Filed as #136.**
-- **Whether `_tests/` is skipped by `supabase functions deploy`** is reasoned from the underscore
+- ~~**Whether `_tests/` is skipped by `supabase functions deploy`** is reasoned from the underscore
   convention in Supabase's docs and from the two files in this repository that act on it, not
-  observed. The first deploy settles it, and the folder contains no `index.ts`, so there is nothing
-  there that could answer as a function.
+  observed.~~ **ANSWERED, and by the first deploy exactly as predicted.** With **CLI 2.75.0** the
+  deploy uploaded `deno.json` and `index.ts` for each of the three functions and **did not mention
+  `_tests`**. Section 9, Deploy 1, including the two limits on that observation.
 
 ### How #133 actually gets answered
 
@@ -458,6 +465,11 @@ not run is not a pass.
 The script prints that sequence at the bottom of its own file, with the two SQL statements and both
 shells' way of loading the password file.
 
+**All five steps have since been carried out, on staging — section 9.** Steps 1 and 3 were done twice,
+because the first `--expect-suspended` run found the bug section 8 records; step 4's two counts were
+read by the coach rather than in the dashboard. What is left of #133 is production, which means merging
+PR #138.
+
 ---
 
 ## 8. The staging run of 5 October 2026, and the bug it found
@@ -468,7 +480,9 @@ except where a note points here.
 ### What the owner did, and what they reported
 
 The owner deployed this branch's three functions to staging, put the test account **Bob**'s
-`account_status` row in place, and ran the script:
+`account_status` row in place, and ran the script. **This is run 2 of the four section 9 records**:
+the row went in first and the script had already been run once *before* the deploy, which this
+session did not know. Section 9 has the order.
 
 ```
 node scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended
@@ -659,17 +673,23 @@ to add lockfiles deliberately):
 
 ### What is still needed, and it is the owner's
 
-1. **Deploy the three functions to staging again**, so the fixed body is actually served. Until then
-   staging refuses a suspended person *without* the `code` field.
-2. **Re-run `--expect-suspended`** with Bob's row in place. Expect 15 PASS, 0 FAIL.
-3. **Run `--expect-active`** with the row removed — still never run, in either session, and it is the
-   half that would catch a check refusing everybody.
-4. **Read Bob's `teams` and `invitations` counts** in the dashboard, before and after, and confirm
-   they did not move.
-5. **Merge the pull request** for production to get any of this at all.
+**Steps 1 to 4 were done on 5 October — section 9 records all four, with the numbers. Step 5 is the
+only one left.** The list is kept as written, with what happened against each.
 
-Step 1 is permitted to the assistant by rule 19 and was **not** done, because the task said to deploy
-nothing and run nothing against staging.
+1. **Deploy the three functions to staging again**, so the fixed body is actually served. Until then
+   staging refuses a suspended person *without* the `code` field. — **DONE**, deploy 2; its output is
+   not reported.
+2. **Re-run `--expect-suspended`** with Bob's row in place. Expect 15 PASS, 0 FAIL. — **DONE**, run 3:
+   **15 PASS, 0 FAIL, 0 UNVERIFIED**, which is the expectation written before the run and met.
+3. **Run `--expect-active`** with the row removed — still never run, in either session, and it is the
+   half that would catch a check refusing everybody. — **DONE**, run 4: **9 PASS, 0 FAIL, 0
+   UNVERIFIED**.
+4. **Read Bob's `teams` and `invitations` counts** in the dashboard, before and after, and confirm
+   they did not move. — **DONE**, by the coach through the staging read-only connector: unchanged.
+5. **Merge the pull request** for production to get any of this at all. — **STILL OPEN.** PR #138.
+
+Step 1 is permitted to the assistant by rule 19 and was **not** done by it, in any session: both
+deploys and all four runs are the owner's.
 
 ### The root cause is still there, and it is filed
 
@@ -685,10 +705,190 @@ is precisely the check that could not see it.
 
 ---
 
-## 9. Notes
+## 9. All four staging runs, as the owner reported them
 
+Written in a third session, on 5 October 2026, on the same branch. **This section is the current state
+of this file**; where it contradicts sections 1 to 8, this one is right. Section 8 recorded one run and
+the bug it found; this section records all four, in order, including the two that came after the fix.
+
+Every number and every body below is the **owner's** report of their own runs, plus the coach's reads
+through the staging read-only connector. The assistant **deployed nothing, ran nothing against staging
+and read nothing there** — not in this session and not in either earlier one; the task said to deploy
+nothing and run nothing. So nothing here is an observation of this machine, and anything the owner did
+not report is marked **not reported** rather than filled in.
+
+### The setup, as reported
+
+| | |
+|---|---|
+| Date | 5 October 2026 |
+| Who ran all of it | the owner |
+| Branch | `feat/suspend-functions` |
+| Supabase CLI | 2.75.0 |
+| Staging project | `ghskxrhqlhvrhpnivqbd` — the same ref already committed in `.claude/guard/local.json` |
+| Bob's `account_status` row | added by the owner by hand, in the staging SQL editor, before run 1 |
+
+### The sequence
+
+| # | What | Result, as reported |
+|---|---|---|
+| Run 1 | `--expect-suspended`, **before any deploy** | **6 PASS, 9 FAIL, 0 UNVERIFIED** |
+| Deploy 1 | `supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd` | three functions deployed |
+| Run 2 | `--expect-suspended` | **14 PASS, 1 FAIL** — the missing `code`, section 8 |
+| Deploy 2 | the same deploy, after `669fe09` | **output not reported** |
+| Run 3 | `--expect-suspended` | **15 PASS, 0 FAIL, 0 UNVERIFIED** |
+| — | the owner **deleted** Bob's row in the SQL editor | — |
+| Run 4 | `--expect-active` | **9 PASS, 0 FAIL, 0 UNVERIFIED** |
+
+**Exit codes: not reported**, for any of the four runs or either deploy. The totals above are the
+owner's report of the totals line each run printed, not of its exit status.
+
+### Run 1 — the script fails when part B is absent
+
+`node scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended`, with Bob's row in place and
+the old functions still deployed: **6 PASS, 9 FAIL, 0 UNVERIFIED**.
+
+All nine FAILs were in **section 2**, Bob's section. The old functions answered Bob **400, 400 and
+404, in their own words** — the part-A behaviour, which is exactly what the script's status table calls
+a failure and says is "part B is not deployed here, or the check is in the wrong place". **Alice's four
+control checks passed**, so the run was not a run where the app was shut for everybody.
+
+This is the run worth having. Section 4 argued that the script's judgements *can* fail; run 1 is that
+argued thing happening against the real deployment, on the one occasion it could ever be observed —
+before the deploy. After deploy 1 this evidence is unreproducible without putting the old functions
+back.
+
+### Deploy 1 — and what it settles about `_tests`
+
+`supabase functions deploy --project-ref ghskxrhqlhvrhpnivqbd`. As reported, the output:
+
+- printed `WARNING: Docker is not running`;
+- deployed **create-team, invite-member and accept-invite**, uploading **`deno.json` and `index.ts`
+  for each**;
+- **did not mention `_tests`** anywhere, and deployed no fourth function.
+
+So the last bullet of section 7 — *"whether `_tests/` is skipped by `supabase functions deploy` is
+reasoned from the underscore convention, not observed"* — is now **observed**: with **CLI 2.75.0** the
+`_tests` folder is skipped. Two limits on that, both real: it is one CLI version on one machine, so a
+later CLI could behave differently; and what was observed is the deploy's own list of what it
+uploaded, which is the right evidence for "it was not sent" and is not a read of what is deployed.
+
+### Run 2 — the bug, and the fix
+
+**14 PASS, 1 FAIL.** The failure: `accept-invite` answered
+
+```
+{"error":"You can't do that at the moment.","reason":"account_suspended"}
+```
+
+with **no `code` field**. Section 8 is the whole account of it: why 14 of 15 still passed, why `deno
+check` and the 35 verdict tests could not see it, the fix, and the five new tests that read the real
+`Response`. Fixed in **`669fe09`**.
+
+### Deploy 2 — output not reported
+
+The owner deployed again after `669fe09`. **The deploy's output is not reported**, so this file has
+nothing to quote for it. What stands in its place is run 3's bodies below: a function cannot send the
+`code` unless the fixed code is the code running.
+
+### Run 3 — 15 PASS, 0 FAIL, 0 UNVERIFIED
+
+`--expect-suspended`, Bob's row still in place. The three refusal bodies, as reported:
+
+| Function | Body |
+|---|---|
+| `accept-invite` | `{"error":"You can't do that at the moment.","reason":"account_suspended","code":"account_suspended"}` |
+| `create-team` | `{"error":"You can't do that at the moment.","code":"account_suspended"}` |
+| `invite-member` | `{"error":"You can't do that at the moment.","code":"account_suspended"}` |
+
+These are, character for character, the three bodies the table in section 8 says the fix produces and
+the five new tests assert — now coming back over the wire from a deployed function rather than from a
+`Response` built in a test. That answers the one bullet section 8 left standing as **known to be
+unproved**: a caller has now received a body with both `reason` and `code`.
+
+The `0 FAIL` also covers the disclosure half of each refusal, because the script's third judgement per
+function is the quiet check: the fixed sentence, no field outside `error`/`code`/`reason`, nothing
+timestamp-shaped, no `@`, no uuid. **No `suspended_at` and no `reason` text left the functions**, which
+is what `docs/plan.md` requires of the `account_status.reason` column.
+
+### Run 4 — `--expect-active`, the half that had never been run
+
+The owner **deleted Bob's row** in the SQL editor, then ran `--expect-active`: **9 PASS, 0 FAIL, 0
+UNVERIFIED**. Bob got **400, 400 and 404 in the functions' own words** — his ordinary answers, the same
+ones he got in run 1 — and **read 2 teams he owns**.
+
+This is the run that catches a check which refuses everybody, which is the `is_active()` trap section 1
+explains being avoided. Both modes have now been run, so the sequence section 7 wrote out as "how #133
+actually gets answered" has been carried out end to end **on staging**.
+
+### The coach's reads — counts only, through the staging read-only connector
+
+Three reads, reported as counts only. No row contents, no addresses, no `reason` text.
+
+| When (UTC) | `account_status` | Bob's teams | `teams` | `invitations` | team members |
+|---|---|---|---|---|---|
+| 06:46, before deploy 1 | **1** row (Bob's) | 2 | 9 | 4 | 2 |
+| 06:47 | the same | 2 | 9 | 4, **2 of them accepted** | 2 |
+| 07:46, after run 4 | **0** rows | 2 | 9 | 4 (2 accepted) | 2 |
+
+**Nothing was written by any run.** That is the reading the script itself says it cannot do — its own
+"nothing was created" judgement is a log of its requests, not a count of rows — and section 7 listed it
+as the owner's step 4. It is now answered: every count is identical before and after, and
+`account_status` went 1 → 0 exactly as the owner's two SQL-editor statements intended.
+
+Two things the table does **not** say. The **06:46 and 06:47 reads are both stamped "before deploy
+1"**, and **where run 1 falls relative to them is not reported** — so "before any deploy" is the only
+ordering claim this file makes about run 1. And the 06:46 read did not report how many invitations were
+accepted; the 06:47 read added that, and the 07:46 read matched it.
+
+### What this section does not contain
+
+Marked rather than guessed (rule 8 — a check that was not run is not a pass):
+
+- **Exit codes: not reported**, for all four runs and both deploys.
+- **Deploy 2's output: not reported.**
+- **Per-check output: not reported** for any of the four runs. What the owner reported is each run's
+  totals, the failing function and body in run 2, the three bodies in run 3, and Bob's answers in runs
+  1 and 4. **Which** individual judgements passed is therefore still **unverified here**, exactly as
+  section 7 says of run 2.
+- **No browser test**: the new message on `/invite/[token]` has **not** been seen on a screen, in any
+  session. It is proved to exist and to be reachable by type and by `npm run build`, and no further.
+- **Whether mail was sent: not run, and nothing could have been sent.** `invite-member` was never
+  given an address in any of the four runs, so there was nothing to send; the test inbox was not
+  looked at.
+- **Nothing in production** was deployed, run, read or touched. Production still has neither part B nor
+  the fix; it gets them when the owner merges PR #138.
+
+### One arithmetic reconciliation, and it is mine, not the owner's
+
+The totals fit the script exactly, which is worth writing down because it is the only cross-check
+available to a session that saw no output. Counted from
+`scripts/staging/build-it-16-suspend-checks.mjs` in this session, by reading the code:
+
+- `--expect-suspended` asks **15** judgements — section 1: four (Alice's team read, plus one per
+  function); section 2: ten (`judgeSuspendedRefusal` returns **three** per function — status, code,
+  quiet — so nine, plus Bob's own read of `teams`); section 3: one.
+- `--expect-active` asks **9** — four, four (`judgeActiveAnswer` returns one per function, plus Bob's
+  read), one.
+
+So 6 + 9 = 15 in run 1, with the nine FAILs being section 2's three-per-function judgements and the
+tenth — Bob's own read, which is part A working — passing; 15 in run 3; 9 in run 4. **This is deduced
+from the script's source, not read from any output**, and it is the reason the per-check breakdown
+above is still marked unverified: arithmetic that fits is not the same as output seen.
+
+---
+
+## 10. Notes
+
+- **Data captured from production: none, in any of the three sessions.** The third session added
+  section 9, which quotes **staging**, not production, and **nothing in it needed redacting** (rule
+  18): the three refusal bodies carry the fixed sentence and the code and nothing else — no id, no
+  address, no timestamp, no `reason` text, which is what the script's quiet check asserts and what
+  run 3's 0 FAIL means. The coach's reads are **counts only**. No token, password or key appears, and
+  the staging project ref `ghskxrhqlhvrhpnivqbd` is not a secret — it is already committed in
+  `.claude/guard/local.json`. **Nothing was replaced, so the list of replacements is empty.**
 - **Data captured from production: none.** Nothing was captured, read or copied from production in
-  this session, so **nothing has been redacted** (rule 18). Every id, token and reason string in the
+  the first two sessions either, so **nothing has been redacted** (rule 18). Every id, token and reason string in the
   test and the script is invented or randomly generated: `a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b`,
   `"Invented for a test. About nobody."`, and a random 32-byte token the script makes for itself. No
   real address appears anywhere; the script prints none.
