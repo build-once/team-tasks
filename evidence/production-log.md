@@ -218,6 +218,25 @@ Nothing here wrote anything, and nothing in this session touched production.
 
 ---
 
+### A fifth entry for 5 Oct, added later the same day
+
+**Where this line comes from.** Written on 5 Oct 2026 by the assistant (Claude Code) from the text
+of **issue #145**, which is the owner's account of what the coach read. As with the four lines
+above: the assistant has no production access of any kind, did not watch the call happen, and **did
+not use the production read-only connector to check it**. The entry below is the issue's words,
+repeated verbatim.
+
+> 5 Oct 2026, after 12:10 UTC. Coach, read-only connector. Read the source of invite-member and
+> accept-invite (issue #142). Both v26, updated 5 Oct 12:09:59 UTC. Each runs the suspension check
+> before `await req.json()`. accept-invite's refusal carries both `reason` and `code`. No table
+> read.
+
+**What it settles.** The entry above said "part B is live in all three" was **unverified**, because
+only `create-team`'s contents had been read and the other two were known by their version number
+alone. It named reading those two functions as the way to settle it, and this is that read: the
+suspension check is before the body in both. This entry is a **read**, like every one before it, so
+the closing section below still holds.
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production

@@ -467,6 +467,110 @@ jobs:
           fi
           echo "Clean: no sb_secret_ or service_role in any of the $count files."
 
+  # The access-rule tests: issue #145, Build it 17. Both sides of every rule --
+  # Alice and Carol can read her team's tasks and Bob cannot, Bob cannot touch
+  # her personal task and she can, Carol cannot delete her team task and she
+  # can, Bob cannot invite into her team and she can, and a signed-out caller
+  # gets nothing from any table.
+  #
+  # THIS IS THE ONLY JOB IN THIS FILE THAT SIGNS IN TO A REAL PROJECT. It runs
+  # against STAGING and nothing else: web/tests/staging.mjs parses
+  # STAGING_SUPABASE_URL before any request and refuses unless the scheme is
+  # https and the host is exactly the staging project's. A job pointed
+  # elsewhere stops before its first network call.
+  #
+  # environment: staging, and ON THIS JOB ONLY. The five settings are
+  # ENVIRONMENT secrets there, not repository secrets, for the reason
+  # docs/environments.md gives about `supabase-production`: a repository secret
+  # is readable by a workflow running on ANY branch, and a workflow file is
+  # only a file in that branch -- so whoever can push a branch can push a job
+  # that reads them. An environment secret is handed only to a job that names
+  # that environment.
+  #
+  # IT NEVER PASSES BY SKIPPING. With no secrets -- a fork's pull request, or
+  # Dependabot's, neither of which GitHub gives environment secrets to -- the
+  # first step fails and names what is missing. A check that could not run is
+  # not a pass (AGENTS.md rule 8).
+  #
+  # No npm ci: the tests use Node built-ins and global fetch only, so there is
+  # nothing to install, and nothing in web/node_modules is on their path.
+  app-tests:
+    name: App tests (access rules on staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    environment: staging
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # A FLOOR, not an equality, as the two counting jobs above. Adding tests
+      # must not fail this job; a run that tested FEWER things than it used to
+      # has lost coverage, and a run that tested nothing is not a pass. The
+      # number was counted from the test file's own TAP summary.
+      EXPECTED_APP_TESTS: "25"
+      STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      STAGING_ALICE_PASSWORD: ${{ secrets.STAGING_ALICE_PASSWORD }}
+      STAGING_CAROL_PASSWORD: ${{ secrets.STAGING_CAROL_PASSWORD }}
+      STAGING_BOB_PASSWORD: ${{ secrets.STAGING_BOB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: All five settings must be present
+        # Names only. No value is echoed, and GitHub masks secrets in logs
+        # anyway -- this step relies on neither of those alone.
+        run: |
+          set -uo pipefail
+          missing=""
+          for name in STAGING_SUPABASE_URL STAGING_SUPABASE_PUBLISHABLE_KEY \
+                      STAGING_ALICE_PASSWORD STAGING_CAROL_PASSWORD STAGING_BOB_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These settings are empty or absent:$missing. They are environment secrets of the 'staging' environment, which GitHub does not give to a pull request from a fork or to Dependabot. This job FAILS rather than skipping: a check that could not run is not a pass."
+            exit 1
+          fi
+          echo "All five settings are present. No value is printed."
+      - name: npm test, and count what actually passed
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/app-tests.log"
+          status=0
+          npm test | tee "$log" || status=$?
+
+          # Node's TAP summary: "# pass 25", "# fail 0", "# skipped 0",
+          # "# todo 0". The counts are read rather than trusted to the exit
+          # code, because a file whose tests had all been deleted would also
+          # exit 0.
+          count () { sed -n "s/^# $1 \([0-9][0-9]*\)\$/\1/p" "$log" | tail -1; }
+          passed=$(count pass);   : "${passed:=0}"
+          failed=$(count fail);   : "${failed:=0}"
+          skipped=$(count skipped); : "${skipped:=0}"
+          todo=$(count todo);     : "${todo:=0}"
+
+          echo "App tests: $passed passed, $failed failed, $skipped skipped, $todo todo; at least $EXPECTED_APP_TESTS expected to pass."
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::npm test exited $status. Read the lines above: a FAIL here is an access rule not doing what its migration says it does."
+            exit 1
+          fi
+          if [ "$skipped" -ne 0 ] || [ "$todo" -ne 0 ]; then
+            echo "::error::$skipped test(s) were skipped and $todo marked todo. A skipped access-rule test is not a pass (AGENTS.md rule 8)."
+            exit 1
+          fi
+          if [ "$passed" -lt "$EXPECTED_APP_TESTS" ]; then
+            echo "::error::Only $passed tests passed, fewer than the $EXPECTED_APP_TESTS expected. Either tests were removed or none ran -- that is a failure, not a pass. Restore them, or lower the expected number on purpose and say why."
+            exit 1
+          fi
+
   # ------------------------------------------------------------------------
   # required -- the ONE check to mark as required in your branch rules.
   #
@@ -490,7 +594,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, other-os, secret-scan, app-build]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, other-os, secret-scan, app-build, app-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -498,7 +602,7 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "13"
+          EXPECTED_JOBS: "14"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
