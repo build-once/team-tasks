@@ -10,6 +10,13 @@ How checked: every command below was run from the repository root on the owner's
 time, and its exact output pasted. Node v24.13.1 locally; the CI job pins Node 22.
 Checked by: Claude Code, on branch `test/access-rules`, from `main` at `691dab6`.
 
+**Added 5 Oct 2026 (issue #151), from `main` at `16c97bf`:** the section "Build it 17's last step:
+break a rule on purpose, watch a test fail, put it back" below. The tests have now been **seen to
+fail** — two of them, for the right reason, with a read rule deliberately broken on staging — and
+seen to pass again once it was put back. Those lines were read from the run's own logs with `gh` in
+this session. The policy change itself, and the staging row and policy counts, are the owner's and
+the coach's reports, marked as such where they appear.
+
 ## What was added
 
 | File | What |
@@ -415,9 +422,206 @@ unread and unprinted — a secret cannot be read from a log — so what is settl
 **right**, not what it is. The same run settles the `staging` environment and its five secrets:
 sign-in as Alice, Carol and Bob all succeeded, so all five are present and correct.
 
+## Build it 17's last step: break a rule on purpose, watch a test fail, put it back
+
+Added 5 Oct 2026, for [#151](https://github.com/build-once/team-tasks/issues/151). A test nobody has
+seen fail is not yet known to be a test. This section is the record of making these ones fail, and
+of the green run that followed.
+
+### The book's method does not fit, and why
+
+The book's method for this step is to remove the policy a test relies on. That does not work here.
+`tasks` has **one** read policy covering both personal and team tasks, and removing a policy can
+only ever **narrow** access — so every "Bob CANNOT read…" test would still pass, and the only tests
+that could fail are the "Alice CAN…" and "Carol can…" ones. Breaking the rules in the direction the
+book suggests proves the wrong half.
+
+So the **owner** did the opposite, in staging's SQL editor:
+
+```sql
+create policy "TEMP broken on purpose - Build it 17" on public.tasks for select to authenticated using (true);
+```
+
+One extra permissive policy. Postgres ORs `select` policies together, so this one alone lets any
+signed-in account read every row in `tasks` — which is exactly the thing point 5 of `docs/plan.md`
+forbids, and exactly what the "Bob CANNOT" tests exist to catch. **Reported, not run here**: the
+assistant has no write access to staging and did not run this statement.
+
+### The three attempts of run 37344248197
+
+One run, re-run twice. All three attempts are the same run id, so all three carried the same commit.
+
+```
+$ gh run view 37344248197 --json headSha,workflowName,conclusion,event,attempt,headBranch,createdAt,updatedAt,status,url
+{"attempt":3,"conclusion":"success","createdAt":"2026-10-05T16:53:16Z","event":"pull_request","headBranch":"test/access-rules","headSha":"cdcde5377791665891ce3343e7a3788c8a2ff12b","status":"completed","updatedAt":"2026-10-05T17:55:32Z","url":"https://github.com/build-once/team-tasks/actions/runs/37344248197"}
+```
+
+| Attempt | When `App tests` ran | `App tests` | The run | What was true on staging |
+|---|---|---|---|---|
+| 1 | 16:53:20–16:53:37Z | success | success | the real policies |
+| 2 | 17:40:32–17:40:44Z | **failure** | **failure** | the temporary permissive policy added |
+| 3 | 17:54:38–17:54:47Z | success | success | the temporary policy dropped again |
+
+Attempts 1 and 3 were read with `gh run view 37344248197 --attempt <n> --json conclusion,jobs`;
+attempt 2's job list came from the same command. Attempt 2 and attempt 3 each re-ran the failed
+jobs only — `App tests` and `required` — which is why the other fourteen jobs still carry attempt
+1's timestamps.
+
+**Which commit the re-runs executed.** `headSha` is `cdcde5377791665891ce3343e7a3788c8a2ff12b` —
+commit `cdcde53`, the head of `test/access-rules` at the time. A re-run re-executes **the run's own
+commit**, both the workflow file and the test file, not whatever `main` has moved on to. So this is
+evidence about `cdcde53`, and nothing else.
+
+### Attempt 2 — the two tests that failed, quoted from the log
+
+Read in this session with
+`gh run view 37344248197 --attempt 2 --log`. The owner reported these same lines first; they are
+quoted here from the log rather than from the report.
+
+```
+not ok 7 - Bob CANNOT read Alice's team task
+  ---
+  duration_ms: 65.900022
+  type: 'test'
+  location: '/home/runner/work/team-tasks/team-tasks/web/tests/access-rules.test.mjs:246:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Bob reads Alice's team task: the database ALLOWED it -- 1 row(s) affected
+
+    1 !== 0
+
+  code: 'ERR_ASSERTION'
+```
+
+```
+not ok 13 - Bob CANNOT read Alice's personal task
+  ---
+  duration_ms: 126.912377
+  type: 'test'
+  location: '/home/runner/work/team-tasks/team-tasks/web/tests/access-rules.test.mjs:348:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Bob reads Alice's personal task: the database ALLOWED it -- 1 row(s) affected
+
+    1 !== 0
+
+  code: 'ERR_ASSERTION'
+```
+
+**Two, and exactly the right two.** The failure message is the test's own wording — "the database
+ALLOWED it" — and `1 !== 0` is Bob getting one row where he must get none. Nothing else moved.
+
+Node's summary and the job's own count line, from the same log:
+
+```
+1..25
+# tests 25
+# suites 0
+# pass 23
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5977.614992
+App tests: 23 passed, 2 failed, 0 skipped, 0 todo; at least 25 expected to pass.
+##[error]npm test exited 1. Read the lines above: a FAIL here is an access rule not doing what its migration says it does.
+##[error]Process completed with exit code 1.
+```
+
+23 + 2 = 25, so no test vanished — two reported a wrong answer. The run still exercised all 25,
+and `0 skipped, 0 todo` means nothing was quietly stepped over.
+
+**`required` failed, and named the job**, from the same log:
+
+```
+Result of every needed job:
+  guard-selftest: success
+  skills-lint: success
+  launch-check-selftest: success
+  workflow-lint: success
+  vet-tool-selftest: success
+  handoff-selftest: success
+  drift-check-selftest: success
+  pure-checks: success
+  staging-script-selftests: success
+  functions-test: success
+  other-os: success
+  secret-scan: success
+  app-build: success
+  app-tests: failure
+##[error]These jobs did not succeed (skipped counts as NOT succeeded): app-tests
+##[error]Process completed with exit code 1.
+```
+
+`EXPECTED_JOBS: 14` in the same step's environment, and fourteen jobs are listed, so the count
+guard was satisfied and `required` failed for one reason only: `app-tests`. **This is the whole
+point of the step** — a broken access rule on staging turns the one check a merge waits on red.
+
+### The temporary policy was dropped
+
+Reported: the **owner** dropped the temporary policy. Confirmed by the **coach**, through the
+staging read-only connector — **5 policies on `tasks`, the temporary one absent**. Not read here:
+the assistant has no connector to staging and cannot list policies.
+
+### Attempt 3 — green again, quoted from the log
+
+Read with `gh run view 37344248197 --attempt 3 --log`. The same two tests, now passing:
+
+```
+ok 7 - Bob CANNOT read Alice's team task
+ok 13 - Bob CANNOT read Alice's personal task
+```
+
+The count line:
+
+```
+App tests: 25 passed, 0 failed, 0 skipped, 0 todo; at least 25 expected to pass.
+```
+
+Node's own summary from the same log: `1..25`, `# tests 25`, `# pass 25`, `# fail 0`, `# skipped 0`,
+`# todo 0`. And `required`:
+
+```
+All 14 jobs succeeded.
+```
+
+**Fail, then recover, with nothing touched in between but the database.** No test file, workflow
+file or migration changed across the three attempts — it is one commit, `cdcde53`, run three times.
+That is what makes this evidence rather than coincidence: the only variable was the access rule, and
+the tests followed it both ways.
+
+### Staging row counts and policy count after the last attempt
+
+Reported by the **coach**, through the staging read-only connector. **Not read here.**
+
+| Table | After attempt 3 |
+|---|---|
+| `tasks` | 9 |
+| `teams` | 9 |
+| `team_members` | 2 |
+| `invitations` | 5 |
+| `profiles` | 3 |
+| `account_status` | 0 |
+
+Policies in `public`: **16**. Every row count is unchanged from after the green run on `25a1a36`
+recorded above — including `invitations` at 5, which is Alice's 409 again — so breaking a read rule
+and putting it back left nothing behind.
+
+### The rule this step adds
+
+`AGENTS.md` rule 20, added in the same pull request: when a test fails, fix the code, never the
+test. Nothing in rules 1–19 said it. Rule 5 forbids weakening a **check** in
+`.github/workflows/`, and rule 8 forbids calling an unrun check a pass, but neither covers deleting,
+skipping or loosening a test. Attempt 2 above is the case the rule exists for: two red tests whose
+quickest route to green would have been to delete them.
+
 ## Still not reported, and still unverified
 
 - **Not run — `npm --prefix web test` with `scope=local`, locally.** CI has now run it on
-  `25a1a36`, but nobody has run it from a machine. What would settle it: the owner runs
-  `npm --prefix web test` and the three sign-outs answer 2xx — and, the part CI cannot show, their
-  own browser session on staging survives it.
+  `25a1a36`, and three more times on `cdcde53` in run 37344248197, but nobody has run it from a
+  machine. What would settle it: the owner runs `npm --prefix web test` and the three sign-outs
+  answer 2xx — and, the part CI cannot show, their own browser session on staging survives it.
+- **Not read here — the staging policy list and the row counts in the section above.** Both are the
+  coach's report through the staging read-only connector. What would settle it: the same connector,
+  or the owner pasting the output of `select count(*) from pg_policies where schemaname = 'public';`
+  and the six `count(*)` queries from staging's SQL editor.
