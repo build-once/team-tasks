@@ -111,7 +111,15 @@ if (parsedUrl.hostname !== STAGING_HOST) {
       `before any request. These tests sign in and create rows; they may run\n` +
       `against staging and nothing else (AGENTS.md rules 1 and 10).\n` +
       `Expected the host ${STAGING_HOST}, exactly -- not a URL that merely\n` +
-      `contains ${STAGING_REF} somewhere. The host it found is not printed.`,
+      `contains ${STAGING_REF} somewhere.\n` +
+      `\n` +
+      `THE HOST IT FOUND IS NOT PRINTED, and not because of GitHub's masking,\n` +
+      `which covers a secret's whole value and not a part of it: a project\n` +
+      `reference identifies an environment, and this repository's run logs are\n` +
+      `public. Check the setting yourself. The likeliest cause is the wrong one\n` +
+      `of two addresses: this wants the project's API URL,\n` +
+      `https://<ref>.supabase.co, and NOT the dashboard address, which is\n` +
+      `https://supabase.com/dashboard/project/<ref> and parses perfectly well.`,
   );
 }
 

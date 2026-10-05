@@ -175,6 +175,69 @@ walks — `tasks`, `teams`, `team_members`, `invitations`, `profiles`, `account_
 
 Nothing else is written, and nothing the tests did not create is changed or deleted.
 
+## The first CI run on PR #147 — the guard refused there too
+
+Run [37318706722](https://github.com/build-once/team-tasks/actions/runs/37318706722), 5 Oct 2026.
+
+```
+$ gh run view 37318706722 --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
+success	Vet-tool self-test
+success	Workflow lint (permissions + timeouts)
+success	Skills lint
+success	Secret scan (gitleaks)
+success	Staging script self-tests (can these checks fail?)
+success	Handoff self-test
+failure	App tests (access rules on staging)
+success	Guard self-test
+success	npm test (macos-latest)
+success	Edge function tests (Deno)
+success	Launch check self-test
+success	Pure-function checks (tasks-filter-check, password-reset-check)
+success	App build
+success	npm test (windows-latest)
+success	Drift-check self-test
+failure	required
+```
+
+**Three things this settles.**
+
+1. **The five environment secrets exist.** The job's first step, "All five settings must be
+   present", **passed** — so `environment: staging` handed the job all five, none empty.
+2. **`required` sees 14 jobs.** Its log lists all fourteen by name and raises no count error; it
+   failed for one reason only: `These jobs did not succeed (skipped counts as NOT succeeded):
+   app-tests`.
+3. **`App tests` failed at the guard, before any network call**, with the hostname refusal:
+
+```
+# Error: REFUSING TO RUN: STAGING_SUPABASE_URL is not the staging project, so this run was stopped
+# before any request. ...
+# pass 0
+# fail 1
+App tests: 0 passed, 1 failed, 0 skipped, 0 todo; at least 25 expected to pass.
+X npm test exited 1. Read the lines above: ...
+```
+
+So the secret parses and **is** https — both earlier checks passed — and its host is not
+`ghskxrhqlhvrhpnivqbd.supabase.co`. **The host it found is not printed anywhere**, in the job log
+or here: GitHub masks a secret's whole value and not a part of it, this repository's run logs are
+public, and a project reference identifies an environment. The owner reads the secret; nobody else
+can.
+
+The likeliest cause is the wrong one of two addresses — the dashboard address,
+`https://supabase.com/dashboard/project/<ref>`, parses perfectly well and fails exactly this way.
+Reproduced locally, which is how the guard's message came to name it:
+
+```
+$ STAGING_SUPABASE_URL=https://supabase.com/dashboard/project/ghskxrhqlhvrhpnivqbd ... node --test --test-reporter=tap web/tests/access-rules.test.mjs
+# Error: REFUSING TO RUN: STAGING_SUPABASE_URL is not the staging project ...
+# pass 0
+# fail 1
+```
+Exit code 1 — the same refusal the CI run printed.
+
+**This is the guard working, not the guard failing.** It is also, unplanned, the fifth proof that
+it refuses: in CI, with a real secret, before a single request.
+
 ## Unverified at the time of writing
 
 - **Unverified — `npm test` against staging.** The three passwords are the owner's and are not the
