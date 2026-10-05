@@ -149,10 +149,15 @@ jobs:
       - name: Drift-check self-test
         run: node scripts/drift-check.mjs --selftest
 
-  # The two pure-function check scripts, which until now nothing ran: issues
-  # #87 and #102. Neither touches the network, a database or an account --
-  # each imports a real module out of web/src/lib and calls it, so there is no
-  # cost argument for leaving them out.
+  # The three pure-function check scripts: issues #87, #102 and #157. None
+  # touches the network, a database or an account -- each imports a real module
+  # out of web/src/lib and calls it, so there is no cost argument for leaving
+  # them out.
+  #
+  # The third, sentry-scrub-check, arrived with Build it 18 and is the one with
+  # the least recoverable failure of the three: it checks the function that
+  # decides what an error report may contain before it is sent to Sentry, and a
+  # value sent to an outside company cannot be taken back by a later commit.
   #
   # Node reads those .ts modules directly and strips the types as it loads
   # them. That needs no flag here: type stripping is enabled by default from
@@ -164,18 +169,19 @@ jobs:
     # The display name carries both script names on purpose: this is the string
     # that shows in the checks list on a pull request, and issue #87 asks that a
     # red check name tasks-filter-check rather than leave you opening logs.
-    name: Pure-function checks (tasks-filter-check, password-reset-check)
+    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-    # A FLOOR, not an equality. Adding checks to either script must not fail
-    # this job, but a run that checked fewer things than it used to has lost
-    # coverage, and a run that checked nothing is not a pass (AGENTS.md rule
-    # 8). Both numbers were counted from the scripts' own output.
+    # A FLOOR, not an equality. Adding checks to any of the scripts must not
+    # fail this job, but a run that checked fewer things than it used to has
+    # lost coverage, and a run that checked nothing is not a pass (AGENTS.md
+    # rule 8). All three numbers were counted from the scripts' own output.
     env:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
+      EXPECTED_SENTRY_SCRUB_CHECKS: "59"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -211,6 +217,7 @@ jobs:
           # asks for exactly that: "the failing check names tasks-filter-check".
           run_and_count tasks-filter-check   scripts/tasks-filter-check.mjs   "$EXPECTED_TASKS_FILTER_CHECKS"
           run_and_count password-reset-check scripts/password-reset-check.mjs "$EXPECTED_PASSWORD_RESET_CHECKS"
+          run_and_count sentry-scrub-check   scripts/sentry-scrub-check.mjs   "$EXPECTED_SENTRY_SCRUB_CHECKS"
 
   # The --selftest of the two staging scripts that have one: issues #114 and
   # #136. A selftest here is the thing that makes a green staging run mean
@@ -390,13 +397,25 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-    # The build reads these two names, so they have to exist. They do NOT have
-    # to be real: nothing here connects to Supabase, it only compiles. These are
-    # obvious placeholders written in the open on purpose -- no secret belongs in
-    # this file, and these two values are public ones in any case.
+    # The build reads these names, so they have to exist. They do NOT have to be
+    # real: nothing here connects to Supabase or to Sentry, it only compiles.
+    # These are obvious placeholders written in the open on purpose -- no secret
+    # belongs in this file, and all three values are public ones in any case.
+    #
+    # The third arrived with Build it 18 (issue #157). Two things about it:
+    #
+    #   * It is NOT what makes this job pass. web/src/lib/env.ts only insists on
+    #     a DSN when VERCEL_ENV is "production" or "preview", and GitHub Actions
+    #     sets no VERCEL_ENV, so this build would succeed without it. It is here
+    #     so that the build COMPILES the Sentry code path with a value present,
+    #     rather than only ever compiling the empty-DSN branch.
+    #   * It is shaped like a real DSN but points at a host that does not exist,
+    #     so if anything in the build did try to send a report it would fail at
+    #     DNS rather than reach anybody's project.
     env:
       NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "placeholder-key"
+      NEXT_PUBLIC_SENTRY_DSN: "https://placeholder@placeholder.ingest.sentry.io/0"
     defaults:
       run:
         working-directory: web

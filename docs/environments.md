@@ -106,8 +106,8 @@ migration and taking it through a pull request, the same way as any other change
 
 ## Every setting the app uses
 
-Three names the **web app** reads — two public, one server-side and optional — and four the **server
-functions** read, which the web app never sees.
+Four names the **web app** reads — three public, one server-side and optional — and four the
+**server functions** read, which the web app never sees.
 
 ### What the web app reads, from Vercel
 
@@ -115,10 +115,58 @@ functions** read, which the web app never sees.
 |---|---|---|---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
+| `NEXT_PUBLIC_SENTRY_DSN` | **Public** — it reaches the browser, identifies the Sentry project and grants nothing | **Optional, and normally not set** — with no DSN nothing is sent, which is what a laptop should do | **Needed**, or the Preview build fails | **Needed**, or the Production build fails. The same value is fine for both | Where error reports go. See below |
 | `SITE_URL` | Not secret, but **not public either** — no `NEXT_PUBLIC_` prefix, so Next.js never puts it in the browser bundle | **Optional** — set it to `http://localhost:3000` to test password reset locally | **Optional**, the preview's own address | **Optional**, the production address, and `https` | The site's own address, used for one thing: the `<SITE_URL>/auth/reset` link in a password-reset email. **Read only from this setting, never from a request header** — see below |
 
 **Secret: none in the web app.** It talks to Supabase with the publishable key and lets the database
-rules decide, which is why nothing secret belongs in Vercel.
+rules decide, which is why nothing secret belongs in Vercel. The Sentry DSN does not change that: it
+is public in the same way the publishable key is.
+
+### `NEXT_PUBLIC_SENTRY_DSN`, and why the build refuses without it
+
+Added 2026-10-05 with error reporting (**issue #157**). `docs/plan.md`, "Error reports to an outside
+service", is the decision this implements; read that first, because it also lists what must never be
+sent.
+
+**It is public.** The DSN identifies a Sentry project and grants nothing — it cannot read reports,
+only post them. `docs/plan.md` says so outright: "the DSN, identifies the project and travels in the
+browser: it is public, like the Supabase publishable key, and it is not a secret". It is still not
+written down in this repository, for the same reason no other value is: this file holds names.
+
+**There is no second setting, on purpose.** No Sentry auth token and no source-map upload, because
+the setup wizard was not used and `next.config.ts` is not wrapped in `withSentryConfig`. The cost of
+that is worth knowing: a **browser** stack trace names the built, minified file rather than the
+source file. Server stack traces are unaffected.
+
+**With no DSN, nothing is sent and nothing breaks.** The three files that start Sentry —
+`web/src/instrumentation-client.ts`, `web/src/sentry/server-init.ts` and
+`web/src/sentry/edge-init.ts` — each return before calling `Sentry.init` at all when the setting is
+empty. That is what makes local development work with nothing set.
+
+**But a Production or Preview build fails without it**, with a message naming the setting.
+`web/src/lib/env.ts` checks `VERCEL_ENV` and insists on a DSN when it is `production` or `preview`.
+The reason is that the failure it prevents is silent: an app with no error reporting looks exactly
+like an app with it, and the owner would hear about a breakage from a volunteer instead of from
+Sentry.
+
+The check is deliberately **not** a module-level constant like the two Supabase names. Those throw
+the moment the module is imported, anywhere. This one is a function that only
+`assertSettingsPresent()` calls, so it fires during `next build` — where `VERCEL_ENV` exists — and
+never from inside a page render. A missing error report is a problem to fix before the deploy, not a
+reason to take the live app down after it.
+
+**The CI build sets an obvious placeholder**,
+`https://placeholder@placeholder.ingest.sentry.io/0`, in the `app-build` job in
+`.github/workflows/ci.yml`. It is not what makes that job pass — GitHub Actions sets no `VERCEL_ENV`,
+so the build would succeed without it — it is there so the build compiles the Sentry code path with
+a value present instead of only ever compiling the empty-DSN branch. The host it names does not
+exist, so nothing could reach anybody's project even if something tried to send.
+
+**Unverified — whether Vercel exposes `NEXT_PUBLIC_VERCEL_ENV` to the browser.** The app tags every
+report with which deployment it came from. On the server that comes from `VERCEL_ENV`; in the browser
+it has to come from a `NEXT_PUBLIC_` name, and nothing in this repository can show whether this
+project exposes one. If it does not, a browser report is tagged `unknown` while a server report from
+the same deployment is tagged correctly. The Vercel dashboard is the only place that settles it.
 
 ### `SITE_URL`, and why it is optional
 
@@ -302,17 +350,28 @@ Where each copy keeps them:
 
 ### Where the app reads them
 
-**Two files**, three `process.env` lines between them, both in `web/src/lib/`:
+**Six files**, eleven `process.env` lines between them. Counted on 2026-10-05 by searching the whole
+of `web/src` for `process.env.<NAME>`; the only other hits are explanatory comments inside `env.ts`
+and `sentry/options.ts`, which name settings without reading them.
 
 | File | What it reads |
 |---|---|
-| `web/src/lib/env.ts` | `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, once each, checked for emptiness |
+| `web/src/lib/env.ts` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_SENTRY_DSN`, once each — and `VERCEL_ENV`, to decide whether a missing DSN should stop the build |
 | `web/src/lib/password-reset.ts` | `SITE_URL`, once, and nothing else |
+| `web/src/instrumentation-client.ts` | `NEXT_PUBLIC_VERCEL_ENV`, for the deployment tag on a browser report |
+| `web/src/sentry/server-init.ts` | `VERCEL_ENV`, for the same tag on a server report |
+| `web/src/sentry/edge-init.ts` | `VERCEL_ENV`, for the same tag on an edge report |
+| `web/src/instrumentation.ts` | `NEXT_RUNTIME`, three times — Next.js' own name for which runtime is loading the file, not a setting anybody sets |
 
 This table used to name `client.ts`, `server.ts` and `proxy.ts` with line numbers, and it had gone
-stale: those three now import the two values from `env.ts` and read no environment variable of their
-own. Checked on 2026-10-03 by searching the whole of `web/src` for `process.env` — the three lines
-above are every match, and the only other hits are the explanatory comments inside `env.ts`.
+stale: those three now import their values from `env.ts` and read no environment variable of their
+own. It then said "two files, three lines", which Build it 18 made stale in turn — the five new lines
+arrived with error reporting. Line numbers are still deliberately left out, because they are what
+went stale the first time.
+
+Worth noticing about the four new rows: none of them reads a **setting of this app's**.
+`NEXT_PUBLIC_VERCEL_ENV`, `VERCEL_ENV` and `NEXT_RUNTIME` are all set by the platform, so there is
+nothing to add to the table above for any of them.
 
 No project address and no key is written into the code anywhere, and no secret name sits behind a
 public prefix such as `NEXT_PUBLIC_` or `VITE_`. Both statements were re-checked on 2026-09-28 by
@@ -320,11 +379,21 @@ searching the whole repository, not only `web/`.
 
 ### What `.env.example` lists, and what was taken out of it
 
-`.env.example` now lists those two names with empty values, and nothing else. It used to carry ten.
-The other eight were removed because the app does not use them, and because a host reads this file:
-importing the project into Vercel turned all ten into environment variables, five of them secret
-names. A name written here in advance becomes an empty slot in a dashboard, waiting for somebody to
-fill it.
+`.env.example` lists **four** names with empty values, and nothing else: the two Supabase ones,
+`SITE_URL`, and — since 2026-10-05 — `NEXT_PUBLIC_SENTRY_DSN`. It used to carry ten. The eight that
+went were removed because the app does not use them, and because a host reads this file: importing
+the project into Vercel turned all ten into environment variables, five of them secret names. A name
+written here in advance becomes an empty slot in a dashboard, waiting for somebody to fill it.
+
+That is also the rule for what may be added back, and it is why the DSN belongs here while nothing
+else from Build it 18 does: the app reads it, so it is not written here "in advance". The other three
+names those files read — `VERCEL_ENV`, `NEXT_PUBLIC_VERCEL_ENV` and `NEXT_RUNTIME` — are set by the
+platform, not by anybody, so putting them here would create exactly the empty slots this paragraph
+warns about.
+
+This paragraph said "those two names ... and nothing else" until 2026-10-05, which had been wrong
+since `SITE_URL` was added to the file — issue #120, dated 2026-10-03 in the section above. A small
+piece of staleness, corrected here along with the new name.
 
 | Removed | Why |
 |---|---|
@@ -334,7 +403,7 @@ fill it.
 | `PAYMENTS_SECRET_KEY`, `PAYMENTS_WEBHOOK_SIGNING_SECRET`, `PUBLIC_PAYMENTS_PUBLISHABLE_KEY` | No payments. `docs/plan.md` puts them outside the first version |
 | `EMAIL_API_KEY` | No email sending yet. Invitations (plan feature 3) are not built; the name comes back when they are, and the value lives in Supabase Edge Functions secrets, not Vercel |
 | `AI_API_KEY` | No AI feature. `docs/plan.md` lists an AI helper under "deliberately not in the first version" |
-| `PUBLIC_MONITORING_DSN` | No monitoring or error reporting. The plan says none is collected and none is planned |
+| `PUBLIC_MONITORING_DSN` | Not used, and still not — but the reasoning in this row has changed. It used to read "No monitoring or error reporting. The plan says none is collected and none is planned", and that stopped being true on 2026-10-05, when `docs/plan.md` added "Error reports to an outside service" and issue #157 built it. What is true now is narrower: the name is wrong twice over. `PUBLIC_…` is inert in Next.js, and the app reads `NEXT_PUBLIC_SENTRY_DSN` — see "Every setting the app uses" above |
 
 If one of these comes back, add the name with an empty value, and put the real value only where that
 kind of value belongs: a public one in the host's environment settings, a secret one in Supabase Edge
