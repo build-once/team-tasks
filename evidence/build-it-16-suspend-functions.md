@@ -3,19 +3,26 @@
 Issue #133, and the coach's comment on it. Part A was #128, PR #132, merged as `f2cf18f`.
 Branch: `feat/suspend-functions`.
 
-**Result: the check is written, type-checked and tested on this machine. NOTHING IS DEPLOYED and
-NOTHING WAS RUN AGAINST STAGING.** The assistant was told, in the task, to deploy no function and
-run nothing against staging, and it did neither. So part B is **not in force anywhere**: staging and
-production are both still running the three functions without this check, and a suspended person can
-still create a team, invite somebody and accept an invitation on both.
+**Read sections 1 to 7 as the state on 4 October 2026, and section 8 as what happened next.** Those
+sections were written before any of this had been deployed, and they say so repeatedly. Since then
+the owner deployed to staging and ran the script, which found a bug that every check in sections 2
+to 6 had passed. **Section 8 is the current state; where it contradicts an earlier section, section 8
+is right.**
 
-Everything below is output the assistant produced on the owner's machine in this session, with the
-exact command and exit code. Where a number is quoted it was counted or read in this session.
+In one line: part B is now **in force on staging and not in production**, and accept-invite's refusal
+body was wrong on staging until the fix recorded in section 8 — which is in this branch and is **not
+deployed either**.
+
+Everything in sections 1 to 7 is output the assistant produced on the owner's machine, with the exact
+command and exit code. The staging run in section 8 is the **owner's**, reported by them; the
+assistant deployed nothing and ran nothing against staging in either session. Where a number is
+quoted it was counted or read in the session that wrote it.
 
 | | |
 |---|---|
-| What is proved here | the decision each function makes, including every way the `account_status` read can fail; that all three agree; that the test catches a real fail-open; that the staging script's judgements can fail; that the web app still builds and lints |
-| What is **not** proved here | anything at all about a deployed function, a real `account_status` row, a real refusal, the `teams` and `invitations` counts, or whether mail is sent. All of that needs the owner: deploy, then two runs of the new script, then two reads in the dashboard |
+| What is proved here | the decision each function makes, including every way the `account_status` read can fail; that all three agree; that all three send the right refusal BODY (section 8); that the tests catch both a real fail-open and the real missing-`code` bug; that the staging script's judgements can fail; that the web app still builds and lints |
+| What is **not** proved here | anything the assistant did not see itself. The staging run, the real `account_status` row, the real refusal over the wire and the `teams`/`invitations` counts are all the owner's observations, quoted. **Nothing in production has been touched or read** |
+| What is **known to be unproved** | the fixed `accept-invite` has never been deployed, so no caller has yet received a body with both `reason` and `code`. Section 8 says what would settle it |
 
 ---
 
@@ -131,6 +138,11 @@ see which table and column it reads — and a stand-in read is what makes the te
 ---
 
 ## 3. The Deno test: 35 cases, including every way the read can fail
+
+> **This section describes the file as it was on 4 October 2026, with 35 tests.** It has 40 now: five
+> were added on 5 October, after the staging run, and they test something no test in this section
+> tested — the response body. **Section 8 has the current run.** The 35 below all still pass, and all
+> 35 passed while the bug section 8 describes was live, which is the whole point of section 8.
 
 ```
 > deno test --no-lock --allow-env --config supabase/functions/create-team/deno.json supabase/functions/_tests/suspension_test.ts
@@ -389,26 +401,40 @@ the same thing. **Filed as #137**, with the self-test case that would catch it.
 
 ## 7. Not verified — and most of part B is in this section
 
-Every line here is something this session could not ask. AGENTS.md rule 8: a check that was not run
-is not a pass.
+Every line here is something the 4 October session could not ask. AGENTS.md rule 8: a check that was
+not run is not a pass.
 
-- **Nothing is deployed.** `supabase functions deploy` was not run, against staging or anything
-  else. Rule 19 permits it against staging; the task said not to, and it was not. So **no refusal
-  described in this file has ever happened**, and the three functions in staging and production are
-  the pre-part-B ones.
-- **The staging script has never been run against staging**, in either mode. `--selftest` is logic
-  only: it sends nothing, signs nobody in, and is not a staging result.
-- **No real `account_status` row has been involved.** Only the owner can add or remove one. Every
-  row in the test is fabricated, and the ids and reason text are invented.
-- **The real query is unproved.** `.from("account_status").select("user_id").eq("user_id", id)
-  .limit(1)` has never run. The test supplies the answer rather than fetching it, so what is proved
-  is the decision, not the read. Part A's sandbox step M8 shows that shape of read works for
-  `service_role` with no session; that was a different session, a different machine and plain SQL.
-- **The 403, the code and the message have never been seen by a caller.** The script's judgements
-  describe them; nothing has produced them.
-- **No count of `teams` or `invitations`**, before or after anything. Nobody has read those tables
-  in this session.
-- **No mail check.** Nothing was sent, so the test inbox has nothing to show.
+> **Five of these were answered on 5 October, by the owner's staging run.** They are kept, struck
+> through, with what the run showed — because what this section got right was more important than
+> what it got wrong: it said the refusal had never been seen by a caller, and when a caller finally
+> saw it, it was wrong. Section 8 has the detail.
+
+- ~~**Nothing is deployed.**~~ **ANSWERED.** The owner deployed this branch's three functions to
+  staging on 5 October. Production is still pre-part-B, and the assistant has still deployed nothing,
+  anywhere, in either session.
+- ~~**The staging script has never been run against staging**, in either mode.~~ **PARTLY
+  ANSWERED.** `--expect-suspended` was run by the owner: 14 PASS, 1 FAIL. `--expect-active` is
+  **still unrun**, so "an ordinary, un-suspended person is unaffected" is still unproved against the
+  deployed functions — and that is the half that catches a check which refuses everybody.
+- ~~**No real `account_status` row has been involved.**~~ **ANSWERED.** The owner put Bob's row in
+  place for the run. Every row in the Deno test is still fabricated, with invented ids and reason
+  text.
+- ~~**The real query is unproved.**~~ **ANSWERED for staging.** 14 of the 15 judgements passed, which
+  they could not have done had the read not worked: `.from("account_status").select("user_id")
+  .eq("user_id", id).limit(1)` now has run, as `service_role`, with no session. Unproved in
+  production.
+- ~~**The 403, the code and the message have never been seen by a caller.**~~ **ANSWERED, and this is
+  the bullet that mattered.** A caller saw them, and accept-invite's body was missing its `code`. The
+  403 and the sentence were right in all three.
+- **The fixed `accept-invite` is unproved against anything deployed.** The fix in section 8 is proved
+  by the Deno test on this machine and by nothing else. Staging is running the version without it
+  until the owner deploys again; production has neither the fix nor the check.
+- **No count of `teams` or `invitations`** was read by the assistant, before or after anything, in
+  either session. Nor has the assistant seen the run's per-check output: what the owner reported is
+  the two counts, 14 PASS and 1 FAIL, and the one failing body. Which 14 passed is therefore
+  **unverified here** — including the script's "nothing was created" judgements. Reading those two
+  counts in the dashboard is the owner's step 4 below.
+- **No mail check.** The assistant sent nothing, so it has nothing to show from the test inbox.
 - **Nothing in a browser.** The new message on `/invite/[token]` has not been seen on a screen; it
   is proved to exist and to be reachable by type, by `npm run build`, and no further.
 - **Neither new check is in CI.** `.github/workflows/ci.yml` contains the word `deno` zero times
@@ -434,7 +460,232 @@ shells' way of loading the password file.
 
 ---
 
-## 8. Notes
+## 8. The staging run of 5 October 2026, and the bug it found
+
+Written in a second session, on 5 October 2026, on the same branch. Everything above was unchanged
+except where a note points here.
+
+### What the owner did, and what they reported
+
+The owner deployed this branch's three functions to staging, put the test account **Bob**'s
+`account_status` row in place, and ran the script:
+
+```
+node scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended
+```
+
+**14 PASS, 1 FAIL.** The failure, as reported:
+
+> `accept-invite` answered `{"error":"You can't do that at the moment.","reason":"account_suspended"}`
+> — no `code` field.
+
+**What the assistant has, and has not, seen.** It has the two counts, the failing function, and that
+body. It did **not** see the run's output, did not run the script, did not deploy, and has touched
+neither staging nor production (AGENTS.md rules 1, 10 and 19; the task said to deploy nothing and run
+nothing). Which 14 judgements passed is **unverified here** — see section 7.
+
+### The bug
+
+`supabase/functions/accept-invite/index.ts` is the only one of the three whose `fail` takes four
+arguments, because it is the only one whose caller picks its wording from a reason:
+
+```
+function fail(message: string, status: number, reason: Reason, code?: string)   // accept-invite
+function fail(message: string, status: number, code?: string)                   // the other two
+```
+
+The suspended refusal was copied from the other two and kept their shape — three arguments:
+
+```
+return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE);
+```
+
+So `"account_suspended"` landed in `reason`, `code` was `undefined`, and `Response.json` **omits an
+undefined field rather than sending a null**. Hence a body that looks complete and is missing the one
+field the other two functions' callers read.
+
+**Why 14 of 15 still passed.** The refusal was right in every other respect — 403, the fixed
+sentence, nothing leaked — and the check ran in the right place. The decision was never wrong; only
+the response built from it was.
+
+### Why nothing in this repository caught it
+
+This is the part worth keeping. Before this session:
+
+- **the Deno test** (section 3) asserted `checkSuspension`'s **verdict** — `{ allowed: false, why:
+  "suspended" }` — and never once looked at a `Response`. All 35 tests passed with the bug live;
+- **`deno check`** (section 2) could not have: three arguments to a four-parameter function whose
+  fourth is optional is valid TypeScript, and `SUSPENDED_CODE` is a `string` that is also a valid
+  `Reason`, so the third argument type-checks in either position;
+- **the staging script** (section 4) *did* catch it, on the first run, because it reads the body. Its
+  own `--selftest` even contains the mirror-image case, "403 with the code, but accept-invite left
+  `reason` off". It was the only check of the five that asked the right question, and it is the one
+  that needs a deploy to run.
+
+A verdict is not a refusal. It is a decision that a refusal is built from, and the build was where
+the mistake was.
+
+### The fix
+
+| File | Change |
+|---|---|
+| `supabase/functions/accept-invite/index.ts` | `suspendedRefusal()` — the call site, now passing `SUSPENDED_CODE` as **both** `reason` and `code` |
+| `supabase/functions/create-team/index.ts` | `suspendedRefusal()` — same call as before, `{ error, code }`, no behaviour change |
+| `supabase/functions/invite-member/index.ts` | `suspendedRefusal()` — same call as before, `{ error, code }`, no behaviour change |
+| `supabase/functions/_tests/suspension_test.ts` | five new tests that read the Response each function sends |
+
+The refusal is now a **named, exported function** in each of the three, called by the handler. That is
+the only way the test can assert the real body: a test that writes out the expected JSON and compares
+it with its own copy proves nothing. Same argument the `checkSuspension` export already rested on,
+applied one level further out.
+
+The three bodies are deliberately **not** identical, and the test says so:
+
+| Function | Suspended refusal body | Status |
+|---|---|---|
+| `create-team` | `{"error":"You can't do that at the moment.","code":"account_suspended"}` | 403 |
+| `invite-member` | `{"error":"You can't do that at the moment.","code":"account_suspended"}` | 403 |
+| `accept-invite` | `{"error":"You can't do that at the moment.","reason":"account_suspended","code":"account_suspended"}` | 403 |
+
+`accept-invite` needs the `reason` because `web/src/app/invite/[token]/actions.ts` accepts a reason
+only if it is in `INVITE_REASONS` (`web/src/lib/teams.ts`) and otherwise falls back to the HTTP
+status — where 403 reads as `wrong_person`. Without it a suspended person is told the invitation was
+sent to a different address and sent off to sign in with an account they do not have. The other two
+must **not** carry a `reason`: their `fail` has no such field and their callers read `code`.
+
+### The new test fails without the fix — shown, not claimed
+
+The fix was reverted to the three-argument call and the test run:
+
+```
+> deno test --no-lock --allow-env --config supabase/functions/create-team/deno.json supabase/functions/_tests/suspension_test.ts
+
+create-team: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (6ms)
+invite-member: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (0ms)
+accept-invite: the suspended refusal it sends is 403 with the sentence, the code, the reason and nothing else ... FAILED (5ms)
+the three refusals carry the same sentence and the same code ... FAILED (0ms)
+the body checks REFUSE every broken refusal ... ok (1ms)
+
+ ERRORS
+
+accept-invite: the suspended refusal it sends is 403 with the sentence, the code, the reason and nothing else => ./supabase/functions/_tests/suspension_test.ts:474:8
+error: Error: accept-invite's suspended refusal is wrong: code is undefined, expected "account_suspended"
+
+the three refusals carry the same sentence and the same code => ./supabase/functions/_tests/suspension_test.ts:493:6
+error: Error: the three refusals disagree: create-team {"error":"You can't do that at the moment.","code":"account_suspended"}, invite-member {"error":"You can't do that at the moment.","code":"account_suspended"}, accept-invite {"error":"You can't do that at the moment."}
+
+FAILED | 38 passed | 2 failed (40ms)
+exit: 1
+```
+
+Two things that shows. The new test fails **for the exact reason the staging run gave** — `code is
+undefined` — and the "the three refusals agree" test caught it independently, by noticing one body
+had drifted, which is the same way the verdict test caught a drifted copy in section 3. The 38 that
+passed include every one of the 35 from section 3: **the old tests cannot see this bug, and that is
+measured here rather than argued.**
+
+Colour codes are stripped from the quoted output and the 33 passing lines above the failures are left
+out; nothing else is altered.
+
+### With the fix: 40 passed, exit 0
+
+```
+> deno test --no-lock --allow-env --config supabase/functions/create-team/deno.json supabase/functions/_tests/suspension_test.ts
+
+the three functions give the same verdict for every case ... ok (0ms)
+the fail-closed cases REFUSE a check that fails open ... ok (0ms)
+create-team: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (5ms)
+invite-member: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (0ms)
+accept-invite: the suspended refusal it sends is 403 with the sentence, the code, the reason and nothing else ... ok (0ms)
+the three refusals carry the same sentence and the same code ... ok (0ms)
+the body checks REFUSE every broken refusal ... ok (0ms)
+
+ok | 40 passed | 0 failed (32ms)
+exit: 0
+```
+
+The 33 earlier lines, all `ok`, are left out here; the run printed all 40 names. `deno test`
+type-checks what it runs, so this also type-checks the three functions after the edit.
+
+### Can the new body checks fail? Seven mistakes, all refused
+
+The new section of the test carries seven broken refusals and requires its checks to reject every
+one. The first is **not invented** — it is what staging actually sent, reproduced exactly:
+
+| Broken refusal | Caught by |
+|---|---|
+| accept-invite's reason with no `code` — the staging bug | `code is undefined` |
+| accept-invite's `code` with no reason — the mirror image, which sends the page to the wrong wording | `reason is undefined` |
+| a refusal carrying `suspended_at` and the owner's reason text | extra fields; timestamp-shaped text; reason text |
+| a refusal naming the account it is about | extra field; uuid-shaped text |
+| the right body with status 500 | status |
+| the right `code` with another refusal's wording | the sentence |
+| a plain-text `Forbidden`, not JSON | not JSON |
+
+That test also asserts the count is 7, so deleting a case fails the test rather than quietly
+weakening the file — the same guard the fail-closed test has on its seven.
+
+### The repository's own checks, after the fix
+
+```
+> npm test
+AI team self-test: 258 passed, 0 failed.
+Checked 6 workflow file(s), 14 job(s): 0 problem(s), 0 warning(s).
+exit: 0
+```
+
+```
+> node scripts/staging/build-it-16-suspend-checks.mjs --selftest
+40 cases, 0 wrong.
+exit: 0
+```
+
+`--selftest` sends nothing and is not a staging result; it is the script's own logic being checked
+against expected verdicts. It was unchanged in this session — the script already judged this
+correctly, which is how the bug was found.
+
+`git status` after the runs shows five modified files — the four above plus this evidence file — and
+**no `deno.lock` anywhere**, so the `--no-lock` flag is still doing its job (#35 remains the right way
+to add lockfiles deliberately):
+
+```
+> git status --short
+ M evidence/build-it-16-suspend-functions.md
+ M supabase/functions/_tests/suspension_test.ts
+ M supabase/functions/accept-invite/index.ts
+ M supabase/functions/create-team/index.ts
+ M supabase/functions/invite-member/index.ts
+```
+
+### What is still needed, and it is the owner's
+
+1. **Deploy the three functions to staging again**, so the fixed body is actually served. Until then
+   staging refuses a suspended person *without* the `code` field.
+2. **Re-run `--expect-suspended`** with Bob's row in place. Expect 15 PASS, 0 FAIL.
+3. **Run `--expect-active`** with the row removed — still never run, in either session, and it is the
+   half that would catch a check refusing everybody.
+4. **Read Bob's `teams` and `invitations` counts** in the dashboard, before and after, and confirm
+   they did not move.
+5. **Merge the pull request** for production to get any of this at all.
+
+Step 1 is permitted to the assistant by rule 19 and was **not** done, because the task said to deploy
+nothing and run nothing against staging.
+
+### The root cause is still there, and it is filed
+
+The fix corrects the one call site that was wrong. It does **not** remove the trap: the three `fail`
+helpers still take different arguments, so the third parameter means `code` in two files and `reason`
+in the third, and a three-argument call type-checks in all three. The next refusal copied between them
+can lose a field the same way.
+
+**Filed as [#139](https://github.com/build-once/team-tasks/issues/139)** — with the two options
+(one shared helper, or named arguments so an omitted field is a type error) and, as the test of
+whether it is fixed, that `deno check` must reject the mistake that caused this, since `deno check`
+is precisely the check that could not see it.
+
+---
+
+## 9. Notes
 
 - **Data captured from production: none.** Nothing was captured, read or copied from production in
   this session, so **nothing has been redacted** (rule 18). Every id, token and reason string in the

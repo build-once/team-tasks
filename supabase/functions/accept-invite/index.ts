@@ -30,13 +30,22 @@
 // untrue from the moment PR #44 merged (issue #111). Read what follows as code
 // that is running in production: it is.
 //
-// WITH ONE EXCEPTION, as of 4 October 2026: THE SUSPENDED-ACCOUNT CHECK BELOW IS
-// DEPLOYED NOWHERE. It arrived with issue #133, part B of Build it 16 step 5, and
-// the assistant deploys nothing (rule 19 permits `functions deploy` against
-// staging; it was not used). So what staging and production are running is this
-// file WITHOUT that check, and a suspended person can still accept an invitation
-// on both until the owner deploys. evidence/build-it-16-suspend-functions.md
-// says what was proved and where.
+// WITH ONE EXCEPTION, as of 5 October 2026: THE SUSPENDED-ACCOUNT CHECK BELOW IS
+// ON STAGING AND NOT IN PRODUCTION, and the version on staging is one commit
+// behind this file. It arrived with issue #133, part B of Build it 16 step 5.
+//
+// The owner deployed this branch's three functions to staging and ran
+// scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended with the test
+// account Bob's account_status row in place: 14 PASS, 1 FAIL -- and THIS function
+// was the one failure. A suspended Bob was refused, correctly, with 403 and the
+// right sentence; the body carried the reason and no `code`, because the call site
+// below passed three arguments to a `fail` that takes four. That is fixed in this
+// file and NOT YET ON STAGING: the assistant deploys nothing, so until the owner
+// deploys again, staging answers a suspended caller without the `code` field.
+// See `suspendedRefusal` below, and evidence/build-it-16-suspend-functions.md.
+//
+// PRODUCTION is still running this file without the check at all, because code
+// reaches production only through a pull request the owner merges (rule 19).
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
@@ -133,6 +142,27 @@ const SUSPENDED_CODE = "account_suspended";
 // deliberately NOT a message written for another cause. The page has its own
 // copy of this wording, because it never prints text that arrived over the wire.
 const SUSPENDED_MESSAGE = "You can't do that at the moment.";
+
+// THE REFUSAL ITSELF, exported so that supabase/functions/_tests/suspension_test.ts
+// reads the body THIS function sends rather than a body the test writes out for
+// itself. Same argument as the `checkSuspension` export below, and the staging
+// run on 5 October 2026 is what made it necessary rather than tidy.
+//
+// WHAT THAT RUN FOUND. `fail` here takes four arguments -- message, status,
+// reason, THEN code -- because this function is the only one of the three whose
+// caller picks its wording from a reason. create-team's and invite-member's take
+// three, with code third. This call site was copied from theirs and kept their
+// shape, so it passed "account_suspended" as the reason, left `code` undefined,
+// and Response.json dropped the field: the real answer was
+// {"error":"You can't do that at the moment.","reason":"account_suspended"} with
+// no code. scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended read
+// the body and failed it -- 14 PASS, 1 FAIL -- while every test in this
+// repository passed, because nothing here looked at a body. The code and the
+// reason must both be the one word, which is what the fourth argument below is.
+// evidence/build-it-16-suspend-functions.md records the run.
+export function suspendedRefusal(): Response {
+  return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE, SUSPENDED_CODE);
+}
 
 // Three answers, not two. "I could not tell" is the one that matters: a read
 // that failed does not mean "not suspended", and an unknown refused is the shape
@@ -251,7 +281,7 @@ export default {
     );
     if (!suspension.allowed) {
       if (suspension.why === "suspended") {
-        return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE);
+        return suspendedRefusal();
       }
       // Fail closed. The read did not answer, so whether this person may act is
       // not known -- and an unknown is not a "no row". Reported as "failed",

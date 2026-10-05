@@ -5,10 +5,23 @@
 // root, and see the bottom of this file for the exact command.
 //
 // WHAT IT TESTS, and what makes that worth anything: it imports the THREE REAL
-// index.ts files and calls the `checkSuspension` each one exports. Not a copy of
-// the logic written out again here -- a copy would pass happily while the
-// deployed code did something else, which is the one failure a test like this
-// must not have. The import is the point.
+// index.ts files and calls the `checkSuspension` and `suspendedRefusal` each one
+// exports. Not a copy of the logic written out again here -- a copy would pass
+// happily while the deployed code did something else, which is the one failure a
+// test like this must not have. The import is the point.
+//
+// THE SECOND EXPORT WAS ADDED ON 5 OCTOBER 2026, AND HERE IS WHY. The owner
+// deployed the three functions to staging and ran
+// scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended with the test
+// account Bob suspended: 14 PASS, 1 FAIL. accept-invite answered
+// {"error":"You can't do that at the moment.","reason":"account_suspended"} --
+// no `code` field at all, because its `fail` takes the reason third and the code
+// fourth and the call site, copied from the other two functions, passed three
+// arguments. Every test in this file passed that whole time, because every test
+// in this file looked at a verdict and no test looked at a body. A verdict of
+// `{ allowed: false, why: "suspended" }` is not a refusal; it is a decision that
+// a refusal is then built from, and the build was where the mistake was. So the
+// refusal each function sends is now exported, and asserted field by field.
 //
 // WHY IT CAN BE RUN AT ALL WITH NO DATABASE. `checkSuspension` takes the read as
 // a function that performs it, so this file hands it a read that fails, a read
@@ -18,7 +31,7 @@
 // that is what scripts/staging/build-it-16-suspend-checks.mjs is for, run by the
 // owner once the functions are deployed.
 //
-// THE FOUR THINGS IT ASKS:
+// THE FIVE THINGS IT ASKS:
 //
 //   1. A ROW MEANS REFUSED. The person is suspended, so the answer is no.
 //   2. NO ROW MEANS ALLOWED. Everybody who is not suspended still works -- the
@@ -33,6 +46,12 @@
 //      same decision taken by hashToken, which invite-member and accept-invite
 //      each have their own copy of -- and this is what stops one of them
 //      drifting quietly.
+//   5. THE REFUSAL EACH ONE SENDS IS RIGHT, as a response: the status, the
+//      sentence, the code, accept-invite's reason, and nothing else in the body.
+//      Added after the staging run described above, which is the only reason
+//      anybody knows this needed asking. Checks 1 to 4 are about a decision;
+//      this one is about what the caller actually receives, and the two are not
+//      the same thing.
 //
 // AND IT CHECKS THAT IT CAN FAIL. `brokenCheckSuspension` below is the mistake
 // this whole file exists to catch, written out on purpose: it treats a failed
@@ -59,9 +78,18 @@
 //
 // It writes nothing, reads no file and makes no request.
 
-import { checkSuspension as createTeamCheck } from "../create-team/index.ts";
-import { checkSuspension as inviteMemberCheck } from "../invite-member/index.ts";
-import { checkSuspension as acceptInviteCheck } from "../accept-invite/index.ts";
+import {
+  checkSuspension as createTeamCheck,
+  suspendedRefusal as createTeamRefusal,
+} from "../create-team/index.ts";
+import {
+  checkSuspension as inviteMemberCheck,
+  suspendedRefusal as inviteMemberRefusal,
+} from "../invite-member/index.ts";
+import {
+  checkSuspension as acceptInviteCheck,
+  suspendedRefusal as acceptInviteRefusal,
+} from "../accept-invite/index.ts";
 
 // The three, by the names in supabase/config.toml.
 const CHECKS = [
@@ -292,6 +320,305 @@ Deno.test("the fail-closed cases REFUSE a check that fails open", async () => {
       `a check that treats a failed read as "not suspended" was caught by only` +
         ` ${caught.length} of the ${failClosedCases} fail-closed cases. Caught:` +
         ` ${caught.join("; ") || "none"}`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 5. The refusal each function actually sends
+// ---------------------------------------------------------------------------
+//
+// Everything above this line asks what `checkSuspension` DECIDES. Nothing above
+// this line asks what the caller RECEIVES, and that gap is what let the bug
+// described at the top of this file reach staging: the decision was right in all
+// three functions, and accept-invite built the wrong response out of it.
+//
+// So these tests call `suspendedRefusal` -- the real exported call site, the one
+// the handler itself calls -- and read the Response. Not a body written out here:
+// a test that spells out the expected JSON and compares it with its own copy
+// proves nothing, which is the same argument the `checkSuspension` import rests
+// on.
+//
+// WHAT THE CONTRACT IS, and it is not identical across the three:
+//
+//   * all three: HTTP 403, `error` the fixed sentence, `code` "account_suspended";
+//   * accept-invite ALSO: `reason` "account_suspended", because
+//     web/src/app/invite/[token]/actions.ts accepts a reason only if it is in
+//     INVITE_REASONS (web/src/lib/teams.ts) and otherwise falls back to the HTTP
+//     status -- where 403 reads as "wrong_person", so a suspended person would be
+//     told the invitation was sent to a different address and sent off to sign in
+//     with an account they do not have;
+//   * create-team and invite-member must NOT carry a `reason`: their `fail` has no
+//     such field, their callers read `code`, and inventing one would be a second
+//     vocabulary for one event;
+//   * and none of them says anything else. No suspended_at, no reason text, no
+//     id, no address. docs/plan.md marks the suspension reason sensitive and says
+//     nobody reads it through the app.
+//
+// The same contract scripts/staging/build-it-16-suspend-checks.mjs judges over
+// the wire, deliberately: that script is the only thing that can prove what the
+// DEPLOYED functions answer, and this file is the only thing that can prove it
+// before a deploy. They have to be asking the same question or the pair is
+// worthless.
+
+// Spelled out rather than imported, for the same reason the `Expected` type above
+// is: this is the test's own statement of the contract. Importing the constants
+// would make the test agree with the functions by construction, however the
+// functions changed.
+const SUSPENDED_CODE = "account_suspended";
+const SUSPENDED_MESSAGE = "You can't do that at the moment.";
+
+// A refusal is a short, fixed sentence plus one or two codes. 200 characters is
+// generous for that and far too small for a sentence somebody typed.
+const MAX_REFUSAL_BODY = 200;
+const UUID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const TIMESTAMP_SHAPED = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+const REFUSALS: Array<{
+  name: string;
+  refusal: () => Response;
+  needsReason: boolean;
+}> = [
+  { name: "create-team", refusal: createTeamRefusal, needsReason: false },
+  { name: "invite-member", refusal: inviteMemberRefusal, needsReason: false },
+  { name: "accept-invite", refusal: acceptInviteRefusal, needsReason: true },
+];
+
+// Say what is wrong with a refusal, rather than only that something is. Returns
+// every problem it finds, not the first -- a body with two faults should report
+// two.
+async function problemsWithRefusal(
+  answer: Response,
+  needsReason: boolean,
+): Promise<string[]> {
+  const problems: string[] = [];
+
+  if (answer.status !== 403) {
+    problems.push(`the status is ${answer.status}, expected 403`);
+  }
+
+  const text = await answer.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    problems.push(`the body is not JSON: ${text}`);
+    return problems;
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    problems.push(`the body is ${typeof parsed}, not a JSON object: ${text}`);
+    return problems;
+  }
+  const body = parsed as Record<string, unknown>;
+
+  if (body.error !== SUSPENDED_MESSAGE) {
+    problems.push(
+      `error is ${JSON.stringify(body.error)}, expected the fixed sentence ` +
+        JSON.stringify(SUSPENDED_MESSAGE),
+    );
+  }
+
+  // THE FIELD THE STAGING RUN FOUND MISSING. Read off the parsed object, so a
+  // code appearing in some other field cannot satisfy it.
+  if (body.code !== SUSPENDED_CODE) {
+    problems.push(
+      `code is ${JSON.stringify(body.code)}, expected ${JSON.stringify(SUSPENDED_CODE)}`,
+    );
+  }
+
+  if (needsReason) {
+    if (body.reason !== SUSPENDED_CODE) {
+      problems.push(
+        `reason is ${JSON.stringify(body.reason)}, expected ` +
+          `${JSON.stringify(SUSPENDED_CODE)} -- without it the /invite/[token] page` +
+          ` falls back to the status and says the wrong thing`,
+      );
+    }
+  } else if ("reason" in body) {
+    problems.push(
+      `it carries a reason field, ${JSON.stringify(body.reason)}, and this` +
+        ` function's callers read code`,
+    );
+  }
+
+  const allowed = needsReason ? ["error", "code", "reason"] : ["error", "code"];
+  const extra = Object.keys(body).filter((key) => !allowed.includes(key));
+  if (extra.length > 0) {
+    problems.push(`it carries fields it should not: ${extra.join(", ")}`);
+  }
+
+  // The disclosure checks, read off the raw text so a value is caught wherever
+  // it hides rather than only in the field it was expected in.
+  if (TIMESTAMP_SHAPED.test(text)) {
+    problems.push("it contains something shaped like a timestamp, so possibly suspended_at");
+  }
+  if (UUID_SHAPED.test(text)) {
+    problems.push("it contains a uuid, so possibly a user id");
+  }
+  if (text.includes("@")) {
+    problems.push("it contains an @, so possibly an address");
+  }
+  if (text.includes(MADE_UP_REASON)) {
+    problems.push("it contains a suspension reason, which must never leave the table");
+  }
+  if (text.length > MAX_REFUSAL_BODY) {
+    problems.push(
+      `it is ${text.length} characters, over the ${MAX_REFUSAL_BODY} expected of a refusal`,
+    );
+  }
+
+  return problems;
+}
+
+for (const { name, refusal, needsReason } of REFUSALS) {
+  Deno.test(
+    `${name}: the suspended refusal it sends is 403 with the sentence, the code${
+      needsReason ? ", the reason" : ""
+    } and nothing else`,
+    async () => {
+      const problems = await problemsWithRefusal(refusal(), needsReason);
+      if (problems.length > 0) {
+        throw new Error(
+          `${name}'s suspended refusal is wrong: ${problems.join("; ")}`,
+        );
+      }
+    },
+  );
+}
+
+// The two fields all three share must be identical, for the same reason the
+// verdicts must: one event, one vocabulary. Compared with each other and not
+// only with the expectation above, so a drift this file has not thought to
+// describe still cannot pass.
+Deno.test("the three refusals carry the same sentence and the same code", async () => {
+  const shared: string[] = [];
+  for (const { refusal } of REFUSALS) {
+    const body = await refusal().json();
+    shared.push(JSON.stringify({ error: body.error, code: body.code }));
+  }
+  const unique = [...new Set(shared)];
+  if (unique.length !== 1) {
+    throw new Error(
+      "the three refusals disagree: " +
+        REFUSALS.map((r, i) => `${r.name} ${shared[i]}`).join(", "),
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Can the body checks fail?
+// ---------------------------------------------------------------------------
+//
+// The mistakes, written out. The first one is not invented: it is what
+// accept-invite sent on staging on 5 October 2026, reproduced here exactly, and
+// it is the case that makes this whole section worth having. If the checks above
+// cannot catch it, they are no better than the verdict checks that let it
+// through.
+const BROKEN_REFUSALS: Array<{
+  name: string;
+  needsReason: boolean;
+  build: () => Response;
+}> = [
+  {
+    // What `fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE)` produced in a function
+    // whose `fail` is (message, status, reason, code): the reason arrived, `code`
+    // was undefined, and Response.json drops an undefined field rather than
+    // sending a null. Hence a body that looks complete and is not.
+    name: "accept-invite's reason with no code -- the bug the staging run found",
+    needsReason: true,
+    build: () =>
+      Response.json(
+        { error: SUSPENDED_MESSAGE, reason: SUSPENDED_CODE, code: undefined },
+        { status: 403 },
+      ),
+  },
+  {
+    // The mirror image, and the worse of the two for the person reading the
+    // screen: the page gets no reason it recognises, falls back to the 403, and
+    // tells a suspended person the invitation was sent to another address.
+    name: "accept-invite's code with no reason -- the page falls back and says the wrong thing",
+    needsReason: true,
+    build: () =>
+      Response.json(
+        { error: SUSPENDED_MESSAGE, code: SUSPENDED_CODE },
+        { status: 403 },
+      ),
+  },
+  {
+    name: "a refusal that explains itself, carrying suspended_at and the owner's reason",
+    needsReason: false,
+    build: () =>
+      Response.json(
+        {
+          error: SUSPENDED_MESSAGE,
+          code: SUSPENDED_CODE,
+          suspended_at: "2026-10-04T11:43:13Z",
+          reason_text: MADE_UP_REASON,
+        },
+        { status: 403 },
+      ),
+  },
+  {
+    name: "a refusal that names the account it is about",
+    needsReason: false,
+    build: () =>
+      Response.json(
+        { error: SUSPENDED_MESSAGE, code: SUSPENDED_CODE, user_id: MADE_UP_ID },
+        { status: 403 },
+      ),
+  },
+  {
+    // A 403 is what the page and the staging script key on. A 500 would read as
+    // "something broke, try again", which is the fail-closed branch's meaning and
+    // not this one's.
+    name: "the right body with the wrong status",
+    needsReason: false,
+    build: () =>
+      Response.json(
+        { error: SUSPENDED_MESSAGE, code: SUSPENDED_CODE },
+        { status: 500 },
+      ),
+  },
+  {
+    name: "the right code with another refusal's wording",
+    needsReason: false,
+    build: () =>
+      Response.json(
+        {
+          error: "This invitation was sent to a different email address.",
+          code: SUSPENDED_CODE,
+        },
+        { status: 403 },
+      ),
+  },
+  {
+    name: "a plain-text refusal, not JSON at all",
+    needsReason: false,
+    build: () => new Response("Forbidden", { status: 403 }),
+  },
+];
+
+Deno.test("the body checks REFUSE every broken refusal", async () => {
+  const missed: string[] = [];
+  for (const broken of BROKEN_REFUSALS) {
+    const problems = await problemsWithRefusal(broken.build(), broken.needsReason);
+    if (problems.length === 0) {
+      missed.push(broken.name);
+    }
+  }
+
+  // The count is asserted rather than described, so deleting a case shows up here
+  // rather than quietly weakening the file -- the same argument the fail-closed
+  // test above makes about its seven.
+  if (BROKEN_REFUSALS.length !== 7) {
+    throw new Error(
+      `expected 7 broken refusals, found ${BROKEN_REFUSALS.length} -- was one removed?`,
+    );
+  }
+  if (missed.length > 0) {
+    throw new Error(
+      `the body checks passed ${missed.length} refusal(s) that are wrong:` +
+        ` ${missed.join("; ")}`,
     );
   }
 });

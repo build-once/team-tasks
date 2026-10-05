@@ -27,13 +27,18 @@
 // what was checked, including a deliberately broken version used to prove the
 // error checks below actually fire.
 //
-// THE SUSPENDED-ACCOUNT CHECK BELOW IS DEPLOYED NOWHERE, as of 4 October 2026.
-// It arrived with issue #133, part B of Build it 16 step 5, and the assistant
-// deploys nothing (rule 19: `functions deploy` against staging is permitted, and
-// was not used). So what staging and production are running is this file WITHOUT
-// that check, and a suspended person can still create a team on both until the
-// owner deploys. evidence/build-it-16-suspend-functions.md says what was proved
-// and where.
+// THE SUSPENDED-ACCOUNT CHECK BELOW IS ON STAGING AND NOT IN PRODUCTION, as of
+// 5 October 2026. It arrived with issue #133, part B of Build it 16 step 5. The
+// owner deployed this branch's three functions to staging and ran
+// scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended with the test
+// account Bob's account_status row in place: 14 PASS, 1 FAIL, and the one failure
+// was in accept-invite's refusal body, not in this function.
+//
+// So a suspended person can no longer create a team on STAGING. PRODUCTION is
+// still running this file without the check, because code reaches production only
+// through a pull request the owner merges (rule 19) -- and the assistant has
+// deployed nothing anywhere. evidence/build-it-16-suspend-functions.md records
+// what the staging run showed and what is still unproved.
 
 // Both names below resolve through the import map in deno.json, and both are
 // pinned there to an EXACT version -- no ^ and no ~ (rule 17, Lesson A4):
@@ -102,6 +107,25 @@ const SUSPENDED_CODE = "account_suspended";
 // question -- so this says the least it can while still being honest, and it is
 // deliberately NOT a message written for another cause.
 const SUSPENDED_MESSAGE = "You can't do that at the moment.";
+
+// THE REFUSAL ITSELF, exported so that supabase/functions/_tests/suspension_test.ts
+// reads the body THIS function sends rather than a body the test writes out for
+// itself. Same argument as the `checkSuspension` export below: a test that spells
+// out `{ error, code }` by hand passes whatever the function actually does.
+//
+// That is not a hypothetical. On 5 October 2026 the owner ran
+// scripts/staging/build-it-16-suspend-checks.mjs --expect-suspended against the
+// deployed functions and got 14 PASS, 1 FAIL: accept-invite's copy of this call
+// sent no `code` at all, because its `fail` takes the reason third and the code
+// fourth and the call passed three arguments. Every test in this repository
+// passed, because nothing here looked at a body. Now they do.
+//
+// `fail` here takes (message, status, code), so the body is `{ error, code }`
+// with no `reason` field -- right for this function, because only accept-invite's
+// caller, the /invite/[token] page, picks its wording from a reason.
+export function suspendedRefusal(): Response {
+  return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE);
+}
 
 // Three answers, not two. "I could not tell" is the one that matters: a read
 // that failed does not mean "not suspended", and this file already argues the
@@ -197,7 +221,7 @@ export default {
     );
     if (!suspension.allowed) {
       if (suspension.why === "suspended") {
-        return fail(SUSPENDED_MESSAGE, 403, SUSPENDED_CODE);
+        return suspendedRefusal();
       }
       // Fail closed. The read did not answer, so whether this person may act is
       // not known -- and an unknown is not a "no row". This is a different
