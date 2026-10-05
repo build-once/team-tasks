@@ -92,9 +92,17 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    +-----------------------------------------------------------------------+
 
    +-----------------------------------------------------------------------+
-   |  MONITORING  -  PLANNED, LATER STEP.                                  |
-   |  Error monitoring gets added in its own step, before real             |
-   |  volunteers rely on the app. Not built yet.                           |
+   |  MONITORING  -  SENTRY chosen 5 Oct 2026.  NOT INSTALLED YET.         |
+   |  Free plan, data region UNITED STATES. Account and a Next.js          |
+   |  project named team-tasks exist; no package, no DSN, no code.         |
+   |                                                                       |
+   |  (11) the web app sends an error report, from the BROWSER and         |
+   |       from the SERVER side of Next.js                                 |
+   |       DSN -- PUBLIC, not a secret                                     |
+   |  Production and Preview on Vercel send. Local development sends       |
+   |  NOTHING unless the DSN is set in a local file.                       |
+   |  NEVER sent: an address, task text, a team name, a token, a key.      |
+   |  OFF: session replay, performance tracing, request bodies.            |
    +-----------------------------------------------------------------------+
 ```
 
@@ -182,7 +190,14 @@ volunteer's browser, which is why it is not an arrow on the map above. It is dra
 instead.
 
 Every other arrow carries no key, or carries only the **publishable key**, which is meant to be
-public. Arrows (1), (2), (3), (4), (6), (8), (9) and (10) carry no secret.
+public. Arrows (1), (2), (3), (4), (6), (8), (9), (10) and (11) carry no secret.
+
+**Arrow (11), the error report, adds no secret — and that is a decision, not luck.** Sentry's project
+key, the DSN, identifies a project and is meant to travel in a browser, exactly like the Supabase
+publishable key; it is not a password for the account. Sentry's setup wizard would add a second value,
+an **auth token** for uploading source maps, which *is* a secret. The wizard is not used and no source
+maps are uploaded, so that token does not exist and there is no fourth secret store. See
+`docs/plan.md` → "Error reports to an outside service".
 
 **No secret arrow starts at the web app.** There is no mobile app. If you ever find yourself
 wanting a secret in `web/` client code, the answer is a new server function, not an exception.
@@ -323,7 +338,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | Backups | Daily copies of the database, so a mistake is survivable | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none | **Secret** — owner only |
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
-| Monitoring | Will tell you the app is broken before a volunteer does | **Planned, later step** — no service chosen yet | — |
+| Monitoring | Will tell you the app is broken before a volunteer does, by sending an error report when a screen or a server route throws | **Sentry**, free plan, data region United States — chosen 5 Oct 2026, **not installed yet** | **Public** — the DSN is meant to be in the browser. No secret, because the setup wizard and its source-map auth token are not used |
 
 ## What I left out, and why
 
@@ -334,13 +349,17 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | **Webhooks** | A webhook is a message *in* from an outside service. Nothing sends you one: no payments, and the app does not need Resend's delivery reports. Adding one would mean signature checking, which is a real job. |
 | **File storage** | File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes. |
 | **AI or other outside services** | "An AI helper" is on the not-yet list. No model is called, so no prompt, no token bill, and no third party receiving task text. |
-| **Monitoring** | Drawn, but empty. **Planned for a later step**, before real volunteers rely on the app. Not a gap — a sequencing decision. |
+| **Monitoring** | No longer empty: **Sentry** was chosen on 5 Oct 2026 and is drawn on the map, still with nothing installed. What is left out *inside* it is deliberate: no session replay, no performance tracing, and no request or response bodies — the three Sentry features that would carry task text, addresses and tokens out of this project. |
 
 ## Two things settled
 
-**Monitoring is planned, not missing.** Error monitoring gets added in its own later step, before
-real volunteers rely on the app. It is deliberately not in the first build, and the box in the map
-says so. Nothing to decide here.
+**Monitoring is planned, not missing — and the service is now chosen.** Error monitoring gets added in
+its own step, before real volunteers rely on the app. On 5 October 2026 the owner picked **Sentry**, on
+its free plan, with the organisation's data region set to the **United States**, and created a Next.js
+project named `team-tasks`. Nothing is installed: no package, no DSN in any environment, no code, and
+no error report has ever left this app. Which environments will send is settled — **Production and
+Preview on Vercel; local development sends nothing unless a DSN is set in a local file** — and what may
+be in a report is settled in `docs/plan.md`. What is not settled is in that file's "Unverified" list.
 
 **Team Tasks is for volunteer groups in the first version.** `docs/plan.md` is right as written: one
 volunteer organiser and about five others. Business teams are not in scope for version one, which is
@@ -383,8 +402,9 @@ Before any real volunteer signs up:
   staging has no automatic backups — do not keep anything on staging you would mind losing.
 - `main` protected — still open, see `docs/stack.md` decision D.
 - Invitation email working from a verified domain, not Supabase's built-in test sender.
-- Error monitoring set up — planned for a later step, and it needs to happen before real volunteers
-  rely on the app.
+- Error monitoring set up — **Sentry** chosen on 5 Oct 2026, **nothing installed yet**, and it needs to
+  happen before real volunteers rely on the app. Two settings go with it, neither yet seen in the
+  dashboard: storing IP addresses **off**, and default data scrubbing **on** (`docs/plan.md`).
 - Some way to delete an account, or a written decision that there is none (`docs/plan.md` appendix).
 - `npm run launch:check` completed with evidence.
 

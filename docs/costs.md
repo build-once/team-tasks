@@ -7,6 +7,11 @@ What each service charges for, and whether it can be made to *stop* rather than 
 warn you. Written 2026-09-27 by reading each vendor's own billing documentation on that
 date. Billing terms change — re-read the links before trusting this page.
 
+**One exception, added 2026-10-05: the Sentry row was written without reading Sentry's pages**, because
+the session that added it had no web access. Every figure in it says **NOT CONFIRMED** and names what
+to read, rather than carrying a number from memory. Nothing is installed and nothing is sending, so
+nothing can be billed in the meantime.
+
 Related: the **Budget** section of `docs/plan.md` (£0/month while building, ceiling about
 £30/month including a domain name).
 
@@ -18,6 +23,7 @@ Related: the **Budget** section of `docs/plan.md` (£0/month while building, cei
 | **Vercel** — hosting | **Hobby (free): no.** Exceeding an included limit pauses the feature — generally for 30 days — instead of billing. **Pro: yes**, metered usage beyond the monthly credit | **Hobby: none exists — and none is needed, because Hobby cannot bill.** **Pro: partly** — a spend amount does **not** stop usage on its own; "Pause Production Deployments" must be switched on, and pausing is **not instantaneous** (checks run every few minutes, so spend can overshoot) | Hobby: N/A. Pro: email/web at 50%, 75%, 100%; SMS at 100%; optional webhook | [Spend Management](https://vercel.com/docs/spend-management) · [Hobby plan](https://vercel.com/docs/plans/hobby) |
 | **GitHub** — code and CI | Yes, for metered products: Actions, Packages, Git LFS, Codespaces, Copilot credits. **GitHub Free includes 2,000 Actions minutes/month for private repos; public repos are free on standard runners.** **With no payment method on file, usage is blocked once the quota is used up rather than billed** | **Yes, but off by default.** A budget only blocks usage if you tick "Stop usage when budget limit is reached" | **This is the default.** Without that tick you get email at 75%, 90%, 100% and usage continues | [Budgets and alerts](https://docs.github.com/en/billing/concepts/budgets-and-alerts) · [Set up budgets](https://docs.github.com/en/billing/tutorials/set-up-budgets) · [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) |
 | **Resend** — email (not set up yet) | Yes. Free: 3,000 emails/month and 100/day. Paid plans add pay-as-you-go overage (~$0.90 per 1,000 on Pro) | **A vendor-set cap, not one you choose.** Overage is capped at **5× your plan's monthly quota** by default, then sending pauses until the next cycle. Lowering that figure requires contacting support | Yes — quota alerts by email as you approach and exceed the quota | [Pricing](https://resend.com/pricing) · [Account quotas and limits](https://resend.com/docs/knowledge-base/account-quotas-and-limits) |
+| **Sentry** — error reports (chosen 2026-10-05, not installed) | **NOT CONFIRMED.** Whether the free plan is metered at all, what allowance of error reports it carries, and whether going past that allowance drops the extra reports or starts charging — none of it has been read. It must come from Sentry's own pricing page; no figure is written here from memory | **NOT CONFIRMED** — whether the free plan can bill at all, and whether Sentry offers a spend cap or a "stop at quota" switch, has not been read | **NOT CONFIRMED** — whether quota-warning emails exist, and at what percentages | **NOT READ — Sentry's own pricing page, and its documentation on event quotas and data retention.** No link is given: a URL written from memory is a guess (rule 15). Find them from the vendor's site, paste the exact pages here, and fill this row in |
 | **Domain registrar** — not chosen | **UNSURE** — depends entirely on the registrar. Domains are normally a fixed annual fee, not metered | **UNSURE** — and a spending cap is usually not applicable to a fixed annual fee | **UNSURE** | **UNSURE — no registrar chosen, so there is no documentation to link.** Fill this row in once one is picked |
 
 ## Notes per service
@@ -86,6 +92,33 @@ Related: the **Budget** section of `docs/plan.md` (£0/month while building, cei
   overage behaviour for paid plans only and do not say whether free sending pauses or
   fails.
 
+### Sentry
+
+Added 2026-10-05, when the owner chose Sentry for error reports (`docs/plan.md` → "Error reports to an
+outside service", `docs/architecture.md` → the monitoring box). **Every figure in it is unconfirmed,
+and that is deliberate rather than sloppy.**
+
+- **Nothing is installed, so nothing is being sent, so nothing can be billed today.** No package, no
+  DSN in any environment, no code. An account and a Next.js project named `team-tasks` exist, on the
+  free plan, by the owner's word.
+- **Why nothing is confirmed.** The four rows above it — Supabase, Vercel, GitHub and Resend — were
+  written on 2026-09-27 by reading each vendor's own billing documentation. No Sentry page was read
+  when this row was added: the session that wrote it had no web access, and the rules of this
+  repository forbid writing a number from memory and calling it a fact. So the row names what has to be
+  read instead of guessing at it.
+- **What to look for, and in this order:** the free plan's allowance of error reports and what happens
+  when it is used up, on Sentry's pricing page; whether extra reports past that allowance are dropped or
+  billed, and whether any switch stops rather than warns, in its documentation on event quotas; and how
+  long a report is kept, in its retention documentation — which `docs/plan.md` needs as well. If a page
+  for one of these cannot be found, write that down rather than estimating.
+- **Whether a payment method is on the Sentry account was not checked.** The banner at the top of this
+  page says no account has one; that was written of the four services above and has not been re-checked
+  for Sentry. Check it in the dashboard before trusting the banner for this service.
+- **The spending risk here is shaped differently from the others.** Error reports are generated by the
+  app failing, not by people using it, so a single looping bug on a busy page is the thing that would
+  burn a monthly allowance in an afternoon — not growth. That is an argument for finding out what the
+  allowance is *before* the first report is ever sent.
+
 ### Domain registrar
 
 Nothing can be said until one is chosen. When choosing, the only cost questions that matter
@@ -106,6 +139,11 @@ question does not get re-asked from scratch.
 - **UNSURE — GitHub's default budget amount.** The docs say you must set a budget manually
   but do not state a default figure.
 - **UNSURE — whether Resend overages are opt-in, and free-plan behaviour at quota.**
+- **NOT CONFIRMED — the Sentry row in full.** Its free-plan error allowance, what happens past it,
+  whether any cap or stop switch exists, whether quota alerts are sent, and how long a report is kept.
+  No Sentry page was read on 2026-10-05, and no number was written from memory.
+- **Not checked — whether the Sentry account has a payment method on file.** The banner at the top of
+  this page was written of the four services covered on 2026-09-27.
 - **UNSURE — the registrar row in full; no registrar chosen.**
 
 Resolved on 2026-09-27, both confirmed against vendor documentation:
@@ -130,6 +168,9 @@ service, the authoritative place is the billing settings page of the real accoun
    that "Stop usage when budget limit is reached" is ticked.
 4. **Resend** → Settings → Billing → check whether Transactional Overages is on, and what
    the overage cap is set to.
-5. **Registrar** → record the renewal price, not the introductory price.
+5. **Sentry** → the organisation's Usage and Billing settings → read the free plan's error allowance
+   and what it does when the allowance is used up, and confirm no payment method is on file. Read the
+   pricing and retention pages at the same sitting, and paste both links into the table above.
+6. **Registrar** → record the renewal price, not the introductory price.
 
 Do that before real users arrive, alongside `docs/launch-check.md`.
