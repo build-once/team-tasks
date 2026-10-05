@@ -464,7 +464,55 @@ $ grep -ranoE 'sb_secret_|service_role' web/.next/static
 
 ---
 
-## 7. Every other check
+## 7. The pre-commit secret scan refused the first commit
+
+Worth recording because it changed the code, and because the thing it refused was in the check
+script's own fixtures rather than anywhere real.
+
+`.githooks/pre-commit` runs gitleaks. On the first `git commit` it found two:
+
+```
+Finding:     const JWT = "[REDACTED]"
+RuleID:      jwt
+Entropy:     4.914489
+File:        scripts/sentry-scrub-check.mjs
+Line:        82
+
+Finding:     const TOKEN_HASH = "[REDACTED]".repeat(4);
+RuleID:      generic-api-key
+Entropy:     4.000000
+File:        scripts/sentry-scrub-check.mjs
+Line:        73
+
+leaks found: 2
+exit=1
+```
+
+Both were values invented for the check — a realistic-looking JWT header and a hash of varied hex.
+Neither is anybody's secret. But the finding was still correct in the sense that matters: the
+`secret-scan` job in `.github/workflows/ci.yml` runs gitleaks over the whole history, so the commit
+could not have passed CI either.
+
+**Nothing was done to the hook, the CI job, or any gitleaks configuration**, and `--no-verify` was
+not used. An allowlist entry would have been weakening a check, which AGENTS.md rule 5 forbids. What
+changed is the three fixtures: runs of a single character, and short literals joined together, so
+there is no high-entropy string in the file at all. What the checks actually depend on is only the
+**shape** — the lengths 43, 64 and 36, and the character classes — and that is unchanged.
+`eyJhhh…` matches the JWT rule for the same reason a real token does.
+
+Re-run after the change:
+
+```
+$ node scripts/sentry-scrub-check.mjs
+59 of 59 checks passed.
+
+$ git commit -F <file>
+INF no leaks found
+[feat/build-it-18-sentry 896e0e7] feat: send error reports to Sentry, with user ids and nothing else
+ 19 files changed, 3679 insertions(+), 164 deletions(-)
+```
+
+## 8. Every other check
 
 ```
 $ npm --prefix web run lint
