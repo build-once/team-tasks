@@ -168,8 +168,23 @@ Edge function tests (Deno)  ok | 40 passed | 0 failed (31ms)
 Edge function tests (Deno)  Counted 40 passing tests; at least 40 expected.
 ```
 
-A fourth run follows, triggered by the commit that adds this file. Its tree is run 3's plus this
-one markdown file, so it exercises nothing new; its link is in PR #141.
+---
+
+## 6a. Run 4 — the pull request's own run
+
+<https://github.com/build-once/team-tasks/actions/runs/37300358709> · commit `bddaf9d` ·
+conclusion **success**
+
+Run 3's tree plus the first version of this file, so it exercises no new code. It is here because
+#140 asks for the pull request's **own** run to show the new jobs and `required` green. `gh pr
+checks 141` reported **17 checks, all pass**, and `required` logged:
+
+```
+All 13 jobs succeeded.
+```
+
+This line was added after that run finished, so the run that tests *this* file is run 4's
+successor; it differs from run 4 by this paragraph and nothing else.
 
 ---
 
