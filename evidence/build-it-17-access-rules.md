@@ -1,8 +1,10 @@
 # Evidence: Build it 17 — access-rule tests on staging (issue #145)
 
-Result: **PARTIAL** — the guard, the lint, the workflow lint and the counting logic are PASS below.
-The staging run of `npm test` is **reported by the owner** and recorded at the end of this file as
-reported, not observed here. The "App tests" job on the pull request is still **unverified**.
+Result: **PASS** — the guard, the lint, the workflow lint and the counting logic are PASS below, and
+the **App tests** job is green on commit `25a1a36`: run 37341726285, 25 passed, 0 failed, read from
+the job log in this session. The owner's earlier local run is recorded separately as **reported**,
+not observed here. One thing is still not run: `npm test` with `scope=local` from a machine rather
+than from CI.
 Date: 2026-10-05
 How checked: every command below was run from the repository root on the owner's machine, one at a
 time, and its exact output pasted. Node v24.13.1 locally; the CI job pins Node 22.
@@ -273,7 +275,8 @@ $ npm --prefix web run lint
 
 Exit code 0, no findings.
 
-**Not exercised.** See the last section: no run with `scope=local` has been made.
+**Exercised in CI**, on commit `25a1a36` — the three sign-outs answered HTTP 204. See "The green
+CI run" below. No *local* run with `scope=local` has been made.
 
 **Five scripts still do this.** `scripts/staging/build-it-14-checks.mjs`,
 `build-it-15-checks.mjs`, `build-it-16-checks.mjs`, `build-it-16-suspend-checks.mjs` and
@@ -335,18 +338,86 @@ a publishable key can delete it.
 
 **#146 is a duplicate of #145.**
 
+## The green CI run — read from the log in this session
+
+Run [37341726285](https://github.com/build-once/team-tasks/actions/runs/37341726285), 5 Oct 2026,
+`pull_request`. Unlike the section above, this one **was** read here: the job log was fetched with
+`gh` and the lines below are quoted out of it.
+
+```
+$ gh run view 37341726285 --json headSha,headBranch,status,conclusion,createdAt,event
+{"conclusion":"success","createdAt":"2026-10-05T16:33:18Z","event":"pull_request","headBranch":"test/access-rules","headSha":"25a1a363c6ba56021c004a35ee66a947e957283b"}
+```
+
+`headSha` is `25a1a363c6ba56021c004a35ee66a947e957283b` — commit `25a1a36`, the commit that made
+sign-out `scope=local`. **So this run exercised `scope=local`**, and it is the first run that did.
+All 16 jobs concluded `success`, `required` included.
+
+### The count, quoted exactly
+
+```
+App tests: 25 passed, 0 failed, 0 skipped, 0 todo; at least 25 expected to pass.
+```
+
+Node's own summary, from the same log: `# tests 25`, `# pass 25`, `# fail 0`, `# skipped 0`,
+`# todo 0`.
+
+### The two invite statuses, quoted from the log
+
+```
+# \# Bob inviting: HTTP 403 {"error":"Only the team's owner can invite people."}
+ok 17 - Bob CANNOT invite anyone to Alice's team (403)
+# \# Alice inviting: HTTP 409 {"error":"That person already has an invitation waiting for this team.","code":"23505"}
+ok 18 - Alice CAN invite to her own team (201, or 409 with code 23505)
+```
+
+**Alice answered 409, not 201** — the other accepted branch, and the right one here: the owner's
+local run already created the single `+ci-invite` invitation, so the partial unique index refuses
+the second attempt with code `23505`. That is the path the test was written to accept, and it is
+why `invitations` does not climb with each run. Bob answered **403** carrying the owner-check
+message rather than the suspension one, which is the assertion that distinguishes the two.
+
+### The three sign-outs, quoted from the log
+
+```
+# \# Alice signed out: HTTP 204
+# \# Carol signed out: HTTP 204
+# \# Bob signed out: HTTP 204
+```
+
+HTTP 204 from all three, with `?scope=local`. The endpoint accepts the narrowed scope; the earlier
+"not exercised" note in this file no longer holds and has been corrected.
+
+### Row counts after this run
+
+Reported by the **coach**, through the staging read-only connector. Not read here.
+
+| Table | After local run | After this CI run | Change |
+|---|---|---|---|
+| `tasks` | 9 | 9 | 0 |
+| `teams` | 9 | 9 | 0 |
+| `team_members` | 2 | 2 | 0 |
+| `invitations` | 5 | 5 | 0 |
+| `profiles` | 3 | 3 | 0 |
+| `account_status` | 0 | 0 | 0 |
+
+**Unchanged from after the local run** — every table, including `invitations`, which is what
+Alice's 409 predicts: the run created the two task rows and removed them again, and added no
+invitation because the one it would add was already there.
+
+### What this run also settles
+
+`STAGING_SUPABASE_URL` was corrected. The run before it,
+[37318706722](https://github.com/build-once/team-tasks/actions/runs/37318706722), failed at the
+hostname check; this one signed in as all three accounts and reached staging, which cannot happen
+unless the secret is `https` and the host is exactly the staging project. The value itself is still
+unread and unprinted — a secret cannot be read from a log — so what is settled is that it is
+**right**, not what it is. The same run settles the `staging` environment and its five secrets:
+sign-in as Alice, Carol and Bob all succeeded, so all five are present and correct.
+
 ## Still not reported, and still unverified
 
-- **Unverified — whether `STAGING_SUPABASE_URL` was corrected.** The CI run above failed at the
-  hostname check. Nothing has been reported about the secret being changed, and a secret cannot be
-  read back from a workflow log or from here. The check that would settle it is a green **App
-  tests** job on this pull request.
-- **Unverified — a green `App tests` run in CI.** None has been reported. The only run recorded in
-  this file, [37318706722](https://github.com/build-once/team-tasks/actions/runs/37318706722),
-  failed at the guard.
-- **Not run — `npm --prefix web test` with `scope=local`.** The change on this branch has not been
-  exercised against staging by anybody. The owner's 25-pass run predates it. What would settle it:
-  the owner runs `npm --prefix web test` again and the three sign-outs answer 2xx.
-- **Unchecked — whether the `staging` GitHub environment and its five secrets exist.** Issue #145
-  says the owner created them. Nothing in this session read them back, and nothing could: a secret
-  is not readable from a workflow log or from here.
+- **Not run — `npm --prefix web test` with `scope=local`, locally.** CI has now run it on
+  `25a1a36`, but nobody has run it from a machine. What would settle it: the owner runs
+  `npm --prefix web test` and the three sign-outs answer 2xx — and, the part CI cannot show, their
+  own browser session on staging survives it.
