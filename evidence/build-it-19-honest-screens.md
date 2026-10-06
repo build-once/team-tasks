@@ -1,7 +1,8 @@
 # Evidence: Build it 19 — screens that tell the truth (issue #173)
 
-Result: **PASS for everything that can be checked without a browser or a deploy.
-Three things are UNVERIFIED and are named in full in section 9.**
+Result: **PASS for everything that can be checked without a browser or a deploy, and CI on
+PR #177 is green — 18 of 18 checks. Two things remain UNVERIFIED and are named in full in
+section 9.**
 Date: 2026-10-06
 How checked: ran each command below from the repository root on the branch
 `feat/honest-screens`, and pasted its exact output and exit code. The two break-it runs
@@ -443,7 +444,10 @@ $ node scripts/password-reset-check.mjs
 84 of 84 checks passed.
 ```
 
-## 9. UNVERIFIED — three things, and how to settle each
+## 9. UNVERIFIED — two things left, and how to settle each
+
+The third item in this section when it was written — the access-rule tests on staging — was
+settled by CI on the pull request, and the run is at the end of this section.
 
 **Unverified — nothing here has been seen in a browser or on a phone.** No `next dev` was
 opened and no deployed page was visited. The build compiles, the types check, the lint is
@@ -463,12 +467,40 @@ deployments and compare the seven characters in the footer with
 produce `Local development — no deployed version`, which is correct for both and is the only
 form that has actually been observed — in the local `npm run build` above.
 
-**Unverified — the access-rule tests on staging.** `.github/workflows/ci.yml`'s `app-tests`
+**SETTLED BY CI, and it was the third item here.** `.github/workflows/ci.yml`'s `app-tests`
 job runs `web/tests/access-rules.test.mjs` against staging and needs the five environment
-secrets, which this session does not have. That file is **not changed by this branch** (the
-issue's limits forbid it, and rule 20 would anyway), and nothing under `supabase/` is
-changed, so there is no reason to expect it to behave differently — but "no reason to expect"
-is not a run. CI settles it on the pull request.
+secrets, which this session does not have. CI has them, and it ran — run 37531705585, job
+112502457404:
+
+```
+All five settings are present. No value is printed.
+# pass 25
+# fail 0
+App tests: 25 passed, 0 failed, 0 skipped, 0 todo; at least 25 expected to pass.
+```
+
+25 passed, 0 skipped, 0 todo, which is the floor the job expects. The file is unchanged by
+this branch and nothing under `supabase/` is changed.
+
+## 12. CI on the pull request, and what it counted
+
+Every check on PR #177, run 37531705585: **18 of 18 pass**, including `required`, which is
+the one that refuses a skipped job.
+
+The two new scripts were not merely added to the job — the job counted what each one actually
+checked, which is what stops a script that compiled and checked nothing being a green tick:
+
+```
+$ gh run view 37531705585 --job 112502457400 --log | grep -E "counted [0-9]+ PASS"
+tasks-filter-check: counted 47 PASS lines; at least 47 expected.
+password-reset-check: counted 84 PASS lines; at least 84 expected.
+sentry-scrub-check: counted 95 PASS lines; at least 95 expected.
+screen-state-check: counted 110 PASS lines; at least 110 expected.
+friendly-words-check: counted 45 PASS lines; at least 45 expected.
+```
+
+The last two lines are the new ones, and they are the proof the issue's "it has a check in the
+pure-function checks job" is satisfied by a job that ran rather than by a line in a file.
 
 **Not a limitation, but worth saying: no migration, no change under `supabase/`, and no new
 package.**
@@ -506,4 +538,4 @@ issue's limits. Filed as **#174**.
 | [#176](https://github.com/build-once/team-tasks/issues/176) | Unverified: none of Build it 19's screens has been seen in a browser or on a phone — the first UNVERIFIED item in section 9 |
 
 The third UNVERIFIED item in section 9 — the access-rule tests on staging — is not filed,
-because CI settles it on this pull request rather than needing anybody to remember it.
+because CI settled it on this pull request: 25 passed, 0 skipped. See the end of section 9.
