@@ -50,6 +50,7 @@ const MODULE_PATH = resolve(HERE, "..", "web", "src", "lib", "sentry-scrub.ts");
 const {
   DETAIL_REMOVED,
   EMAIL_REMOVED,
+  INPUT_REMOVED,
   KEY_REMOVED,
   QUERY_REMOVED,
   TOKEN_REMOVED,
@@ -316,6 +317,72 @@ check(
   "a DETAIL spanning lines goes to the end, not to the end of the first line",
   scrubText(`boom\nDETAIL: Failing row contains (${TEAM_ID}, ${TASK_TEXT},\nf, 2026-10-06).`),
   `boom\nDETAIL: ${DETAIL_REMOVED}`,
+);
+
+// ---- invalid input syntax -------------------------------------------------
+//
+// The third construct Postgres uses to quote data, and the one the review's
+// three did not cover. It happens whenever a value fails to parse into its
+// column's type -- a `?filter=` that is not a uuid, a date somebody typed -- and
+// it puts THE INPUT in quotes:
+//
+//     invalid input syntax for type uuid: "not-a-uuid"
+//
+// Reachable from this app without anybody doing anything unusual: `readFilter`
+// in web/src/lib/tasks.ts only lets a uuid-shaped `?filter=` through, but any
+// other value Postgres is asked to parse -- a timestamp, an integer -- arrives
+// here the same way. The input is whatever was typed, so it has no shape.
+console.log("\nscrubText -- invalid input syntax, which quotes the input");
+
+check(
+  "INVALID INPUT SYNTAX: the quoted input goes",
+  scrubText(`invalid input syntax for type uuid: "not-a-real-uuid"`),
+  `invalid input syntax for type uuid: "${INPUT_REMOVED}"`,
+);
+check(
+  "the TYPE NAME survives: it says which column refused the value, and it is schema",
+  scrubText(`invalid input syntax for type uuid: "not-a-real-uuid"`).includes("uuid"),
+  true,
+);
+check(
+  "a type name with spaces in it is read whole",
+  scrubText(`invalid input syntax for type timestamp with time zone: "yesterday afternoon"`),
+  `invalid input syntax for type timestamp with time zone: "${INPUT_REMOVED}"`,
+);
+check(
+  "an address as the input goes, like anything else quoted there",
+  scrubText(`invalid input syntax for type uuid: "${ADDRESS}"`),
+  `invalid input syntax for type uuid: "${INPUT_REMOVED}"`,
+);
+check(
+  "task text as the input goes -- it is no particular shape, which is the whole point",
+  scrubText(`invalid input syntax for type integer: "${TASK_TEXT}"`),
+  `invalid input syntax for type integer: "${INPUT_REMOVED}"`,
+);
+check(
+  "an input containing a QUOTE does not let the rest escape",
+  scrubText(`invalid input syntax for type uuid: "he said "hello" loudly"`),
+  `invalid input syntax for type uuid: "${INPUT_REMOVED}"`,
+);
+check(
+  "an input containing a NEWLINE does not let the rest escape",
+  scrubText(`invalid input syntax for type uuid: "line one\nline two"`),
+  `invalid input syntax for type uuid: "${INPUT_REMOVED}"`,
+);
+check(
+  "the message with its surrounding sentence: only the quoted input goes",
+  scrubText(`Bad Request: invalid input syntax for type uuid: "oops" (code 22P02)`),
+  `Bad Request: invalid input syntax for type uuid: "${INPUT_REMOVED}" (code 22P02)`,
+);
+check(
+  "scrubbing an invalid-input message twice changes nothing the second time",
+  scrubText(scrubText(`invalid input syntax for type uuid: "${ADDRESS}"`)),
+  scrubText(`invalid input syntax for type uuid: "${ADDRESS}"`),
+);
+check(
+  "prose that merely says the words, with nothing quoted, is left alone",
+  scrubText("The invalid input syntax for type names is documented upstream."),
+  "The invalid input syntax for type names is documented upstream.",
 );
 
 check(

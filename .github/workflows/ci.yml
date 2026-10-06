@@ -181,7 +181,7 @@ jobs:
     env:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
-      EXPECTED_SENTRY_SCRUB_CHECKS: "85"
+      EXPECTED_SENTRY_SCRUB_CHECKS: "95"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

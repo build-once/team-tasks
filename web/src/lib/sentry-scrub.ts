@@ -50,6 +50,7 @@ export const KEY_REMOVED = "[key removed]";
 export const QUERY_REMOVED = "?[query removed]";
 export const VALUES_REMOVED = "[values removed]";
 export const DETAIL_REMOVED = "[detail removed]";
+export const INPUT_REMOVED = "[input removed]";
 
 // The text rules, in the order they are applied. Order matters: the broad
 // "any long run of token characters" rule at the end would otherwise swallow
@@ -113,6 +114,25 @@ const TEXT_RULES: ReadonlyArray<{ readonly find: RegExp; readonly put: string }>
   // names are kept -- they are the schema, they are in this repository already,
   // and they are most of what makes the message readable. The values go.
   { find: /Key \(([^()]*)\)=\([\s\S]*\)/g, put: `Key ($1)=(${VALUES_REMOVED})` },
+
+  // `invalid input syntax for type <type>: "<input>"`. Postgres raises this
+  // whenever a value will not parse into its column's type, and what it puts in
+  // the quotes is the value as it arrived -- so, whatever somebody typed.
+  //
+  // The type name is kept: it is the part that says which column refused the
+  // value, it is schema rather than anybody's data, and it is already written
+  // down in supabase/migrations. The class allows spaces because real type names
+  // have them -- "timestamp with time zone", "double precision" -- and it
+  // excludes `:` and `"` so it cannot run past the start of the input.
+  //
+  // Greedy to the last quote, for the same reason the two rules above are
+  // greedy to the last bracket: the input is free text, so it can contain a
+  // quote of its own, and a non-greedy match would stop inside it and leave the
+  // remainder in the clear.
+  {
+    find: /invalid input syntax for type ([a-z0-9_ [\]]+): "[\s\S]*"/g,
+    put: `invalid input syntax for type $1: "${INPUT_REMOVED}"`,
+  },
 
   // ---- Then the shape rules -----------------------------------------------
 

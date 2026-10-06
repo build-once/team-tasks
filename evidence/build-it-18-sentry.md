@@ -716,6 +716,67 @@ One TypeScript error was fixed on the way: `out.tags` came through the interface
 `unknown`, so `typeof x === "object"` narrowed only to `object`. `tags` and `fingerprint` are now
 named fields on `ScrubbableEvent`.
 
+### A fifth construct, added after the review: `invalid input syntax`
+
+The review's three constructs were `DETAIL:`, `Failing row contains (…)` and `Key (…)=(…)`. Postgres
+has a fourth way of quoting data back, and it is the one most likely to be reached by an ordinary
+mistake rather than a constraint violation:
+
+```
+invalid input syntax for type uuid: "not-a-real-uuid"
+```
+
+It is raised whenever a value will not parse into its column's type, and what sits in the quotes is
+the value as it arrived — so whatever somebody typed. Checks written first, seen to fail:
+
+```
+$ node scripts/sentry-scrub-check.mjs
+FAIL  INVALID INPUT SYNTAX: the quoted input goes
+FAIL  a type name with spaces in it is read whole
+FAIL  an address as the input goes, like anything else quoted there
+FAIL  task text as the input goes -- it is no particular shape, which is the whole point
+FAIL  an input containing a QUOTE does not let the rest escape
+FAIL  an input containing a NEWLINE does not let the rest escape
+FAIL  the message with its surrounding sentence: only the quoted input goes
+
+88 of 95 checks passed.
+exit=1
+```
+
+Then one rule, and green:
+
+```
+$ node scripts/sentry-scrub-check.mjs
+95 of 95 checks passed.
+exit=0
+```
+
+**The type name is kept** — it says which column refused the value, it is schema rather than
+anybody's data, and it is already written down in `supabase/migrations`. The pattern allows spaces in
+it, because real type names have them (`timestamp with time zone`, `double precision`), and excludes
+`:` and `"` so it cannot run past the start of the input. Greedy to the last quote, for the same
+reason the bracket rules are greedy to the last bracket: the input is free text and can contain a
+quote of its own, so a non-greedy match would stop inside it and leave the remainder in the clear.
+Both the embedded-quote and the newline cases have their own check.
+
+`EXPECTED_SENTRY_SCRUB_CHECKS` raised 85 → 95.
+
+### And a sentence in the plan, because the scrub has a floor
+
+`docs/plan.md`, "Error reports to an outside service", now ends its "what must never be sent"
+paragraph with the limit of the thing that enforces it:
+
+> A pattern scrub cannot recognise free text that no known phrase introduces, so error messages
+> written by this app must never include task text, names or addresses.
+
+This is the honest statement of what five constructs and a handful of shape rules can and cannot do.
+Every rule in `sentry-scrub.ts` works because something recognisable introduces the value — a
+phrase (`DETAIL:`, `Failing row contains`), a character class (`@`, `%40`), or a length (43
+characters of base64url). Free text that nothing introduces has none of those, so a message this
+app's own code builds out of a task title would pass straight through. The scrub is the net under
+the code, not a licence for the code to be careless; the plan now says so where somebody deciding
+what to put in an error message will read it.
+
 ### Not addressed, because it was out of scope for this round
 
 The review's **point 6** — that a per-request user ID is unproven and a stale one would put one
