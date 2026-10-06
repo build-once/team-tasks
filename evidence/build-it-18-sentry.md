@@ -784,6 +784,163 @@ person's ID on another person's report — is untouched here and remains in the 
 It needs the observation on a preview deployment that the review itself describes, which needs a DSN
 this repository does not have.
 
+## 11. The first real run, and the event that went missing
+
+**Observed by the owner on the preview, 6 October 2026, at commit `11af490`.** Three visits to
+`/temp-error-test`, in order: signed in as one person, signed out, signed in as another.
+
+| Visit | Sentry | User |
+|---|---|---|
+| 1, signed in (A) | event at **08:08:42 UTC** | `208eb6dc…` |
+| 2, signed out | error page shown, **no event at all** | — |
+| 3, signed in (B) | event at **08:10:02 UTC** | `849ba411…` |
+
+Both events carry `server_name 169.254.37.213`.
+
+**The good news first, because it is the question the review asked.** The two events that arrived
+carry **different** user ids, and each is the person who made that visit. The specific fear in review
+point 6 — one person's id attached to another person's error — **did not happen in this run**. That
+is one observation, not a proof, and the Unverified list below still says so.
+
+**The bad news: an event went missing**, and a reporting system that silently drops reports is worse
+than one that does not exist, because it is trusted. Two mechanisms in the installed SDK can each
+cause it. Both were read in the source rather than guessed at.
+
+### Finding A — Dedupe does not compare the user. Confirmed.
+
+`web/node_modules/@sentry/core/build/esm/integrations/dedupe.js`
+
+- **`_shouldDropEvent`, lines 27–38**, is the whole decision. It asks two questions:
+  `_isSameMessageEvent` (line 31) and `_isSameExceptionEvent` (line 34).
+- **`_isSameExceptionEvent`, lines 59–75**, compares three things and only three: the first
+  exception's `type` and `value` (line 65), the `fingerprint` (line 68), and the stack frames —
+  `filename`, `lineno`, `colno`, `function` (lines 71 and 85–91).
+- **`event.user` is never read.** It does not appear in the file at all.
+- **Line 22: `return previousEvent = currentEvent;`** — the baseline is updated *only* when the event
+  survives. A dropped event returns `null` at line 18 and **does not become the new baseline.**
+
+So: **two identical consecutive errors from two different people — the second is dropped.** At commit
+`11af490` this page threw a constant string, so all three visits produced a byte-identical exception
+`value`, no fingerprint on either side, and identical frames. Dedupe would have matched them.
+
+### Finding B — the flush after `onRequestError` is fire-and-forget outside the Edge runtime. Confirmed.
+
+Three files, in the order the call travels:
+
+1. **`@sentry/nextjs/build/esm/common/captureRequestError.js`, line 29:**
+   `waitUntil(flushSafelyWithTimeout());` — the promise is created, so the flush *starts*, but
+   nothing awaits it.
+2. **`@sentry/nextjs/build/esm/common/utils/responseEnd.js`, lines 14–20:** `waitUntil` uses
+   Cloudflare's context if available, and otherwise calls `vercelWaitUntil(task)`.
+3. **`@sentry/core/build/esm/utils/vercelWaitUntil.js`, lines 4–6:**
+
+   ```js
+   function vercelWaitUntil(task) {
+     if (typeof EdgeRuntime !== "string") {
+       return;
+     }
+   ```
+
+   It **returns without registering the task** unless the Edge-runtime global is a string.
+
+Our failing page is a Node server component, reported through `onRequestError`. On that path nothing
+awaits the flush and the platform is never asked to keep the instance alive, so if the instance
+freezes before the HTTP POST to Sentry completes, **the event is lost.**
+
+**The same package knows how to do this properly, and this path does not use it.**
+`@sentry/core/build/esm/utils/flushIfServerless.js` **lines 32–39** detects Node serverless
+(`process.env.VERCEL`, `LAMBDA_TASK_ROOT`, `K_SERVICE`, `FUNCTIONS_WORKER_RUNTIME`, `NETLIFY`) and
+**`await flushWithTimeout(timeout)`** — it awaits. Searching the whole of `@sentry/nextjs` for
+`flushIfServerless` returns **no call sites**: every flush in the Next.js SDK goes through
+`waitUntil(flushSafelyWithTimeout())`. And the SDK clearly does await when it means to — two other
+paths do, at `edge/wrapApiHandlerWithSentry.js` line 32 and
+`common/pages-router-instrumentation/wrapApiHandlerWithSentry.js` line 50.
+
+### Which one lost the event? Not determined — and that is the honest answer.
+
+Dedupe, on a **single** instance, predicts that visits 2 **and** 3 are both dropped, because a dropped
+event does not update the baseline (Finding A, line 22). Only visit 2 is missing. So Dedupe fits only
+with an extra assumption: that visit 3 ran on a **different** instance with fresh module state.
+Finding B fits with no extra assumption at all.
+
+**Nothing in the two events can settle it**, which is the real lesson of the run:
+
+- Both carry the same `server_name`, but **`server_name` is set nowhere in the installed SDK.**
+  Searched all of `web/node_modules/@sentry` for `server_name`, `serverName` and `hostname()` — **no
+  match in any non-sourcemap file.** Whatever fills it in happens outside anything this repository can
+  read, and `169.254.0.0/16` is a link-local range, so it is not an instance identifier.
+- Nothing else on the events distinguishes one request, or one process, from another.
+
+Hence commit `44752f5`, below.
+
+**Unverified — whether `EdgeRuntime` is a string in Vercel's Node serverless runtime.** Nothing in
+this repository can observe it. What *is* read from the source is the condition the code imposes and
+that it returns early when the condition fails. The guard's name, the separate Cloudflare branch
+beside it, and `flushIfServerless`'s distinct Node branch all point the same way, but the value has
+not been seen.
+
+## 12. Making each report distinguishable — commit `44752f5` (temporary)
+
+**`44752f5b6c97d6b7a454fe011a25436a0a29c90f` must be reverted before merge, with `11af490`.**
+
+Three changes to the test page, each one there to separate Finding A from Finding B:
+
+- **An ISO timestamp to the millisecond in the thrown message.** No two errors are identical any
+  more, so Dedupe cannot match one against the last — it compares the exception's `value`
+  (Finding A). **This is the discriminating test: if all three visits now produce events, the first
+  run's missing one was Dedupe. If one still goes missing, it was the flush.**
+- **A tag `instance`** — six base36 characters fixed at module load and set on the **global** scope,
+  which is a process-wide singleton (`@sentry/core/build/esm/currentScopes.js`, `getGlobalScope`,
+  lines 25–27), so it reaches every event the process sends. Two events sharing it ran on one
+  instance; two that do not, did not. This is exactly the fact the first run lacked.
+- **A tag `signed_in`, `yes` or `no`**, as the page itself decided before throwing, on the isolation
+  scope so it cannot bleed between callers. An event showing `signed_in: no` **and** a user id would
+  be a stale id — review point 6, asked in a way a single event can answer.
+
+**Two lint rules were obeyed rather than switched off, and both were right.** A module-level visit
+counter incremented during render is refused by `react-hooks/globals` ("Reassigning this value during
+render is a form of side effect"), and `Math.random()` for a request id is refused by
+`react-hooks/purity` ("`Math.random` is an impure function"). The brief allowed "a short visit number
+**or** time", so the timestamp does the job and neither rule was touched.
+
+Run through the real scrub before committing — the two new values survive, the three planted ones go:
+
+```
+out : temp-error-test SERVER instance k3f9qa at 2026-10-06T08:08:42.123Z: invited
+      [email address removed] with token [token removed]; database said:
+      Failing row contains ([values removed])
+tags: {"instance":"k3f9qa","signed_in":"no","deployment":"preview"}
+instance kept: true
+timestamp kept: true
+```
+
+## 13. Proposed, awaiting the owner's yes: remove Dedupe from the server allow-list
+
+**Not done. Not committed.** This is a proposal, and it would be a **separate, permanent** commit —
+not part of the two temporary ones.
+
+**The proposal:** delete `"Dedupe"` from `SERVER_INTEGRATIONS` in `web/src/sentry/options.ts`.
+
+**The reason, which is Finding A:** Dedupe decides by the exception's type and value, the fingerprint
+and the stack frames, and **never looks at `event.user`**. In an app whose whole point is that several
+people share team tasks, the errors most worth seeing are the ones several people hit — and those are
+exactly the ones it drops. Two volunteers hitting the same broken page one after another is reported
+as one person's problem, and `docs/plan.md` says the user id is there to answer "is this one person or
+everyone?". Dedupe can make that question unanswerable in the direction that matters.
+
+**What is lost by removing it:** duplicate reports of the same error, which on Sentry's free plan
+costs event quota — `docs/costs.md` already records that the volume at which the free plan stops or
+starts charging is **not confirmed**. Sentry's own server-side grouping still groups repeats into one
+issue; what changes is the event count, not the number of issues to read.
+
+**Why it should be a separate commit:** it changes what the app sends in production, permanently,
+which is not the same kind of change as a scrub fix and should be reviewable on its own. It is also
+not needed to settle the question — commit `44752f5` does that by making messages unique.
+
+**Worth deciding after the next run, not before.** If the three visits now all produce events, Dedupe
+was the cause and this proposal is the fix. If one still goes missing, Finding B is in play as well
+and removing Dedupe alone would not be enough.
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an
