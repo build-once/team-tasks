@@ -32,7 +32,7 @@ and have a script waiting for them. Section 5 says exactly which questions those
 | Those tests fail against a function that lies | **PASS** — 4 of them, exit 1 | §2 |
 | Two Try again presses at once do not both send | **PASS** — a compare-and-set, 16 tests, seen to fail first | §2a |
 | The staging script's own judgements can fail | **PASS** — 57 cases, exit 0 | §3 |
-| Both new check files now run in CI | **PASS** — floors 102 and 57, measured | §3a |
+| Both new check files now run in CI | **PASS** — CI counted 102 and 57 against those floors, run 37507349936 | §3a |
 | The web app compiles, lints and builds | **PASS** — exit 0 both | §4 |
 | The repository's own suite | **PASS** — exit 0 | §4 |
 | The deployed function writes the status | **UNVERIFIED** — nothing is deployed | §5 |
@@ -621,10 +621,42 @@ Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
 **exit 0** — permissions and timeouts still right on every job, including the two
 edited.
 
-**What this does not prove:** that the jobs really gate on the new files. Only a run on
-GitHub shows that, and the negative check #167 named is the one that would settle it —
-delete a test, push, watch the count go red. The PR's own CI run on this commit is the
-first half of it.
+### And the run on GitHub, which is the only thing that shows the jobs really do it
+
+Run **37507349936**, `event=pull_request`, `conclusion=success`, on
+`dccd85eeb7aaa717494550c1126c3b5964e53e8a` — read with
+`gh run view 37507349936 --json headSha,status,conclusion,event`. All 18 checks pass,
+including `required`.
+
+`Edge function tests (Deno)`, step "Every Deno test beside the functions (suspension,
+invitation status)":
+
+```
+running 62 tests from ./supabase/functions/_tests/invitation_status_test.ts
+running 40 tests from ./supabase/functions/_tests/suspension_test.ts
+ok | 102 passed | 0 failed (131ms)
+Counted 102 passing tests; at least 102 expected.
+```
+
+`Staging script self-tests (can these checks fail?)`:
+
+```
+build-it-16-checks: counted 39 cases; at least 39 expected.
+build-it-16-suspend-checks: counted 40 cases; at least 40 expected.
+build-it-18-invitation-status-checks: counted 57 cases; at least 57 expected.
+```
+
+So both files are not merely named in the workflow — CI **executed** them and compared
+what they ran against the floor, and the numbers are the ones measured on this machine.
+`--allow-read=supabase/migrations` is enough for the migration-reading test on a Linux
+runner, which was worth finding out rather than assuming.
+
+**What is still not proved:** the negative half. #167 asks for it in so many words —
+delete a test from `invitation_status_test.ts` on a scratch branch, push, and watch
+`functions-test` go red on the count; do the same to a case in the selftest's array.
+That has **not** been done, so "the job would catch a deleted test" rests on reading the
+`-lt` comparison rather than on seeing it fire. The floors and the counts matching
+exactly is the positive half.
 
 ---
 
