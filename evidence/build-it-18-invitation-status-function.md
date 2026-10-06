@@ -582,7 +582,19 @@ node scripts/staging/build-it-18-invitation-status-checks.mjs --selftest
 exit 0
 ```
 
-**What that does and does not show.** The selftest is pure functions, so it proves the `judgeTouchedNothing`
+`npm test` at the root, with the change in: **exit 0** — 537 guard rule examples, 12 skills, 171
+launch-check assertions, 7 + 20 + 258 self-test cases across the workflow, drift and ai-team
+checks, 0 problems.
+
+**CI ran the changed selftest too.** Run **37516263519**, `event=pull_request`,
+`conclusion=success`, on `9478141b8fb22c0c2a2fa961138c033d9b359265` — read with
+`gh run view 37516263519 --json headSha,status,conclusion,event`. All 18 checks pass, including
+`required`, and `Staging script self-tests (can these checks fail?)` is one of them, so the edited
+`judgeTouchedNothing` case ran on a Linux runner and still counted 57 against its floor. **The run
+for the commit that adds this paragraph is necessarily not recorded here** — that regress has to stop
+somewhere, and it stops the same place commit `2727fb0` stopped it.
+
+**What the selftest does and does not show.** The selftest is pure functions, so it proves the `judgeTouchedNothing`
 case still comes out PASS with the narrowed path — it does **not** exercise a sign-out. **Unverified —
 no staging run has been made with `scope=local` in this script**, because the staging runs recorded in
 §3b were made with the `scope=global` version, before this change. To check it: the next run of this
