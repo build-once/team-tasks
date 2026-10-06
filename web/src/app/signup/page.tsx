@@ -1,8 +1,10 @@
 import Link from "next/link";
 
 import { signUp } from "@/app/auth/actions";
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { BUTTON_IDS } from "@/lib/buttons";
 // The same number as the reset form, from one place, so "the same password rules
 // as sign-up" (issue #120 rule 3) stays true after somebody changes one of them.
 import { PASSWORD_MIN_LENGTH } from "@/lib/password-reset";
@@ -69,9 +71,12 @@ export default async function SignUpPage({
             </p>
           </div>
 
-          <button className="btn btn--primary btn--block" type="submit">
+          <ActButton
+            className="btn btn--primary btn--block"
+            act={BUTTON_IDS.signUp}
+          >
             Create account
-          </button>
+          </ActButton>
         </form>
 
         <p className="switch">

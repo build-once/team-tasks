@@ -2,8 +2,10 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 
 import { setNewPassword } from "@/app/auth/actions";
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { BUTTON_IDS } from "@/lib/buttons";
 import {
   DEAD_LINK_MESSAGE,
   PASSWORD_MIN_LENGTH,
@@ -110,9 +112,12 @@ export default async function ResetPasswordPage({
             </p>
           </div>
 
-          <button className="btn btn--primary btn--block" type="submit">
+          <ActButton
+            className="btn btn--primary btn--block"
+            act={BUTTON_IDS.passwordSave}
+          >
             Save new password
-          </button>
+          </ActButton>
         </form>
       </main>
     </>

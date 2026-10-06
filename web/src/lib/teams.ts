@@ -1,3 +1,8 @@
+import {
+  invitationStatusWord,
+  type InvitationStatusWord,
+} from "@/lib/words";
+
 // One team, as the app reads it back from the database.
 //
 // owner_id is read because the select rule on teams is no longer owner-only:
@@ -133,7 +138,7 @@ export const INVITATION_FAILURE_FALLBACK =
 // invite-member's `retryVerdict` would decide -- a button is not offered for
 // something the function would refuse.
 export type InvitationDelivery = {
-  label: "sending" | "sent" | "could not be sent";
+  label: InvitationStatusWord;
   sentence: string | null;
   canRetry: boolean;
 };
@@ -145,9 +150,17 @@ export function invitationDelivery(
   invitation: Pick<Invitation, "status" | "failure_code" | "created_at">,
   nowMs: number,
 ): InvitationDelivery {
+  // THE WORD COMES FROM THE MAPPING, not from a literal here (Build it 19 rule 5).
+  // invitationStatusWord in web/src/lib/words.ts is the one place a stored status
+  // becomes something a person reads, and scripts/friendly-words-check.mjs holds
+  // that mapping against the check constraint in
+  // 20261006095847_invitation_status.sql. Reading it once, at the top, means the
+  // three branches below cannot drift into spelling three different words.
+  const label = invitationStatusWord(invitation.status);
+
   if (invitation.status === "sent") {
     // Nothing more to say, and no button: somebody has that link.
-    return { label: "sent", sentence: null, canRetry: false };
+    return { label, sentence: null, canRetry: false };
   }
 
   if (invitation.status === "failed") {
@@ -160,7 +173,7 @@ export function invitationDelivery(
       invitation.failure_code,
     );
     return {
-      label: "could not be sent",
+      label,
       sentence: known
         ? (INVITATION_FAILURE_SENTENCES[invitation.failure_code] ??
           INVITATION_FAILURE_FALLBACK)
@@ -187,7 +200,7 @@ export function invitationDelivery(
     nowMs - createdAt >= STALE_QUEUED_MINUTES * 60_000;
 
   return {
-    label: "sending",
+    label,
     sentence: stale
       ? "Nothing has confirmed this one yet, so the email probably never went. " +
         "Try again to send a new link."
@@ -222,18 +235,13 @@ export type Profile = {
 // stops the input box accepting something the database will refuse.
 export const DISPLAY_NAME_MAX = 40;
 
-// What a members list shows for somebody who has not set a nickname yet.
+// WHAT A MEMBERS LIST SHOWS FOR SOMEBODY WITH NO NICKNAME now lives in
+// web/src/lib/words.ts, as NO_DISPLAY_NAME, beside the role words and the
+// invitation-status words -- because it is the same kind of decision as those two
+// (an internal absence turned into something a person reads) and because it is
+// checked by the same script. It also changed: it used to read "(no name yet)",
+// and Build it 19 asks for "Unnamed member".
 //
-// team_roster left-joins profiles on purpose, so a person with no profile row
-// still appears in their team's list with display_name null (see the view's
-// comment in 20261002122203_team_rules.sql). This is what fills that gap.
-//
-// It is NOT their email address, and it must never become one: "never shown to
-// team members" is a decision in docs/plan.md, and the app cannot read another
-// person's address in any case -- addresses live in auth.users, which no policy
-// in this database exposes.
-export const NO_DISPLAY_NAME = "(no name yet)";
-
 // One line of a team's members list, as the page reads it from team_roster.
 //
 // display_name is nullable because the view left-joins profiles: a missing
@@ -277,3 +285,166 @@ export const INVITE_REASONS = [
 ] as const;
 
 export type InviteReason = (typeof INVITE_REASONS)[number];
+
+// ---------------------------------------------------------------------------
+// What My teams says when a server function refuses (Build it 19, rule 2)
+// ---------------------------------------------------------------------------
+//
+// WHAT THIS REPLACED, because the shape of the old mistake is the whole argument.
+// web/src/app/teams/actions.ts had a helper called `messageFrom` that read the
+// failed function's own body, pulled `error` out of it, trimmed it to 200
+// characters and put it in `/teams?error=<that text>`. The page then printed it.
+// Three things were wrong with that, in increasing order of seriousness:
+//
+//   1. The page could not know what it was about to draw. Whatever the deployed
+//      function said appeared on screen -- including a version of the function
+//      older or newer than this repository, saying something nobody here has read.
+//   2. A function's message can quote data. invite-member's do not today (checked:
+//      none of its `fail` calls interpolates the address), but "today" is not a
+//      property of the code, and docs/plan.md's rule is that an error message from
+//      this app never includes task text, names or addresses.
+//   3. IT WENT THROUGH THE URL, so anyone could craft a link to this site that
+//      displayed words they chose -- on our domain, in our styling. That is the
+//      same hole web/src/app/invite/[token]/page.tsx already closed, and its
+//      comment says exactly this: "a plausible-looking 'your account has been
+//      suspended, telephone this number' on our own domain".
+//
+// So My teams now does what the invitation page does: it receives a SHORT CODE
+// from a known list and picks its own wording. The worst a crafted link can do is
+// show one of the sentences below at a moment when it is not true.
+//
+// WHERE THE CODE COMES FROM: the HTTP STATUS, which the function sets and a caller
+// cannot forge, plus the `code` field for the one code the three functions
+// genuinely send ("account_suspended"). NOT from the message. The mapping is
+// `teamActionOutcome` below.
+//
+// WHAT THIS COSTS, said plainly rather than glossed over. A status is coarser than
+// a sentence, and invite-member answers 409 to three different refusals -- the
+// address is already in the team, it is the owner's own address, or the team is at
+// its 20-invitation limit. One status, so one sentence, which names all three and
+// claims none. That is a real loss of precision against the old behaviour, and the
+// fix is for the function to send a code per refusal the way accept-invite does --
+// which is a change under supabase/ and so outside this issue's limits. Filed.
+export const TEAM_ACTION_OUTCOMES = [
+  // The caller has no usable session. Honest answer: sign in again.
+  "signin",
+  // 400: the function would not take what was sent.
+  "input",
+  // 403 carrying the "account_suspended" code.
+  "suspended",
+  // 403 otherwise: a rule said no.
+  "refused",
+  // 404: the function could not find what the request named.
+  "notfound",
+  // 409: a limit, or something that already exists.
+  "conflict",
+  // Anything else the function answered with -- 500, 503, a status nobody here
+  // has seen. The app cannot explain it, so it says so and reports it.
+  "broke",
+  // The function was not reached at all: no status, no body, nothing known.
+  "unreachable",
+] as const;
+
+export type TeamActionOutcome = (typeof TEAM_ACTION_OUTCOMES)[number];
+
+// The one code the three server functions actually send in their body. Every
+// other refusal is told apart by its status.
+//
+// It is read from the body rather than from the 403 because 403 has two causes and
+// this is the only thing that separates them -- the same split
+// web/src/app/invite/[token]/actions.ts makes, and for the same reason: the other
+// 403 sentence tells somebody to do something, and telling a suspended person to
+// do it would send them somewhere pointless.
+export const SUSPENDED_CODE = "account_suspended";
+
+/**
+ * Which outcome a failed function call was.
+ *
+ * `reached` false when nothing was reached -- a network error, a relay error. Then
+ *           nothing is known and nothing is claimed.
+ * `status`  the HTTP status the function answered with.
+ * `code`    the `code` field of the body, if it could be read.
+ *
+ * Pure: no clock, no network, no environment. The caller does the reading of the
+ * body; this does the deciding, so the deciding can be checked.
+ */
+export function teamActionOutcome(answer: {
+  reached: boolean;
+  status?: unknown;
+  code?: unknown;
+}): TeamActionOutcome {
+  if (answer.reached !== true) return "unreachable";
+
+  // Checked before the status, because it is the thing that tells the two 403s
+  // apart, and checked for exact equality with the one code this app knows --
+  // never used as a word to print.
+  if (answer.code === SUSPENDED_CODE) return "suspended";
+
+  switch (answer.status) {
+    case 401:
+      return "signin";
+    case 400:
+      return "input";
+    case 403:
+      return "refused";
+    case 404:
+      return "notfound";
+    case 409:
+      return "conflict";
+    default:
+      return "broke";
+  }
+}
+
+/**
+ * Is this an outcome the app cannot explain, and so should report?
+ *
+ * The refusals are not reported. A person at the limit of three teams, or
+ * inviting somebody already in the team, is the app working: filling Sentry with
+ * those would bury the reports that matter and spend a free plan's quota on
+ * normal use. The two that ARE reported are the two where something is wrong and
+ * nobody would otherwise hear about it.
+ */
+export function worthReporting(outcome: TeamActionOutcome): boolean {
+  return outcome === "broke" || outcome === "unreachable";
+}
+
+// THE SENTENCES. One map per action, because the same outcome means different
+// things for the two of them: a 409 from create-team is the three-team limit, and
+// a 409 from invite-member is one of three refusals about an address.
+//
+// Every sentence is written HERE, in this repository, and read by nothing but the
+// page. None of them quotes a number read back from a function, an address, a team
+// name or a code. The two numbers that do appear are the constants in this file --
+// this app's own copies of the limits docs/plan.md sets -- interpolated at build
+// time, not taken from an answer.
+export const CREATE_TEAM_SENTENCES: Readonly<
+  Record<TeamActionOutcome, string>
+> = {
+  signin: "Please sign in again, then create the team once more.",
+  input: `A team needs a name of 1 to ${NAME_MAX} characters.`,
+  suspended: "You can't do that at the moment.",
+  refused: "You cannot create a team at the moment.",
+  notfound: "The team could not be created. Please try again.",
+  conflict: `You already own ${MAX_TEAMS_PER_OWNER} teams, the most allowed, so no team was created.`,
+  broke: "The team could not be created. Please try again.",
+  unreachable:
+    "Could not reach the server, so no team was created. Please try again.",
+};
+
+export const INVITE_SENTENCES: Readonly<Record<TeamActionOutcome, string>> = {
+  signin: "Please sign in again, then send the invitation once more.",
+  input: "That does not look like an email address, so nothing was sent.",
+  suspended: "You can't do that at the moment.",
+  refused: "Only the team's owner can invite people, so nothing was sent.",
+  notfound: "That team was not found, so no invitation was sent.",
+  // The three-in-one sentence this file's note above is about. It names each
+  // possibility and claims none of them, which is the same thing the My tasks
+  // page does for a delete that matched no row.
+  conflict:
+    `No invitation was sent. That address may already be in the team, may already have one waiting, ` +
+    `or may be your own — and a team may have at most ${MAX_PENDING_INVITATIONS} invitations waiting.`,
+  broke: "That invitation could not be sent. Please try again.",
+  unreachable:
+    "Could not reach the server, so no invitation was sent. Please try again.",
+};

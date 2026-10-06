@@ -25,7 +25,11 @@ export default function Home() {
           No account yet? <Link href="/signup">Sign up</Link>
         </p>
 
-        <footer className="footer">Team Tasks version 2</footer>
+        {/* THE FOOTER THAT USED TO BE HERE SAID "Team Tasks version 2". There was
+            no version 1 and nothing decided what "2" meant, and it was on this page
+            only -- the other six screens had none. It now comes from the root layout
+            (web/src/app/layout.tsx), says the commit the build came from, and is on
+            every screen. See web/src/lib/app-version.ts. */}
       </main>
     </>
   );

@@ -66,3 +66,39 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* ------------------------------------------------------- the account menu */
+
+/* Who is signed in, and the way out, as one group: on a phone they stack, so
+   the address is above the button rather than squeezed beside it. */
+.account {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+/* The address itself. Quiet and small -- it is there to be checked, not read.
+   It wraps rather than overflowing, because an address can be long and a
+   header that scrolls sideways on a phone is worse than one that is two lines
+   tall. */
+.who {
+  max-width: 14rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (min-width: 640px) {
+  .account {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .who {
+    max-width: 18rem;
+  }
+}

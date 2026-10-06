@@ -1,19 +1,30 @@
 "use server";
 
 import { FunctionsHttpError } from "@supabase/supabase-js";
+import * as Sentry from "@sentry/nextjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { BUTTON_IDS, ACT_FIELD, pressed } from "@/lib/buttons";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
-import { DISPLAY_NAME_MAX, EMAIL_MAX, NAME_MAX } from "@/lib/teams";
+import {
+  DISPLAY_NAME_MAX,
+  EMAIL_MAX,
+  NAME_MAX,
+  teamActionOutcome,
+  worthReporting,
+  type TeamActionOutcome,
+} from "@/lib/teams";
 
-// How long an error message from the function may be before this trims it. The
-// message is shown on the page, and the page should not become a wall of text
-// because something upstream returned an essay.
-const MESSAGE_MAX = 200;
-
-// Pull the function's own message out of a failed invoke.
+// Work out which outcome a failed `functions.invoke` was, and report it if the
+// app cannot explain it.
+//
+// WHAT IS READ FROM THE ANSWER, AND WHAT IS NOT. The status, which the function
+// sets and a caller cannot forge, and the `code` field, which is compared with one
+// known value and never printed. NOT the `error` message: see the long note beside
+// TEAM_ACTION_OUTCOMES in web/src/lib/teams.ts for why that message used to be
+// shown and must not be.
 //
 // The client throws FunctionsHttpError when a function answers with a non-2xx
 // status, and the documented way to read the body is `await error.context.json()`
@@ -24,28 +35,56 @@ const MESSAGE_MAX = 200;
 //     const errorMessage = await error.context.json()
 //   }
 //
-// Anything else -- a relay error, a network error -- has no body to read, so it
-// falls through to a general message.
-// `what` names the thing that failed, so one helper can serve both actions
-// without either inheriting the other's wording.
-async function messageFrom(error: unknown, what: string): Promise<string> {
+// Anything else -- a relay error, a network error -- has no status and no body, so
+// nothing is known and the outcome is "unreachable".
+//
+// WHERE THE DETAIL GOES (Build it 19 rule 2). To Sentry, through `beforeSend`,
+// which is web/src/lib/sentry-scrub.ts' `scrubEvent` -- the existing scrub, wired
+// up in web/src/sentry/options.ts. So an address or a token quoted by something
+// upstream is replaced on the way out, and the screen never had it in the first
+// place. `what` names the action for the report, and it is a fixed string from
+// this file, never anything a caller sent.
+async function outcomeOf(error: unknown, what: string): Promise<TeamActionOutcome> {
+  let outcome: TeamActionOutcome;
+
   if (error instanceof FunctionsHttpError) {
+    let code: unknown;
     try {
       const body = await error.context.json();
-      const message = (body as { error?: unknown } | null)?.error;
-      if (typeof message === "string" && message.trim() !== "") {
-        return message.trim().slice(0, MESSAGE_MAX);
-      }
+      code = (body as { code?: unknown } | null)?.code;
     } catch {
-      // The body was not JSON, or was already read. Fall through.
+      // Not JSON, or already read. The status alone decides, which is the whole
+      // point of deciding by status.
     }
-    return `${what} did not work. Please try again.`;
+
+    outcome = teamActionOutcome({
+      reached: true,
+      status: error.context?.status,
+      code,
+    });
+  } else {
+    outcome = teamActionOutcome({ reached: false });
   }
 
-  return `Could not reach the server: ${what} did not work. Please try again.`;
+  if (worthReporting(outcome)) {
+    // A tag rather than a message built out of the error, so what is searchable in
+    // Sentry is this app's own words. The exception itself carries whatever the
+    // client put in it, and the scrub cleans that.
+    Sentry.captureException(error, {
+      tags: { action: what, outcome },
+    });
+  }
+
+  return outcome;
 }
 
 export async function createTeam(formData: FormData) {
+  // The button, by identifier, never by its wording (Build it 19 rule 6). A post
+  // that does not carry the identifier this action answers to changes nothing.
+  if (!pressed(formData.get(ACT_FIELD), [BUTTON_IDS.teamCreate])) {
+    redirect("/teams?problem=button");
+  }
+
   const name = String(formData.get("name") ?? "").trim();
 
   // Checked here so an obvious mistake costs no round trip. This is NOT the
@@ -65,16 +104,52 @@ export async function createTeam(formData: FormData) {
   // the function takes the owner's id from that verified token. Note what is
   // NOT sent: no owner_id, no user id. There is nothing in this body for a
   // caller to tamper with to create a team for somebody else.
-  const { error } = await supabase.functions.invoke("create-team", {
+  const { data, error } = await supabase.functions.invoke("create-team", {
     body: { name },
   });
 
   if (error) {
-    const message = await messageFrom(error, "creating the team");
-    redirect(`/teams?error=${encodeURIComponent(message)}`);
+    const outcome = await outcomeOf(error, "create-team");
+    redirect(`/teams?problem=create&outcome=${outcome}`);
   }
 
   revalidatePath("/teams");
+
+  // ---- THE READ-BACK (Build it 19 rule 3) ---------------------------------
+  //
+  // "Team created." is not said because the request worked. It is said because the
+  // row is in the database and this code has just read it.
+  //
+  // The function answering 201 is strong evidence and it is not the same thing: it
+  // reports what its own insert returned, and between that and the next screen
+  // sits a redirect, a fresh request and a different connection. A read is what
+  // closes that gap, and it is cheap -- one row, by primary key, through the
+  // select policy that already lets the owner read their own teams.
+  //
+  // ONE COLUMN, and `id` rather than `name`: the question is "is it there", and a
+  // name read back and compared would be this action asserting something about
+  // text somebody typed rather than about the row existing.
+  const teamId = (data as { team?: { id?: unknown } } | null)?.team?.id;
+
+  if (typeof teamId !== "string" || teamId === "") {
+    // A 201 with no id in it. Nothing to read back, so nothing is claimed.
+    redirect("/teams?created=unconfirmed");
+  }
+
+  const { data: readBack, error: readBackError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("id", teamId)
+    .maybeSingle();
+
+  if (readBackError || readBack === null) {
+    // The team probably exists -- the function said so -- and this code has not
+    // seen it, so it does not say "created". The list below the banner is read in
+    // the same request as the banner, so whichever answer the database gives, the
+    // screen and the sentence agree.
+    redirect("/teams?created=unconfirmed");
+  }
+
   redirect("/teams?created=1");
 }
 
@@ -91,6 +166,10 @@ export async function createTeam(formData: FormData) {
 // policies "You can create your own profile" and "You can change your own
 // profile" are the check, and both pin user_id to auth.uid().
 export async function saveDisplayName(formData: FormData) {
+  if (!pressed(formData.get(ACT_FIELD), [BUTTON_IDS.nameSave])) {
+    redirect("/teams?problem=button");
+  }
+
   const displayName = String(formData.get("display_name") ?? "").trim();
 
   // Trimmed first, so a name of spaces is caught here rather than by
@@ -126,7 +205,7 @@ export async function saveDisplayName(formData: FormData) {
   // with a verified token in hand.
   rememberUserForErrorReports(userId);
 
-  // Update first, and let .select() report how many rows it touched.
+  // Update first, and let .select() report what it actually wrote.
   //
   // From the reference for update: "By default, updated rows are not returned.
   // To return it, chain the call with .select() after filters."
@@ -137,25 +216,52 @@ export async function saveDisplayName(formData: FormData) {
   // below. The .eq() is not what keeps this to one person's row (the update
   // policy does that); it is here so the statement says plainly which row it
   // means.
+  //
+  // display_name RATHER THAN user_id (Build it 19 rule 3). The old version selected
+  // user_id, which proves a row was touched and says nothing about what is now in
+  // it. "Your name is saved." is a claim about the name, so the name is what comes
+  // back and what is compared.
   const { data: updated, error: updateError } = await supabase
     .from("profiles")
     .update({ display_name: displayName })
     .eq("user_id", userId)
-    .select("user_id");
+    .select("display_name");
 
   if (updateError) redirect("/teams?problem=profile");
 
-  if (!updated || updated.length === 0) {
-    const { error: insertError } = await supabase
-      .from("profiles")
-      .insert({ user_id: userId, display_name: displayName });
+  if (updated && updated.length > 0) {
+    // The read-back. A database that stored something other than what was sent --
+    // a trigger, a future column default, a check that rewrote it -- must not be
+    // reported as "saved": the box on the next screen would show one thing and the
+    // banner would claim another.
+    if ((updated[0] as { display_name?: unknown }).display_name !== displayName) {
+      redirect("/teams?problem=profile");
+    }
 
-    // Two of this person's own requests racing -- two tabs, or a double submit
-    // -- is the only way this can arrive after a row already exists, and then
-    // the primary key refuses it rather than anything being overwritten
-    // silently. That is the right way round: the page says it did not save, and
-    // saving again works, because by then the update above finds the row.
-    if (insertError) redirect("/teams?problem=profile");
+    revalidatePath("/teams");
+    redirect("/teams?named=1");
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("profiles")
+    .insert({ user_id: userId, display_name: displayName })
+    .select("display_name");
+
+  // Two of this person's own requests racing -- two tabs, or a double submit
+  // -- is the only way this can arrive after a row already exists, and then
+  // the primary key refuses it rather than anything being overwritten
+  // silently. That is the right way round: the page says it did not save, and
+  // saving again works, because by then the update above finds the row.
+  if (insertError) redirect("/teams?problem=profile");
+
+  // The same read-back on the insert path, which the old version did not have at
+  // all: it checked only that there was no error.
+  if (
+    !inserted ||
+    inserted.length === 0 ||
+    (inserted[0] as { display_name?: unknown }).display_name !== displayName
+  ) {
+    redirect("/teams?problem=profile");
   }
 
   revalidatePath("/teams");
@@ -172,7 +278,22 @@ export async function saveDisplayName(formData: FormData) {
 // exist. invite-member is what notices there is already a row and decides whether
 // it may be sent again (its `retryVerdict`); nothing here decides that, and nothing
 // here needs to know which of the two happened until it reads the answer.
+//
+// TWO BUTTONS, TOLD APART BY IDENTIFIER (Build it 19 rule 6). This is the one
+// action in the app that serves more than one button, and before this the only
+// thing distinguishing "Send invitation" from "Try again" was which hidden fields
+// the surrounding form happened to carry. Now each button says which it is, by a
+// fixed identifier that is nothing like its label.
 export async function inviteMember(formData: FormData) {
+  if (
+    !pressed(formData.get(ACT_FIELD), [
+      BUTTON_IDS.inviteSend,
+      BUTTON_IDS.inviteRetry,
+    ])
+  ) {
+    redirect("/teams?problem=button");
+  }
+
   const teamId = String(formData.get("team_id") ?? "").trim();
   const email = String(formData.get("email") ?? "")
     .trim()
@@ -199,8 +320,8 @@ export async function inviteMember(formData: FormData) {
   });
 
   if (error) {
-    const message = await messageFrom(error, "sending the invitation");
-    redirect(`/teams?error=${encodeURIComponent(message)}`);
+    const outcome = await outcomeOf(error, "invite-member");
+    redirect(`/teams?problem=invite&outcome=${outcome}`);
   }
 
   revalidatePath("/teams");
@@ -210,21 +331,46 @@ export async function inviteMember(formData: FormData) {
   // nothing arrived at the address they typed.
   const redirected = (data as { redirected?: unknown } | null)?.redirected === true;
 
-  // WHAT THE BANNER SAYS COMES FROM WHAT THE ROW SAYS, not from the fact that the
-  // request worked (issue #166). invite-member answers 201 in two different
-  // worlds: the email went and the row says 'sent', or the email went and the
-  // status write failed, so the row still says 'queued' and the list on My teams
-  // is about to say "sending". Both are successes and they are not the same news.
-  //
-  // Read off the answer rather than assumed. Anything that is not the word 'sent'
-  // -- including an answer from an older deployed function, which carries no
-  // status at all -- falls to "sending", which is the honest reading of a row
-  // nobody has confirmed. That matters while this change is in the repository and
-  // not yet deployed: the deployed function returns no status, and the page should
-  // not claim one.
-  const invitation = (data as { invitation?: { status?: unknown } } | null)?.invitation;
-  const sent = invitation?.status === "sent";
+  const answered = (data as { invitation?: { id?: unknown } } | null)?.invitation;
   const retried = (data as { retried?: unknown } | null)?.retried === true;
+
+  // ---- THE READ-BACK (Build it 19 rule 3) ---------------------------------
+  //
+  // The banner's wording comes from THE ROW, read here, out of the database.
+  //
+  // Build it 18 already stopped it coming from "the request worked" and made it
+  // come from the status in the function's answer, which was the bigger half of
+  // this. This is the rest: the function reports what its own query returned, and
+  // what the owner is about to look at is a fresh read of the same table. Reading
+  // it here means the banner and the list underneath cannot disagree -- and if the
+  // row cannot be read at all, the banner does not claim a status for it.
+  //
+  // The row is readable: invitations' one select policy answers the team's owner,
+  // which is who this is. No new rule and no secret key.
+  const invitationId = answered?.id;
+
+  if (typeof invitationId !== "string" || invitationId === "") {
+    // An answer with no id -- which is what an older deployed function gives.
+    // Nothing to read back, so nothing is claimed about the status.
+    redirect("/teams?invited=sending");
+  }
+
+  const { data: row, error: rowError } = await supabase
+    .from("invitations")
+    .select("status")
+    .eq("id", invitationId)
+    .maybeSingle();
+
+  // Anything that is not the word 'sent' in the row falls to "sending", which is
+  // the honest reading of a row nobody has confirmed: the email went -- the
+  // function only answers 201 when it did -- and the row does not say so.
+  //
+  // A failed read lands here too, and that is right. "We could not read it back"
+  // is not "it was sent".
+  const sent =
+    !rowError &&
+    row !== null &&
+    (row as { status?: unknown }).status === "sent";
 
   if (!sent) {
     // No `to=test` here: the one thing worth saying is that the row does not know

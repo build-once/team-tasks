@@ -2,7 +2,9 @@ import Link from "next/link";
 
 import { requestPasswordReset } from "@/app/auth/actions";
 import { Banner } from "@/app/components/Banner";
+import { ActButton } from "@/app/components/ActButton";
 import { Header } from "@/app/components/Header";
+import { BUTTON_IDS } from "@/lib/buttons";
 import { RESET_SENT_MESSAGE } from "@/lib/password-reset";
 
 // Ask for a password-reset email.
@@ -60,9 +62,12 @@ export default async function ForgotPasswordPage({
             </p>
           </div>
 
-          <button className="btn btn--primary btn--block" type="submit">
+          <ActButton
+            className="btn btn--primary btn--block"
+            act={BUTTON_IDS.resetRequest}
+          >
             Email me a link
-          </button>
+          </ActButton>
         </form>
 
         <p className="switch">

@@ -4,6 +4,7 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { ACT_FIELD, BUTTON_IDS, pressed } from "@/lib/buttons";
 import { createClient } from "@/lib/supabase/server";
 import { INVITE_REASONS, type InviteReason } from "@/lib/teams";
 
@@ -68,11 +69,24 @@ async function reasonFrom(error: unknown): Promise<InviteReason> {
 export async function acceptInvite(formData: FormData) {
   const token = String(formData.get("token") ?? "").trim();
 
+  // The button, by identifier, never by its wording (Build it 19 rule 6). It
+  // matters more here than on most buttons: this is the one press in the app that
+  // spends a credential, and the reason the page does not accept on load is that
+  // an accept must come from a deliberate press. An identifier is what makes
+  // "a deliberate press" a thing this code can check rather than assume.
+  //
+  // Back to the invitation page, with no reason code, so the page simply draws the
+  // offer again. Nothing happened, and nothing is claimed about the invitation --
+  // it is still unused and still valid.
+  if (!pressed(formData.get(ACT_FIELD), [BUTTON_IDS.inviteAccept])) {
+    redirect(`/invite/${encodeURIComponent(token)}`);
+  }
+
   if (!token) redirect("/invite/missing?reason=not_found");
 
   const supabase = await createClient();
 
-  const { error } = await supabase.functions.invoke("accept-invite", {
+  const { data, error } = await supabase.functions.invoke("accept-invite", {
     body: { token },
   });
 
@@ -84,5 +98,40 @@ export async function acceptInvite(formData: FormData) {
   }
 
   revalidatePath("/teams");
+
+  // ---- THE READ-BACK (Build it 19 rule 3) ---------------------------------
+  //
+  // "You have joined the team." is a claim about a row in team_members, so the row
+  // is read before it is made.
+  //
+  // WHY THE FUNCTION'S 200 IS NOT ENOUGH, even though it is honest: accept-invite
+  // answers 200 in two worlds, `already_member: false` after its insert and
+  // `already_member: true` when the primary key refused a duplicate, and in both it
+  // reports what its own statement returned. What the person is about to look at is
+  // My teams, which reads team_members through the policies as THEM. If those two
+  // ever disagree -- and the whole point of this check is that nothing here can
+  // promise they will not -- the banner should not be the thing that is wrong.
+  //
+  // IT IS READ AS THE PERSON, NOT AS THE FUNCTION. teams' select rule is
+  // is_team_member(id), so a team coming back through this client IS the membership:
+  // the row is what lets the read succeed. That is a better question than selecting
+  // from team_members, because it is the same question My teams asks a moment later.
+  const teamId = (data as { team_id?: unknown } | null)?.team_id;
+
+  if (typeof teamId !== "string" || teamId === "") {
+    // A 200 with no team id in it. Nothing to read back, so nothing is claimed.
+    redirect("/teams?joined=unconfirmed");
+  }
+
+  const { data: team, error: teamError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("id", teamId)
+    .maybeSingle();
+
+  if (teamError || team === null) {
+    redirect("/teams?joined=unconfirmed");
+  }
+
   redirect("/teams?joined=1");
 }
