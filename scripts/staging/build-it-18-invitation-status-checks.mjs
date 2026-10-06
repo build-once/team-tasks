@@ -82,11 +82,16 @@
 // one use:
 //
 //   POST   {url}/auth/v1/token?grant_type=password   body {email,password}
-//   POST   {url}/auth/v1/logout?scope=global
+//   POST   {url}/auth/v1/logout?scope=local
 //   POST   {url}/functions/v1/invite-member
 //   GET    {url}/rest/v1/{relation}?select=a,b&col=eq.value
 //   the API key travels in the `apikey` header; Authorization carries the
 //          caller's JWT.
+//
+// The sign-out SCOPE is the one exception to "the same as the scripts beside this
+// one": every other script in scripts/staging posts `?scope=global`, and this one
+// posts `?scope=local`, which is what web/tests/staging.mjs does. See signOut
+// below for why.
 //
 // WHAT IT NEVER PRINTS: a password, an access or refresh token, the publishable
 // key, the project URL, a user id, or an email address -- not Alice's, and not the
@@ -1187,7 +1192,7 @@ function runSelftest() {
           { method: "GET", path: "/rest/v1/teams?id=eq.x&select=id,owner_id" },
           { method: "GET", path: "/rest/v1/invitations?select=id,status" },
           { method: "POST", path: "/functions/v1/invite-member" },
-          { method: "POST", path: "/auth/v1/logout?scope=global" },
+          { method: "POST", path: "/auth/v1/logout?scope=local" },
         ]),
       expect: [PASS],
     },
@@ -1498,10 +1503,17 @@ async function signIn() {
   return { accessToken, userId };
 }
 
+// Ends the session this run created, and only that one. scope=local is the whole
+// point: 'global' ends every session belonging to that account, which on staging
+// would sign the owner's own browser out of Alice every time this script ran. The
+// three accepted values are 'global', 'local' and 'others' -- SIGN_OUT_SCOPES, in
+// web/node_modules/@supabase/auth-js/src/lib/types.ts. This is what
+// web/tests/staging.mjs's signOut does, narrowed for the same reason; every other
+// script in scripts/staging still posts 'global'.
 async function signOut(accessToken) {
-  REQUEST_LOG.push({ method: "POST", path: "/auth/v1/logout?scope=global" });
+  REQUEST_LOG.push({ method: "POST", path: "/auth/v1/logout?scope=local" });
   try {
-    const response = await fetch(`${authUrl}/logout?scope=global`, {
+    const response = await fetch(`${authUrl}/logout?scope=local`, {
       method: "POST",
       headers: { apikey: publishableKey, Authorization: `Bearer ${accessToken}` },
     });

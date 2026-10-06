@@ -20,11 +20,15 @@ on the remote, so the migration branch is gone and merged. The branch for this w
 
 ## 0. The headline, before any detail
 
-**NOTHING IN THIS PULL REQUEST IS DEPLOYED ANYWHERE.** Not staging, not production. The owner
-deploys to staging; production follows a merge. So every claim below is about code in a repository
-and about runs on one laptop, and the two things that can only be learned from a deployed function —
-that the status really gets written, and that the owner's screen really shows it — are **unverified**
-and have a script waiting for them. Section 5 says exactly which questions those are.
+**THIS PULL REQUEST IS NOW DEPLOYED ON STAGING, AND ON NO PRODUCTION PROJECT.** The owner deployed
+`invite-member` to staging on 6 October 2026 and reported the runs either side of it; production
+still follows a merge. **The assistant deployed nothing and ran nothing against any remote project**
+— §3b records whose report each staging fact is, and marks the few cross-checks that are the
+assistant's own.
+
+**This section used to say "NOTHING IN THIS PULL REQUEST IS DEPLOYED ANYWHERE", and three rows of the
+table below used to read "UNVERIFIED — nothing is deployed".** That was true when it was written and
+is not now; §3b is what changed it, and the old wording is quoted here rather than quietly replaced.
 
 | What | Verdict | Where |
 |---|---|---|
@@ -33,12 +37,19 @@ and have a script waiting for them. Section 5 says exactly which questions those
 | Two Try again presses at once do not both send | **PASS** — a compare-and-set, 16 tests, seen to fail first | §2a |
 | The staging script's own judgements can fail | **PASS** — 57 cases, exit 0 | §3 |
 | Both new check files now run in CI | **PASS** — CI counted 102 and 57 against those floors, run 37507349936 | §3a |
+| The deployed function writes the status | **PASS, reported** — before the deploy 4/2/4, after it 8 PASS, 0 FAIL | §3b |
+| What the owner actually sees on staging | **PASS, reported** — all three labels seen, wording matches the code | §3b |
+| The `failed` path, end to end | **PASS, reported** — row `failed`, code `refused`, by a secret changed by hand | §3b |
+| A retry sends, rotates the link and keeps `created_at` | **PASS, reported** — both retries `sent`, new 7 days, `created_at` unchanged | §3b |
 | The web app compiles, lints and builds | **PASS** — exit 0 both | §4 |
 | The repository's own suite | **PASS** — exit 0 | §4 |
-| The deployed function writes the status | **UNVERIFIED** — nothing is deployed | §5 |
-| What the owner actually sees on staging | **UNVERIFIED** — nothing is deployed | §5 |
-| The `failed` path, end to end | **UNVERIFIED** — it cannot be brought about from a script | §5 |
-| Two retries racing **against a real database** | **UNVERIFIED** — the filter is proved, the race is not run | §2a |
+| Whether any of those emails arrived | **UNVERIFIED** — nobody opened the test mailbox | §3b |
+| Two retries racing **against a real database** | **UNVERIFIED** — the filter now reaches the database; contention is not run | §2a, §3b |
+
+**"PASS, reported" is not the same verdict as "PASS".** The five rows marked that way rest on the
+owner's and the coach's report of 6 October 2026, recorded here by an assistant who saw no screen, no
+terminal and no table. Every other PASS in this table is output read in a session, with an exit code.
+§3b says which is which, line by line, and names what the assistant checked itself.
 
 ---
 
@@ -401,13 +412,24 @@ everything is not the plausible one this is about.
 
 ### What this does NOT prove
 
-**That two real requests racing against Postgres resolve this way. UNVERIFIED.** What
-is proved is the filter the database is given and the answer each outcome produces.
-Two concurrent requests against a real project is not something these tests or the
-staging script run — the script's calls are sequential — and nothing in this
-repository can make two Edge Function invocations overlap on purpose. The staging
-run will not settle it either. Treat the compare-and-set as a correct filter whose
-behaviour under genuine contention is reasoned, not measured.
+**That two real requests racing against Postgres resolve this way. UNVERIFIED, still, after
+the staging runs.** What is proved is the filter the database is given and the answer
+each outcome produces. Two concurrent requests against a real project is not something
+these tests or the staging script run — the script's calls are sequential — and nothing
+in this repository can make two Edge Function invocations overlap on purpose. The owner
+pressed **Try again** on two invitations minutes apart, which is not contention either.
+Treat the compare-and-set as a correct filter whose behaviour under genuine contention is
+reasoned, not measured.
+
+**But one half of it is no longer reasoned: the filter does reach the database.** The
+section above names the way this could have failed silently with all 62 tests green — an
+unencoded `+` in the `expires_at` filter would match no row ever, so every retry would
+answer "being sent now" and **Try again** would be permanently dead — and says it was
+measured only against the app's `postgrest-js` under `web/node_modules`, not the copy the
+Edge runtime resolves. **On staging, after the deploy, both retries answered with a new
+link and a new 7-day expiry** (§3b), which that failure mode cannot produce. So the
+percent-encoding holds in the deployed function too. What is left unmeasured is the race
+itself, not whether the filter can ever match.
 
 ### Noted by the coach, not blocking, and not changed
 
@@ -525,6 +547,48 @@ address — not Alice's and not the plus-address, even though `docs/environments
 Every body goes through `scrub()`, which is given both addresses **before the first request is made**
 and the access token the moment it exists. Four `--selftest` cases check the scrub itself, including
 one that proves nothing (the value was not in the text) and reports UNVERIFIED rather than PASS.
+
+### And what it ends: `scope=local`, not `scope=global`
+
+**Changed after the staging runs, on the owner's instruction.** The script signed out with
+`POST /auth/v1/logout?scope=global`, copied from the four scripts beside it. `scope=global` ends
+**every** session belonging to that account — so a run would sign the owner's own browser out of
+Alice, which on this branch is exactly the browser being used to look at **My teams**. It now posts
+`?scope=local`, which ends only the session the run itself created. That is what
+`web/tests/staging.mjs:364-377` already does, and `evidence/build-it-17-access-rules.md` records the
+same change being made there and why.
+
+Four places, so the file does not describe one thing and do another: the endpoint list in the header
+comment, the `REQUEST_LOG` entry, the `fetch` URL, and the `--selftest` case that feeds
+`judgeTouchedNothing` a log of a well-behaved run. `judgeTouchedNothing`'s allowed list matches on
+`/auth/v1/logout` without the query string, so it accepts either scope — which is why the selftest
+case needed changing by hand rather than being caught by it.
+
+The three accepted values are `global`, `local` and `others` — `SIGN_OUT_SCOPES` in
+`web/node_modules/@supabase/auth-js/src/lib/types.ts:2407`, read in this session rather than
+remembered.
+
+**This does not close [#150](https://github.com/build-once/team-tasks/issues/150), and it does not
+make it bigger either.** That issue — open, checked with `gh issue view 150` in this session — names
+**five** scripts that still post `?scope=global`: `build-it-14-checks.mjs`, `build-it-15-checks.mjs`,
+`build-it-16-checks.mjs`, `build-it-16-suspend-checks.mjs` and `bob-invites-to-alices-team.mjs`. This
+script was not among them because it did not exist when #150 was filed, and it had been written with
+the same copied `global`. The fix means it **does not become a sixth**. The five are not touched here;
+they are #150's job.
+
+```
+node scripts/staging/build-it-18-invitation-status-checks.mjs --selftest
+57 cases, 0 wrong.
+exit 0
+```
+
+**What that does and does not show.** The selftest is pure functions, so it proves the `judgeTouchedNothing`
+case still comes out PASS with the narrowed path — it does **not** exercise a sign-out. **Unverified —
+no staging run has been made with `scope=local` in this script**, because the staging runs recorded in
+§3b were made with the `scope=global` version, before this change. To check it: the next run of this
+script against staging should report `(Alice signed out: HTTP 204)` and leave any other Alice session
+signed in. `evidence/build-it-17-access-rules.md` records HTTP 204 from three sign-outs with
+`?scope=local` on the endpoint, so the narrowed scope is known to be accepted there.
 
 ---
 
@@ -660,6 +724,203 @@ exactly is the positive half.
 
 ---
 
+## 3b. Staging, before and after the deploy — the owner and the coach
+
+**Attribution first, because it decides how to read the whole section.** Everything in §3b is the
+**owner's and the coach's report of 6 October 2026**, recorded by the assistant, who **ran none of
+it**: no staging run, no deploy, no secret change, no screen, no test mailbox, and **no MCP connector
+and no browser tool** in this session. No terminal output was pasted in, so the figures below are the
+totals and the words **as reported**, not output read here. Same attribution as section 9e of
+`evidence/build-it-18-invitation-status.md`, which recorded the PR #165 run the same way.
+
+What the assistant *did* do is check the report against this branch's code — every sentence quoted
+below is cited to the file that produces it, and the two verdict tallies are compared against the
+verdicts the script actually records. Those checks are the assistant's own and are marked as such.
+
+**This section changes §0's headline: `invite-member` is now deployed on staging.** It is still
+deployed to **no** production project, and nothing here was run against production.
+
+### Before the deploy — the run that was supposed to fail, and did
+
+`node scripts/staging/build-it-18-invitation-status-checks.mjs` against staging, with the
+`invite-member` that was live from before issue #166. Reported totals:
+
+**4 PASS, 2 FAIL, 4 UNVERIFIED.**
+
+The two failures, as reported:
+
+- **the 201 carried no `invitation.status`** — the answer said nothing about what happened to the
+  email;
+- **the row stayed `queued`** — it kept the migration's default, because nothing wrote it.
+
+Those are `judgeSendRecorded`'s first two verdicts, and they are the two the script's own header
+block (lines 15–19) says a pre-deploy run "MUST FAIL". The selftest predicts this case verdict for
+verdict: "THE FUNCTION IS THE OLD ONE: 201 with no status, and the row keeps the migration's
+default", expecting `FAIL, FAIL, UNVERIFIED`. **This is the half of the pair that a single green run
+cannot give you**, and it is now on the record rather than promised.
+
+### The deploy — the owner's step, not the assistant's
+
+The owner deleted the script's row first (the statement the script prints at the end of every run),
+because the row from the pre-deploy run was a recent `queued` and the function would rightly refuse
+to send it again until the stale window passed. Then, with **Supabase CLI 2.75.0**:
+
+```
+supabase functions deploy invite-member --project-ref ghskxrhqlhvrhpnivqbd
+Deployed Functions on project ghskxrhqlhvrhpnivqbd: invite-member
+```
+
+**No production action was taken, so there is no `evidence/production-log.md` entry for any of this**
+(rule 19's log is for production, and `ghskxrhqlhvrhpnivqbd` is staging). The assistant deployed
+nothing: rule 19 permits a staging `functions deploy`, and none was run from this session.
+
+### After the deploy — the same script, the same checks
+
+Reported totals: **8 PASS, 0 FAIL, 2 UNVERIFIED**, with
+
+- **201, `status` `sent`, `retried` `false`** — the answer reports what happened to the email;
+- **the row says `sent`** — written by the function, not by the migration's default;
+- **the second call: 409, code `23505`, and the row unchanged** — no second email to somebody who
+  already has the first, and the refusal did not rotate the token or move the expiry.
+
+**The assistant's cross-check on both tallies, which is the one thing here not taken on trust.** The
+script records exactly **10** verdicts on the path these runs took — `judgeAliceReadsHerTeam` (1),
+`judgeOwnerCanReadTheColumns` (1), `judgeSendRecorded` (3), `judgeFailedPath` (1), the two in the
+second-call section, `judgeNothingLeaked` (1), `judgeTouchedNothing` (1); `judgeStagingUrl` is a
+guard before sign-in and is not recorded as a verdict. Both reported tallies sum to **10**, and each
+one is what those ten verdicts come to given the reported circumstances — a pre-read that found no
+row (the owner had just deleted it) makes `judgeOwnerCanReadTheColumns` UNVERIFIED, and a send that
+succeeded makes `judgeFailedPath` UNVERIFIED, in both runs. Counted from the code in this session,
+not from a remembered shape.
+
+**What the after-run's exit code was is not reported, and it was almost certainly 1, not 0.** The
+script sets `process.exitCode = 1` when `failures > 0 || unverified > 0` (line 1765), so **2
+UNVERIFIED is enough to make it exit 1** and to print "NOT GREEN" rather than "All checks passed".
+"8 PASS, 0 FAIL" is therefore **not** a green run in this script's own terms, and nothing here claims
+one. The two UNVERIFIED are both expected and neither is a defect: see the tally cross-check above.
+
+### The `failed` path, brought about by hand — §5's item 3, answered
+
+§5 item 3 says the `failed` path "cannot be brought about from a script", and names why: the settings
+that would make the email service refuse are function secrets, and a script changing them would be
+changing staging to suit a test. **The owner did it by hand instead**, which is a different thing
+from a script doing it silently:
+
+1. created a **new Resend key for staging** and saved it locally, outside the repository, so the
+   working value could be put back afterwards — a Resend key cannot be read back after it is created,
+   so without a saved copy the restore would not have been possible;
+2. set staging's **`EMAIL_API_KEY`** to a wrong value;
+3. invited the **`+failcheck`** address of the test mailbox from the **local app on
+   `localhost:3000`, this branch, pointed at staging, signed in as Alice**.
+
+The screen reported:
+
+> The invitation email could not be sent. The email service would not accept the message. The
+> invitation is saved and shows as "could not be sent", so you can ask again.
+
+**Checked against this branch, not taken on trust.** That sentence is assembled by
+`supabase/functions/invite-member/index.ts:282-283` from the per-code sentence at
+`index.ts:148` — `refused: "The email service would not accept the message."` — and the identical
+string is asserted in `supabase/functions/_tests/invitation_status_test.ts:1219`. So the words the
+owner saw are the words this change's code produces for `refused`, and **the email service's own
+reply is not among them**, which is what `docs/plan.md` requires.
+
+**The coach, through the staging read-only connector, afterwards:** the `+failcheck` row said
+`status` **`failed`**, `failure_code` **`refused`**, created **2026-10-06 18:26:53 UTC**.
+
+So for a real failed send, against the real deployed function: **the row survives** (the pre-#166
+behaviour deleted it), **it says `failed`**, **the code is one of the four the constraint permits**,
+and **the answer's sentence and the row's code are about the same thing**. That is item 3 of §5
+settled on staging, by the one method a script was never allowed to use.
+
+### What the owner saw on My teams — §5's item 2, answered
+
+Five waiting invitations on Alice's team, as reported:
+
+| the invitation | label | sentence and button |
+|---|---|---|
+| `+failcheck` | **could not be sent** | the sentence above, and a **Try again** button |
+| `+statuscheck` — `queued` since **12:57 UTC**, from the PR #165 test | **sending** | "Nothing has confirmed this one yet…", and a **Try again** button |
+| the other three | **sent** | no sentence, no button |
+
+**Checked against this branch.** The three labels are `web/src/lib/teams.ts:136` exactly —
+`"sending" | "sent" | "could not be sent"`. The stale sentence is `teams.ts:192-193`: "Nothing has
+confirmed this one yet, so the email probably never went. Try again to send a new link."
+
+**And the `+statuscheck` line is the stale-queued rule firing, which is worth stating as arithmetic
+rather than as agreement.** That row was created `2026-10-06 12:57:32 UTC` — not a number from this
+report but the one already recorded in section 9e of `evidence/build-it-18-invitation-status.md`,
+from the PR #165 run. It was retried at about `18:29:27 UTC` (below), **5 h 31 min 55 s** later,
+which is far past `STALE_QUEUED_MINUTES = 15`. So `stale` is true at `teams.ts:184-187`, which is
+exactly why that line had a sentence and a button while the three `sent` ones had neither. Computed
+in this session from the two reported timestamps.
+
+**The five also reconcile**, which is the kind of thing worth checking because it is cheap: section
+9e recorded "3 of 20 invitations waiting" on that team at 12:57, one of them `+statuscheck`. Add the
+script's own `+bi18-status` row (re-created by the after-deploy run) and `+failcheck`, and the list is
+5 — of which 3 read `sent`: the two older ones and the script's. Arithmetic on reported numbers, not
+a reading of the table.
+
+### Try again, on both — and the restore
+
+The owner restored `EMAIL_API_KEY` from the saved file (`Finished supabase secrets set.`) and pressed
+**Try again** on both invitations. For `+statuscheck` the screen reported:
+
+> Invitation sent again, with a new link. The earlier link no longer works…
+
+which is `web/src/app/teams/page.tsx:398-401`, the banner drawn for `invited === "again"`.
+
+**The coach's read afterwards:**
+
+| | reported |
+|---|---|
+| `+failcheck` | **`sent`**, expires **2026-10-13 18:29:02 UTC** |
+| `+statuscheck` | **`sent`**, expires **2026-10-13 18:29:27 UTC** |
+| `created_at` on both | **unchanged** |
+
+Four things that settles, and one it does not:
+
+- **a retry really does send**, against the deployed function and a real database. The compare-and-set
+  of §2a is not a filter that always loses — which §2a named as the way this could have failed
+  silently, because the `+` in a `timestamptz` query-string filter must be percent-encoded and all 62
+  Deno tests would be green either way. **A retry answering 201 is the first observation that rules
+  that out on the deployed function**, where the Edge runtime resolves its own `@supabase/server`
+  copy that §2a could not read;
+- **both expiries are 7 days out**, 2026-10-13, so a retry restarts the 7 days — which is the point:
+  the email says "The link works for 7 days", and on a stale row that sentence would otherwise be
+  false;
+- **`created_at` is unchanged on both**, so "when was this person first invited" is still answerable
+  after a retry;
+- **a `failed` row and a long-stuck `queued` row are both retryable**, which is `retryVerdict`'s two
+  `send` cases exercised against real rows rather than fixtures. `+failcheck` was retried 2 min 09 s
+  after it was created — allowed because it says `failed`, not because of any clock — and
+  `+statuscheck` because it was stale.
+- **it does not settle whether either email arrived.** Nothing below changes that.
+
+### Still not settled by any of this
+
+Three things, stated as `unverified — reason` rather than left to be read out of a tally (rule 8):
+
+1. **Whether any of these emails arrived. UNVERIFIED — nobody looked.** The email service reporting a
+   send is not a delivery, and a junk folder is invisible to every check in this change. **To check
+   it:** open the staging test mailbox's `+failcheck` and `+statuscheck` inboxes, or read the Resend
+   delivery log for those addresses. This is the same gap section 9e of the part-2a evidence left
+   open, and it is still open.
+2. **Two Try again presses at the same moment, against the real database. UNVERIFIED — not run.** The
+   two presses here were minutes apart and sequential. The compare-and-set is proved by 16 Deno tests
+   and its filter is now known to reach the database at all (a retry answered 201), but **genuine
+   contention was not produced**, and nothing in this project can make two Edge Function invocations
+   overlap on purpose. **To check it:** two retries fired concurrently at one invitation, with the
+   loser expected to get the "being sent now" 409 and exactly one new `expires_at` to result. §0 and
+   §2a already carry this as unverified; it stays unverified after these runs.
+3. **The screen message for `+failcheck`'s retry. UNVERIFIED — not reported.** The owner pressed Try
+   again on both and reported the banner for `+statuscheck` only, so what `+failcheck`'s press drew is
+   not recorded. The row's result for it *is* recorded above (`sent`, new expiry). **To check it:**
+   press Try again on a `could not be sent` invitation and read the banner; the code path is the same
+   `invited === "again"` branch at `page.tsx:398`, so the expected text is the same sentence.
+
+---
+
 ## 4. The web app, and the repository's own suite
 
 ```
@@ -734,12 +995,15 @@ test to suit this change is exactly what rule 20 forbids.
 
 ## 5. What this does NOT prove
 
-Six things, and the first two are the big ones.
+Six things when this section was written. **The first three are now answered on staging, by the
+owner's and the coach's report in §3b, and they are kept here rather than deleted** — what a change
+could not prove at the time is part of its record, and striking it out shows what moved and when.
 
-**1. That the deployed function writes the status. UNVERIFIED — nothing is deployed.** Everything in
-§1 and §2 is about pure functions on a laptop. The function has not been pushed to staging or to
-production, and the assistant deploys nothing anywhere. The way to settle it is the pair of runs
-§3's script is built for:
+**~~1. That the deployed function writes the status. UNVERIFIED — nothing is deployed.~~ Answered in
+§3b.** The plan below is the one that was carried out, and both halves were reported: before the
+deploy **4 PASS, 2 FAIL, 4 UNVERIFIED**, the two failures being the 201 with no `status` and the row
+left at `queued`; after it **8 PASS, 0 FAIL, 2 UNVERIFIED**, with `status` `sent` in both the answer
+and the row.
 
 ```
 node scripts/staging/build-it-18-invitation-status-checks.mjs      # before: must FAIL
@@ -749,20 +1013,28 @@ node scripts/staging/build-it-18-invitation-status-checks.mjs      # after: must
 
 Delete the row between the second and third steps, with the statement the script prints — otherwise
 the row from step 1 is a recent `queued` and the function will rightly refuse to send it again until
-the stale window passes.
+the stale window passes. **The owner did delete it**, which is why the after-run exercised a fresh
+send. What stays unproved is still named: §3b's closing three, of which the live one is whether any
+email arrived.
 
-**2. That the owner's screen shows any of this. UNVERIFIED.** The page compiles and builds, and
-nobody has looked at it. Nothing in this repository can: it needs a browser on a deployed app with a
-real invitation in one of the three states. The owner opening **My teams** on staging after the
-deploy is the check, and the three states to look for are "sending", "sent", and "could not be sent"
-with a sentence and a **Try again** button.
+**~~2. That the owner's screen shows any of this. UNVERIFIED.~~ Answered in §3b.** The owner opened
+**My teams** on staging, as Alice, and reported all three labels at once on five invitations —
+"could not be sent" with its sentence and a **Try again** button, "sending" with the stale sentence
+and a button, and three "sent" with neither. The wording reported matches `web/src/lib/teams.ts` and
+`web/src/app/teams/page.tsx` line for line, which §3b cites. **One gap remains:** the banner for the
+`+failcheck` retry was not reported.
 
-**3. The `failed` path, end to end. UNVERIFIED, and it cannot be brought about from a script.** A row
-only says `failed` when the email service refuses, cannot be reached, or answers without confirming.
-Staging redirects every invitation to the test inbox, which the service accepts; the settings that
-would refuse are function secrets, and changing them would be changing staging to suit a test. The
-script reports this UNVERIFIED on every run with that reason. What *is* proved is what the function
-builds for each of the four codes (§1).
+**~~3. The `failed` path, end to end. UNVERIFIED, and it cannot be brought about from a script.~~
+Answered in §3b — by hand, not by a script.** The reasoning below still holds for the *script*, and
+it is why it was the owner who did it: they created a replacement staging Resend key, saved it
+outside the repository, set `EMAIL_API_KEY` to a wrong value, invited one address, and restored the
+key afterwards. The row came back `failed` with code `refused`, and the screen said the sentence this
+change's code builds for `refused`. The original reason it was out of a script's reach: a row only
+says `failed` when the email service refuses, cannot be reached, or answers without confirming;
+staging redirects every invitation to the test inbox, which the service accepts; the settings that
+would refuse are function secrets, and **a script changing them would be changing staging to suit a
+test**. The script still reports this path UNVERIFIED on every run, with that reason, which is
+correct — it did not bring it about.
 
 **4. That `not_configured` can ever be stored. It cannot, today.** The migration's fixed list names
 `decideDelivery`'s two refusals as its source, and `decideDelivery` runs **before any row exists** —
@@ -880,12 +1152,38 @@ the commit was not retried with the same content.**
 
 ## 8. Redaction
 
-**Nothing captured from production or staging appears in this file, in the code, or in any issue.**
-No log line, API response, error payload or webhook body was captured in this session: nothing was
-run against any remote project, by anybody writing this.
+**Nothing captured from production appears in this file, in the code, or in any issue.** Nothing was
+run against production by anybody, and the assistant used no MCP connector and no browser tool in
+this session.
 
-**Values replaced: none.** There was nothing to replace, and that is a complete answer (rule 18)
-rather than a reassurance.
+**This section used to say "nothing captured from production or staging". The staging half is no
+longer true, and §3b is why**, so here is the full list of what came from staging — second-hand, in
+the owner's and the coach's report — and what it is:
+
+| What was reported | Kind | Why it is here as it is |
+|---|---|---|
+| `status` values: `queued`, `sent`, `failed` | three fixed words | they are the whole subject of issue #166, and the check constraint permits nothing else |
+| `failure_code` `refused` | one of four fixed codes | from the constraint's list. **This is the whole point of a code instead of the service's reply**, which could have quoted the address, the subject and the message |
+| `created_at` `2026-10-06 18:26:53 UTC`; expiries `2026-10-13 18:29:02` and `18:29:27 UTC`; `12:57 UTC` | timestamps on test invitations | they are what proves the 7 days restart and `created_at` does not move. They are dates on rows addressed to the owner's own test mailbox, not activity by any person |
+| the plus-tags `+failcheck`, `+statuscheck`, `+bi18-status` | tags on the staging test mailbox | the mailbox is published on purpose in `docs/environments.md` and `web/tests/staging.mjs`, and `+statuscheck` is already in `evidence/build-it-18-invitation-status.md`. They belong to the owner, not to a third party |
+| the verdict tallies and the screen's sentences | this app's own fixed wording | every sentence is cited to the file that builds it |
+
+**Values replaced: none**, and that is a complete answer rather than a reassurance (rule 18). Nothing
+in the list grants access and nothing identifies a person other than the owner, whose own test
+mailbox it is.
+
+**What was deliberately not asked for or recorded, which is the part worth checking.** No
+`token_hash` and no token — a pending invitation's token is a credential until it expires or is used,
+and the coach's read did not include it. No invited address in full, no `auth.users` id, no team id,
+no Resend key or any part of one, no project URL beyond the staging reference the repository already
+publishes, and **nothing the email service itself said**: the owner reported the app's sentence for
+`refused`, not the service's reply, which is exactly the distinction `docs/plan.md` asks for.
+
+**A note on the key, recorded because it is part of how the `failed` path was reached.** The owner
+created a new staging Resend key and saved it locally, outside the repository, so `EMAIL_API_KEY`
+could be put back after being set to a wrong value — a Resend key cannot be read back after creation,
+so there was no other way to restore it. **No key value, and no fragment of one, appears in this
+file, in the code, in any issue, or in this session at all**, and none was asked for.
 
 Three addresses appear in this pull request, and none of them belongs to a real person:
 
@@ -911,3 +1209,15 @@ first versions of two of them looked random enough for gitleaks to refuse the co
 | [#169](https://github.com/build-once/team-tasks/issues/169) | The failure code `not_configured` can never be stored, because delivery is decided before any row exists |
 | [#170](https://github.com/build-once/team-tasks/issues/170) | A team at the 20-pending limit cannot retry a failed invitation |
 | [#171](https://github.com/build-once/team-tasks/issues/171) | Nothing can delete an invitation, so test rows and failed invitations are cleared by hand |
+
+**No issue was filed in the session that added §3b**, and that is worth saying rather than leaving to
+be inferred. The three things §3b leaves unsettled are recorded there as `unverified — reason` with
+the exact check that would settle each, which is what rule 8 asks for; none of them is a defect in
+this change, and two of them (whether the email arrived, and real contention between two retries)
+were already on the record in §0 and §2a before these runs.
+
+**One existing issue is referenced but not closed:**
+[#150](https://github.com/build-once/team-tasks/issues/150) — five staging scripts sign out with
+`scope=global`. Open, checked in this session. This pull request's own script now posts
+`scope=local`, so it does not join that list; the five scripts #150 names are untouched. See §3's
+"And what it ends".
