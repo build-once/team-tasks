@@ -952,31 +952,176 @@ was made, and `"Dedupe"` is still in `SERVER_INTEGRATIONS`.** What to look for o
 | all three visits produce events | the first run's loss was **Dedupe** | make the commit proposed above |
 | one still goes missing | **Finding B** is in play | compare the `instance` tags on the survivors; a shared instance makes a freeze between requests the likely story, and that is a limitation of the SDK rather than of this app's configuration |
 
+## 14. The rerun, and what it settled
+
+**Observed by the owner on the preview of this branch, 6 October 2026, release `0f8c7ace…`.** Sentry
+issue **7776116657** (the server page) and **7776119377** (the browser button). Three visits, in the
+same order as the first round: signed in as one person, signed out, signed in as another.
+
+| Visit | Time (UTC) | `instance` tag | User |
+|---|---|---|---|
+| 1, signed in (A) | **08:37:26** | `ip4k9n` | `208eb6dc…` |
+| 2, **signed out** | **08:38:11** | `ip4k9n` | **none** |
+| 3, signed in (B) | **08:38:59** | `w2b105` | `849ba411…` |
+| Browser button | **08:40:52** | — (issue 7776119377) | **none**, `signed_in: yes` |
+
+All three server visits produced an event. The browser event arrived too, scrubbed, with
+`signed_in: yes` and no user id.
+
+### The coach's conclusions, recorded as such
+
+- **No stale user id between consecutive requests on one instance.** Visits 1 and 2 shared instance
+  `ip4k9n`, 45 seconds apart. Visit 1 carried `208eb6dc…`; visit 2 carried **no user at all**. So
+  `rememberUserForErrorReports(undefined)` really did clear the id on the second request rather than
+  leaving the first one in place — which is review point 6 answered **for the consecutive case**, and
+  answered by observation rather than by reading.
+- **Overlapping requests were not tested.** All three visits were made one after another by hand.
+  Two requests being served *at the same time* on one instance is a different question, and nothing
+  here touches it. It stays open.
+- **All three events arrived once the messages differed, which fits Dedupe as the cause of the first
+  round's missing event — without excluding a lost send.** The only change between the two rounds was
+  the timestamp in the message. Nothing was done about the flush.
+
+### Why the instance tags make the first round legible
+
+The first round needed one extra assumption to be explained by Dedupe: that visit 3 ran on a
+*different* instance from visits 1 and 2, giving it a fresh, empty baseline. The instance tags show
+exactly that arrangement actually happening — **visits 1 and 2 on `ip4k9n`, visit 3 on `w2b105`** —
+at the same place in the sequence. Combined with Finding A (the baseline only moves when an event
+survives), the first round's pattern of "first sent, second dropped, third sent" is what Dedupe
+produces on this instance split.
+
+**That is corroboration, not proof, and the distinction is worth keeping.** Both rounds split after
+visit 2, which is consistent with Dedupe and also consistent with nothing in particular. Finding B is
+still live: the flush was never awaited in either round, so a frozen function could have lost the
+first round's middle event just as easily, and the two explanations are not mutually exclusive.
+**Both were fixed.**
+
+- The browser event confirms the gap already documented rather than a new one: `signed_in: yes` with
+  **no user id** is exactly what `web/src/instrumentation-client.ts` says to expect, because the
+  browser has no signed-in identity without shipping the Supabase client into the bundle. The server
+  decided "yes" and passed it down as a tag; the id stayed on the server.
+
+## 15. The two permanent commits the owner agreed, after the rerun
+
+Separate from each other on purpose, and separate from the two temporary ones.
+
+### `19c92a8` — stop deduplicating server and edge errors
+
+`"Dedupe"` removed from `SERVER_INTEGRATIONS` and `EDGE_INTEGRATIONS` in `web/src/sentry/options.ts`,
+with the reasoning in a comment beside each list. **It stays in `CLIENT_INTEGRATIONS`.**
+
+**Why it was wrong on a server:** it decides by the exception's type and value, the fingerprint and
+the stack frames (`dedupe.js`, `_shouldDropEvent` line 27, `_isSameExceptionEvent` lines 59–75) and
+**`event.user` does not appear in that file at all**. Two people hitting the same broken page one
+after another are reported as one, which defeats the plan's stated reason for sending a user id at
+all: *"Tells the owner whether one person or everyone is hitting an error"*.
+
+**Why it stays in the browser, which is the part worth not getting wrong:** a browser is **one
+person's**. Deduplicating consecutive identical errors in a single tab can only ever merge somebody's
+error with their own — which is what Dedupe is for, because a render loop or a repeated failing click
+would otherwise send the same error hundreds of times and spend the free plan's quota on it. The edge
+list loses it with the server list because the Proxy refreshes everybody's session, so a run of
+identical errors there is a run of different people.
+
+**What it costs:** duplicate events against a quota whose limits `docs/costs.md` records as not
+confirmed. Sentry's server-side grouping still collapses repeats into one **issue**, so the event
+count grows, not the number of things to read.
+
+### `f4b2b10` — wait for the report to be sent before `onRequestError` returns
+
+`web/src/instrumentation.ts` now wraps Sentry's handler instead of exporting it directly:
+
+```ts
+export const onRequestError: Instrumentation.onRequestError = async (error, request, context) => {
+  Sentry.captureRequestError(error, request, context);
+  await Sentry.flush(FLUSH_TIMEOUT_MS);
+};
+```
+
+**That this is the supported way to flush, from the installed source and not from memory:**
+
+- **`flush` is a top-level export**, and its own documentation describes this use:
+  *"Call `flush()` on the current client, if there is one. @param timeout Maximum time in ms the
+  client should wait to flush its event queue. @returns A promise which resolves to `true` if the
+  queue successfully drains before the timeout, or `false` if it doesn't"* —
+  `@sentry/core/build/types/exports.d.ts`, **lines 134–142**.
+- **The SDK awaits it in its own serverless path**, which is the pattern being copied:
+  `if (isServerless) { await flushWithTimeout(timeout); }` —
+  `@sentry/core/build/esm/utils/flushIfServerless.js`, **lines 37–39**. That helper detects Vercel
+  and AWS Lambda by environment variable; it is called **nowhere** in `@sentry/nextjs`, which is why
+  the hook has to do it.
+- **Next.js asks for the await too**, so this is not fighting the framework: *"If you're running any
+  async tasks in `onRequestError`, make sure they're awaited."* —
+  `next/dist/docs/01-app/03-api-reference/03-file-conventions/instrumentation.md`.
+
+**The timeout is 2000 ms, and the number is not invented here.** It is the SDK's own for exactly this
+situation, in two places: `await flush(2e3)` in `@sentry/nextjs/.../responseEnd.js` **line 8**, and
+`const { timeout = 2e3 }` as the default in `flushIfServerless.js` **line 16**. It is a **cap, not a
+cost** — `flush` resolves as soon as the queue is empty. Short matters because this runs while the
+failing request is being finished, so the wait is time the person spends looking at nothing.
+
+**Local development pays nothing:** with no DSN there is no client, and `flush` then returns `false`
+immediately rather than waiting out the timeout (`@sentry/core/build/esm/exports.js`, lines 50–57).
+
+**The result is deliberately not logged.** `flush` resolves `false` on a timeout and it is tempting
+to record that, but `docs/plan.md` settled it — *"Logs: we add none of our own"* — and a log line
+here would be a line about a request that has just failed, which is the worst moment to start writing
+things down about somebody.
+
+**Still true afterwards, said plainly: a function can be frozen or killed before two seconds are up,
+and then the report is still lost.** This makes the loss unlikely, not impossible. It is not a
+guarantee and is not recorded as one.
+
+### Not reverted yet, on purpose
+
+The two temporary commits (`11af490`, `44752f5`) are **still on the branch**. The owner is doing one
+more pair of visits on the rebuilt preview first, to see both permanent fixes working. The revert is
+the last step before merge.
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an
 error report and nothing in this repository can look at a delivered event.**
 
-1. **Unverified — that any report is actually delivered, or what one contains when it arrives.**
-   What is verified is what the scrub function does to an event handed to it (59 checks), and what
-   the SDK is configured to collect (read out of the installed source, section 4). Whether Sentry
-   calls `beforeSend` for every event in all three runtimes, and what the delivered JSON looks like,
-   needs a real event. **How to settle it:** the owner adds the DSN to Vercel for Preview, opens a
-   preview deployment, triggers an error, and reads the event in Sentry — checking by eye that there
-   is no address, no cookie, no task text and no breadcrumbs, and that `user.id` is present.
+**Read sections 11 and 14 first: two of these three are now settled, and they are kept here with
+their answers rather than deleted, so the record shows what was unknown and what closed it.**
 
-2. **Unverified — that the user id reaches a server-side event.**
-   `rememberUserForErrorReports` is called at the three places that hold a verified `sub`
-   (`tasks/page.tsx`, `teams/page.tsx`, `teams/actions.ts`) and sets it on the **isolation scope**,
-   which in Node is the one belonging to a request (`@sentry/core/build/esm/exports.js` lines 41–43).
-   Whether Next.js' `onRequestError` runs inside that same isolation scope is a question only a real
-   event answers. **Settled by the same run as 1.**
+1. **SETTLED 2026-10-06 — reports are delivered, the scrub runs on them, and `beforeSend` is
+   reached.** Observed in both rounds (sections 11 and 14): five events arrived in Sentry across the
+   two runs, scrubbed, from the server and from the browser. The owner confirmed the planted address,
+   token and row came through as placeholders. *What is still not verified:* the full delivered JSON
+   has not been read field by field by anybody writing this, so "no cookie anywhere in the event" is
+   the configuration's claim (section 4) plus the owner's eye, not an exhaustive check.
 
-3. **Unverified — whether Vercel exposes `NEXT_PUBLIC_VERCEL_ENV` to the browser.**
+2. **SETTLED for consecutive requests, 2026-10-06 — the user id is this request's, not the last
+   one's.** Section 14: visits 1 and 2 shared instance `ip4k9n` 45 seconds apart; the first carried
+   `208eb6dc…` and the second, signed out, carried **no user at all**. So the id reaches a
+   server-side event *and* is cleared when there is nobody to name.
+   **STILL OPEN — overlapping requests.** All the visits were made one after another by hand. Two
+   requests served *at the same time* on one instance is a different question and nothing here
+   touches it. **How to settle it:** two requests in flight together as two different people, and
+   each event checked against the person who caused it.
+
+3. **Still unverified — whether Vercel exposes `NEXT_PUBLIC_VERCEL_ENV` to the browser.**
    The deployment tag reads `VERCEL_ENV` on the server and `NEXT_PUBLIC_VERCEL_ENV` in the browser.
    If this project does not expose the second one, a browser report is tagged `unknown` while a
-   server report from the same deployment is tagged correctly. **How to settle it:** the Vercel
-   dashboard, or the same preview run as 1 — the tag on the event says which it got.
+   server report from the same deployment is tagged correctly. The browser event in section 14 was
+   not checked for this tag, so the run did not settle it. **How to settle it:** read `deployment`
+   on a browser event, or the Vercel dashboard.
+
+4. **Still unverified — whether `EdgeRuntime` is a string in Vercel's Node serverless runtime.**
+   This is what decides whether Sentry's own `waitUntil` ever did anything on this path
+   (section 11, Finding B). It no longer matters for correctness, because `f4b2b10` awaits the flush
+   itself regardless — but the claim "the SDK's own flush was a no-op here" rests on it and has not
+   been observed. **How to settle it:** it cannot be, from this repository.
+
+5. **Still unverified, and now narrower — that `f4b2b10` actually prevents a lost report.** The
+   change awaits `flush` with a 2000 ms cap, which is read from the installed source as the supported
+   way to do it (section 15). Whether it saves an event that would otherwise have been lost cannot be
+   shown by making a report arrive — the first round's events arrived too. **A function can still be
+   frozen or killed inside those two seconds, and then the report is still lost.** This makes the
+   loss unlikely, not impossible, and is not recorded as a guarantee.
 
 **Also not done here, and not a gap in this work:** the two Sentry privacy settings
 `docs/plan.md` assigns to the owner — storing IP addresses off, and default data scrubbing on — and
