@@ -538,6 +538,44 @@ Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
 
 ---
 
+## 9. CI on the pull request (#160)
+
+Run `37372372489`. **Every one of the 14 jobs passes, and the `required` gate passes.**
+
+The new check really ran, and the job counted it rather than taking the exit code on trust:
+
+```
+tasks-filter-check: counted 47 PASS lines; at least 47 expected.
+password-reset-check: counted 84 PASS lines; at least 84 expected.
+59 of 59 checks passed.
+sentry-scrub-check: counted 59 PASS lines; at least 59 expected.
+```
+
+The other two floors are untouched at 47 and 84, so no existing coverage was traded for the new
+check. `App tests (access rules on staging)` also passes, which is the only run that exercises the
+edited `web/tests/access-rules.test.mjs` against a real project — it needs staging credentials this
+machine does not hold, so it could not be run locally.
+
+**`Vercel — fail` is expected**, and is this branch's own feature working: the owner has not added
+`NEXT_PUBLIC_SENTRY_DSN` to Vercel, so the preview build stops on the missing setting. It is the same
+refusal as section 3a, in the place it was built for.
+
+### The first attempt failed for a reason that was nothing to do with this branch
+
+Worth recording, because the first `gh pr checks` read alarming and would mislead anybody who found
+it later. On attempt 1, **13 of 15 jobs reported `cancelled` after about 15 minutes with
+`steps: []`** — they never ran a single step. `App build` and `Secret scan` ran normally and passed.
+`required` then failed correctly, because cancelled is not success.
+
+It was runner starvation, not a defect, and `main` had it too **before this branch existed**: the
+`ci` run for the merge of #156 (`37365449976`) shows 8 jobs succeeded and 8 cancelled with zero
+steps, a different eight. `gh run rerun --failed` cleared it on the first go, with every job
+finishing in 7–75 seconds.
+
+Also seen while looking: the **`migrate-production` run from that same merge has been `queued` for
+almost 11 hours** (`37365450036`, created 2026-10-05T19:45). Nothing to do with this branch, and
+filed as **#161** rather than mentioned and forgotten.
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an

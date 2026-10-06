@@ -191,7 +191,7 @@ jobs:
           node-version: "22"
       - name: Which Node ran these
         run: node --version
-      - name: Run both scripts, and count what each one actually checked
+      - name: Run all three scripts, and count what each one actually checked
         run: |
           set -euo pipefail
 
