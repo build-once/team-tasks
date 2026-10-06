@@ -162,6 +162,16 @@ export async function saveDisplayName(formData: FormData) {
   redirect("/teams?named=1");
 }
 
+// Send an invitation, or send an existing one again.
+//
+// ONE ACTION FOR BOTH, AND ONE FUNCTION BEHIND IT. The Try again button beside a
+// failed invitation on My teams submits this same action with the address in a
+// hidden field, so a retry goes through exactly the checks a first invitation does
+// -- the suspension check, the owner check, the already-in-the-team check and the
+// 20-pending limit, in that order, none of them skipped because the row happens to
+// exist. invite-member is what notices there is already a row and decides whether
+// it may be sent again (its `retryVerdict`); nothing here decides that, and nothing
+// here needs to know which of the two happened until it reads the answer.
 export async function inviteMember(formData: FormData) {
   const teamId = String(formData.get("team_id") ?? "").trim();
   const email = String(formData.get("email") ?? "")
@@ -199,5 +209,30 @@ export async function inviteMember(formData: FormData) {
   // Saying so on screen stops a tester concluding the invitation failed because
   // nothing arrived at the address they typed.
   const redirected = (data as { redirected?: unknown } | null)?.redirected === true;
-  redirect(redirected ? "/teams?invited=test" : "/teams?invited=1");
+
+  // WHAT THE BANNER SAYS COMES FROM WHAT THE ROW SAYS, not from the fact that the
+  // request worked (issue #166). invite-member answers 201 in two different
+  // worlds: the email went and the row says 'sent', or the email went and the
+  // status write failed, so the row still says 'queued' and the list on My teams
+  // is about to say "sending". Both are successes and they are not the same news.
+  //
+  // Read off the answer rather than assumed. Anything that is not the word 'sent'
+  // -- including an answer from an older deployed function, which carries no
+  // status at all -- falls to "sending", which is the honest reading of a row
+  // nobody has confirmed. That matters while this change is in the repository and
+  // not yet deployed: the deployed function returns no status, and the page should
+  // not claim one.
+  const invitation = (data as { invitation?: { status?: unknown } } | null)?.invitation;
+  const sent = invitation?.status === "sent";
+  const retried = (data as { retried?: unknown } | null)?.retried === true;
+
+  if (!sent) {
+    // No `to=test` here: the one thing worth saying is that the row does not know
+    // the email went, and where the message was addressed is a smaller fact than
+    // that.
+    redirect("/teams?invited=sending");
+  }
+
+  const what = retried ? "again" : "sent";
+  redirect(redirected ? `/teams?invited=${what}&to=test` : `/teams?invited=${what}`);
 }
