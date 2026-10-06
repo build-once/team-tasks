@@ -941,6 +941,17 @@ not needed to settle the question — commit `44752f5` does that by making messa
 was the cause and this proposal is the fix. If one still goes missing, Finding B is in play as well
 and removing Dedupe alone would not be enough.
 
+**DECIDED 2026-10-06 — wait for the rerun.** The owner was asked and chose not to remove Dedupe yet:
+the three visits are to be made again on commit `44752f5` first, and the decision taken on what
+arrives. The reasoning is the paragraph above — removing Dedupe while Finding B is still a live
+possibility would pay the duplicate-event cost without being sure the hole is closed. **So no commit
+was made, and `"Dedupe"` is still in `SERVER_INTEGRATIONS`.** What to look for on the rerun:
+
+| Rerun result | What it means | Next step |
+|---|---|---|
+| all three visits produce events | the first run's loss was **Dedupe** | make the commit proposed above |
+| one still goes missing | **Finding B** is in play | compare the `instance` tags on the survivors; a shared instance makes a freeze between requests the likely story, and that is a limitation of the SDK rather than of this app's configuration |
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an
