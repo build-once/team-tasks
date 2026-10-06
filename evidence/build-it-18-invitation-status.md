@@ -2,10 +2,15 @@
 
 Issue #164. Migration: `supabase/migrations/20261006095847_invitation_status.sql`.
 
-**Result: PASS on a local sandbox. NOT applied to staging. NOT applied to production.** Rule 19:
-the assistant does not run `db push` anywhere, and the guard refuses every `db push` except
-`--local`. The owner has not applied this to staging; nothing in this file is a staging or a
-production observation.
+**Result: PASS on a local sandbox. Applied to staging by the owner on 6 October 2026 — see section 9.
+NOT applied to production.** Rule 19: the assistant does not run `db push` anywhere, and the guard
+refuses every `db push` except `--local`.
+
+**Sections 1 to 8 were written before the staging apply and are left exactly as they were**: they are
+the record of the local sandbox run, and every "not applied to staging" and "unverified — staging" in
+them was true when written. **Section 9 is the staging record**, and where it settles something
+sections 7 and 8 left open, it says so. Nothing in sections 1 to 8 is a staging observation; nothing
+anywhere in this file is a production observation.
 
 Read from `main` at commit `c9f52a6` ("Merge pull request #160 from build-once/feat/build-it-18-sentry"),
 fetched and fast-forwarded at the start of the session.
@@ -714,6 +719,10 @@ tests what it says it tests. The test was made stricter, not looser.
   `npm test` in `web/` with the five staging settings present. That exercises the real
   `invite-member` against the real migrated schema.
 
+  **That happened — see section 9d, and read its second half.** The suite ran against migrated
+  staging and passed 25, but the invite answer was not in the output, so the one thing this bullet
+  wanted settled — the real `invite-member` inserting into the migrated table — is still unverified.
+
 **So the proof here is sections F1–F3 of the attack**, which run the exact statements both functions
 issue, as the role they connect with, against the migrated schema:
 
@@ -756,3 +765,120 @@ Rule 8, in full:
   not to this one.
 - **17.10, not 17.6.** The sandbox is a different patch release from staging. Nothing used here is
   version-specific, but it was not run on 17.6.
+
+Four of these five are answered for staging in section 9, which was added afterwards. Read them
+together; this list is not revised, because it was accurate when written.
+
+---
+
+## 9. Staging, 6 October 2026 — as reported
+
+**Who saw what.** Everything in this section is the **owner's** and the **coach's** report, recorded
+by the assistant in a later session. **The assistant ran none of these commands, saw none of their
+raw output, and used no MCP connector and no browser tool for any of it** — the staging reads below
+are the coach's, through the coach's staging read-only connector, which is not a tool the assistant
+has or used. Rule 8 and rule 15 apply: what follows is a faithful record of a report, not an
+observation of the assistant's own, and the numbers are the ones reported, not ones counted here.
+
+### 9a. The apply — the owner, on staging
+
+- The owner **checked `supabase/.temp/project-ref`** before pushing, so the push went to the project
+  they had confirmed was linked. The report does not quote the value, and this file does not name a
+  project reference nobody here read.
+- **`supabase db push --dry-run`** listed **one** migration:
+  `20261006095847_invitation_status.sql`. Nothing else was pending, which is what the dry run is for:
+  it proves the push applies this and only this.
+- **`supabase db push`** against **staging**, Supabase CLI **2.75.0**, reported output:
+
+  ```text
+  Finished supabase db push.
+  ```
+
+That is the whole of the reported output for the push. Rule 19 unchanged: `db push` is the owner's
+command, not the assistant's, and the guard refuses every `db push` except `--local`.
+
+### 9b. The read-back — the coach, staging read-only connector, after the push
+
+| what was read | reported result |
+|---|---|
+| migrations recorded | **8**, newest **`20261006095847`** |
+| `status` | default **`'queued'`** |
+| `failure_code` | default **`''`** |
+| the two check constraints | **both present** |
+| existing invitations | **all 5** are `status` **`sent`** with an **empty** code |
+| `anon`, `authenticated` — the two new columns | **no `INSERT` and no `UPDATE`** on `status` or `failure_code` |
+| `anon`, `authenticated` — table level | **no table-level `INSERT` and no table-level `UPDATE`** |
+| `anon`, `authenticated` — reading | **still have `SELECT`** |
+| `service_role` | **all** |
+| policies in `public` | **16** |
+
+Three of those lines are the ones worth naming, because they are the ones the sandbox could only
+argue for:
+
+- **The grants landed on the real project, not just on a stand-in.** Section 8 listed "unverified —
+  the real project's grants" precisely because the sandbox's `alter default privileges ... grant all`
+  is wider than Supabase's default; the sandbox could not say what staging actually held. The coach's
+  read says staging's `anon` and `authenticated` now hold **no table-level `INSERT` or `UPDATE`** and
+  **nothing on either new column**, while **`SELECT` is untouched** — which is the shape section 5
+  intended, read off the real project. **This answers the staging half of that unverified item. The
+  production half is still unverified**, and section 9e says so.
+- **8 migrations, newest `20261006095847`** — the migration is recorded on staging, and it is the
+  newest, so nothing was applied after it.
+- **5 rows, not 3.** The sandbox had three invitations; staging has five. Different databases with
+  different data, not a disagreement. The backfill's known limitation applies to those five exactly as
+  the pull request states it: a row whose email never went is now labelled `sent`, and no query could
+  have separated it.
+
+**16 policies in `public` is recorded as reported and is not interpreted here**: this migration adds
+and drops no policy, and the assistant has not counted `public`'s policies in this session against any
+earlier figure, so it has nothing to compare 16 with. Taking it as "unchanged" would be a guess.
+
+### 9c. A second sandbox — the coach, PostgreSQL 16
+
+The coach applied the migration in their **own** sandbox, on **PostgreSQL 16**, after the seven
+earlier migrations, and attacked it as **owner, member, outsider, `anon` and `service_role`.**
+**The results are in the coach's comment on pull request #165**, and are not copied here, because a
+table retyped from somebody else's output is a table nobody can check against the original.
+
+Why it is worth a line of its own: section 6's run was PostgreSQL **17.10**, and section 8 records
+that staging is **17.6** and that nothing was run on it. The coach's run is a **different major
+version — 16 —** reaching the same verdict with an independently written seed and attack. Two
+different major versions and two different sandboxes is a stronger statement than one, and neither of
+them is staging's 17.6.
+
+### 9d. The web suite against migrated staging — the owner, on this branch
+
+`npm --prefix web test`, run locally by the owner against **migrated staging**, on the **pull request
+branch**:
+
+- **25 passed, 0 failed, 0 skipped.**
+- **Three sign-outs returned HTTP 204 with `scope=local`.**
+
+This is the check sections 7 and 8 said could not be run and named as the way to settle it: that suite
+needs the five staging settings and the migrated schema, and now had both. **It ran, and it passed.**
+
+**And here is what it still does not show, which matters more than the 25.** Section 7's whole point
+was F1 — that `invite-member`'s existing four-column insert still works against the migrated table and
+leaves the new row `queued`. **This run does not demonstrate that.** **Alice's invite answer was not in
+the pasted output**, and with her `+ci-invite` invitation **still pending**, the expected answer is
+**409** — the function refusing a duplicate before it ever reaches an insert. So:
+
+> **Unverified — the current `invite-member` creating a row in the migrated table.** No run has shown
+> it. Section 7's F1 is the only evidence for it, and F1 is `psql` issuing the function's statement in
+> a sandbox, not the function itself against staging.
+
+**How to settle it properly:** clear or expire Alice's pending `+ci-invite` invitation on staging, then
+run the invite test again and keep the invite answer in the output — a **201** (or whatever the
+function returns on success) with the new row reading `queued` and an empty code. Until an output says
+that, this stays unverified rather than passing on the strength of 25 other checks.
+
+### 9e. Not yet done — production
+
+**Production is untouched and unread.** The migration reaches production **through the pipeline, after
+this pull request is merged** — rule 19 forbids the assistant running a migration, a `db push` or a
+deploy against production under any circumstances, and the merge is the owner's.
+
+So the staging half of section 8's grants item is answered and **the production half is not**:
+production's grants on `public.invitations`, and production's PostgreSQL version, remain unread. The
+owner-runs-query in section 8 is still the way to read them, after the merge has carried the migration
+there.
