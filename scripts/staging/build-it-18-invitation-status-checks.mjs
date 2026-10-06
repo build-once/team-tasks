@@ -70,10 +70,12 @@
 //
 //   node scripts/staging/build-it-18-invitation-status-checks.mjs --selftest
 //
-// NOTHING RUNS THAT SELFTEST AUTOMATICALLY. .github/workflows/ci.yml's
-// `staging-script-selftests` job names two scripts by path and this is not one of
-// them, and issue #166 says not to change that workflow beyond test counts. Filed
-// as issue #167 together with the Deno test file, which CI does not run either.
+// CI RUNS THAT SELFTEST, as of the coach's review of PR #172 (issue #167).
+// .github/workflows/ci.yml's `staging-script-selftests` job named two scripts by
+// path and this was not one of them, so its cases ran nowhere; it now has its own
+// `run_and_count` line and its own floor, EXPECTED_INVITATION_STATUS_CASES. The
+// --selftest branch returns before any setting is read, so that job needs no secret,
+// no account and no network -- the same as the two beside it.
 //
 // NO PACKAGES. Node built-ins only -- global fetch, node:fs, node:path, node:url
 // -- so Node 18 or newer. The endpoints are the ones the four scripts beside this

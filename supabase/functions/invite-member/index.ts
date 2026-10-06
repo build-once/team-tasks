@@ -294,6 +294,177 @@ export function sendFailureAnswer(args: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Taking over an invitation that is already there, without racing another request
+// ---------------------------------------------------------------------------
+//
+// What a retry has to write: a new token, back to 'queued', no failure code, and a
+// fresh expiry.
+export type RetryPatch = {
+  token_hash: string;
+  status: "queued";
+  failure_code: "";
+  expires_at: string;
+};
+
+// WHICH ROW THE WRITE IS ALLOWED TO LAND ON, and this type is the whole point of
+// the section.
+//
+// A map rather than named fields on purpose: the call site applies EVERY entry as
+// an equality filter in a loop, so a field named here cannot be left unapplied by
+// mistake, and the test below can assert on the set of keys rather than trusting a
+// list of `.eq()` calls it cannot see.
+export type RetryFilter = Record<string, string>;
+
+// The update itself, passed IN as a function that performs it -- the same shape
+// `checkSuspension` above uses, and for the same two reasons: the test can hand
+// this a write that fails, that throws, or that touches no row at all, with no
+// database, key or network; and the query stays written out at the call site, where
+// a reviewer can see which table it writes.
+export type RetryApply = (
+  patch: RetryPatch,
+  filter: RetryFilter,
+) => PromiseLike<{ data: unknown; error: { code?: string } | null }>;
+
+// Four outcomes, and the second is the one this exists for.
+export type ResetVerdict =
+  | { ok: true; row: { id: string; email: string; expires_at: string } }
+  // The write touched NO row, so the row is no longer in the state the retry
+  // decision was made on: another request got there first. Not an error.
+  | { ok: false; why: "lost" }
+  | { ok: false; why: "error"; code?: string }
+  | { ok: false; why: "unexpected"; rows: number };
+
+// Hand an invitation a new link, but only if it is still the invitation the
+// decision was made about.
+//
+// THIS IS A COMPARE-AND-SET, and the reason is a race that costs a real person a
+// working link. Two Try again presses at the same moment -- a double click, two
+// tabs, a phone and a laptop -- both read the same row, both get `retry: true` from
+// `retryVerdict`, and both reach this write. Filtered on the id alone, both
+// succeed: each rotates the token, each sends an email, and the FIRST email's link
+// is dead on arrival because the second write replaced the hash it pointed at. The
+// person gets two messages and the one they are most likely to open does nothing.
+//
+// So the row's own `status` and `expires_at` go into the filter beside its id. They
+// are the version: `expires_at` is replaced on every retry, which is what makes it
+// work even when the status does not change -- a stale 'queued' row retried stays
+// 'queued', so status alone would let the loser through. The loser's write matches
+// nothing, comes back with zero rows, and is answered with "that invitation is
+// being sent now" rather than a second email.
+//
+// Exported, and the test runs THIS function rather than a copy, so the filter it
+// asserts on is the filter the database is given.
+export async function resetForRetry(args: {
+  row: { id: string; status: string; expires_at: string };
+  tokenHash: string;
+  freshExpiry: string;
+  apply: RetryApply;
+}): Promise<ResetVerdict> {
+  const patch: RetryPatch = {
+    token_hash: args.tokenHash,
+    status: "queued",
+    failure_code: "",
+    expires_at: args.freshExpiry,
+  };
+
+  // THE COMPARE part of the compare-and-set. Every value is read off the ROW the
+  // decision was made about, never off the patch: pinning to a value being written
+  // would match nothing at all.
+  const filter: RetryFilter = {
+    id: args.row.id,
+    // Pins a 'failed' row as failed, so a second request cannot take over one that
+    // is already on its way.
+    status: args.row.status,
+    // THE VERSION, and the one that carries the stale-'queued' case. A stale queued
+    // row retried is queued again, so the status does not change and status alone
+    // would let a second request straight through -- while the expiry is replaced on
+    // every retry without exception.
+    expires_at: args.row.expires_at,
+  };
+
+  let answer: { data: unknown; error: { code?: string } | null };
+  try {
+    answer = await args.apply(patch, filter);
+  } catch {
+    // A thrown error -- the client, the network -- is a failure to write, and
+    // nothing about the cause is kept.
+    return { ok: false, why: "error" };
+  }
+
+  // Lesson F14: the error AND what came back.
+  if (answer?.error) {
+    return { ok: false, why: "error", code: answer.error.code };
+  }
+  if (!Array.isArray(answer?.data)) {
+    // No error and no list either. Not "no rows" -- an unanswered question, and a
+    // retry sends mail, so it is refused rather than guessed at.
+    return { ok: false, why: "unexpected", rows: -1 };
+  }
+  // ZERO ROWS IS THE LOST RACE, and telling it apart from every other count is the
+  // point of this branch. The filter above matched nothing, which means the row is
+  // no longer in the state `retryVerdict` judged -- another request changed it
+  // first, and that request is sending the email. Nothing broke, so this is not an
+  // error: it is answered with "that invitation is being sent now", and no second
+  // email goes out.
+  if (answer.data.length === 0) {
+    return { ok: false, why: "lost" };
+  }
+  if (answer.data.length !== 1) {
+    return { ok: false, why: "unexpected", rows: answer.data.length };
+  }
+
+  // A row with a field missing is not a success either: the three values below are
+  // what the response to the caller is built from.
+  const only = answer.data[0] as {
+    id?: unknown;
+    email?: unknown;
+    expires_at?: unknown;
+  };
+  if (
+    typeof only?.id !== "string" ||
+    typeof only?.email !== "string" ||
+    typeof only?.expires_at !== "string"
+  ) {
+    return { ok: false, why: "unexpected", rows: 1 };
+  }
+
+  return {
+    ok: true,
+    row: { id: only.id, email: only.email, expires_at: only.expires_at },
+  };
+}
+
+// What the caller is told when a retry could not take over the row.
+//
+// `uniqueViolationCode` is the code the insert failed with, carried through so the
+// 409 below is the same shape as every other 409 this function sends for an
+// invitation that is already there.
+export function resetFailureAnswer(
+  verdict: Extract<ResetVerdict, { ok: false }>,
+  uniqueViolationCode?: string,
+): Response {
+  if (verdict.why === "lost") {
+    // ANOTHER REQUEST GOT THERE FIRST, so that one is sending the email and this
+    // one must not send a second. The same answer a recently-queued invitation
+    // gets, because it is the same fact: something is being sent right now.
+    return stillSendingAnswer(uniqueViolationCode);
+  }
+  if (verdict.why === "error") {
+    return fail(
+      "Could not prepare that invitation to be sent again, so nothing was sent. Please try again.",
+      500,
+      verdict.code,
+    );
+  }
+  // Neither an error nor a lost race: the database answered something this function
+  // cannot read. Said with the count, because that is the one fact that helps.
+  return fail(
+    `That invitation may not have been prepared to send again: the database reported no error but returned ${verdict.rows < 0 ? "no list of rows" : `${verdict.rows} rows`} instead of 1. Nothing was sent. Please check the team's invitations before trying again.`,
+    500,
+  );
+}
+
 // The answer for an invitation whose email went.
 //
 // `status` is read back from the row rather than assumed, which is the other
@@ -1094,30 +1265,28 @@ export default {
           Date.now() + INVITATION_DAYS * 24 * 60 * 60 * 1000,
         ).toISOString();
 
-        const { data: reset, error: resetError } = await ctx.supabaseAdmin
-          .from("invitations")
-          .update({
-            token_hash: tokenHash,
-            status: "queued",
-            failure_code: "",
-            expires_at: freshExpiry,
-          })
-          .eq("id", row.id)
-          .select("id, email, expires_at, status");
+        // THE WRITE IS A COMPARE-AND-SET, and every entry of the filter below is
+        // applied. The loop is what makes that true rather than hoped: `RetryFilter`
+        // is a map, `resetForRetry` fills it, and a field it names cannot be left
+        // off here by somebody adding one and forgetting a line. The test asserts
+        // on the map, so what it checks is what the database is given.
+        const reset = await resetForRetry({
+          row,
+          tokenHash,
+          freshExpiry,
+          apply: (patch, filter) => {
+            let write = ctx.supabaseAdmin.from("invitations").update(patch);
+            for (const [column, value] of Object.entries(filter)) {
+              write = write.eq(column, value);
+            }
+            return write.select("id, email, expires_at, status");
+          },
+        });
 
-        if (resetError) {
-          return fail(
-            "Could not prepare that invitation to be sent again, so nothing was sent. Please try again.",
-            500,
-            resetError.code,
-          );
-        }
-        if (!Array.isArray(reset) || reset.length !== 1) {
-          const wrote = Array.isArray(reset) ? reset.length : 0;
-          return fail(
-            `That invitation may not have been prepared to send again: the database reported no error but returned ${wrote} rows instead of 1. Nothing was sent. Please check the team's invitations before trying again.`,
-            500,
-          );
+        if (!reset.ok) {
+          // A lost race is a 409 "being sent now", not a failure: the other request
+          // is sending the email, and this one must not send a second.
+          return resetFailureAnswer(reset, insertError.code);
         }
 
         // A COUNT AND A REASON, never the address and never the token. The reason
@@ -1127,9 +1296,9 @@ export default {
           `invite-member: sending an existing invitation again (${verdict.why}). A new link replaces the old one. No address, token or hash is logged.`,
         );
 
-        invitationId = reset[0].id;
-        invitationEmail = reset[0].email;
-        invitationExpiry = reset[0].expires_at;
+        invitationId = reset.row.id;
+        invitationEmail = reset.row.email;
+        invitationExpiry = reset.row.expires_at;
         retried = true;
       } else {
         return fail(

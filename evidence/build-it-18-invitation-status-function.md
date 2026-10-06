@@ -28,14 +28,17 @@ and have a script waiting for them. Section 5 says exactly which questions those
 
 | What | Verdict | Where |
 |---|---|---|
-| The pure decisions and response bodies the function builds | **PASS** — 45 Deno tests, exit 0 | §1 |
+| The pure decisions and response bodies the function builds | **PASS** — 62 Deno tests, exit 0 | §1 |
 | Those tests fail against a function that lies | **PASS** — 4 of them, exit 1 | §2 |
+| Two Try again presses at once do not both send | **PASS** — a compare-and-set, 16 tests, seen to fail first | §2a |
 | The staging script's own judgements can fail | **PASS** — 55 cases, exit 0 | §3 |
+| Both new check files now run in CI | **PASS** — floors 102 and 55, measured | §3a |
 | The web app compiles, lints and builds | **PASS** — exit 0 both | §4 |
 | The repository's own suite | **PASS** — exit 0 | §4 |
 | The deployed function writes the status | **UNVERIFIED** — nothing is deployed | §5 |
 | What the owner actually sees on staging | **UNVERIFIED** — nothing is deployed | §5 |
 | The `failed` path, end to end | **UNVERIFIED** — it cannot be brought about from a script | §5 |
+| Two retries racing **against a real database** | **UNVERIFIED** — the filter is proved, the race is not run | §2a |
 
 ---
 
@@ -51,7 +54,7 @@ deno test --no-lock --allow-env --allow-read=supabase/migrations --config supaba
 
 ```
 Check supabase/functions/_tests/invitation_status_test.ts
-running 45 tests from ./supabase/functions/_tests/invitation_status_test.ts
+running 62 tests from ./supabase/functions/_tests/invitation_status_test.ts
 invitationAnswer: the email went and the row says sent ... ok (30ms)
 invitationAnswer: the email went to the test inbox and the row says sent ... ok (0ms)
 invitationAnswer: a retry's email went and the row says sent ... ok (0ms)
@@ -94,12 +97,34 @@ retryVerdict: no status at all, which is what a mis-read row looks like: refused
 retryVerdict: a status of the right word in the wrong case: refused, not guessed at ... ok (0ms)
 alreadyWaitingAnswer: 409, the Postgres code, and the sentence it has always sent ... ok (0ms)
 stillSendingAnswer: 409 with the code, its own sentence, and no raw code for a person to read ... ok (0ms)
+resetForRetry: the write is pinned to the row's state, not to its id alone ... ok (0ms)
+resetForRetry: what it writes is a new token, queued, no code and a fresh expiry ... ok (0ms)
+resetForRetry: one row came back: the retry has the row, and the answer is built from it ... ok (0ms)
+resetForRetry: NO ROW CAME BACK: another request got there first, which is a lost race and NOT an error ... ok (0ms)
+resetForRetry: the write failed with a Postgres code ... ok (0ms)
+resetForRetry: the write failed with no code at all ... ok (0ms)
+resetForRetry: the write threw ... ok (0ms)
+resetForRetry: the write's promise rejected ... ok (0ms)
+resetForRetry: no error, but no list of rows either -- an unknown, not a lost race ... ok (0ms)
+resetForRetry: two rows, which the primary key makes impossible ... ok (0ms)
+resetForRetry: one row, but it came back without the address the answer needs ... ok (0ms)
+resetFailureAnswer: a lost race is the 409 'being sent now', not a failure ... ok (0ms)
+resetFailureAnswer: a failed write is a 500 carrying its Postgres code ... ok (0ms)
+resetFailureAnswer: a failed write with no code is still a 500 ... ok (0ms)
+resetFailureAnswer: two rows back is a 500 that names the count ... ok (0ms)
+resetFailureAnswer: no list of rows at all is a 500 that says so rather than printing a negative number ... ok (0ms)
 the answer checks REFUSE a builder that always says "sent" ... ok (0ms)
 the failure checks REFUSE every broken failure answer ... ok (0ms)
+the retry-reset checks REFUSE a write that is not a compare-and-set ... ok (0ms)
 the retry cases REFUSE a verdict that sends a second email ... ok (0ms)
 
-ok | 45 passed | 0 failed (70ms)
+ok | 62 passed | 0 failed (47ms)
 ```
+
+**The 17 `resetForRetry` / `resetFailureAnswer` / compare-and-set lines arrived after
+the coach's review of this pull request**, and §2a records them separately: what they
+are for, the run where two of them failed first, and what changed to make them pass.
+Everything above them is from the first commit.
 
 **exit 0.** Read with
 `(Start-Process -FilePath "deno" -ArgumentList ... -NoNewWindow -Wait -PassThru).ExitCode`, because
@@ -227,7 +252,143 @@ diff <the file as it was before the breaks> supabase/functions/invite-member/ind
 ```
 
 The only difference is a comment added deliberately afterwards, pointing at issue #170. Then the same
-command again: **`ok | 45 passed | 0 failed`, exit 0.**
+command again: **`ok | 45 passed | 0 failed`, exit 0** — 45 being the count at the time,
+before the 17 lines §2a added.
+
+---
+
+## 2a. The coach's point 1 — the retry is a compare-and-set, seen to fail first
+
+The coach's review of PR #172 asked for this, and it is a real defect rather than a
+tidiness note:
+
+> The reset `update … where id = …` does not check that the row is still in the
+> state the verdict was made on. Two Try again requests at once both pass, both
+> rotate the token and both send; the first email's link is dead on arrival.
+
+**Why it is worse than two emails.** The token is rotated by each write, and only its
+SHA-256 hash is stored. So the second write replaces the hash the first email's link
+points at — and that first link is the older message, the one at the top of a
+threaded inbox, the one the invited person is most likely to open. It opens nothing.
+
+### What was done, in the order it was done
+
+**Step 1 — a behaviour-preserving extraction.** The reset step was lifted out of the
+handler into `resetForRetry`, which takes the write **as a function that performs
+it** — the same shape `checkSuspension` uses, and for the same two reasons: a test
+can hand it a write that touches no row, with no database, key or network; and the
+query stays written out at the call site. The filter was left exactly as it was,
+`{ id }` alone, and zero rows kept answering as "unexpected" → 500. Nothing changed:
+
+```
+ok | 45 passed | 0 failed (51ms)        exit 0
+```
+
+**Step 2 — the tests, run against that.** 16 new tests. Two of them failed, and they
+failed naming the defect rather than a symptom:
+
+```
+resetForRetry: the write is pinned to the row's state, not to its id alone ... FAILED (0ms)
+resetForRetry: NO ROW CAME BACK: another request got there first, which is a lost race and NOT an error ... FAILED (0ms)
+
+error: Error: the retry's filter is wrong: the filter pins id -- expected id,
+status and expires_at. Pinned on the id alone, two Try again presses both succeed
+and the first email's link is dead on arrival; filter.status is undefined,
+expected the row's own "failed"; filter.expires_at is undefined, expected the
+row's own "2026-10-09T09:00:00.000Z" -- which is the version, because it is
+replaced on every retry even when the status is not
+
+error: Error: resetForRetry answered {"ok":false,"why":"unexpected","rows":0},
+expected {"ok":false,"why":"lost"} -- for "NO ROW CAME BACK: another request got
+there first, which is a lost race and NOT an error"
+
+FAILED | 59 passed | 2 failed (52ms)
+```
+
+**exit 1.** 59 of the 61 passed — the two failures are the two halves of the coach's
+point and nothing else.
+
+**Step 3 — the change.** The row's own `status` and `expires_at` joined `id` in the
+filter, and zero rows became its own verdict:
+
+```
+ok | 62 passed | 0 failed (47ms)        exit 0
+```
+
+(62 rather than 61 because a seventh "can these tests fail?" case was added after
+the fix — see below.)
+
+### Why `expires_at` and not status alone
+
+The case nobody thinks of: a **stale `queued`** row retried is written back as
+`queued`. The status does not change, so a filter on status alone would let the
+second request straight through. `expires_at` is replaced on every retry without
+exception, which is what makes it a version. That is the coach's own reasoning and
+the test asserts it with that sentence in the failure message.
+
+### How the filter is proved to reach the database
+
+A test can read what `resetForRetry` *produces*; it cannot see `.eq()` calls at the
+call site. So `RetryFilter` is a **map**, and the handler applies every entry in a
+loop:
+
+```ts
+apply: (patch, filter) => {
+  let write = ctx.supabaseAdmin.from("invitations").update(patch);
+  for (const [column, value] of Object.entries(filter)) {
+    write = write.eq(column, value);
+  }
+  return write.select("id, email, expires_at, status");
+},
+```
+
+A field named in the filter therefore cannot be left unapplied by somebody adding one
+and forgetting a line. `deno check` accepts the loop (exit 0), which was not a
+foregone conclusion — this repository has hit TS2589 on the generated client's
+generics before.
+
+### What the 16 tests cover
+
+| | |
+|---|---|
+| the filter pins id, status **and** expires_at, each read off the row | 1 |
+| the patch rotates the token, queues it, clears the code, moves the expiry, and writes nothing else — `created_at` in particular | 1 |
+| one row back → the retry has it; **zero rows → lost**, not an error; an error with a code; an error with none; a thrown write; a rejected promise; no list of rows; two rows; one row missing the address | 9 |
+| a lost race is answered with the 409 "being sent now", carrying the insert's 23505, and **the same sentence** a recently-queued invitation gets — compared against `stillSendingAnswer`'s own body, so one fact cannot grow two wordings | 1 |
+| the three failure answers: a 500 with its Postgres code, a 500 with none, and two that name the count; all four say "nothing was sent", and none leaks an address, a token or a hash | 4 |
+
+### And it stays caught
+
+The fail-first run is a moment; a test is forever. A seventh case was added to the
+file's "can these tests fail?" section: a `brokenResetForRetry` that filters on the
+id alone and reports zero rows as something broken — the mistake written out — put
+through the **same** `retryFilterProblems` judgement the real test uses, so a check
+weakened later stops catching it and this case goes red. It also asserts the broken
+copy still passes the ordinary one-row case, because a "mistake" that fails
+everything is not the plausible one this is about.
+
+### What this does NOT prove
+
+**That two real requests racing against Postgres resolve this way. UNVERIFIED.** What
+is proved is the filter the database is given and the answer each outcome produces.
+Two concurrent requests against a real project is not something these tests or the
+staging script run — the script's calls are sequential — and nothing in this
+repository can make two Edge Function invocations overlap on purpose. The staging
+run will not settle it either. Treat the compare-and-set as a correct filter whose
+behaviour under genuine contention is reasoned, not measured.
+
+### Noted by the coach, not blocking, and not changed
+
+> a stale `queued` row keeps its old `created_at` after a retry, so it reads as
+> stale again at once; the compare-and-set covers the harm.
+
+Correct, and left as it is deliberately: `created_at` answers "when was this person
+first invited", which a retry does not change. The consequence is that the **Try
+again** button stays drawn on a stale row that has just been retried, and pressing it
+again now loses the compare-and-set and gets "being sent now" instead of a second
+email — which is why the coach calls the harm covered. Using `expires_at` for the
+staleness reckoning instead would fix the cosmetic half; it is not done here because
+point 1 was the ask and the screen's reckoning is a separate decision.
 
 ---
 
@@ -322,6 +483,106 @@ address — not Alice's and not the plus-address, even though `docs/environments
 Every body goes through `scrub()`, which is given both addresses **before the first request is made**
 and the access token the moment it exists. Four `--selftest` cases check the scrub itself, including
 one that proves nothing (the value was not in the text) and reports UNVERIFIED rather than PASS.
+
+---
+
+## 3a. The coach's point 2 — both new check files now run in CI
+
+The coach lifted the constraint that kept them out:
+
+> The "no workflow change beyond test counts" line in the issue was the coach's and
+> was too tight: a test nothing runs is not a gate.
+
+So `.github/workflows/ci.yml` is changed, in two jobs, and **#167 is closed from this
+pull request**. No job was added, so `required`'s `needs` list and its
+`EXPECTED_JOBS: "14"` are untouched — checked, not assumed.
+
+### `functions-test` — the folder, not a file
+
+It named one file by path. It now names the folder, which is strictly more than the
+coach asked for and the reason is the next file rather than this one: `deno test <dir>`
+picks up anything matching its test naming convention, so a third test file is covered
+the day it is written instead of the day somebody remembers the line.
+
+```diff
+-      EXPECTED_FUNCTION_TESTS: "40"
++      EXPECTED_FUNCTION_TESTS: "102"
+...
+-          "$RUNNER_TEMP/deno" test --no-lock --allow-env \
+-            --config supabase/functions/create-team/deno.json \
+-            supabase/functions/_tests/suspension_test.ts | tee ...
++          "$RUNNER_TEMP/deno" test --no-lock --allow-env \
++            --allow-read=supabase/migrations \
++            --config supabase/functions/create-team/deno.json \
++            supabase/functions/_tests | tee ...
+```
+
+`--allow-read` is **narrowed to the migrations folder and nothing else**, because one
+test reads `20261006095847_invitation_status.sql` to compare the fixed list of failure
+codes with the check constraint that enforces it. The run cannot reach a key, a `.env`
+file or anything else on the disk.
+
+Measured by running exactly what CI will run, with `NO_COLOR=1`:
+
+```
+deno test --no-lock --allow-env --allow-read=supabase/migrations --config supabase/functions/create-team/deno.json supabase/functions/_tests
+```
+
+```
+running 62 tests from ./supabase/functions/_tests/invitation_status_test.ts
+running 40 tests from ./supabase/functions/_tests/suspension_test.ts
+ok | 102 passed | 0 failed (270ms)
+```
+
+**exit 0.** And the number CI will actually read, through its own `sed`:
+
+```
+sed -n 's/^ok | \([0-9][0-9]*\) passed .*/\1/p' <the log>
+102
+```
+
+So the floor is a counted number, not an estimate: 40 + 62.
+
+### `staging-script-selftests` — a third line
+
+No folder to point at here: each script carries its own expected count, so each needs
+its own line.
+
+```diff
+       EXPECTED_SUSPEND_CASES: "40"
++      EXPECTED_INVITATION_STATUS_CASES: "55"
+...
++          run_and_count build-it-18-invitation-status-checks scripts/staging/build-it-18-invitation-status-checks.mjs "$EXPECTED_INVITATION_STATUS_CASES"
+```
+
+And the number CI will read, through its own `grep`:
+
+```
+grep -c '^  ok  ' <the selftest log>
+55
+```
+
+The script's `--selftest` branch runs before it reads `web/.env.local`, so the job
+needs no secret, no account and no network — the same as the two beside it.
+
+### Checked, not assumed
+
+```
+npm run workflows:check
+```
+
+```
+Self-test: 7/7 cases passed.
+Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
+```
+
+**exit 0** — permissions and timeouts still right on every job, including the two
+edited.
+
+**What this does not prove:** that the jobs really gate on the new files. Only a run on
+GitHub shows that, and the negative check #167 named is the one that would settle it —
+delete a test, push, watch the count go red. The PR's own CI run on this commit is the
+first half of it.
 
 ---
 
@@ -476,17 +737,18 @@ Two smaller shapes of the same gap, both handled rather than hoped about:
 
 ---
 
-## 6. No workflow change, and what that costs
+## 6. The workflow change, and the line this section used to carry
 
-`.github/workflows/` is **not touched by this pull request**. Issue #166 allows a change "beyond test
-counts" and no count needed changing: the `functions-test` job names one file by path
-(`suspension_test.ts`, still 40 tests, floor still 40), and the `staging-script-selftests` job names
-two scripts by path, neither of them the new one.
+**This section used to say `.github/workflows/` was not touched, and that neither of
+this change's two check files ran in CI.** That was true of the first commit and is no
+longer: the coach's review lifted the constraint, both files are now in their jobs with
+counted floors, and **#167 is closed from this pull request**. §3a has the diffs, the
+measured numbers and the commands.
 
-The cost is plain and should not be buried: **neither of this change's two check files runs in CI.**
-The 45 Deno tests and the 55 selftest cases run only when somebody runs them. Filed as **#167**, with
-the exact lines a fix would change and a negative check — delete a test, push, and watch the job go
-red — that would prove the job is really reading the file.
+What stays true from the original note: the floors are floors, not equalities, so
+adding tests cannot fail either job — and a run that counted fewer than before has lost
+coverage and goes red. The counts are 102 for the Deno job and 55 for the new
+selftest, both counted from output in this session rather than estimated.
 
 ---
 
@@ -536,8 +798,8 @@ character — `not-a-real-invitation-token-xxxx…` and `not-a-real-access-token
 string, not for how random it is. Both files carry a comment saying what the line
 used to be, what gitleaks said about it, and why a dull value is the right one.
 
-After the change: 45 Deno tests pass (exit 0), 55 selftest cases, 0 wrong (exit 0),
-and the commit goes through. **No guard file was edited, no hook was skipped, and
+After the change: the Deno tests pass (45 at the time, 62 now) and 55 selftest cases
+come out 0 wrong, both exit 0, and the commit goes through. **No guard file was edited, no hook was skipped, and
 the commit was not retried with the same content.**
 
 ---
@@ -570,7 +832,7 @@ first versions of two of them looked random enough for gitleaks to refuse the co
 
 | | What |
 |---|---|
-| [#167](https://github.com/build-once/team-tasks/issues/167) | CI runs neither of Build it 18 part 2b's two check files |
+| [#167](https://github.com/build-once/team-tasks/issues/167) | CI runs neither of Build it 18 part 2b's two check files — **fixed in this pull request** after the coach's review lifted the constraint; the PR closes it. See §3a |
 | [#168](https://github.com/build-once/team-tasks/issues/168) | The 15-minute stale-queued window rests on an Edge Function time limit nobody has read |
 | [#169](https://github.com/build-once/team-tasks/issues/169) | The failure code `not_configured` can never be stored, because delivery is decided before any row exists |
 | [#170](https://github.com/build-once/team-tasks/issues/170) | A team at the 20-pending limit cannot retry a failed invitation |

@@ -21,13 +21,18 @@
 //   sendFailureAnswer     takes a code and whether the row was marked
 //   alreadyWaitingAnswer  takes a Postgres error code
 //   stillSendingAnswer    takes a Postgres error code
+//   resetForRetry         takes the write as a FUNCTION that performs it, the same
+//                         shape checkSuspension uses, so a test can hand it a write
+//                         that touches no row -- and can read the filter it was
+//                         given rather than reading `.eq()` calls by eye
+//   resetFailureAnswer    takes a verdict and returns the Response built from it
 //
 // So there is no network, no Supabase project, no account and no email service
 // involved, and nothing here proves anything about what the DEPLOYED function
 // does. That is what scripts/staging/build-it-18-invitation-status-checks.mjs is
 // for, run by the owner once the function is deployed to staging.
 //
-// THE SIX THINGS IT ASKS:
+// THE SEVEN THINGS IT ASKS:
 //
 //   1. A SENT INVITATION IS REPORTED AS SENT: 201, the row's three facts, the
 //      word 'sent', and nothing else in the body.
@@ -46,13 +51,19 @@
 //   6. A RETRY IS OFFERED FOR A FAILED OR LONG-STUCK INVITATION AND REFUSED FOR
 //      ONE THAT WENT -- and the refusal for one that went is byte-for-byte the
 //      409 this function has always sent.
+//   7. TWO RETRIES AT ONCE DO NOT BOTH SEND. The write that hands an invitation a
+//      new link is pinned to the state the decision was made on -- the row's own
+//      status AND its expiry, which is replaced on every retry and so works as a
+//      version even when the status does not change. The loser's write touches no
+//      row, and is answered "that invitation is being sent now" rather than with a
+//      second email and a first link that is dead on arrival.
 //
 // AND IT CHECKS THAT IT CAN FAIL. The last section writes out the mistakes this
 // file exists to catch -- an answer that reports 'sent' from a row that says
 // 'queued', a 502 that quotes the email service, a verdict that sends a second
-// email to somebody who already has the first -- and requires the checks above to
-// refuse every one of them. A check that cannot fail reports a pass and means
-// nothing.
+// email to somebody who already has the first, a retry write pinned to the row's
+// id alone -- and requires the checks above to refuse every one of them. A check
+// that cannot fail reports a pass and means nothing.
 //
 // It writes nothing, makes no request, and reads one file: the migration, so that
 // the list of failure codes is compared with the constraint that enforces it
@@ -66,6 +77,12 @@ import {
   INVITATION_STATUSES,
   invitationAnswer,
   type FailureCode,
+  resetFailureAnswer,
+  resetForRetry,
+  type ResetVerdict,
+  type RetryApply,
+  type RetryFilter,
+  type RetryPatch,
   retryVerdict,
   sendFailureAnswer,
   STALE_QUEUED_MINUTES,
@@ -731,6 +748,362 @@ Deno.test("stillSendingAnswer: 409 with the code, its own sentence, and no raw c
 });
 
 // ---------------------------------------------------------------------------
+// 7. A retry takes over the row, or loses the race -- never both
+// ---------------------------------------------------------------------------
+//
+// THE RACE, written out, because it is the reason this section exists. Two Try
+// again presses at the same moment -- a double click, two tabs, a phone and a
+// laptop -- both read the same row, both get `retry: true` out of `retryVerdict`
+// above, and both reach the write that hands the invitation a new link. If that
+// write is filtered on the row's id alone, BOTH SUCCEED: each rotates the token,
+// each sends an email, and the first email's link is dead on arrival, because the
+// second write replaced the hash it pointed at. The person gets two messages and
+// the older one -- the one at the top of a threaded inbox, the one they are most
+// likely to open -- does nothing at all.
+//
+// So the write is a compare-and-set: the row's own `status` and `expires_at` go
+// into the filter beside its id, and the loser's write matches no row. `expires_at`
+// is what makes it work when the status does not change, which is the case nobody
+// thinks of -- a stale 'queued' row retried is 'queued' again, so a filter on
+// status alone would let the second request straight through.
+//
+// These tests hand `resetForRetry` an `apply` that RECORDS what it was asked to
+// write and to what, so what is asserted below is the filter the database is
+// actually given -- not a list of `.eq()` calls read by eye.
+
+const RETRY_ROW = {
+  id: MADE_UP_ID,
+  status: "failed",
+  expires_at: "2026-10-09T09:00:00.000Z",
+};
+const FRESH_EXPIRY = "2026-10-13T09:00:00.000Z";
+const NEW_TOKEN_HASH = "1".repeat(64);
+
+// An `apply` that answers however the case wants, and keeps what it was handed.
+function recordingApply(answer: { data: unknown; error: { code?: string } | null }) {
+  const seen: Array<{ patch: RetryPatch; filter: RetryFilter }> = [];
+  return {
+    seen,
+    apply: (patch: RetryPatch, filter: RetryFilter) => {
+      seen.push({ patch, filter });
+      return Promise.resolve(answer);
+    },
+  };
+}
+
+// One row back, shaped the way the update's `.select()` asks for it.
+const oneRowBack = {
+  data: [{ id: MADE_UP_ID, email: MADE_UP_EMAIL, expires_at: FRESH_EXPIRY, status: "queued" }],
+  error: null,
+};
+
+// Say what is wrong with a retry's filter, rather than only that something is.
+//
+// Lifted out of the test below so the "can these tests fail?" section can put a
+// broken `resetForRetry` through the SAME judgement, rather than a second copy of
+// it that could drift and stop catching anything.
+function retryFilterProblems(filter: RetryFilter): string[] {
+  const problems: string[] = [];
+  const keys = Object.keys(filter).sort();
+
+  // THE ASSERTION THE WHOLE SECTION IS FOR. Three keys, not one.
+  if (keys.join(",") !== "expires_at,id,status") {
+    problems.push(
+      `the filter pins ${keys.join(", ") || "nothing"} -- expected id, status and expires_at.` +
+        ` Pinned on the id alone, two Try again presses both succeed and the first email's link` +
+        ` is dead on arrival`,
+    );
+  }
+  if (filter.id !== RETRY_ROW.id) {
+    problems.push(`filter.id is ${JSON.stringify(filter.id)}`);
+  }
+  // Read off the ROW, not off the patch: pinning to the value being written would
+  // match nothing, and pinning to anything else is not a compare-and-set.
+  if (filter.status !== RETRY_ROW.status) {
+    problems.push(
+      `filter.status is ${JSON.stringify(filter.status)}, expected the row's own` +
+        ` ${JSON.stringify(RETRY_ROW.status)}`,
+    );
+  }
+  if (filter.expires_at !== RETRY_ROW.expires_at) {
+    problems.push(
+      `filter.expires_at is ${JSON.stringify(filter.expires_at)}, expected the row's own` +
+        ` ${JSON.stringify(RETRY_ROW.expires_at)} -- which is the version, because it is replaced` +
+        ` on every retry even when the status is not`,
+    );
+  }
+  return problems;
+}
+
+Deno.test("resetForRetry: the write is pinned to the row's state, not to its id alone", async () => {
+  const recorder = recordingApply(oneRowBack);
+  await resetForRetry({
+    row: RETRY_ROW,
+    tokenHash: NEW_TOKEN_HASH,
+    freshExpiry: FRESH_EXPIRY,
+    apply: recorder.apply,
+  });
+
+  if (recorder.seen.length !== 1) {
+    throw new Error(`the write was attempted ${recorder.seen.length} times, expected once`);
+  }
+
+  const problems = retryFilterProblems(recorder.seen[0].filter);
+  if (problems.length > 0) {
+    throw new Error(`the retry's filter is wrong: ${problems.join("; ")}`);
+  }
+});
+
+Deno.test("resetForRetry: what it writes is a new token, queued, no code and a fresh expiry", async () => {
+  const recorder = recordingApply(oneRowBack);
+  await resetForRetry({
+    row: RETRY_ROW,
+    tokenHash: NEW_TOKEN_HASH,
+    freshExpiry: FRESH_EXPIRY,
+    apply: recorder.apply,
+  });
+
+  const patch = recorder.seen[0].patch as Record<string, unknown>;
+  const problems: string[] = [];
+
+  if (patch.token_hash !== NEW_TOKEN_HASH) {
+    problems.push("it does not rotate the token hash, so the old link would still work");
+  }
+  if (patch.status !== "queued") {
+    problems.push(`status is ${JSON.stringify(patch.status)}, expected "queued"`);
+  }
+  // The check constraint refuses a failure code on a row that is not 'failed', so
+  // this is not cosmetic: leaving the old code would make the write fail with 23514.
+  if (patch.failure_code !== "") {
+    problems.push(`failure_code is ${JSON.stringify(patch.failure_code)}, expected ""`);
+  }
+  if (patch.expires_at !== FRESH_EXPIRY) {
+    problems.push(
+      "it does not move the expiry, so the email's promise of 7 days would be false on an old row",
+    );
+  }
+  // created_at must NOT be written: "when was this person first invited" is a fact
+  // a retry does not change.
+  const allowed = ["token_hash", "status", "failure_code", "expires_at"];
+  const extra = Object.keys(patch).filter((key) => !allowed.includes(key));
+  if (extra.length > 0) {
+    problems.push(`it writes fields it should not: ${extra.join(", ")}`);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`the retry's patch is wrong: ${problems.join("; ")}`);
+  }
+});
+
+const RESET_CASES: Array<{
+  name: string;
+  answer: () => { data: unknown; error: { code?: string } | null };
+  throws?: boolean;
+  rejects?: boolean;
+  expect: ResetVerdict;
+}> = [
+  {
+    name: "one row came back: the retry has the row, and the answer is built from it",
+    answer: () => oneRowBack,
+    expect: {
+      ok: true,
+      row: { id: MADE_UP_ID, email: MADE_UP_EMAIL, expires_at: FRESH_EXPIRY },
+    },
+  },
+  {
+    name:
+      "NO ROW CAME BACK: another request got there first, which is a lost race and NOT an error",
+    answer: () => ({ data: [], error: null }),
+    expect: { ok: false, why: "lost" },
+  },
+  {
+    name: "the write failed with a Postgres code",
+    // 23514 is check_violation, which is what writing a failure code onto a row
+    // that is not 'failed' would produce.
+    answer: () => ({ data: null, error: { code: "23514" } }),
+    expect: { ok: false, why: "error", code: "23514" },
+  },
+  {
+    name: "the write failed with no code at all",
+    answer: () => ({ data: null, error: {} }),
+    expect: { ok: false, why: "error" },
+  },
+  {
+    name: "the write threw",
+    answer: () => ({ data: null, error: null }),
+    throws: true,
+    expect: { ok: false, why: "error" },
+  },
+  {
+    name: "the write's promise rejected",
+    answer: () => ({ data: null, error: null }),
+    rejects: true,
+    expect: { ok: false, why: "error" },
+  },
+  {
+    name: "no error, but no list of rows either -- an unknown, not a lost race",
+    answer: () => ({ data: null, error: null }),
+    expect: { ok: false, why: "unexpected", rows: -1 },
+  },
+  {
+    name: "two rows, which the primary key makes impossible",
+    answer: () => ({
+      data: [
+        { id: MADE_UP_ID, email: MADE_UP_EMAIL, expires_at: FRESH_EXPIRY },
+        { id: MADE_UP_ID, email: MADE_UP_EMAIL, expires_at: FRESH_EXPIRY },
+      ],
+      error: null,
+    }),
+    expect: { ok: false, why: "unexpected", rows: 2 },
+  },
+  {
+    name: "one row, but it came back without the address the answer needs",
+    answer: () => ({ data: [{ id: MADE_UP_ID, expires_at: FRESH_EXPIRY }], error: null }),
+    expect: { ok: false, why: "unexpected", rows: 1 },
+  },
+];
+
+for (const testCase of RESET_CASES) {
+  Deno.test(`resetForRetry: ${testCase.name}`, async () => {
+    const apply = () => {
+      if (testCase.throws) throw new Error("the client itself fell over");
+      if (testCase.rejects) return Promise.reject(new Error("the network went away"));
+      return Promise.resolve(testCase.answer());
+    };
+
+    const got = await resetForRetry({
+      row: RETRY_ROW,
+      tokenHash: NEW_TOKEN_HASH,
+      freshExpiry: FRESH_EXPIRY,
+      apply,
+    });
+
+    if (JSON.stringify(got) !== JSON.stringify(testCase.expect)) {
+      throw new Error(
+        `resetForRetry answered ${JSON.stringify(got)}, expected ` +
+          `${JSON.stringify(testCase.expect)} -- for "${testCase.name}"`,
+      );
+    }
+  });
+}
+
+// And what the loser is actually told. The verdict is a decision; this is the
+// response built from it, and the two are not the same thing -- the gap between
+// them is where suspension_test.ts's one staging failure lived.
+
+Deno.test("resetFailureAnswer: a lost race is the 409 'being sent now', not a failure", async () => {
+  const answer = resetFailureAnswer({ ok: false, why: "lost" }, "23505");
+  const problems: string[] = [];
+
+  if (answer.status !== 409) {
+    problems.push(
+      `the status is ${answer.status}, expected 409. A 500 here would tell the owner something` +
+        ` broke, when in fact their first press is sending the email right now`,
+    );
+  }
+
+  const { text, body } = await readBody(answer);
+  if (!body) {
+    problems.push(`the body is not a JSON object: ${text}`);
+  } else {
+    if (body.code !== "23505") {
+      problems.push(`code is ${JSON.stringify(body.code)}, expected the insert's "23505"`);
+    }
+    const message = typeof body.error === "string" ? body.error : "";
+    // It must be the SAME sentence a recently-queued invitation gets, because it is
+    // the same fact: something is being sent for this address right now.
+    const expected = await stillSendingAnswer("23505").json();
+    if (message !== expected.error) {
+      problems.push(
+        `the message is ${JSON.stringify(message)}, and a recently-queued invitation gets` +
+          ` ${JSON.stringify(expected.error)} -- one fact should not have two wordings`,
+      );
+    }
+    if (message === UNCHANGED_409) {
+      problems.push("it sends the already-waiting sentence, which is a different fact");
+    }
+  }
+  problems.push(...disclosureProblems(text));
+
+  if (problems.length > 0) {
+    throw new Error(`the lost-race answer is wrong: ${problems.join("; ")}`);
+  }
+});
+
+const RESET_FAILURE_ANSWERS: Array<{
+  name: string;
+  verdict: Extract<ResetVerdict, { ok: false }>;
+  status: number;
+  mustSay?: string;
+}> = [
+  {
+    name: "a failed write is a 500 carrying its Postgres code",
+    verdict: { ok: false, why: "error", code: "23514" },
+    status: 500,
+  },
+  {
+    name: "a failed write with no code is still a 500",
+    verdict: { ok: false, why: "error" },
+    status: 500,
+  },
+  {
+    name: "two rows back is a 500 that names the count",
+    verdict: { ok: false, why: "unexpected", rows: 2 },
+    status: 500,
+    mustSay: "2 rows",
+  },
+  {
+    name: "no list of rows at all is a 500 that says so rather than printing a negative number",
+    verdict: { ok: false, why: "unexpected", rows: -1 },
+    status: 500,
+    mustSay: "no list of rows",
+  },
+];
+
+for (const testCase of RESET_FAILURE_ANSWERS) {
+  Deno.test(`resetFailureAnswer: ${testCase.name}`, async () => {
+    const answer = resetFailureAnswer(testCase.verdict, "23505");
+    const problems: string[] = [];
+
+    if (answer.status !== testCase.status) {
+      problems.push(`the status is ${answer.status}, expected ${testCase.status}`);
+    }
+
+    const { text, body } = await readBody(answer);
+    if (!body) {
+      problems.push(`the body is not a JSON object: ${text}`);
+    } else {
+      const message = typeof body.error === "string" ? body.error : "";
+      if (message.trim() === "") problems.push("there is no message");
+      if (testCase.mustSay && !message.includes(testCase.mustSay)) {
+        problems.push(
+          `the message does not contain ${JSON.stringify(testCase.mustSay)}: ${JSON.stringify(message)}`,
+        );
+      }
+      // Nothing was sent on any of these paths, and the message must say so -- the
+      // owner's next move depends on it.
+      if (!message.includes("Nothing was sent") && !message.includes("nothing was sent")) {
+        problems.push("the message does not say that nothing was sent");
+      }
+      const expectedCode =
+        testCase.verdict.why === "error" ? testCase.verdict.code : undefined;
+      if (body.code !== expectedCode) {
+        problems.push(
+          `code is ${JSON.stringify(body.code)}, expected ${JSON.stringify(expectedCode)}`,
+        );
+      }
+      const extra = Object.keys(body).filter((key) => !["error", "code"].includes(key));
+      if (extra.length > 0) problems.push(`it carries fields it should not: ${extra.join(", ")}`);
+    }
+    problems.push(...disclosureProblems(text));
+
+    if (problems.length > 0) {
+      throw new Error(`resetFailureAnswer is wrong for "${testCase.name}": ${problems.join("; ")}`);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Can these tests fail?
 // ---------------------------------------------------------------------------
 //
@@ -931,6 +1304,93 @@ Deno.test("the failure checks REFUSE every broken failure answer", async () => {
   }
 });
 
+Deno.test("the retry-reset checks REFUSE a write that is not a compare-and-set", async () => {
+  // THE MISTAKE, AND IT IS THE ONE THIS PULL REQUEST WAS REVIEWED FOR. It is what
+  // anybody would write: find the row by its id and update it. Every ordinary case
+  // passes -- one row back, an error, a thrown client -- and it is wrong only when
+  // two requests arrive at once, which is exactly when nobody is testing.
+  async function brokenResetForRetry(args: {
+    row: { id: string; status: string; expires_at: string };
+    tokenHash: string;
+    freshExpiry: string;
+    apply: RetryApply;
+  }): Promise<ResetVerdict> {
+    const patch: RetryPatch = {
+      token_hash: args.tokenHash,
+      status: "queued",
+      failure_code: "",
+      expires_at: args.freshExpiry,
+    };
+    // The id alone. No compare, so no set to lose.
+    const answer = await args.apply(patch, { id: args.row.id });
+    if (answer?.error) return { ok: false, why: "error", code: answer.error.code };
+    if (!Array.isArray(answer?.data)) return { ok: false, why: "unexpected", rows: -1 };
+    if (answer.data.length !== 1) {
+      // And the second half of the mistake: a write that touched nothing reads as
+      // something broken, so the loser of a race is told to try again -- which is
+      // the one thing it must not be told.
+      return { ok: false, why: "unexpected", rows: answer.data.length };
+    }
+    const only = answer.data[0] as { id: string; email: string; expires_at: string };
+    return { ok: true, row: { id: only.id, email: only.email, expires_at: only.expires_at } };
+  }
+
+  const missed: string[] = [];
+
+  // 1. The filter check, run through the SAME judgement the real one uses.
+  const recorder = recordingApply(oneRowBack);
+  await brokenResetForRetry({
+    row: RETRY_ROW,
+    tokenHash: NEW_TOKEN_HASH,
+    freshExpiry: FRESH_EXPIRY,
+    apply: recorder.apply,
+  });
+  if (retryFilterProblems(recorder.seen[0].filter).length === 0) {
+    missed.push("the filter check passed a write pinned to the id alone");
+  }
+
+  // 2. The lost-race case.
+  const lost = await brokenResetForRetry({
+    row: RETRY_ROW,
+    tokenHash: NEW_TOKEN_HASH,
+    freshExpiry: FRESH_EXPIRY,
+    apply: () => Promise.resolve({ data: [], error: null }),
+  });
+  if (lost.ok !== false || lost.why !== "unexpected") {
+    throw new Error(
+      `the broken copy is not broken in the way this test describes: it answered ${JSON.stringify(lost)}`,
+    );
+  }
+  const lostCase = RESET_CASES.find((c) => c.expect.ok === false && c.expect.why === "lost");
+  if (!lostCase) {
+    throw new Error("there is no lost-race case left in RESET_CASES -- was it removed?");
+  }
+  if (JSON.stringify(lost) === JSON.stringify(lostCase.expect)) {
+    missed.push("the lost-race case passed a copy that reports a lost race as something broken");
+  }
+
+  // 3. And the ordinary cases must still pass it, or these two checks are catching
+  //    something other than the mistake they name.
+  const ordinary = await brokenResetForRetry({
+    row: RETRY_ROW,
+    tokenHash: NEW_TOKEN_HASH,
+    freshExpiry: FRESH_EXPIRY,
+    apply: () => Promise.resolve(oneRowBack),
+  });
+  if (!ordinary.ok) {
+    throw new Error(
+      "the broken copy fails even the ordinary one-row case, so it is not the plausible mistake" +
+        " this test is about",
+    );
+  }
+
+  if (missed.length > 0) {
+    throw new Error(
+      `${missed.length} check(s) passed a write that is not a compare-and-set: ${missed.join("; ")}`,
+    );
+  }
+});
+
 Deno.test("the retry cases REFUSE a verdict that sends a second email", async () => {
   // The mistake, and it is the expensive one: "there is a row, the owner pressed
   // the button, send it again". It gets the failed and stale cases right, which is
@@ -992,6 +1452,11 @@ Deno.test("the retry cases REFUSE a verdict that sends a second email", async ()
 //
 //   deno test --no-lock --allow-env --allow-read=supabase/migrations --config supabase/functions/invite-member/deno.json supabase/functions/_tests/invitation_status_test.ts
 //
+// CI runs the whole folder in one go instead, which also type-checks and runs
+// suspension_test.ts beside this file:
+//
+//   deno test --no-lock --allow-env --allow-read=supabase/migrations --config supabase/functions/create-team/deno.json supabase/functions/_tests
+//
 // WHY --no-lock, and WHY --allow-env: both for the reasons spelled out at the
 // bottom of suspension_test.ts beside this file. In short: without --no-lock Deno
 // writes a deno.lock into the function folder named by --config, which is a change
@@ -1016,9 +1481,13 @@ Deno.test("the retry cases REFUSE a verdict that sends a second email", async ()
 // the run where it FAILED first, against a function that claimed 'sent' -- is in
 // evidence/build-it-18-invitation-status-function.md.
 //
-// NOTHING RUNS THIS IN CI, and that is said here rather than left to be noticed.
-// .github/workflows/ci.yml's `functions-test` job names one file --
-// supabase/functions/_tests/suspension_test.ts -- so this file is not picked up,
-// and issue #166 says not to change that workflow beyond test counts. It therefore
-// runs only when somebody runs it. Filed as issue #167, which names the one-line
-// change that would fix it.
+// CI RUNS THIS, as of the coach's review of PR #172 (issue #167). The
+// `functions-test` job in .github/workflows/ci.yml used to name
+// supabase/functions/_tests/suspension_test.ts by path, so this file was picked up
+// by nothing and could not fail a pull request. It now names the FOLDER, with
+// --allow-read=supabase/migrations added for the test above that reads the
+// migration, and its EXPECTED_FUNCTION_TESTS floor counts both files.
+//
+// What that means for anybody adding a test here: nothing. A new case raises the
+// count, and the floor is a floor. But a test DELETED from this file lowers the
+// count below the floor and turns that job red, which is the point of it.
