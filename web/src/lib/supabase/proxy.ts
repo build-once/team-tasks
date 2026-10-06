@@ -34,6 +34,14 @@ const PUBLIC_PATHS = [
   "/invite",
   "/forgot-password",
   "/reset-password",
+  // TEMPORARY -- REVERT THIS LINE BEFORE #160 MERGES, together with
+  // web/src/app/temp-error-test/. It is public on purpose and that is half of
+  // what it is testing: an error report from a SIGNED-OUT request must carry no
+  // user id, and the page cannot produce one if the proxy sends it to /login
+  // first. The page holds nothing and reads nothing, so being open reveals
+  // nothing -- but it is a route whose job is to crash the server, which is not
+  // a thing to leave reachable without a sign-in.
+  "/temp-error-test",
 ];
 
 function isPublic(pathname: string) {
