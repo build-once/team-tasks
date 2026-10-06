@@ -146,6 +146,21 @@ const STALE_QUEUED_MINUTES = 15;
 const UNCHANGED_409 = "That person already has an invitation waiting for this team.";
 const UNIQUE_VIOLATION = "23505";
 
+// The OTHER 409: what the function answers when something is already being sent for
+// this address, which is also what the loser of two simultaneous retries gets.
+// Copied from supabase/functions/invite-member/index.ts, `stillSendingAnswer`, rather
+// than imported -- this is the script's own statement of the contract.
+//
+// It is held here for one specific diagnosis. The retry write is a compare-and-set
+// pinned to the row's status and expiry, and a timestamp filter travels in a query
+// string -- so if the client ever failed to percent-encode the `+` in the offset,
+// that filter would match NOTHING and every retry would answer with this sentence
+// and send nothing at all. A compare-and-set that always loses is worse than none:
+// the Try again button would be dead, and no test that never builds a URL could
+// notice. See judgeSendRecorded below.
+const STILL_SENDING_409 =
+  "That invitation is being sent now. Give it a few minutes, and the team's page will say whether it went.";
+
 // A refusal body is short. 400 characters is generous -- the longest platform
 // refusal seen in this project is `{"code":"UNAUTHORIZED_NO_AUTH_HEADER"}`.
 const MAX_REFUSAL_BODY = 400;
@@ -380,8 +395,14 @@ function judgeSendRecorded(answer, row) {
 
   // ---- the answer ----
   if (answer.status !== 201) {
+    // A 409 where a send was expected has two very different causes, and the body is
+    // what separates them. The second one is the nastier: it means the retry's
+    // compare-and-set matched no row at all, so the Try again button can never work.
+    const stillSending = body.includes(STILL_SENDING_409);
     const detail = {
-      409: `HTTP 409 -- the insert hit the unique index and the function refused instead of sending. If the body carries "${UNCHANGED_409}" the row was already there and already sent, and this run cannot exercise a send: look at the pre-read printed above`,
+      409: stillSending
+        ? `HTTP 409 "being sent now" WHERE A SEND WAS EXPECTED, and the pre-read above says this row is retryable. Nothing else is sending it, so the retry's compare-and-set matched no row -- the filter pins the row's status and its expires_at, and a timestamp travels in a query string, so the first thing to check is whether the "+" in the offset is being percent-encoded. A compare-and-set that always loses makes Try again permanently dead`
+        : `HTTP 409 -- the insert hit the unique index and the function refused instead of sending. If the body carries "${UNCHANGED_409}" the row was already there and already sent, and this run cannot exercise a send: look at the pre-read printed above`,
       403: "HTTP 403 -- a refusal. Either Alice does not own ALICE_TEAM_ID, or her account is suspended",
       503: "HTTP 503 -- this environment is not allowed to send invitation email, so the function created nothing. Check the staging function secrets; nothing about status was tested",
       502: "HTTP 502 -- the email service did not accept the message. That is the 'failed' path, judged separately below; nothing about the 'sent' path was tested",
@@ -989,6 +1010,33 @@ function runSelftest() {
       name: "THE ROW IS GONE: the old function deleted it when the send failed",
       run: () => judgeSendRecorded({ status: 201, body: sentBody }, { rows: [] }),
       expect: [PASS, FAIL, UNVERIFIED],
+    },
+    {
+      name:
+        "THE COMPARE-AND-SET ALWAYS LOSES: a retryable row answered 'being sent now', so Try again is dead",
+      run: () =>
+        judgeSendRecorded(
+          {
+            status: 409,
+            body: JSON.stringify({ error: STILL_SENDING_409, code: UNIQUE_VIOLATION }),
+          },
+          failedRow,
+        ),
+      // FAIL on the answer; the row still says what it said, which is why only the
+      // first check catches this and the agree check has nothing to compare.
+      expect: [FAIL, FAIL, UNVERIFIED],
+    },
+    {
+      name: "a 409 for the ordinary reason: the row was already there and already sent",
+      run: () =>
+        judgeSendRecorded(
+          {
+            status: 409,
+            body: JSON.stringify({ error: UNCHANGED_409, code: UNIQUE_VIOLATION }),
+          },
+          sentRow,
+        ),
+      expect: [FAIL, PASS, UNVERIFIED],
     },
     {
       name: "the call was refused for ownership, so nothing about status was tested",

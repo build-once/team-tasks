@@ -31,8 +31,8 @@ and have a script waiting for them. Section 5 says exactly which questions those
 | The pure decisions and response bodies the function builds | **PASS** — 62 Deno tests, exit 0 | §1 |
 | Those tests fail against a function that lies | **PASS** — 4 of them, exit 1 | §2 |
 | Two Try again presses at once do not both send | **PASS** — a compare-and-set, 16 tests, seen to fail first | §2a |
-| The staging script's own judgements can fail | **PASS** — 55 cases, exit 0 | §3 |
-| Both new check files now run in CI | **PASS** — floors 102 and 55, measured | §3a |
+| The staging script's own judgements can fail | **PASS** — 57 cases, exit 0 | §3 |
+| Both new check files now run in CI | **PASS** — floors 102 and 57, measured | §3a |
 | The web app compiles, lints and builds | **PASS** — exit 0 both | §4 |
 | The repository's own suite | **PASS** — exit 0 | §4 |
 | The deployed function writes the status | **UNVERIFIED** — nothing is deployed | §5 |
@@ -347,6 +347,38 @@ and forgetting a line. `deno check` accepts the loop (exit 0), which was not a
 foregone conclusion — this repository has hit TS2589 on the generated client's
 generics before.
 
+### The one way this could have failed silently, and why it does not
+
+Filtering on a `timestamptz` means putting a value like `2026-10-13T09:00:00+00:00`
+into a query string — and **an unencoded `+` in a query string means a space**. If the
+client did not encode it, PostgREST would receive `09:00:00 00:00`, the filter would
+match nothing, and **every retry would report "that invitation is being sent now" and
+never send anything**. A compare-and-set that always loses is worse than no
+compare-and-set: the button would be dead and the tests above would all still pass,
+because none of them goes near a URL.
+
+So it was measured rather than assumed. `.eq()` is
+`this.url.searchParams.append(column, \`eq.${value}\`)` —
+`web/node_modules/@supabase/postgrest-js/dist/index.cjs:1542` — and `URLSearchParams`
+percent-encodes:
+
+```
+node -e "const u=new URL('https://x.example/rest/v1/invitations'); u.searchParams.append('expires_at','eq.2026-10-13T09:00:00+00:00'); console.log(u.toString())"
+
+https://x.example/rest/v1/invitations?expires_at=eq.2026-10-13T09%3A00%3A00%2B00%3A00
+```
+
+`%2B` is a literal `+`, so the offset survives and equality on `timestamptz` compares
+instants rather than text.
+
+**The limit of that check, stated rather than glossed:** the copy read is the one
+installed under `web/node_modules`, for the app. The Edge Function resolves
+`@supabase/server` from npm inside Deno, which is a different copy and was not read —
+`searchParams.append` is long-standing in that library, but "the deployed function's
+client encodes it the same way" is **unverified**, and the staging run is what would
+show it. A retry that answers "being sent now" on a row nobody else is touching is the
+symptom to watch for.
+
 ### What the 16 tests cover
 
 | | |
@@ -404,7 +436,7 @@ node scripts/staging/build-it-18-invitation-status-checks.mjs --selftest
 ```
 
 ```
-55 cases, 0 wrong.
+57 cases, 0 wrong.
 
 Every judgement said FAIL to the function from before issue #166, to an
 answer that claims 'sent' over a row that says 'queued', to a second
@@ -415,11 +447,14 @@ staging run mean something. It is NOT itself a staging result:
 nothing was sent anywhere by this run.
 ```
 
-**exit 0.** 55 cases, every one a judgement fed a fabricated answer with the verdict it must produce.
+**exit 0.** 57 cases, every one a judgement fed a fabricated answer with the verdict it must produce.
 Counted the way `.github/workflows/ci.yml` counts the other two selftests — `grep -c '^  ok  '` over
-the output gives **55**.
+the output gives **57**, which is the floor the new CI line holds.
 
-The seven cases worth naming individually, because they are the ones that make the rest mean
+**55 of those were there at the first commit; two arrived in review round 2**, both about the
+compare-and-set — see the subsection below on the one way it could have failed silently.
+
+The eight cases worth naming individually, because they are the ones that make the rest mean
 something:
 
 - **`THE FUNCTION IS THE OLD ONE: 201 with no status, and the row keeps the migration's default`** →
@@ -433,6 +468,12 @@ something:
 - **`A BODY QUOTES THE EMAIL SERVICE'S OWN COMPLAINT`** → FAIL.
 - **`THE MIGRATION IS NOT ON THIS PROJECT: PostgREST refuses the unknown column`** → FAIL, so a
   project without the migration is told so rather than reported as a function problem.
+- **`THE COMPARE-AND-SET ALWAYS LOSES: a retryable row answered 'being sent now', so Try again is
+  dead`** → FAIL, FAIL, UNVERIFIED. Added in review round 2, and the reason is in §2a: this is the
+  one symptom a staging run could see if the retry's timestamp filter never matched. The judgement
+  names that cause in its detail line rather than reporting a generic 409, because the owner reading
+  the output is the person who would otherwise spend an afternoon on it. Its twin — a 409 for the
+  ordinary reason, which must NOT be read as this — is the 57th case.
 
 ### And the selftest itself can fail
 
@@ -451,7 +492,8 @@ Fix them before running anything against staging: a check that
 cannot fail is worse than no check, because it reports a pass.
 ```
 
-Reverted, and `55 cases, 0 wrong` again.
+Reverted, and `55 cases, 0 wrong` again — 55 being the count at the time of that run, before review
+round 2 added the two cases above.
 
 ### What the script creates, and the half of issue #166 it cannot do
 
@@ -550,7 +592,7 @@ its own line.
 
 ```diff
        EXPECTED_SUSPEND_CASES: "40"
-+      EXPECTED_INVITATION_STATUS_CASES: "55"
++      EXPECTED_INVITATION_STATUS_CASES: "57"
 ...
 +          run_and_count build-it-18-invitation-status-checks scripts/staging/build-it-18-invitation-status-checks.mjs "$EXPECTED_INVITATION_STATUS_CASES"
 ```
@@ -559,7 +601,7 @@ And the number CI will read, through its own `grep`:
 
 ```
 grep -c '^  ok  ' <the selftest log>
-55
+57
 ```
 
 The script's `--selftest` branch runs before it reads `web/.env.local`, so the job
@@ -747,7 +789,7 @@ measured numbers and the commands.
 
 What stays true from the original note: the floors are floors, not equalities, so
 adding tests cannot fail either job — and a run that counted fewer than before has lost
-coverage and goes red. The counts are 102 for the Deno job and 55 for the new
+coverage and goes red. The counts are 102 for the Deno job and 57 for the new
 selftest, both counted from output in this session rather than estimated.
 
 ---
@@ -798,8 +840,8 @@ character — `not-a-real-invitation-token-xxxx…` and `not-a-real-access-token
 string, not for how random it is. Both files carry a comment saying what the line
 used to be, what gitleaks said about it, and why a dull value is the right one.
 
-After the change: the Deno tests pass (45 at the time, 62 now) and 55 selftest cases
-come out 0 wrong, both exit 0, and the commit goes through. **No guard file was edited, no hook was skipped, and
+After the change: the Deno tests pass (45 at the time, 62 now) and the selftest cases
+come out 0 wrong (55 at the time, 57 now), both exit 0, and the commit goes through. **No guard file was edited, no hook was skipped, and
 the commit was not retried with the same content.**
 
 ---
