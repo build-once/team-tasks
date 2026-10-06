@@ -1079,6 +1079,132 @@ The two temporary commits (`11af490`, `44752f5`) are **still on the branch**. Th
 more pair of visits on the rebuilt preview first, to see both permanent fixes working. The revert is
 the last step before merge.
 
+## 16. The third round, with both fixes in — and one new question
+
+**Observed by the owner on the preview, 6 October 2026, release `18fa0d92…`.** Purpose: that reports
+still arrive with Dedupe removed and the flush awaited. **They do.**
+
+| Time (UTC) | `instance` | User |
+|---|---|---|
+| **09:13:14** | `nmk7b7` | `208eb6dc…` |
+| **09:13:15** | `nmk7b7` | `208eb6dc…` |
+| **09:13:41** | `4ig7u9` | `849ba411…` |
+| **09:13:42** | `4ig7u9` | `849ba411…` |
+
+Two visits — the first account, then signing out and signing in as the second. **No signed-out visit
+was made in this round**, so this round says nothing new about the signed-out case; section 14 is
+where that was settled.
+
+**What it establishes:** removing Dedupe and awaiting the flush did not stop reports arriving. Both
+fixes are in and the reporting still works, which is what the round was for.
+
+### Two events per visit, and the page's code ran twice
+
+Each visit produced **two** server events about one second apart, **with different timestamps in the
+message**. In round two each visit produced one. The owner did not reload.
+
+**It is not one error reported twice, and the source says why.** Next.js has two error channels per
+render with different `renderSource` values — `next/dist/server/app-render/app-render.js` line
+**1957** (`'react-server-components'`) and line **1964** (`'server-rendering'`) — but it deliberately
+suppresses the second when the error came from the RSC pass:
+`next/dist/server/app-render/create-error-handler.js` lines **149–158** set `isSSRError = false` when
+the error's digest is already in `reactServerErrors`, and lines **169–181** only call
+`onHTMLRenderSSRError` when `isSSRError` is true. The comment at app-render.js line **1961** says it
+in words: *"onHTMLRenderSSRError won't be called at all if the error was logged before in the RSC
+error handler."*
+
+**And independently of that: one thrown `Error` has one message.** Two events whose messages carry
+**different** timestamps cannot be one error reported twice. So the page function executed twice.
+
+**Why it executed twice could not be determined, and I am not going to guess.** The retry paths that
+do exist in `app-render.js` — around lines **944–955**, **4060** and **5147** — are gated on
+build-time prerendering and on `cacheComponents`, which this app does not enable, and they
+deliberately do not report to `onRequestError` (line 950: *"We don't normally log these errors
+because we are going to retry anyway"*). **No mechanism was found in the installed Next.js or Sentry
+source that runs a dynamic page's server code twice for one runtime request on the Node runtime.**
+Candidates the evidence cannot separate: a second HTTP request from the browser (a speculative
+preload, or the error page fetching its own RSC payload), or a retry above these files.
+
+**The field that would answer it is not available to us at all.** `renderSource` is what
+distinguishes the two channels, and Sentry's handler does not forward it:
+`@sentry/nextjs/build/esm/common/captureRequestError.js` puts only `request_path`, `router_kind`,
+`router_path` and `route_type` into the `nextjs` context. So no setting of ours could have told the
+two events apart — this app dropping that context in the scrub is not the limiting factor.
+
+**Filed as #162**, with four ways to settle it and a first step that costs nothing. **No code was
+changed for it in this pull request.**
+
+### Was the second report previously being lost? Probably — and this is an inference, not an observation
+
+Round two produced **one** event per visit; round three produced **two**. The only changes between
+them were `19c92a8` (Dedupe out of the server and edge lists) and `f4b2b10` (the flush awaited).
+Neither changes how many times a page renders. So the most likely reading is that **the page was
+rendering twice in round two as well, and one of the two reports was being lost** — which is exactly
+Finding B, the un-awaited flush, and exactly what `f4b2b10` fixed.
+
+**Dedupe cannot explain it**, which is worth stating because it is the other candidate: round two's
+messages already carried millisecond timestamps, so two renders a second apart produced two
+*different* exception values, and Dedupe compares the value. It would not have dropped the second.
+
+**Why this is an inference and not a finding:** nobody counted the renders in round two. The reading
+rests on the counts changing when the flush changed, plus Dedupe being ruled out. It is strong, it is
+consistent with the source, and it is **not** the same as having watched the second report fail to
+send. If #162 shows the doubling is a second browser request rather than a second render, this
+paragraph needs revisiting — which is the other reason that issue matters.
+
+## 17. The temporary commits are reverted
+
+Both, in the order the owner asked:
+
+```
+$ git revert --no-edit 44752f5b6c97d6b7a454fe011a25436a0a29c90f
+[feat/build-it-18-sentry 1db4949] Revert "TEMPORARY: make each test report distinguishable..."
+ 2 files changed, 55 insertions(+), 149 deletions(-)
+
+$ git revert --no-edit 11af490f7e42ebf3a1c387beafca4237d76022b6
+[feat/build-it-18-sentry 183a17f] Revert "TEMPORARY: a page that breaks on purpose..."
+ 3 files changed, 187 deletions(-)
+ delete mode 100644 web/src/app/temp-error-test/ThrowInBrowser.tsx
+ delete mode 100644 web/src/app/temp-error-test/page.tsx
+```
+
+Confirmed gone, three ways:
+
+```
+$ Test-Path web/src/app/temp-error-test
+web/src/app/temp-error-test: gone
+
+$ grep -rn "temp-error-test" web/src
+(no matches)
+
+$ grep -rln "temp-error-test" .            (excluding node_modules)
+evidence/build-it-18-sentry.md             <- this file, as history. Nothing in the app.
+```
+
+**`PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` is back to its six entries** — `/login`,
+`/signup`, `/auth`, `/invite`, `/forgot-password`, `/reset-password` — with the temporary line and its
+comment gone.
+
+**And the route is gone from the build**, which is the check that matters most, because it is the one
+that would have caught a file left behind elsewhere:
+
+```
+Route (app)
+┌ ○ /                      ├ ƒ /invite/[token]
+├ ○ /_not-found            ├ ƒ /login
+├ ƒ /auth/callback         ├ ƒ /reset-password
+├ ƒ /auth/reset            ├ ƒ /signup
+├ ƒ /auth/signout          ├ ƒ /tasks
+├ ƒ /forgot-password       └ ƒ /teams
+ƒ Proxy (Middleware)
+exit=0
+```
+
+Twelve routes, the same twelve as before the temporary page existed. No `/temp-error-test`.
+
+On the reverted tree: `npm --prefix web run lint` **exit=0**, `next build` **exit=0**,
+`node scripts/sentry-scrub-check.mjs` **95 of 95, exit=0**.
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an
@@ -1118,10 +1244,18 @@ their answers rather than deleted, so the record shows what was unknown and what
 
 5. **Still unverified, and now narrower — that `f4b2b10` actually prevents a lost report.** The
    change awaits `flush` with a 2000 ms cap, which is read from the installed source as the supported
-   way to do it (section 15). Whether it saves an event that would otherwise have been lost cannot be
-   shown by making a report arrive — the first round's events arrived too. **A function can still be
-   frozen or killed inside those two seconds, and then the report is still lost.** This makes the
-   loss unlikely, not impossible, and is not recorded as a guarantee.
+   way to do it (section 15). Section 16 gives the best evidence there is: round two produced one
+   event per visit and round three produced two, with nothing changed in between that affects how
+   often a page renders. **That is an inference from counts, not an observed save**, and section 16
+   says so at length. **A function can still be frozen or killed inside those two seconds, and then
+   the report is still lost.** This makes the loss unlikely, not impossible, and is not recorded as a
+   guarantee.
+
+6. **Open, and filed as #162 — why one visit ran the page's server code twice.** Established: it is
+   not one error reported twice (Next.js suppresses the second channel, and the two messages carry
+   different timestamps). Not established: what caused the second execution. It matters for event
+   counts, for the free plan's quota, and because this app's pages read from Supabase on every
+   render. **Nothing was changed for it in this pull request.**
 
 **Also not done here, and not a gap in this work:** the two Sentry privacy settings
 `docs/plan.md` assigns to the owner — storing IP addresses off, and default data scrubbing on — and
