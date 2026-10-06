@@ -2,9 +2,10 @@
 
 Issue #164. Migration: `supabase/migrations/20261006095847_invitation_status.sql`.
 
-**Result: PASS on a local sandbox. Applied to staging by the owner on 6 October 2026 — see section 9.
-NOT applied to production.** Rule 19: the assistant does not run `db push` anywhere, and the guard
-refuses every `db push` except `--local`.
+**Result: PASS on a local sandbox. Applied to staging by the owner on 6 October 2026 — see section 9,
+where the unchanged `invite-member` is also shown creating a `queued` row in the migrated table
+(section 9e). NOT applied to production.** Rule 19: the assistant does not run `db push` anywhere, and
+the guard refuses every `db push` except `--local`.
 
 **Sections 1 to 8 were written before the staging apply and are left exactly as they were**: they are
 the record of the local sandbox run, and every "not applied to staging" and "unverified — staging" in
@@ -719,9 +720,13 @@ tests what it says it tests. The test was made stricter, not looser.
   `npm test` in `web/` with the five staging settings present. That exercises the real
   `invite-member` against the real migrated schema.
 
-  **That happened — see section 9d, and read its second half.** The suite ran against migrated
-  staging and passed 25, but the invite answer was not in the output, so the one thing this bullet
-  wanted settled — the real `invite-member` inserting into the migrated table — is still unverified.
+  **That happened — see section 9d.** The suite ran against migrated staging and passed 25, but the
+  invite answer was not in its output, so it did not by itself settle the one thing this bullet wanted
+  settled.
+
+  **And then that was settled too — section 9e.** The owner sent a real invitation through the app to
+  a fresh address on staging, and the coach read the row: `queued`, empty code. The real
+  `invite-member`, against the real migrated schema. **This bullet is answered.**
 
 **So the proof here is sections F1–F3 of the attack**, which run the exact statements both functions
 issue, as the role they connect with, against the migrated schema:
@@ -821,7 +826,7 @@ argue for:
   read says staging's `anon` and `authenticated` now hold **no table-level `INSERT` or `UPDATE`** and
   **nothing on either new column**, while **`SELECT` is untouched** — which is the shape section 5
   intended, read off the real project. **This answers the staging half of that unverified item. The
-  production half is still unverified**, and section 9e says so.
+  production half is still unverified**, and section 9f says so.
 - **8 migrations, newest `20261006095847`** — the migration is recorded on staging, and it is the
   newest, so nothing was applied after it.
 - **5 rows, not 3.** The sandbox had three invitations; staging has five. Different databases with
@@ -863,16 +868,71 @@ leaves the new row `queued`. **This run does not demonstrate that.** **Alice's i
 the pasted output**, and with her `+ci-invite` invitation **still pending**, the expected answer is
 **409** — the function refusing a duplicate before it ever reaches an insert. So:
 
-> **Unverified — the current `invite-member` creating a row in the migrated table.** No run has shown
-> it. Section 7's F1 is the only evidence for it, and F1 is `psql` issuing the function's statement in
-> a sandbox, not the function itself against staging.
+> ~~**Unverified — the current `invite-member` creating a row in the migrated table.** No run has
+> shown it. Section 7's F1 is the only evidence for it, and F1 is `psql` issuing the function's
+> statement in a sandbox, not the function itself against staging.~~
+>
+> **SETTLED ON STAGING on 6 October 2026 — see section 9e.** The owner sent a real invitation through
+> the app, and the coach read the row it created. It is the deployed function, against the migrated
+> table, and the row reads `queued` with an empty code.
 
-**How to settle it properly:** clear or expire Alice's pending `+ci-invite` invitation on staging, then
-run the invite test again and keep the invite answer in the output — a **201** (or whatever the
-function returns on success) with the new row reading `queued` and an empty code. Until an output says
-that, this stays unverified rather than passing on the strength of 25 other checks.
+**How it was settled** — not the route this paragraph predicted, and the difference is worth keeping.
+It suggested clearing Alice's pending `+ci-invite` invitation and re-running the suite. Instead the
+owner invited a **different** address, which needed nothing cleared: a fresh address is not a duplicate,
+so the function reaches its insert without the 409 ever arising. Section 9e is that run.
 
-### 9e. Not yet done — production
+### 9e. A real invitation through the app, on staging — the owner, then the coach
+
+**This is the section that settles F1 on staging.** Same attribution as the rest of section 9: the
+owner's and the coach's report, recorded by the assistant, who ran none of it, saw no screen and used
+no connector and no browser.
+
+**The owner, in the app.** Local app on `localhost:3000` pointed at **staging**, signed in as
+**Alice**. She invited the **`+statuscheck`** address of the **test mailbox** to her team. The screen
+reported:
+
+> Invitation created.
+
+and the list then showed **3 of 20 invitations waiting**, the new one **expiring 13 October 2026** —
+seven days, which is `docs/plan.md`'s rule and the existing column default, untouched by this
+migration.
+
+**The coach, through the staging read-only connector, afterwards:**
+
+| what was read | reported result |
+|---|---|
+| invitations on staging | **6** |
+| the new `+statuscheck` row | created **2026-10-06 12:57:32 UTC**, `status` **`queued`**, `failure_code` **empty**, **not accepted** |
+| the five earlier rows | `status` **`sent`** |
+
+**What this settles, precisely.** F1's claim was that `invite-member`'s **unchanged** four-column
+insert still works against the migrated table and leaves the new row `queued` with an empty code. This
+is that claim, performed by **the deployed function** rather than by `psql` imitating it, against **the
+real migrated table** rather than a sandbox clone, and read back from the catalogue rather than
+asserted. The row exists, and it is `queued` with an empty code. **"Migration only" holds: no function
+and no screen needed changing for this migration to be safe.**
+
+Four smaller things the same run shows:
+
+- **6 rows, and the earlier 5 unchanged.** Section 9b read 5, all `sent`. One invitation was added and
+  the other five still read `sent`, so the insert added a row and disturbed nothing.
+- **The column default did the work, not any code.** Nothing in the app mentions `status`; the row is
+  `queued` because the migration says so.
+- **The screen is untouched by the new columns**, as section 7's H1b argued: it drew the new invitation
+  in its pending list, with its count and its expiry, and nobody changed a line of it.
+- **`queued` is the correct and final state for now, not a stuck job.** The row stays `queued` because
+  **the deployed function does not yet write `status`** — writing `sent` or `failed` is the next issue,
+  which this pull request deliberately does not contain. It **expires on 13 October 2026**, so it does
+  not sit there for ever.
+
+**Not checked — whether the email arrived in the test inbox.** Nobody looked, so nothing here says it
+did. This does not weaken what the section settles: the question was whether the function creates a row
+in the migrated table, and the row is the answer. It does mean the one thing a `queued` status cannot
+tell you is still untold — and that is exactly the gap the **next** issue closes, by making the function
+record `sent` or `failed` after the send. **To check it:** open the test mailbox's `+statuscheck`
+inbox, or read the Resend delivery log for that address.
+
+### 9f. Not yet done — production
 
 **Production is untouched and unread.** The migration reaches production **through the pipeline, after
 this pull request is merged** — rule 19 forbids the assistant running a migration, a `db push` or a
