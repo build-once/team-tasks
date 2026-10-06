@@ -173,7 +173,15 @@ export const CLIENT_INTEGRATIONS: ReadonlySet<string> = new Set([
   "GlobalHandlers", // window.onerror and onunhandledrejection -- without this almost nothing is caught
   "BrowserApiErrors", // errors thrown inside a setTimeout or an event listener
   "LinkedErrors", // follows an error's `cause` chain, so the real failure is in the report
-  "Dedupe", // the same error twice in a row is sent once
+  // Dedupe STAYS HERE, and is removed from the two server lists below. The
+  // difference is not a compromise, it is the reason: a browser is ONE
+  // person's. Deduplicating consecutive identical errors in a single tab can
+  // only ever merge one person's error with their own, which is what Dedupe is
+  // for -- a render loop or a repeated failing click would otherwise send the
+  // same error hundreds of times and spend the free plan's event quota on it.
+  // On a server, the consecutive errors belong to DIFFERENT PEOPLE, which is
+  // what made it wrong there.
+  "Dedupe",
   "HttpContext", // where the browser and operating system come from. See DATA_COLLECTION above
   "NextjsClientStackFrameNormalization", // makes the stack frames name this app's files
 ]);
@@ -207,7 +215,7 @@ export const SERVER_INTEGRATIONS: ReadonlySet<string> = new Set([
   "EventFilters",
   "FunctionToString",
   "LinkedErrors",
-  "Dedupe",
+  // NO "Dedupe" HERE, deliberately. See the block below the list.
   "NodeSystemError", // names the syscall behind an ENOENT or ECONNREFUSED
   "OnUncaughtException",
   "OnUnhandledRejection",
@@ -216,6 +224,39 @@ export const SERVER_INTEGRATIONS: ReadonlySet<string> = new Set([
 ]);
 
 // Switched off on the server, and why:
+//
+//   Dedupe            IT DOES NOT LOOK AT WHO THE ERROR BELONGS TO, and on a
+//                     server that is the whole problem. It decides by the
+//                     exception's type and value, the fingerprint and the stack
+//                     frames -- @sentry/core/build/esm/integrations/dedupe.js,
+//                     `_shouldDropEvent` at line 27 and `_isSameExceptionEvent`
+//                     at lines 59-75. `event.user` does not appear in that file
+//                     at all. So two people hitting the same broken page one
+//                     after another are reported as one, and docs/plan.md's
+//                     reason for sending a user id -- "Tells the owner whether
+//                     one person or everyone is hitting an error" -- is defeated
+//                     in the direction that matters.
+//
+//                     This is not a theory. It cost a real report: on 6 October
+//                     three visits to a test page threw the same message and
+//                     only two events arrived, the middle one dropped. The same
+//                     three visits with a timestamp in each message produced
+//                     three events. See evidence/build-it-18-sentry.md sections
+//                     11 to 14.
+//
+//                     ALSO WORTH KNOWING: line 22 is
+//                     `return previousEvent = currentEvent;`, so the baseline
+//                     only moves when an event SURVIVES. A dropped event is not
+//                     the new baseline, which is why the drop is not limited to
+//                     one repeat.
+//
+//                     WHAT REMOVING IT COSTS: duplicate events against the free
+//                     plan's quota, whose limits docs/costs.md records as not
+//                     confirmed. Sentry's own server-side grouping still
+//                     collapses repeats into ONE ISSUE, so what grows is the
+//                     event count, not the number of things to read. Paying
+//                     quota to know how many people are affected is the right
+//                     way round for this app.
 //
 //   RequestData       headers, cookies and query strings. @sentry/nextjs'
 //                     captureRequestError puts EVERY request header, the Cookie
@@ -253,12 +294,17 @@ export const EDGE_INTEGRATIONS: ReadonlySet<string> = new Set([
   "EventFilters",
   "FunctionToString",
   "LinkedErrors",
-  "Dedupe",
+  // NO "Dedupe" HERE either, for exactly the reason given for the server list
+  // above: the Proxy runs on every request, for everybody, so consecutive
+  // identical errors here belong to different people too.
   "DistDirRewriteFrames",
 ]);
 
 // Switched off on the edge, and why:
 //
+//   Dedupe          as on the server, and for the same reason: it does not look
+//                   at the user. The Proxy refreshes everybody's session, so a
+//                   run of identical errors here is a run of different people.
 //   RequestData     as on the server: headers, cookies, query strings.
 //   WinterCGFetch   spans and breadcrumbs for fetch in the edge runtime. The
 //                   Proxy's own fetch calls are Supabase calls.
