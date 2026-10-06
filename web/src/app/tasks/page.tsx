@@ -2,8 +2,17 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { LoadFailed } from "@/app/components/LoadFailed";
+import { BUTTON_IDS } from "@/lib/buttons";
+import {
+  SCREEN_EMPTY,
+  SCREEN_ERROR,
+  screenState,
+  showsData,
+} from "@/lib/screen-state";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -181,29 +190,54 @@ export default async function MyTasksPage({
       ? "in your personal tasks"
       : "in all your lists";
 
+  // ---- WHICH LOOK EACH READ GETS (Build it 19 rule 1) ---------------------
+  //
+  // Two reads on this page, so two answers, and both come from the one function in
+  // web/src/lib/screen-state.ts rather than from a chain of ternaries down in the
+  // JSX. What that function is for is the trap underneath both of these lines:
+  // `data ?? []` turns a failed read into an empty array, so "your tasks could not
+  // be loaded" and "you have no tasks" arrive here looking identical. Passing
+  // `failed` separately is what keeps them apart, and screenState puts `failed`
+  // ahead of the row count so no row count can overrule it.
+  //
+  // THE TASK LIST IS COUNTED AFTER FILTERING, which is what makes "no tasks in
+  // this list yet" possible: `visible` is what is about to be drawn, so the look
+  // and the list cannot disagree.
+  const listState = screenState({
+    failed: Boolean(error),
+    rows: visible.length,
+  });
+
+  const teamsState = screenState({
+    failed: Boolean(teamsError),
+    rows: teams.length,
+  });
+
   // The chooser and the Show row only appear when there is a second list to
   // choose: with no teams, every task is personal and both would be controls for
-  // deciding nothing. A failed teams read counts as no teams, which is why the
-  // banner below says so -- the add form quietly offering no choice would
-  // otherwise look like the person belonging to no team.
-  const canChoose = !teamsError && teams.length > 0;
+  // deciding nothing. A failed teams read is NOT no teams -- it is an unknown --
+  // which is why this asks for the data look by name rather than counting rows,
+  // and why the error look below says so out loud.
+  const canChoose = showsData(teamsState);
 
   return (
     <>
-      <Header signedIn current="tasks" />
+      <Header signedIn current="tasks" account={claimsData.claims.email} />
 
       <main className="page stack">
         <div className={styles.head}>
           <h1>My tasks</h1>
           {/* No count when there is nothing to count, and none when the list
-              could not be loaded: a number beside an error would be a lie. */}
-          {error || visible.length === 0 ? null : (
+              could not be loaded: a number beside an error would be a lie. Asked
+              of the look rather than of `error` and a length, so there is one
+              place that decides and the heading cannot disagree with the list. */}
+          {showsData(listState) ? (
             <p className={styles.count}>
               {doneCount} of {visible.length}
               <span className="visually-hidden"> tasks</span> done
               <span className={styles.countWhat}>{showing}</span>
             </p>
-          )}
+          ) : null}
         </div>
 
         <form className="card" action={addTask}>
@@ -258,9 +292,16 @@ export default async function MyTasksPage({
                 placeholder="What needs doing?"
                 aria-describedby="title-hint"
               />
-              <button className="btn btn--primary" type="submit">
+              {/* Every submit button in this app carries its identifier, and the
+                  action reads that rather than anything about the label (Build it
+                  19 rule 6). This one is the clearest example of why: what it says
+                  is "Add" on a phone and "Add task" on a laptop. */}
+              <ActButton
+                className="btn btn--primary"
+                act={BUTTON_IDS.taskAdd}
+              >
                 Add<span className={styles.taskWord}> task</span>
-              </button>
+              </ActButton>
             </div>
             <p className="hint" id="title-hint">
               Please don&apos;t put personal details in tasks.
@@ -303,6 +344,17 @@ export default async function MyTasksPage({
         {problem === "save" ? (
           <Banner tone="bad" icon="alert">
             That did not save. Please try again.
+          </Banner>
+        ) : null}
+
+        {/* A post that carried no button identifier this page recognises (Build it
+            19 rule 6). Not reachable from the screen -- every button here carries
+            one -- so it takes a request made by hand, and the honest answer is
+            that nothing happened. */}
+        {problem === "button" ? (
+          <Banner tone="bad" icon="alert">
+            Nothing happened: that request did not come from a button on this
+            page. Please use the buttons here.
           </Banner>
         ) : null}
 
@@ -363,6 +415,15 @@ export default async function MyTasksPage({
           </Banner>
         ) : null}
 
+        {/* A tick that matched no row (Build it 19 rule 3). Before the tick read
+            its row back, this was silent: the box simply came back as it was, with
+            nothing said, which reads as a press that did not register. */}
+        {problem === "tickgone" ? (
+          <Banner tone="bad" icon="alert">
+            That task was not changed. It may have been deleted already.
+          </Banner>
+        ) : null}
+
         {/* Deliberately not "that task no longer exists", which is what this used
             to say (issue #83). Nothing was deleted, and there are two reasons --
             it was somebody else's, or it had already gone -- which this page
@@ -375,30 +436,39 @@ export default async function MyTasksPage({
           </Banner>
         ) : null}
 
-        {teamsError ? (
-          <Banner tone="bad" icon="alert">
+        {/* THE ERROR LOOK for the teams read, with its Try again. It used to be a
+            Banner and nothing else, so the only way out was the browser's reload
+            button. The sentence is unchanged: it says what this costs the person
+            rather than why the read failed, and no database message, code or
+            status appears in it -- those go to error reporting. */}
+        {teamsState === SCREEN_ERROR ? (
+          <LoadFailed target="tasks" filter={carried}>
             Your teams could not be loaded. New tasks can only be added as
             personal ones until that works, the list below cannot be narrowed to
             one team, and a team task is labelled {TEAM_NOT_SHOWN} instead of
             with its team&apos;s name.
-          </Banner>
+          </LoadFailed>
         ) : null}
 
-        {filterMissed && !teamsError ? (
+        {filterMissed && teamsState !== SCREEN_ERROR ? (
           <Banner tone="bad" icon="alert">
             That is not one of your lists, so every task you can see is shown.
           </Banner>
         ) : null}
 
-        {error ? (
-          <Banner tone="bad" icon="alert">
-            Your tasks could not be loaded. If this database is new, the tasks
-            table may not exist yet: the migration in supabase/migrations has
-            not been applied.
-          </Banner>
+        {/* THE ERROR LOOK for the task list itself. Everything below is drawn only
+            for the other two looks, so a failed read is never a list and never a
+            count -- which is the one thing this page had wrong and the reason
+            screenState exists. */}
+        {listState === SCREEN_ERROR ? (
+          <LoadFailed target="tasks" filter={carried}>
+            Your tasks could not be loaded, so nothing below is a list of them.
+            If this database is new, the tasks table may not exist yet: the
+            migration in supabase/migrations has not been applied.
+          </LoadFailed>
         ) : null}
 
-        {canChoose && !error ? (
+        {canChoose && listState !== SCREEN_ERROR ? (
           <nav className={styles.shows} aria-label="Which tasks to show">
             <ShowLink value={null} active={activeFilter === FILTER_ALL}>
               All tasks
@@ -421,13 +491,21 @@ export default async function MyTasksPage({
           </nav>
         ) : null}
 
-        {error ? null : tasks.length === 0 ? (
-          <p className={styles.empty}>No tasks yet</p>
-        ) : visible.length === 0 ? (
-          // There are tasks, just none in this list. Said differently from "no
-          // tasks yet" on purpose: the two are not the same news.
-          <p className={styles.empty}>No tasks in this list yet</p>
-        ) : (
+        {/* THE EMPTY LOOK, and then the data look. The error look is above, drawn
+            by LoadFailed, and this expression can no longer reach a list when the
+            read failed: screenState answered SCREEN_ERROR, which is neither of the
+            two branches here.
+            Which sentence the empty look uses is a question about what is empty,
+            not about whether the read worked: there are no tasks at all, or there
+            are some and none of them is in this list. Said differently on purpose
+            -- the two are not the same news. */}
+        {listState === SCREEN_EMPTY ? (
+          tasks.length === 0 ? (
+            <p className={styles.empty}>No tasks yet</p>
+          ) : (
+            <p className={styles.empty}>No tasks in this list yet</p>
+          )
+        ) : !showsData(listState) ? null : (
           <ul className={styles.list}>
             {visible.map((task) => {
               // Only the person who created a task may delete it: the delete
@@ -491,9 +569,12 @@ export default async function MyTasksPage({
                         required
                         autoFocus
                       />
-                      <button className="btn btn--primary" type="submit">
+                      <ActButton
+                        className="btn btn--primary"
+                        act={BUTTON_IDS.taskRename}
+                      >
                         Save
-                      </button>
+                      </ActButton>
                       <Link
                         className="btn btn--quiet"
                         href={tasksPath({ filter: carried })}
@@ -516,13 +597,13 @@ export default async function MyTasksPage({
                           name="filter"
                           value={carried ?? ""}
                         />
-                        <button
+                        <ActButton
                           className={`btn ${styles.danger}`}
-                          type="submit"
+                          act={BUTTON_IDS.taskDelete}
                         >
                           Delete
                           <span className="visually-hidden"> {task.title}</span>
-                        </button>
+                        </ActButton>
                       </form>
                       <Link
                         className="btn btn--quiet"
@@ -571,10 +652,13 @@ export default async function MyTasksPage({
                           </option>
                         ))}
                       </select>
-                      <button className="btn btn--primary" type="submit">
+                      <ActButton
+                        className="btn btn--primary"
+                        act={BUTTON_IDS.taskMove}
+                      >
                         Move
                         <span className="visually-hidden"> {task.title}</span>
-                      </button>
+                      </ActButton>
                       <Link
                         className="btn btn--quiet"
                         href={tasksPath({ filter: carried })}
@@ -601,10 +685,14 @@ export default async function MyTasksPage({
                           name="done"
                           value={task.done ? "false" : "true"}
                         />
-                        <button
+                        {/* The tick. Its whole label is a box and a task's text,
+                            so there is no wording here for anything to act on
+                            even if it wanted to -- which is why the identifier
+                            matters as much on this button as on any. */}
+                        <ActButton
                           className={styles.toggle}
-                          type="submit"
-                          aria-pressed={task.done}
+                          ariaPressed={task.done}
+                          act={BUTTON_IDS.taskDone}
                         >
                           <span
                             className={`${styles.box} ${task.done ? styles.boxOn : ""}`}
@@ -632,7 +720,7 @@ export default async function MyTasksPage({
                               {teamName}
                             </span>
                           )}
-                        </button>
+                        </ActButton>
                       </form>
 
                       <div className={styles.actions}>

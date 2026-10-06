@@ -1,7 +1,9 @@
 import Link from "next/link";
 
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { BUTTON_IDS } from "@/lib/buttons";
 import { createClient } from "@/lib/supabase/server";
 import {
   INVITATION_DAYS,
@@ -93,7 +95,12 @@ export default async function InvitePage({
 
   return (
     <>
-      <Header signedIn={signedIn} />
+      {/* The account menu gets the address off the verified token when there is
+          one. A signed-out visitor -- which is the usual case here, because an
+          invitation goes to somebody who often has no account yet -- gets no menu
+          at all, and `claimsData?.claims?.email` is then undefined, which
+          accountLabel turns into "Signed in" rather than into the word. */}
+      <Header signedIn={signedIn} account={claimsData?.claims?.email} />
 
       <main className="page stack">
         <h1>You have been invited</h1>
@@ -117,15 +124,17 @@ export default async function InvitePage({
               {/* The token travels in the form, so accepting is a POST from a
                   button press -- never something a link fetch can trigger. */}
               <input type="hidden" name="token" value={token} />
-              <button className="btn btn--primary" type="submit">
+              <ActButton
+                className="btn btn--primary"
+                act={BUTTON_IDS.inviteAccept}
+              >
                 Accept invitation
-              </button>
+              </ActButton>
             </form>
 
             <p className="hint">
               If you are signed in as somebody else, the invitation will be
-              refused: it only works for the address it was sent to.{" "}
-              <Link href="/teams">My teams</Link>
+              refused: it only works for the address it was sent to.
             </p>
           </>
         ) : (
@@ -152,6 +161,30 @@ export default async function InvitePage({
             </p>
           </>
         )}
+
+        {/* BACK TO MY TEAMS, ALWAYS (Build it 19 rule 7).
+
+            OUTSIDE BOTH BRANCHES, which is the whole change. It used to be a "My
+            teams" link tucked inside a sentence in the signed-in branch, so a
+            signed-out visitor had no way off this page at all -- and the sentence
+            it was inside is about being signed in as somebody else, which is not
+            what somebody looking for the way out is reading.
+
+            "INCLUDING WHILE IT IS BUSY", and here is exactly why that holds rather
+            than being asserted. This is a plain anchor in the document, and this
+            screen is rendered on the server with no client-side state: nothing
+            disables it, nothing removes it, and no pending-submission check draws a
+            different version of this page. The Accept button submits a form, and
+            while that form is in flight this link is still an anchor the browser
+            will follow. The way to BREAK that would be to make this page a client
+            component and hide the link behind a `useFormStatus().pending`, which is
+            a thing nothing here does and a thing to keep not doing.
+
+            It is after the two branches so it reads as the way out rather than as
+            part of either offer. */}
+        <p className="switch">
+          <Link href="/teams">Back to My teams</Link>
+        </p>
       </main>
     </>
   );

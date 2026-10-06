@@ -1,8 +1,10 @@
 import Link from "next/link";
 
 import { signIn } from "@/app/auth/actions";
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { BUTTON_IDS } from "@/lib/buttons";
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { problem, confirmed } = await searchParams;
@@ -58,9 +60,12 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             />
           </div>
 
-          <button className="btn btn--primary btn--block" type="submit">
+          <ActButton
+            className="btn btn--primary btn--block"
+            act={BUTTON_IDS.signIn}
+          >
             Sign in
-          </button>
+          </ActButton>
         </form>
 
         {/* Outside the form, so pressing Enter in the password box signs in

@@ -350,9 +350,10 @@ Where each copy keeps them:
 
 ### Where the app reads them
 
-**Six files**, eleven `process.env` lines between them. Counted on 2026-10-05 by searching the whole
-of `web/src` for `process.env.<NAME>`; the only other hits are explanatory comments inside `env.ts`
-and `sentry/options.ts`, which name settings without reading them.
+**Seven files**, thirteen `process.env` lines between them, plus one line in `web/next.config.ts`.
+Counted on 2026-10-06 by searching the whole of `web/src` for `process.env.<NAME>`; the only other
+hits are explanatory comments inside `env.ts`, `sentry/options.ts` and `app-version.ts`, which name
+settings without reading them.
 
 | File | What it reads |
 |---|---|
@@ -362,6 +363,8 @@ and `sentry/options.ts`, which name settings without reading them.
 | `web/src/sentry/server-init.ts` | `VERCEL_ENV`, for the same tag on a server report |
 | `web/src/sentry/edge-init.ts` | `VERCEL_ENV`, for the same tag on an edge report |
 | `web/src/instrumentation.ts` | `NEXT_RUNTIME`, three times — Next.js' own name for which runtime is loading the file, not a setting anybody sets |
+| `web/src/app/components/Footer.tsx` | `APP_COMMIT` and `VERCEL_ENV`, for the version in the footer — see the section below |
+| `web/next.config.ts` | `VERCEL_GIT_COMMIT_SHA`, once, to set `APP_COMMIT` at build time |
 
 This table used to name `client.ts`, `server.ts` and `proxy.ts` with line numbers, and it had gone
 stale: those three now import their values from `env.ts` and read no environment variable of their
@@ -369,9 +372,44 @@ own. It then said "two files, three lines", which Build it 18 made stale in turn
 arrived with error reporting. Line numbers are still deliberately left out, because they are what
 went stale the first time.
 
-Worth noticing about the four new rows: none of them reads a **setting of this app's**.
-`NEXT_PUBLIC_VERCEL_ENV`, `VERCEL_ENV` and `NEXT_RUNTIME` are all set by the platform, so there is
-nothing to add to the table above for any of them.
+Worth noticing about the last four rows: none of them reads a **setting of this app's**.
+`NEXT_PUBLIC_VERCEL_ENV`, `VERCEL_ENV`, `NEXT_RUNTIME` and `VERCEL_GIT_COMMIT_SHA` are all set by the
+platform, and `APP_COMMIT` is set by this repository's own `next.config.ts` — so there is nothing to
+add to the table above for any of them, and nothing for the owner to set anywhere.
+
+### The version in the footer, and the two names behind it
+
+Added 2026-10-06 with Build it 19 (**issue #173**, rule 8). The footer on every screen says which
+build you are looking at. **Nothing here is a secret and nothing here is for the owner to set.**
+
+`VERCEL_GIT_COMMIT_SHA` is the commit Vercel built from. The name is not remembered: the installed
+Next.js reads that exact name for this exact purpose, falling back to `git rev-parse HEAD` —
+`web/node_modules/next/dist/lib/helpers/git.js`, lines 48–57.
+
+`web/next.config.ts` copies it into `APP_COMMIT` through the `env` config, which is a **build-time**
+substitution: "Next.js will replace `process.env.customKey` with `'my-value'` at build time"
+(`web/node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/env.md`). That
+is deliberate — "the commit the build came from" is a fact about the build, so the build captures it,
+rather than the footer depending on whether the platform also sets the name at run time.
+
+`web/src/app/components/Footer.tsx` then hands `APP_COMMIT` and `VERCEL_ENV` to `appVersion` in
+`web/src/lib/app-version.ts`, which is pure and is checked by
+`scripts/screen-state-check.mjs`. Anything that is not 40 hex digits is treated as "no commit", so:
+
+| Where | What the footer says |
+|---|---|
+| Vercel **Production** | `Version <7 characters>` |
+| Vercel **Preview** | `Version <7 characters> (preview)` |
+| A laptop, and the CI build | `Local development — no deployed version` |
+
+**Unverified — what the footer actually reads on Vercel.** Nothing in this repository can show it. The
+reasoning above is from the installed Next.js source and the version-matched docs, not from a
+deployed page; the owner checks the Production and Preview footers against
+`git log -1 --format=%h` on the deployed commit.
+
+A commit SHA names a commit in a public repository and the footer prints it on purpose, so it is not
+a secret. The `env` doc notes that a value configured this way is included in the JavaScript bundle
+whatever it is called — acceptable for this value, and the reason nothing else is put there.
 
 No project address and no key is written into the code anywhere, and no secret name sits behind a
 public prefix such as `NEXT_PUBLIC_` or `VITE_`. Both statements were re-checked on 2026-09-28 by

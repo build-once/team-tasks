@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { ACT_FIELD, BUTTON_IDS, pressed, type ButtonId } from "@/lib/buttons";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_PERSONAL,
@@ -22,8 +23,26 @@ function filterFrom(formData: FormData) {
   return readFilter(formData.get("filter"));
 }
 
+// WHICH BUTTON WAS PRESSED, BY IDENTIFIER (Build it 19 rule 6).
+//
+// Every action here begins with this, and a post that does not carry the
+// identifier that action answers to changes nothing and says so. The identifier is
+// a fixed string from web/src/lib/buttons.ts; the label beside it on screen is
+// prose, and nothing reads it.
+//
+// Said once in a helper rather than five times, because five copies of a check is
+// four chances for one of them to be the wrong identifier.
+function wrongButton(formData: FormData, allowed: readonly ButtonId[]): boolean {
+  return !pressed(formData.get(ACT_FIELD), allowed);
+}
+
 export async function addTask(formData: FormData) {
   const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.taskAdd])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
   const title = String(formData.get("title") ?? "").trim();
 
   // An empty team_id is Personal. Two ways it arrives empty, and both mean the
@@ -57,9 +76,24 @@ export async function addTask(formData: FormData) {
   // null. Which teams are allowed is not this code's decision either: the insert
   // policy and tasks_enforce_column_rules() both refuse a team its creator does
   // not belong to.
-  const { error } = await supabase
+  //
+  // .select() IS THE READ-BACK (Build it 19 rule 3). "Task added." used to be said
+  // because the insert returned no error, which is not the same claim: an insert
+  // with no error and no row back is possible -- the insert policy's with check can
+  // let a statement run and `returning` give nothing through the select policy --
+  // and the person would have been told a task existed that was not on the list
+  // below the banner. Rename, move and delete have read back since they were
+  // written; add and tick were the two that did not.
+  //
+  // THREE COLUMNS, BECAUSE THREE THINGS ARE CLAIMED: that the row exists, that its
+  // text is the text that was typed, and that it went into the list the banner is
+  // about to name. From the reference for insert: "By default, inserted rows are
+  // not returned. To return it, chain the call with .select()."
+  // https://supabase.com/docs/reference/javascript/insert
+  const { data: inserted, error } = await supabase
     .from("tasks")
-    .insert(teamId === null ? { title } : { title, team_id: teamId });
+    .insert(teamId === null ? { title } : { title, team_id: teamId })
+    .select("id, title, team_id");
 
   if (error) {
     // 42501 is "you may not", and on an insert it has one meaning: a task can
@@ -78,11 +112,33 @@ export async function addTask(formData: FormData) {
     redirect(tasksPath({ filter, problem: "save" }));
   }
 
+  // Nothing came back. No error, and no row -- so there is nothing this code has
+  // seen, and "Task added." would be a guess. The same sentence as a failed save,
+  // because from the person's side it is the same news: try it again.
+  const row = inserted?.[0] as
+    | { title?: unknown; team_id?: unknown }
+    | undefined;
+
+  if (!row) {
+    redirect(tasksPath({ filter, problem: "save" }));
+  }
+
+  // And what came back is what was asked for. A title the database rewrote, or a
+  // row that landed in a different list from the one this code is about to send the
+  // person to, are both "it saved, but not what you asked for" -- which must not be
+  // reported as a plain success.
+  const storedTeamId = row.team_id === null ? null : row.team_id;
+
+  if (row.title !== title || storedTeamId !== teamId) {
+    redirect(tasksPath({ filter, problem: "save" }));
+  }
+
   revalidatePath("/tasks");
 
   // Where the list goes next, and why it is not simply "back where you were":
   // see filterAfterAdd. The design confirms the add with a "Task added."
-  // message, so say so as well.
+  // message, so say so as well -- and by this point the row has been read back,
+  // so the message is a report rather than a hope.
   const destination = teamId === null ? FILTER_PERSONAL : teamId;
 
   redirect(
@@ -92,6 +148,11 @@ export async function addTask(formData: FormData) {
 
 export async function setDone(formData: FormData) {
   const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.taskDone])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
   const id = String(formData.get("id") ?? "");
   const done = String(formData.get("done") ?? "") === "true";
 
@@ -106,7 +167,26 @@ export async function setDone(formData: FormData) {
   // a task in a team you are not in still changes nothing, because the rule, not
   // this screen, decides. That is what the Alice / Bob / Carol checks in
   // docs/environments.md prove on staging.
-  const { error } = await supabase.from("tasks").update({ done }).eq("id", id);
+  //
+  // .select("id, done") IS THE READ-BACK, AND THE TICK IS THE SUCCESS MESSAGE
+  // (Build it 19 rule 3). This is the subtlest of the five actions, so it is worth
+  // being exact about what was and was not already true.
+  //
+  // WHAT WAS ALREADY TRUE: the tick drawn on the next screen comes from a fresh
+  // read of the row, because this action returns to the page and the page queries
+  // tasks again. So the box was never drawn from what this code hoped.
+  //
+  // WHAT WAS NOT: an update matching NO ROW is not an error. The row-level rules
+  // leave a row out rather than refusing it, so a tick on a task somebody else has
+  // just deleted returned cleanly, this action said nothing, and the person was
+  // handed a list with the box exactly as it was -- which reads as a tick that did
+  // not register, with no explanation anywhere. Reading the rows back is what turns
+  // that into a sentence.
+  const { data: updated, error } = await supabase
+    .from("tasks")
+    .update({ done })
+    .eq("id", id)
+    .select("id, done");
 
   if (error) {
     // One meaning on a tick, worked out in the note beside REFUSED_CODE: your
@@ -119,13 +199,35 @@ export async function setDone(formData: FormData) {
     redirect(tasksPath({ filter, problem: "save" }));
   }
 
+  // Nothing matched. Not a refusal -- a refusal arrives as the 42501 above -- so
+  // the row was not there to change: the task has been deleted, or it was never one
+  // this person could see. The same two causes as a delete that matched no row, and
+  // the message names the action the person actually took.
+  if (!updated || updated.length === 0) {
+    redirect(tasksPath({ filter, problem: "tickgone" }));
+  }
+
+  // And the row says what was asked for. A row that came back still holding the old
+  // value means something overruled the write, and the box on the next screen would
+  // be drawn from the stored value while the person had just pressed the other one.
+  if ((updated[0] as { done?: unknown }).done !== done) {
+    redirect(tasksPath({ filter, problem: "save" }));
+  }
+
   // No redirect on the way out: the form posts to the page the person is already
-  // on, so the filter in the address bar is still the filter they chose.
+  // on, so the filter in the address bar is still the filter they chose. The box
+  // they see is read from the database by the page, and this action has just
+  // confirmed the database agrees with the press.
   revalidatePath("/tasks");
 }
 
 export async function renameTask(formData: FormData) {
   const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.taskRename])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
   const id = String(formData.get("id") ?? "");
   const title = String(formData.get("title") ?? "").trim();
 
@@ -191,6 +293,11 @@ export async function renameTask(formData: FormData) {
 // permission.
 export async function moveTask(formData: FormData) {
   const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.taskMove])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
   const id = String(formData.get("id") ?? "");
 
   // Empty is Personal, exactly as on the add form: the chooser's first option
@@ -257,6 +364,11 @@ export async function moveTask(formData: FormData) {
 
 export async function deleteTask(formData: FormData) {
   const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.taskDelete])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
   const id = String(formData.get("id") ?? "");
 
   if (!id) redirect(tasksPath({ filter, problem: "save" }));

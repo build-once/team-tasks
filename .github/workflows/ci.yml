@@ -149,7 +149,7 @@ jobs:
       - name: Drift-check self-test
         run: node scripts/drift-check.mjs --selftest
 
-  # The three pure-function check scripts: issues #87, #102 and #157. None
+  # The five pure-function check scripts: issues #87, #102, #157 and #173. None
   # touches the network, a database or an account -- each imports a real module
   # out of web/src/lib and calls it, so there is no cost argument for leaving
   # them out.
@@ -158,6 +158,27 @@ jobs:
   # the least recoverable failure of the three: it checks the function that
   # decides what an error report may contain before it is sent to Sentry, and a
   # value sent to an outside company cannot be taken back by a later commit.
+  #
+  # THE FOURTH AND FIFTH ARRIVED WITH BUILD IT 19 (issue #173), and the issue asks
+  # for both of them by name:
+  #
+  #   screen-state-check    the one function that decides which look a screen shows
+  #                         -- loading, error, empty or data. The rule it holds is
+  #                         that a FAILED LOAD IS NEVER AN EMPTY LIST, which is
+  #                         easy to lose because `data ?? []` makes the two
+  #                         identical at the screen. The issue asks that the check
+  #                         be "seen to fail when a failed load is treated as
+  #                         empty": that run is in
+  #                         evidence/build-it-19-honest-screens.md.
+  #   friendly-words-check  that every role and every invitation status the
+  #                         DATABASE allows has a word a person can read. It reads
+  #                         the two migrations and compares the mapping with what
+  #                         the check constraint and the view actually permit, so a
+  #                         migration adding a value turns it red rather than
+  #                         leaving a screen unable to draw it.
+  #
+  # friendly-words-check reads two files under supabase/migrations. That is the only
+  # thing either of them reads, and neither touches a key, a .env file or a network.
   #
   # Node reads those .ts modules directly and strips the types as it loads
   # them. That needs no flag here: type stripping is enabled by default from
@@ -169,7 +190,7 @@ jobs:
     # The display name carries both script names on purpose: this is the string
     # that shows in the checks list on a pull request, and issue #87 asks that a
     # red check name tasks-filter-check rather than leave you opening logs.
-    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check)
+    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check, screen-state-check, friendly-words-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -177,11 +198,13 @@ jobs:
     # A FLOOR, not an equality. Adding checks to any of the scripts must not
     # fail this job, but a run that checked fewer things than it used to has
     # lost coverage, and a run that checked nothing is not a pass (AGENTS.md
-    # rule 8). All three numbers were counted from the scripts' own output.
+    # rule 8). All five numbers were counted from the scripts' own output.
     env:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
       EXPECTED_SENTRY_SCRUB_CHECKS: "95"
+      EXPECTED_SCREEN_STATE_CHECKS: "110"
+      EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,7 +214,7 @@ jobs:
           node-version: "22"
       - name: Which Node ran these
         run: node --version
-      - name: Run all three scripts, and count what each one actually checked
+      - name: Run all five scripts, and count what each one actually checked
         run: |
           set -euo pipefail
 
@@ -218,6 +241,8 @@ jobs:
           run_and_count tasks-filter-check   scripts/tasks-filter-check.mjs   "$EXPECTED_TASKS_FILTER_CHECKS"
           run_and_count password-reset-check scripts/password-reset-check.mjs "$EXPECTED_PASSWORD_RESET_CHECKS"
           run_and_count sentry-scrub-check   scripts/sentry-scrub-check.mjs   "$EXPECTED_SENTRY_SCRUB_CHECKS"
+          run_and_count screen-state-check   scripts/screen-state-check.mjs   "$EXPECTED_SCREEN_STATE_CHECKS"
+          run_and_count friendly-words-check scripts/friendly-words-check.mjs "$EXPECTED_FRIENDLY_WORDS_CHECKS"
 
   # The --selftest of the three staging scripts that have one: issues #114, #136
   # and #167. A selftest here is the thing that makes a green staging run mean

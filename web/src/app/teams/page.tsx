@@ -1,25 +1,58 @@
 import { redirect } from "next/navigation";
 
+import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { LoadFailed } from "@/app/components/LoadFailed";
+import { BUTTON_IDS } from "@/lib/buttons";
+import {
+  SCREEN_ERROR,
+  screenState,
+  showsData,
+  type ScreenState,
+} from "@/lib/screen-state";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
+  CREATE_TEAM_SENTENCES,
   DISPLAY_NAME_MAX,
   EMAIL_MAX,
   INVITATION_DAYS,
+  INVITE_SENTENCES,
   invitationDelivery,
   MAX_PENDING_INVITATIONS,
   MAX_TEAMS_PER_OWNER,
   NAME_MAX,
-  NO_DISPLAY_NAME,
+  TEAM_ACTION_OUTCOMES,
   type Invitation,
   type Profile,
   type RosterEntry,
+  type TeamActionOutcome,
   type Team,
 } from "@/lib/teams";
+import { NO_DISPLAY_NAME, plainText, roleWord } from "@/lib/words";
 
 import { createTeam, inviteMember, saveDisplayName } from "./actions";
+
+// An outcome code from the query string, turned into one of THIS FILE'S sentences.
+//
+// Same shape as messageFor in web/src/app/invite/[token]/page.tsx, and for the same
+// reason: the page receives a short code and chooses the words. An unrecognised
+// code shows nothing at all -- there is deliberately no fallback that echoes the
+// input, because an echo is how a crafted link makes our domain say somebody else's
+// words.
+//
+// WHICH MAP is passed in, because the same outcome means different things for the
+// two actions: a 409 from create-team is the three-team limit, and a 409 from
+// invite-member is one of three refusals about an address.
+function sentenceFor(
+  raw: string | string[] | undefined,
+  sentences: Readonly<Record<TeamActionOutcome, string>>,
+): string | null {
+  if (typeof raw !== "string") return null;
+  if (!(TEAM_ACTION_OUTCOMES as readonly string[]).includes(raw)) return null;
+  return sentences[raw as TeamActionOutcome];
+}
 
 // An expiry date a person can read, in the one format this app uses. Dates come
 // back as ISO strings; en-GB gives "3 October 2026" rather than a US ordering
@@ -36,18 +69,23 @@ function expiryLabel(iso: string) {
 
 // One team's members list, read from team_roster.
 //
-// `failed` is passed in rather than inferred from an empty list, because "the
-// read did not work" and "this team has nobody in it" must not look the same on
-// screen. (The second cannot actually happen -- a team always has its owner --
-// which is itself a reason to say so rather than draw an empty list.)
+// `state` is the look the WHOLE roster read is in, worked out once by the page and
+// passed down, rather than each team's card deciding for itself. The reason is the
+// one screenState exists for: "the read did not work" and "this team has nobody in
+// it" must not look the same, and an empty array is what BOTH of them leave behind.
+// (The second cannot actually happen -- a team always has its owner -- which is
+// itself a reason to say so rather than draw an empty list.)
 function MembersList({
   entries,
-  failed,
+  state,
 }: {
   entries: RosterEntry[];
-  failed: boolean;
+  state: ScreenState;
 }) {
-  if (failed) {
+  if (state === SCREEN_ERROR) {
+    // No Try again button on each card: there is one for the roster read at the
+    // top of the page, and twenty copies of the same button would be noise. The
+    // sentence is here because this is where the missing list is.
     return <p className="hint">This team&apos;s members could not be loaded.</p>;
   }
 
@@ -72,11 +110,24 @@ function MembersList({
             {/* A missing nickname shows as a neutral placeholder and never as
                 an address: team_roster has no email column, and nothing in this
                 database would let the app read one (docs/plan.md, "Email
-                address: never shown to team members"). */}
-            {entry.display_name && entry.display_name.trim() !== ""
-              ? entry.display_name
-              : NO_DISPLAY_NAME}{" "}
-            — {entry.role}
+                address: never shown to team members").
+
+                plainText rather than a check written here (Build it 19 rule 4).
+                display_name is nullable -- the view left-joins profiles -- and
+                React draws nothing at all for a null, which on this line reads as
+                a person with no name rather than as a name that is missing. The
+                old check caught null and blank; plainText also catches the words
+                "null" and "undefined", which is what a nullish value becomes on
+                its way through a string, and it is the one function doing this
+                everywhere rather than a habit kept up one line at a time. */}
+            {plainText(entry.display_name, NO_DISPLAY_NAME)} —{" "}
+            {/* The role as a word, never the stored value (Build it 19 rule 5).
+                The view derives 'owner' or 'member'; roleWord turns those into
+                "Owner" and "Member", and says the role is not known for anything
+                else rather than printing it.
+                scripts/friendly-words-check.mjs reads the two literals out of
+                20261002122203_team_rules.sql and fails if either has no word. */}
+            {roleWord(entry.role)}
           </li>
         ))}
       </ul>
@@ -87,15 +138,8 @@ function MembersList({
 export default async function MyTeamsPage({
   searchParams,
 }: PageProps<"/teams">) {
-  const {
-    problem,
-    created,
-    invited,
-    to,
-    joined,
-    named,
-    error: errorParam,
-  } = await searchParams;
+  const { problem, created, invited, to, joined, named, outcome } =
+    await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows
@@ -237,14 +281,52 @@ export default async function MyTeamsPage({
     rosterByTeam.set(entry.team_id, list);
   }
 
-  // The message from create-team, passed through the URL by the action. It is
-  // our own text, and React escapes it, so it cannot become markup. It is still
-  // worth knowing that anything in a query string arrived from whoever opened
-  // the link: treat it as something to display, never as something to trust.
-  const failure =
-    typeof errorParam === "string" && errorParam.trim() !== ""
-      ? errorParam
-      : null;
+  // WHAT A FAILED FUNCTION CALL SAYS (Build it 19 rule 2).
+  //
+  // A CODE from the query string, mapped to one of this page's own sentences. What
+  // this replaced is the whole argument, and it is written out in full beside
+  // TEAM_ACTION_OUTCOMES in web/src/lib/teams.ts: the action used to put the
+  // function's own message into ?error= and this page printed it, so anyone could
+  // craft a link to this site that displayed words they chose, on our domain and in
+  // our styling. An unrecognised code now shows nothing at all.
+  //
+  // Two separate reads, because the two actions need different sentences for the
+  // same code, and because a page that showed one banner for both would have to
+  // guess which action the person had just taken.
+  const createFailure =
+    problem === "create" ? sentenceFor(outcome, CREATE_TEAM_SENTENCES) : null;
+
+  const inviteFailure =
+    problem === "invite" ? sentenceFor(outcome, INVITE_SENTENCES) : null;
+
+  // ---- WHICH LOOK EACH READ GETS (Build it 19 rule 1) ---------------------
+  //
+  // Four reads on this page, so four answers, all from the one function in
+  // web/src/lib/screen-state.ts. The trap it exists for is the same on every one of
+  // them: `data ?? []` and `data ?? null` turn a failed read into an empty one, so
+  // without `failed` passed separately, "your teams could not be loaded" and "you
+  // have no teams" arrive here looking identical.
+  //
+  // The profile read is counted differently from the other three on purpose:
+  // maybeSingle() gives a row or null rather than an array, and "no profile row
+  // yet" is the ordinary first-time case rather than an emptiness worth a look of
+  // its own. So it is 1 or 0 rows, and only the error look is acted on.
+  const teamsState = screenState({ failed: Boolean(error), rows: teams.length });
+
+  const inviteState = screenState({
+    failed: Boolean(inviteError),
+    rows: invitations.length,
+  });
+
+  const rosterState = screenState({
+    failed: Boolean(rosterError),
+    rows: roster.length,
+  });
+
+  const profileState = screenState({
+    failed: Boolean(profileError),
+    rows: profile === null ? 0 : 1,
+  });
 
   // Whether this person is already at the limit, used only to show a note. The
   // form stays visible either way.
@@ -260,11 +342,16 @@ export default async function MyTeamsPage({
   // counts by owner_id, so a note counting teams somebody merely belongs to
   // would tell them they were at a limit the function would happily let them
   // past (issue #76).
-  const atLimit = !error && ownedTeams.length >= MAX_TEAMS_PER_OWNER;
+  //
+  // Asked of the look rather than of `error`, for the same reason the count on My
+  // tasks is: a failed read is not "you own no teams", and a note counting rows
+  // nobody could read would be a claim.
+  const atLimit =
+    teamsState !== SCREEN_ERROR && ownedTeams.length >= MAX_TEAMS_PER_OWNER;
 
   return (
     <>
-      <Header signedIn current="teams" />
+      <Header signedIn current="teams" account={claimsData.claims.email} />
 
       <main className="page stack">
         <h1>My teams</h1>
@@ -293,9 +380,12 @@ export default async function MyTeamsPage({
               team mates. Please not your full name.
               {profile ? null : " You have not set one yet."}
             </p>
-            <button className="btn btn--primary" type="submit">
+            <ActButton
+              className="btn btn--primary"
+              act={BUTTON_IDS.nameSave}
+            >
               Save name
-            </button>
+            </ActButton>
           </div>
         </form>
 
@@ -319,11 +409,22 @@ export default async function MyTeamsPage({
         ) : null}
 
         {/* Said plainly, because the box above is empty in this case too, and an
-            empty box otherwise reads as "you have no name set". */}
-        {profileError ? (
-          <Banner tone="bad" icon="alert">
+            empty box otherwise reads as "you have no name set". Now with the
+            button, like every other failed read on this page. */}
+        {profileState === SCREEN_ERROR ? (
+          <LoadFailed target="teams">
             Your name could not be loaded, so the box above is empty whether or
             not you have set one. Saving will still work.
+          </LoadFailed>
+        ) : null}
+
+        {/* A post that carried no button identifier this page recognises (Build it
+            19 rule 6). Not reachable from the screen -- every button here carries
+            one -- so it takes a request made by hand. */}
+        {problem === "button" ? (
+          <Banner tone="bad" icon="alert">
+            Nothing happened: that request did not come from a button on this
+            page. Please use the buttons here.
           </Banner>
         ) : null}
 
@@ -356,15 +457,32 @@ export default async function MyTeamsPage({
               Up to {NAME_MAX} characters. Please pick a name that does not
               identify the members.
             </p>
-            <button className="btn btn--primary" type="submit">
+            <ActButton
+              className="btn btn--primary"
+              act={BUTTON_IDS.teamCreate}
+            >
               Create team
-            </button>
+            </ActButton>
           </div>
         </form>
 
-        {created ? (
+        {/* "Team created." is said only after the action has READ THE ROW BACK out
+            of the database (Build it 19 rule 3). It used to be said because the
+            function answered 201, which is a different claim. */}
+        {created === "1" ? (
           <Banner tone="ok" icon="check">
             Team created.
+          </Banner>
+        ) : null}
+
+        {/* The read-back did not work. The team probably exists -- the function
+            said so -- and nothing here has seen it, so nothing here claims it. The
+            list below is read in this same request, so whichever answer the
+            database gives, the list and this sentence agree. */}
+        {created === "unconfirmed" ? (
+          <Banner tone="bad" icon="alert">
+            The team may have been created, but we could not read it back, so it
+            is not confirmed. Look for it below before creating it again.
           </Banner>
         ) : null}
 
@@ -417,9 +535,21 @@ export default async function MyTeamsPage({
           </Banner>
         ) : null}
 
-        {joined ? (
+        {/* Said only after the action has read the membership back, as the team
+            this person can now see (Build it 19 rule 3). */}
+        {joined === "1" ? (
           <Banner tone="ok" icon="check">
             You have joined the team.
+          </Banner>
+        ) : null}
+
+        {/* The function accepted the invitation and the read-back did not work, so
+            the membership is not confirmed from here. The list below is read in this
+            same request, so it is the thing to look at. */}
+        {joined === "unconfirmed" ? (
+          <Banner tone="bad" icon="alert">
+            The invitation was accepted, but we could not read the team back, so
+            joining is not confirmed. Look for it below.
           </Banner>
         ) : null}
 
@@ -435,44 +565,53 @@ export default async function MyTeamsPage({
           </Banner>
         ) : null}
 
+        {/* The invite-member failure, in one of THIS FILE'S sentences, chosen from
+            a code. `problem=invite` with no usable code -- which is what the two
+            checks before the function call send -- falls back to the general
+            sentence rather than showing nothing. */}
         {problem === "invite" ? (
           <Banner tone="bad" icon="alert">
-            That invitation could not be sent. Please try again.
+            {inviteFailure ?? INVITE_SENTENCES.broke}
           </Banner>
         ) : null}
 
-        {inviteError ? (
+        {/* And the create-team failure, the same way. */}
+        {problem === "create" ? (
           <Banner tone="bad" icon="alert">
-            Pending invitations could not be loaded, so the lists below may be
-            incomplete. If this database is new, the invitations table may not
-            exist yet.
+            {createFailure ?? CREATE_TEAM_SENTENCES.broke}
           </Banner>
         ) : null}
 
-        {rosterError ? (
-          <Banner tone="bad" icon="alert">
+        {inviteState === SCREEN_ERROR ? (
+          <LoadFailed target="teams">
+            Pending invitations could not be loaded, so no team below shows who
+            is waiting to join it. If this database is new, the invitations table
+            may not exist yet.
+          </LoadFailed>
+        ) : null}
+
+        {rosterState === SCREEN_ERROR ? (
+          <LoadFailed target="teams">
             The members lists could not be loaded, so each team below says so
             instead of showing who is in it.
-          </Banner>
+          </LoadFailed>
         ) : null}
 
-        {failure ? (
-          <Banner tone="bad" icon="alert">
-            {failure}
-          </Banner>
+        {/* THE ERROR LOOK for the teams read itself. Everything below is drawn only
+            for the other two looks, so a failed read is never an empty list and
+            never a "No teams yet" -- which is the one thing this page had wrong and
+            the reason screenState exists. */}
+        {teamsState === SCREEN_ERROR ? (
+          <LoadFailed target="teams">
+            Your teams could not be loaded, so nothing below is a list of them.
+            If this database is new, the teams table may not exist yet: the
+            migration in supabase/migrations has not been applied.
+          </LoadFailed>
         ) : null}
 
-        {error ? (
-          <Banner tone="bad" icon="alert">
-            Your teams could not be loaded. If this database is new, the teams
-            table may not exist yet: the migration in supabase/migrations has
-            not been applied.
-          </Banner>
-        ) : null}
-
-        {/* Nothing loaded, or nothing to show: one line, and no headings for two
-            empty sections. */}
-        {error ? null : teams.length === 0 ? (
+        {/* THE EMPTY LOOK: nothing to show, one line, and no headings for two empty
+            sections. Then the data look. */}
+        {teamsState === SCREEN_ERROR ? null : !showsData(teamsState) ? (
           <p className="hint">No teams yet</p>
         ) : (
           <>
@@ -491,7 +630,7 @@ export default async function MyTeamsPage({
 
                         <MembersList
                           entries={rosterByTeam.get(team.id) ?? []}
-                          failed={Boolean(rosterError)}
+                          state={rosterState}
                         />
 
                         {/* The invite box belongs to this list and not the one
@@ -524,12 +663,30 @@ export default async function MyTeamsPage({
                             days, and only for that address. A team may have up
                             to {MAX_PENDING_INVITATIONS} invitations waiting.
                           </p>
-                          <button className="btn btn--primary" type="submit">
+                          {/* ONE OF THE TWO BUTTONS THAT SHARE AN ACTION, which is
+                              why the identifier matters most here (Build it 19
+                              rule 6). This one and the Try again below both post
+                              to inviteMember, and before this the only thing
+                              telling them apart was which hidden fields the
+                              surrounding form happened to carry. */}
+                          <ActButton
+                            className="btn btn--primary"
+                            act={BUTTON_IDS.inviteSend}
+                          >
                             Send invitation
-                          </button>
+                          </ActButton>
                         </form>
 
-                        {pending.length === 0 ? (
+                        {/* "No invitations waiting." is a claim about this team, so
+                            it is only made when the invitations read WORKED. With a
+                            failed read nothing is said here: the error look at the
+                            top of the page, with its Try again, is what says why
+                            there is nothing to show. Before this, a failed read
+                            drew this line on every team -- a failed load looking
+                            exactly like an empty list, which is the thing Build it
+                            19 rule 1 forbids. */}
+                        {inviteState === SCREEN_ERROR ? null : pending.length ===
+                          0 ? (
                           <p className="hint">No invitations waiting.</p>
                         ) : (
                           <>
@@ -581,12 +738,12 @@ export default async function MyTeamsPage({
                                           name="email"
                                           value={invitation.email}
                                         />
-                                        <button
+                                        <ActButton
                                           className="btn"
-                                          type="submit"
+                                          act={BUTTON_IDS.inviteRetry}
                                         >
                                           Try again
-                                        </button>
+                                        </ActButton>
                                       </form>
                                     ) : null}
                                   </li>
@@ -639,7 +796,7 @@ export default async function MyTeamsPage({
 
                       <MembersList
                         entries={rosterByTeam.get(team.id) ?? []}
-                        failed={Boolean(rosterError)}
+                        state={rosterState}
                       />
                     </li>
                   ))}
