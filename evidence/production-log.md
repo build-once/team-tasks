@@ -237,6 +237,41 @@ alone. It named reading those two functions as the way to settle it, and this is
 suspension check is before the body in both. This entry is a **read**, like every one before it, so
 the closing section below still holds.
 
+---
+
+## 2026-10-06
+
+**Where this line comes from.** Written on 6 Oct 2026 by the assistant (Claude Code) from the text of
+**issue #166**, which is the owner's account of what the coach read. As with every entry above it: the
+assistant has no production access of any kind, did not watch the calls happen, and **did not use the
+production read-only connector to check them** — rules 1 and 10 forbid that, and rule 19's exception
+covers production function secrets and nothing else. Issue #166 also says in so many words, "Do not
+use any MCP connector or the browser tool." The entry below is the issue's words, repeated verbatim,
+and the assistant has verified **nothing** in it.
+
+**On the time.** The issue gives none beyond "after PR #165 merged", so no clock time is invented
+here. `gh pr view 165 --json mergedAt` reports **2026-10-06T13:29:37Z**, read in this session, so the
+reads are after that and the ordering is at least consistent.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| After 13:29:37 UTC — no more precise time given | The coach (claude.ai), via the production read-only connector | Two reads of **settings and counts, no row contents** | Check what the merge of PR #165 actually left in production, rather than reading the migration and assuming | > 6 Oct 2026, after PR #165 merged. Coach, read-only connector. Two reads of settings and counts, no row contents: 8 migrations, newest 20261006095847; invitations.status default 'queued' and failure_code default ''; both check constraints present; 2 invitations, both status sent with empty code; anon and authenticated have no INSERT or UPDATE on the table or on either new column; service_role has both; 16 policies in public. |
+
+**What it settles, and what it does not.** The migration from PR #165 is in production, with both
+columns, both defaults, both check constraints, and the privileges the migration's section 4 set — the
+`revoke insert, update ... from anon, authenticated` took effect, and `service_role` has what it needs
+to write the two columns. The policy count went from the 16 of 5 Oct to 16, so the migration added
+none, which is what "no new rule was needed" meant.
+
+What it says nothing about: **the function**. The two invitations say `sent` because the migration's
+backfill said so, not because any deployed function wrote it — `update public.invitations set status =
+'sent'` is section 2 of that migration. No deployed `invite-member`, in staging or production, has ever
+written either column. The code in this pull request is what would, and **it is deployed nowhere**.
+
+Nothing here wrote anything, and nothing in this session touched production.
+
+---
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production

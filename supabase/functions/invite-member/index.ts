@@ -46,6 +46,23 @@
 // through a pull request the owner merges (rule 19) -- and the assistant has
 // deployed nothing anywhere. evidence/build-it-16-suspend-functions.md records
 // what the staging run showed and what is still unproved.
+//
+// AND A SECOND EXCEPTION, as of 6 October 2026, WHICH IS NOT DEPLOYED ANYWHERE AT
+// ALL. The status writing, the retry path and the failure codes below arrived with
+// issue #166 (Build it 18 part 2b). They are in this repository and in NO Supabase
+// project: not staging, not production. The owner deploys to staging; production
+// follows a merge, through .github/workflows/migrate-production.yml.
+//
+// Until that staging deploy happens, what is running out there is the version
+// that DELETES an invitation whose email failed. So: a row in staging or
+// production at status 'queued' was put there by the migration's defaults and the
+// old code, and no deployed function has ever written 'sent' or 'failed'. The
+// two rows the coach read on 6 October say 'sent' because the migration's backfill
+// said so, not because a function did.
+//
+// scripts/staging/build-it-18-invitation-status-checks.mjs is written to be run
+// BEFORE and AFTER that deploy, and the before-run is expected to fail: that is
+// how the pair of runs shows the deploy is what changed the behaviour.
 
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
@@ -53,6 +70,16 @@ import { withSupabase } from "@supabase/server";
 
 const MAX_PENDING_PER_TEAM = 20;
 const TOKEN_BYTES = 32; // 32 random bytes = 256 bits. See makeToken below.
+
+// docs/plan.md, feature 3: "an invitation expires after 7 days".
+//
+// THE DATABASE IS WHAT NORMALLY DECIDES THIS, and that has not changed:
+// invitations.expires_at defaults to `now() + interval '7 days'`, so an insert
+// from here does not mention it. This number is used in exactly one place -- a
+// retry, which replaces the link on a row that already exists, and so has to
+// restate the window rather than inherit a default it is not triggering. See the
+// retry block for why the window starts again.
+const INVITATION_DAYS = 7;
 
 // The shape Postgres accepts for a uuid column: 8-4-4-4-12 hex digits.
 //
@@ -66,6 +93,249 @@ const UUID_PATTERN =
 function fail(message: string, status: number, code?: string) {
   // One shape for every failure, so the page can always read `error`.
   return Response.json({ error: message, code }, { status });
+}
+
+// ---------------------------------------------------------------------------
+// An invitation's status, and the four reasons a send can fail (issue #166)
+// ---------------------------------------------------------------------------
+//
+// docs/plan.md, "Invitation status": "queued when the row is created, then sent
+// or failed. On a failure, a short reason code and nothing more -- never the
+// email service's full reply, which can quote the address, the subject and the
+// message."
+//
+// THE THREE WORDS AND THE FOUR CODES ARE THE MIGRATION'S, NOT THIS FILE'S.
+// 20261006095847_invitation_status.sql has two check constraints,
+// invitations_status_allowed and invitations_failure_code_allowed, and they are
+// what decides: a value not on these lists is refused by the database with
+// 23514, whatever this file believes. The copies here exist so this function can
+// name a value rather than spell a string at four call sites, and they are
+// written in the same order as the constraint so the two can be read side by
+// side. Adding a code needs a new migration, which is the point of a fixed list.
+export const INVITATION_STATUSES = ["queued", "sent", "failed"] as const;
+export type InvitationStatus = (typeof INVITATION_STATUSES)[number];
+
+export const FAILURE_CODES = [
+  "not_configured",
+  "unreachable",
+  "refused",
+  "unconfirmed",
+] as const;
+export type FailureCode = (typeof FAILURE_CODES)[number];
+
+// One fixed sentence per code, and every one of them is OUR words.
+//
+// THIS IS THE RULE THE CODES EXIST FOR. Nothing the email service says reaches
+// this map, a stored row, a response body or a log line -- not its message, not
+// its field names, not the body it answered with. Its reply can quote the
+// address, the subject and the text of the message, all three of which are
+// personal data under docs/plan.md's appendix, and none of which has any
+// business on a screen or in a log.
+//
+// Note what is also absent: the HTTP status the service answered with. It is not
+// "its own words", so it would not break the rule above -- it is left out
+// because it answers no question the owner can act on. Resend keeps its own
+// sending log for 30 days (docs/plan.md's appendix), and that is the place to
+// read what actually happened to one message.
+export const FAILURE_SENTENCES: Record<FailureCode, string> = {
+  not_configured: "This environment is not set up to send invitation email.",
+  unreachable: "The email service could not be reached.",
+  // "would not accept" rather than "refused", which is the word the code itself
+  // uses. A sentence that repeats its own code reads as a machine value dressed
+  // up as English, and supabase/functions/_tests/invitation_status_test.ts refuses
+  // one -- it caught this sentence on its first run, when it said "The email
+  // service refused the message."
+  refused: "The email service would not accept the message.",
+  unconfirmed:
+    "The email service answered, but did not confirm that an email was created.",
+};
+
+// HOW LONG A ROW MAY SIT AT 'queued' BEFORE IT COUNTS AS NEVER SENT.
+//
+// Why this exists at all: a row is written as 'queued' and the status is written
+// again after the email service answers, so a function that STOPS between those
+// two writes -- a crash, a timeout, a shut-down isolate -- leaves a row at
+// 'queued' that nothing will ever move. Nothing in the data distinguishes it
+// from a send that is in flight this second, so the only thing that can tell
+// them apart is the clock.
+//
+// WHY FIFTEEN MINUTES, and the number is chosen rather than read off a limits
+// page:
+//
+//   * it is far longer than this function can possibly still be running. The
+//     only thing it waits on between the two writes is one HTTP request to the
+//     email service, and the platform ends an invocation long before fifteen
+//     minutes. THE EXACT WALL-CLOCK LIMIT IS UNVERIFIED -- it was not read in
+//     the session that wrote this line, so no number for it is written here.
+//     https://supabase.com/docs/guides/functions/limits is the page to read, and
+//     issue #168 holds the question;
+//   * it is far shorter than the 7 days an invitation lives, so a stuck row
+//     becomes retryable with almost all of its life left rather than at the end
+//     of it;
+//   * and it is long enough that an owner pressing the button twice, or opening
+//     two tabs, cannot produce a retry while the first send is still happening.
+//     That matters more than tightness in the other direction: a retry sends a
+//     second email to a real person, and the cost of waiting fifteen minutes is
+//     that the screen says "sending" for fifteen minutes.
+//
+// web/src/lib/teams.ts has the same number, so the Try again button appears at
+// the same moment the function would honour it. This copy is the one that
+// decides.
+export const STALE_QUEUED_MINUTES = 15;
+
+// May this invitation be sent again, given the row that is already there?
+//
+// Pure, and exported, so supabase/functions/_tests/invitation_status_test.ts
+// runs THIS decision rather than a copy of it -- the same argument
+// checkSuspension's export rests on.
+//
+// `nowMs` is passed in rather than read from the clock here, so a test can place
+// a row either side of the window without waiting.
+export type RetryVerdict =
+  | { retry: true; why: "failed" | "stale" }
+  | { retry: false; why: "sent" | "sending" | "unknown" };
+
+export function retryVerdict(
+  row: { status?: unknown; created_at?: unknown },
+  nowMs: number,
+): RetryVerdict {
+  const status = row?.status;
+
+  // The one the owner asks for most: the send is known to have failed, so the
+  // old link was never delivered and nobody is waiting on it.
+  if (status === "failed") return { retry: true, why: "failed" };
+
+  // Known sent. Refused, and this is the refusal issue #166 requires to be
+  // unchanged: a waiting invitation whose status is sent still answers 409 with
+  // the Postgres code 23505.
+  if (status === "sent") return { retry: false, why: "sent" };
+
+  if (status === "queued") {
+    const createdAt =
+      typeof row.created_at === "string" ? Date.parse(row.created_at) : NaN;
+
+    // AN UNREADABLE created_at DOES NOT BECOME A RETRY. If the clock cannot be
+    // read, how long this row has been waiting is not known -- and an unknown is
+    // not "long enough", for the same reason an unknown is not a zero everywhere
+    // else in this file. Refusing sends no second email; guessing might.
+    if (Number.isNaN(createdAt)) return { retry: false, why: "sending" };
+
+    const stale = nowMs - createdAt >= STALE_QUEUED_MINUTES * 60_000;
+    return stale ? { retry: true, why: "stale" } : { retry: false, why: "sending" };
+  }
+
+  // Not one of the three words. The check constraint makes this unreachable
+  // through the database, so arriving here means the row was read wrongly rather
+  // than written wrongly -- and the safe answer to "I do not recognise this" is
+  // the refusal that was here before any of this existed.
+  return { retry: false, why: "unknown" };
+}
+
+// THE 409 THAT MUST NOT CHANGE, exported so the test reads the body this
+// function sends rather than a body it writes out for itself. Issue #166: "a
+// waiting invitation whose status is sent still answers 409 with code 23505",
+// and the sentence is the one this function has sent since it was written.
+export function alreadyWaitingAnswer(code?: string): Response {
+  return fail(
+    "That person already has an invitation waiting for this team.",
+    409,
+    code,
+  );
+}
+
+// The other two refusals a live row can produce, both 409 and both carrying the
+// same Postgres code, because in both cases that code is the real one the
+// database answered the insert with.
+//
+// They are separate sentences rather than the one above because they are
+// separate facts, and the owner can act on the difference: "wait" is not "press
+// the button". Neither existed as a distinguishable case before this change --
+// every row in the table was either accepted, expired or sent -- so this adds
+// wording where there was none rather than altering the refusal above.
+export function stillSendingAnswer(code?: string): Response {
+  return fail(
+    `That invitation is being sent now. Give it a few minutes, and the team's ` +
+      `page will say whether it went.`,
+    409,
+    code,
+  );
+}
+
+// The answer for a send that did not happen, with the invitation left behind so
+// the owner can see it and ask again.
+//
+// `recorded` is whether the row now says 'failed'. The distinction is the whole
+// point of this builder: issue #166 says what the function answers must match
+// what it stored, so when the status write itself failed this must NOT claim the
+// invitation is marked as failed -- the owner will see it as still sending.
+//
+// 502 when the row was marked, 500 when it was not: the same pairing this
+// function used before, where a clean upstream failure was 502 and one that left
+// the database in a state nobody asked for was 500.
+export function sendFailureAnswer(args: {
+  code: FailureCode;
+  recorded: boolean;
+}): Response {
+  const sentence = FAILURE_SENTENCES[args.code];
+  if (args.recorded) {
+    return fail(
+      `The invitation email could not be sent. ${sentence} The invitation is ` +
+        `saved and shows as "could not be sent", so you can ask again.`,
+      502,
+      args.code,
+    );
+  }
+  return fail(
+    `The invitation email could not be sent. ${sentence} We could not record ` +
+      `that either, so the invitation may still show as "sending". Please check ` +
+      `the team's invitations before asking again.`,
+    500,
+    args.code,
+  );
+}
+
+// The answer for an invitation whose email went.
+//
+// `status` is read back from the row rather than assumed, which is the other
+// half of "what the function answers must match what it stored". When the status
+// write failed it is still 'queued', and this says 'queued' -- the email went,
+// and the row does not know it yet.
+//
+// 201 FOR A RETRY TOO, and that is a decision rather than an oversight. Nothing
+// is created by a retry: the row was already there, and its token_hash and
+// expires_at are replaced in place. 201 is still the honest answer to what the
+// caller asked for -- there is now a pending invitation whose link has just been
+// emailed -- and `retried` says which of the two happened, so no caller has to
+// infer it from a status code. The alternative, 200, would also have broken
+// web/tests/access-rules.test.mjs, which accepts 201 or 409 from this function
+// and which rule 20 does not allow to be edited to suit a change here.
+export function invitationAnswer(args: {
+  id: string;
+  email: string;
+  expires_at: string;
+  status: InvitationStatus;
+  redirected: boolean;
+  retried: boolean;
+}): Response {
+  return Response.json(
+    {
+      invitation: {
+        id: args.id,
+        email: args.email,
+        expires_at: args.expires_at,
+        // One of the three words, and never a failure code: this builder is only
+        // ever reached when the email went.
+        status: args.status,
+      },
+      // True when the email went to the test inbox instead of the invited
+      // person, so a staging tester is not left wondering.
+      redirected: args.redirected,
+      // True when this replaced the link on an invitation that was already
+      // there, rather than creating one.
+      retried: args.retried,
+    },
+    { status: 201 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -309,13 +579,19 @@ function decideDelivery(invitedEmail: string, teamName: string): Delivery {
 // called `<img onerror=...>` in an HTML email is a scripting hole in whatever
 // mail client opens it. Plain text cannot be interpreted that way, and this app
 // has no need for a styled email.
+//
+// WHAT CAME BACK IS JUDGED SOMEWHERE ELSE. The reading of the answer lives in
+// `codeFromSendResponse` below, which takes a Response and nothing else, so the
+// test can hand it every shape the service can produce without a network, a key
+// or an account. This function is the part that cannot be tested that way: the
+// fetch, and the one failure only a fetch can have.
 async function sendEmail(args: {
   apiKey: string;
   from: string;
   to: string;
   subject: string;
   text: string;
-}): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+}): Promise<{ ok: true; id: string } | { ok: false; code: FailureCode }> {
   let response: Response;
   try {
     response = await fetch("https://api.resend.com/emails", {
@@ -332,33 +608,44 @@ async function sendEmail(args: {
       }),
     });
   } catch {
-    // Network-level failure: nothing was sent, and no status to read.
-    return { ok: false, reason: "the email service could not be reached" };
+    // Network-level failure: nothing was sent, and no status to read. Nothing
+    // about the cause is kept -- not the thrown message, which can name a host.
+    return { ok: false, code: "unreachable" };
   }
 
-  // A 2xx status ALONE is not success. Read the body and require an id.
+  return await codeFromSendResponse(response);
+}
+
+// What the email service's answer means, as one of the three codes an answer can
+// produce. Exported and pure, so the test runs this and not a copy.
+//
+// A 2xx STATUS ALONE IS NOT SUCCESS, which is the whole reason this is three
+// branches and not one. The service can answer 200 with a body that is not JSON,
+// or with JSON that carries no id, and in both cases no email can be said to
+// exist -- so both are `unconfirmed`, which is deliberately ONE code for two
+// branches: they are one fact to somebody reading a screen, "it answered, and we
+// still cannot say it went". The migration's comment says the same.
+//
+// Reporting success here would be the worst outcome available: an invitation
+// marked sent that nobody ever received, which the owner has no reason to look
+// at again.
+export async function codeFromSendResponse(
+  response: Response,
+): Promise<{ ok: true; id: string } | { ok: false; code: FailureCode }> {
   if (!response.ok) {
-    return { ok: false, reason: `the email service answered ${response.status}` };
+    return { ok: false, code: "refused" };
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    return {
-      ok: false,
-      reason: "the email service answered 2xx with a body that was not JSON",
-    };
+    return { ok: false, code: "unconfirmed" };
   }
 
   const id = (body as { id?: unknown } | null)?.id;
   if (typeof id !== "string" || id === "") {
-    // 2xx with no id means we cannot say an email exists. Treat as a failure:
-    // reporting success here would leave an invitation nobody was told about.
-    return {
-      ok: false,
-      reason: "the email service answered 2xx but returned no email id",
-    };
+    return { ok: false, code: "unconfirmed" };
   }
 
   return { ok: true, id };
@@ -613,10 +900,36 @@ export default {
       );
     }
 
+    // AND A RETRY IS COUNTED HERE TOO, WHICH IS WRONG AND IS NOT FIXED HERE. A
+    // failed invitation is still pending by this count -- not accepted, not expired
+    // -- so a team sitting at 20 cannot send one of them again, even though a retry
+    // creates no row and occupies no new slot. The owner presses Try again and is
+    // told the team is full.
+    //
+    // The fix is to read the existing row before counting, and that moves a refusal
+    // ahead of another one, which issue #166 does not allow in this change. Issue
+    // #170 holds it, with what a fix must and must not change.
+
     // ---- Decide delivery BEFORE writing anything --------------------------
     //
     // Required by the delivery rules, and worth restating: if this environment
     // may not send, nothing is created at all. No invitation, no wasted slot.
+    //
+    // AND THIS IS WHY NOTHING IS EVER STORED AS `not_configured`, which is a
+    // thing to say out loud rather than leave somebody to discover. The fixed
+    // list in 20261006095847_invitation_status.sql has four codes, and names this
+    // branch as the source of that one -- but this branch runs BEFORE any row
+    // exists, by the deliberate ordering above, so there is nothing to write a
+    // status on. The caller gets 503 and the table is untouched.
+    //
+    // The code is still in the list, the screen still has a sentence for it, and
+    // both are right: the column can hold it, the check constraint allows it, and
+    // a later change that writes a row before deciding delivery would produce it.
+    // What would be wrong is a screen that met the value and showed nothing.
+    // Issue #169 holds the question of whether the ordering should change so that
+    // a retry in an unconfigured environment records this instead of leaving the
+    // row as it was; it is not changed here because issue #166 requires every
+    // existing refusal to keep its order.
     const decision = decideDelivery(email, teamName);
     if (!decision.ok) {
       // Names the settings. Never their values -- see the note at the end.
@@ -681,7 +994,12 @@ export default {
       );
     }
 
-    // ---- Create the invitation --------------------------------------------
+    // ---- Create the invitation, or take over the one already there ---------
+    //
+    // The row is created as 'queued'. Nothing names that column in the insert:
+    // 20261006095847_invitation_status.sql gives status the default 'queued' and
+    // failure_code the default '', and letting the defaults do it means there is
+    // one place the starting state is written down rather than two.
     const token = makeToken();
     const tokenHash = await hashToken(token);
 
@@ -693,32 +1011,146 @@ export default {
         token_hash: tokenHash,
         invited_by: callerId,
       })
-      .select("id, email, expires_at");
+      .select("id, email, expires_at, status");
+
+    // The row this request is going to send for, once it is known: either the one
+    // just inserted or the one that was already there and may be sent again.
+    let invitationId: string;
+    let invitationEmail: string;
+    let invitationExpiry: string;
+    let retried: boolean;
 
     if (insertError) {
       // 23505 is unique_violation: the partial unique index means this address
       // already has a live invitation to this team.
+      //
+      // BEFORE THIS CHANGE THAT WAS THE END OF IT -- one sentence, 409, and
+      // nothing to do about it. It is now the start of the retry path, because
+      // the table can say what happened to that invitation's email, and "it was
+      // never delivered" and "it is in their inbox" deserve different answers.
       if (insertError.code === "23505") {
+        const { data: existing, error: existingError } = await ctx.supabaseAdmin
+          .from("invitations")
+          .select("id, email, status, created_at, expires_at")
+          .eq("team_id", teamId)
+          .eq("email", email)
+          .is("accepted_at", null)
+          .limit(1);
+
+        // Lesson F14: the error AND what came back. A read that failed does not
+        // mean "no row", and it certainly does not mean "retry" -- a retry sends
+        // mail, so an unknown here must refuse.
+        if (existingError) {
+          return fail(
+            "That address already has an invitation to this team, and it could not be read, so nothing was sent. Please try again.",
+            500,
+            existingError.code,
+          );
+        }
+        if (!Array.isArray(existing) || existing.length !== 1) {
+          // Zero rows: the row that blocked the insert is no longer pending --
+          // accepted or deleted in the moment between the two statements. The
+          // unchanged refusal is the right answer rather than a guess: it sends
+          // no mail, and asking again a second later inserts cleanly.
+          return alreadyWaitingAnswer(insertError.code);
+        }
+
+        const row = existing[0];
+        const verdict = retryVerdict(row, Date.now());
+
+        if (!verdict.retry) {
+          if (verdict.why === "sending") return stillSendingAnswer(insertError.code);
+          // 'sent' and 'unknown' both get the refusal this function has always
+          // sent, which is what issue #166 requires of the first and what the
+          // comment in retryVerdict argues for the second.
+          return alreadyWaitingAnswer(insertError.code);
+        }
+
+        // ---- A RETRY. The link is replaced before anything is sent. ---------
+        //
+        // A NEW TOKEN, because the old one cannot be reused: the token itself is
+        // never stored (only its SHA-256 hash), so there is nothing to put in a
+        // second email even if the first one had been delivered -- and it was
+        // not, which is the whole reason this branch exists. The new hash
+        // replaces the old one, so the previous link, wherever it got to, now
+        // opens nothing.
+        //
+        // THE 7 DAYS START AGAIN, and that is deliberate. The email about to go
+        // out says "The link works for 7 days", and on a row created six days ago
+        // that sentence would be false -- the link would die tomorrow. A retry is
+        // a new invitation in every respect except which row it lives in, so it
+        // gets a new window and the email tells the truth. The cost is named
+        // plainly: an address belonging to somebody who never joined can sit here
+        // for 7 days from the LAST attempt rather than the first.
+        //
+        // created_at is left alone, so "when was this person first invited" is
+        // still answerable, and 20260930193813_create_invitations.sql's
+        // invitations_expires_after_created constraint still holds.
+        //
+        // status goes back to 'queued' and failure_code back to '', which the
+        // check constraint requires of any row that is not 'failed'. Both are
+        // named here, not left to a default: a default only applies to an insert.
+        const freshExpiry = new Date(
+          Date.now() + INVITATION_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const { data: reset, error: resetError } = await ctx.supabaseAdmin
+          .from("invitations")
+          .update({
+            token_hash: tokenHash,
+            status: "queued",
+            failure_code: "",
+            expires_at: freshExpiry,
+          })
+          .eq("id", row.id)
+          .select("id, email, expires_at, status");
+
+        if (resetError) {
+          return fail(
+            "Could not prepare that invitation to be sent again, so nothing was sent. Please try again.",
+            500,
+            resetError.code,
+          );
+        }
+        if (!Array.isArray(reset) || reset.length !== 1) {
+          const wrote = Array.isArray(reset) ? reset.length : 0;
+          return fail(
+            `That invitation may not have been prepared to send again: the database reported no error but returned ${wrote} rows instead of 1. Nothing was sent. Please check the team's invitations before trying again.`,
+            500,
+          );
+        }
+
+        // A COUNT AND A REASON, never the address and never the token. The reason
+        // is one of two fixed words from retryVerdict, so this line cannot grow a
+        // value somebody typed.
+        console.log(
+          `invite-member: sending an existing invitation again (${verdict.why}). A new link replaces the old one. No address, token or hash is logged.`,
+        );
+
+        invitationId = reset[0].id;
+        invitationEmail = reset[0].email;
+        invitationExpiry = reset[0].expires_at;
+        retried = true;
+      } else {
         return fail(
-          "That person already has an invitation waiting for this team.",
-          409,
+          "Could not create the invitation. Please try again.",
+          500,
           insertError.code,
         );
       }
-      return fail(
-        "Could not create the invitation. Please try again.",
-        500,
-        insertError.code,
-      );
+    } else {
+      if (!Array.isArray(inserted) || inserted.length !== 1) {
+        const wrote = Array.isArray(inserted) ? inserted.length : 0;
+        return fail(
+          `The invitation may not have been created: the database reported no error but returned ${wrote} rows instead of 1. Please check the team's invitations before trying again.`,
+          500,
+        );
+      }
+      invitationId = inserted[0].id;
+      invitationEmail = inserted[0].email;
+      invitationExpiry = inserted[0].expires_at;
+      retried = false;
     }
-    if (!Array.isArray(inserted) || inserted.length !== 1) {
-      const wrote = Array.isArray(inserted) ? inserted.length : 0;
-      return fail(
-        `The invitation may not have been created: the database reported no error but returned ${wrote} rows instead of 1. Please check the team's invitations before trying again.`,
-        500,
-      );
-    }
-    const invitationId = inserted[0].id;
 
     // ---- Send the email ---------------------------------------------------
     //
@@ -749,54 +1181,84 @@ export default {
       text,
     });
 
-    if (!sent.ok) {
-      // The email did not go. Remove the invitation just created, so the team
-      // is not left with a slot used up by an invitation nobody received and
-      // nobody can act on.
-      const { error: cleanupError, count: deletedCount } = await ctx.supabaseAdmin
-        .from("invitations")
-        .delete({ count: "exact" })
-        .eq("id", invitationId);
+    // ---- Write down what happened to the email ----------------------------
+    //
+    // THE ROW NO LONGER DISAPPEARS WHEN A SEND FAILS, and that is the change
+    // issue #166 asks for. What the old code did instead -- delete the
+    // invitation -- threw away the only record that anybody had tried, so the
+    // owner saw an empty list and had no way to tell "nobody invited them" from
+    // "the email bounced off the service twice this morning". A failed row stays,
+    // says so, and offers to go again.
+    //
+    // The status write is the LAST thing, after the send, because until the
+    // service has answered there is nothing true to write. What that leaves
+    // behind if this function stops between the insert and this line is a row at
+    // 'queued' and no second write -- see STALE_QUEUED_MINUTES, which is how such
+    // a row becomes retryable rather than sitting there for seven days.
+    const outcome = sent.ok
+      ? { status: "sent" as const, failure_code: "" }
+      : { status: "failed" as const, failure_code: sent.code };
 
-      // F14 on the cleanup too. If this fails, say so plainly rather than
-      // reporting a tidy failure -- somebody has to know a row was orphaned.
-      if (cleanupError || deletedCount !== 1) {
-        console.error(
-          `invite-member: email send failed AND the invitation could not be removed. Invitation id ${invitationId} is orphaned and occupies a pending slot. Cleanup error code: ${cleanupError?.code ?? "none"}; rows deleted: ${deletedCount ?? "unknown"}.`,
-        );
-        return fail(
-          `The invitation email could not be sent (${sent.reason}), and the half-made invitation could not be cleaned up. Please check the team's invitations before trying again.`,
-          500,
-        );
-      }
+    const { data: recorded, error: recordError } = await ctx.supabaseAdmin
+      .from("invitations")
+      .update(outcome)
+      .eq("id", invitationId)
+      .select("id, email, expires_at, status");
 
-      return fail(
-        `The invitation email could not be sent (${sent.reason}), so no invitation was created. Please try again.`,
-        502,
+    // F14 on the status write. One row back, with no error, is the only thing
+    // that means the row says what this function is about to claim it says.
+    const wroteOneRow =
+      !recordError && Array.isArray(recorded) && recorded.length === 1;
+
+    if (!wroteOneRow) {
+      // The row still says 'queued', whatever happened to the email. Said in a
+      // log line because nothing else will notice: the owner's screen will show
+      // "sending" and, after STALE_QUEUED_MINUTES, a Try again button -- which is
+      // the right offer, but somebody looking into why wants to find this.
+      //
+      // The invitation id is named, as the old orphan line named it. No address,
+      // no token, no hash, and nothing the email service said.
+      console.error(
+        `invite-member: the email ${sent.ok ? "WENT" : "did not go"} and the status could not be written. Invitation id ${invitationId} still says "queued". Error code: ${recordError?.code ?? "none"}; rows updated: ${Array.isArray(recorded) ? recorded.length : "unknown"}.`,
       );
     }
 
-    return Response.json(
-      {
-        invitation: {
-          id: inserted[0].id,
-          email: inserted[0].email,
-          expires_at: inserted[0].expires_at,
-        },
-        // True when the email went to the test inbox instead of the invited
-        // person, so a staging tester is not left wondering.
-        redirected: decision.redirected,
-      },
-      { status: 201 },
-    );
+    if (!sent.ok) {
+      // Named, not described, and never the service's own reply. `recorded` is
+      // what makes the answer match the row: a 502 says the invitation is marked
+      // as failed, and this function only says that when it is.
+      console.error(
+        `invite-member: the invitation email did not go. Code: ${sent.code}. Recorded on the row: ${wroteOneRow ? "yes" : "NO"}. No address, token or email-service reply is logged.`,
+      );
+      return sendFailureAnswer({ code: sent.code, recorded: wroteOneRow });
+    }
+
+    // The email went. The status is the one the database confirmed, so a failed
+    // status write answers 'queued' rather than claiming 'sent'.
+    return invitationAnswer({
+      id: invitationId,
+      email: wroteOneRow ? recorded[0].email : invitationEmail,
+      expires_at: wroteOneRow ? recorded[0].expires_at : invitationExpiry,
+      status: wroteOneRow ? "sent" : "queued",
+      redirected: decision.redirected,
+      retried,
+    });
   }),
 };
 
 // ABOUT LOGGING, because this function handles more sensitive material than any
 // other in the project.
 //
-// The two console.error calls above name SETTINGS and an invitation id. They
-// never print:
+// The console calls above name SETTINGS, an invitation id, a failure code and a
+// retry reason -- and the last two are the ones added by issue #166, so they are
+// named here as well as at their call sites. A failure code is one of four fixed
+// words from a list in a migration; a retry reason is one of two fixed words from
+// `retryVerdict`. Neither can carry a value somebody typed, and NOTHING THE EMAIL
+// SERVICE SAID IS LOGGED AT ALL: not its message, not its body, not the status it
+// answered with. docs/plan.md's reason is that its reply "can quote the address,
+// the subject and the message".
+//
+// They never print:
 //   * any setting's value -- not EMAIL_API_KEY, not EMAIL_FROM, not APP_URL,
 //     not EMAIL_TEST_INBOX, not EMAIL_DELIVERY;
 //   * the token, or its hash;

@@ -8,6 +8,7 @@ import {
   DISPLAY_NAME_MAX,
   EMAIL_MAX,
   INVITATION_DAYS,
+  invitationDelivery,
   MAX_PENDING_INVITATIONS,
   MAX_TEAMS_PER_OWNER,
   NAME_MAX,
@@ -90,6 +91,7 @@ export default async function MyTeamsPage({
     problem,
     created,
     invited,
+    to,
     joined,
     named,
     error: errorParam,
@@ -147,10 +149,29 @@ export default async function MyTeamsPage({
   // Filtered to genuinely pending: not accepted, and not past its expiry. The
   // same definition invite-member counts against for the 20 limit, so the list
   // on screen and the limit cannot disagree.
-  const nowIso = new Date().toISOString();
+  //
+  // status, failure_code and created_at arrived with issue #166, and all three are
+  // read through the policy that was already there -- the one that answers only
+  // the team's owner. No new rule, no new connection, and nothing on this page
+  // holds a secret key: docs/plan.md says an invitation's status is for "the team's
+  // owner, on My teams. Nobody else", which is exactly what that policy already
+  // says about the address in the same row.
+  //
+  // created_at is read because the clock is the only thing that can tell a send
+  // that is happening now from one that stopped half way (see invitationDelivery).
+  // One moment, read once and used twice: the filter below and the staleness
+  // reckoning in invitationDelivery must agree about what "now" is.
+  //
+  // `new Date()` rather than `Date.now()` on purpose. The react-hooks/purity lint
+  // rule rejects `Date.now()` in a component -- "Cannot call impure function
+  // during render" -- and this page already read the clock this way for the filter
+  // that was here before.
+  const nowDate = new Date();
+  const now = nowDate.getTime();
+  const nowIso = nowDate.toISOString();
   const { data: inviteData, error: inviteError } = await supabase
     .from("invitations")
-    .select("id, team_id, email, expires_at")
+    .select("id, team_id, email, created_at, expires_at, status, failure_code")
     .is("accepted_at", null)
     .gt("expires_at", nowIso)
     .order("expires_at", { ascending: true });
@@ -351,22 +372,48 @@ export default async function MyTeamsPage({
             successful send, and what the receiving provider then does with the
             message -- inbox, junk, or silently dropped -- is invisible to us. So
             the junk hint goes here too: this is the moment the inviter is most
-            likely to act on it, rather than a week later when nobody replied. */}
-        {invited === "1" ? (
+            likely to act on it, rather than a week later when nobody replied.
+
+            THE THREE WORDINGS BELOW COME FROM WHAT THE FUNCTION SAID THE ROW
+            SAYS, not from the fact that the request succeeded (issue #166). The
+            action reads `invitation.status` out of the answer and picks the
+            parameter from it, so a banner saying "sent" and a list saying
+            "sending" cannot both be on this page at once.
+
+            `to=test` is carried separately from what happened, so the test-inbox
+            note does not need its own copy of each sentence. */}
+        {invited === "sent" ? (
           <Banner tone="ok" icon="mail">
-            Invitation sent. If it does not arrive, ask them to check their junk
-            or spam folder.
+            Invitation sent.{" "}
+            {to === "test"
+              ? "This environment sends all invitation email to the test inbox, not to the invited address. Check its junk or spam folder too."
+              : "If it does not arrive, ask them to check their junk or spam folder."}
           </Banner>
         ) : null}
 
-        {/* Staging redirects all invitation mail to the test inbox. Saying so
-            stops a tester deciding the invitation failed because nothing
-            arrived at the address they typed. */}
-        {invited === "test" ? (
+        {/* A retry. Worth its own wording, because the owner pressed a button
+            that promised a new link and should be told they got one -- and
+            because the old link no longer works, which is a thing to know if the
+            first email turns up later after all. */}
+        {invited === "again" ? (
           <Banner tone="ok" icon="mail">
-            Invitation created. This environment sends all invitation email to
-            the test inbox, not to the invited address. Check its junk or spam
-            folder too.
+            Invitation sent again, with a new link. The earlier link no longer
+            works.{" "}
+            {to === "test"
+              ? "This environment sends all invitation email to the test inbox, not to the invited address."
+              : "If it does not arrive, ask them to check their junk or spam folder."}
+          </Banner>
+        ) : null}
+
+        {/* The email went and the status could not be written down, so the row
+            still says 'queued' and the list below will say "sending". Said here
+            rather than hidden, because the list is about to contradict the thing
+            the owner just did, and an unexplained contradiction reads as a bug. */}
+        {invited === "sending" ? (
+          <Banner tone="ok" icon="mail">
+            The invitation email went out, but we could not record that against
+            the invitation, so it still shows as sending below. Nothing is lost:
+            the link in that email works.
           </Banner>
         ) : null}
 
@@ -491,12 +538,60 @@ export default async function MyTeamsPage({
                               invitations waiting:
                             </p>
                             <ul>
-                              {pending.map((invitation) => (
-                                <li key={invitation.id}>
-                                  {invitation.email} — expires{" "}
-                                  {expiryLabel(invitation.expires_at)}
-                                </li>
-                              ))}
+                              {pending.map((invitation) => {
+                                // What happened to this invitation's email, in
+                                // the three words issue #166 asks for. Worked out
+                                // from the row, by one pure function, so the
+                                // screen cannot disagree with what was stored.
+                                const delivery = invitationDelivery(
+                                  invitation,
+                                  now,
+                                );
+                                return (
+                                  <li key={invitation.id}>
+                                    {invitation.email} — expires{" "}
+                                    {expiryLabel(invitation.expires_at)} —{" "}
+                                    {delivery.label}
+                                    {/* The plain sentence, when there is one to
+                                        say. Never the stored failure code, and
+                                        never anything the email service said:
+                                        invitationDelivery maps a code to wording
+                                        and falls back to a sentence of its own
+                                        for a code it does not know. */}
+                                    {delivery.sentence ? (
+                                      <p className="hint">{delivery.sentence}</p>
+                                    ) : null}
+                                    {/* Try again. The same action as the invite
+                                        box above, with the address carried in a
+                                        hidden field -- so there is ONE path into
+                                        invite-member, and the owner check, the
+                                        suspension check and the limit are the
+                                        same ones for both. The function decides
+                                        whether a retry is allowed; this button
+                                        only appears where it would say yes. */}
+                                    {delivery.canRetry ? (
+                                      <form action={inviteMember}>
+                                        <input
+                                          type="hidden"
+                                          name="team_id"
+                                          value={invitation.team_id}
+                                        />
+                                        <input
+                                          type="hidden"
+                                          name="email"
+                                          value={invitation.email}
+                                        />
+                                        <button
+                                          className="btn"
+                                          type="submit"
+                                        >
+                                          Try again
+                                        </button>
+                                      </form>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
                             </ul>
                             {/* The app cannot tell a filtered email from a
                                 delivered one: the email service reports a
