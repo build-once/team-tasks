@@ -576,6 +576,153 @@ Also seen while looking: the **`migrate-production` run from that same merge has
 almost 11 hours** (`37365450036`, created 2026-10-05T19:45). Nothing to do with this branch, and
 filed as **#161** rather than mentioned and forgotten.
 
+## 10. The coach's review, points 1 to 4
+
+Added after the review at `45eb90a`. Each one was a check written **first**, seen to fail against the
+scrub as it then stood, and only then fixed. The count went **59 → 85**, and
+`EXPECTED_SENTRY_SCRUB_CHECKS` in `ci.yml` with it.
+
+### The red run: 21 new checks failing, before any fix
+
+```
+$ node scripts/sentry-scrub-check.mjs
+FAIL  FAILING ROW: the whole row goes, including task text that is no particular shape
+FAIL  KEY=VALUE: the values go whatever shape they are -- the team id is not address-shaped either
+FAIL  a bare DETAIL with no construct in it goes too -- DETAIL is where Postgres puts the data
+FAIL  FAILING ROW standing alone, no DETAIL in front of it
+FAIL  KEY=VALUE standing alone keeps the COLUMN NAMES, which are schema rather than anybody's data
+FAIL  task text containing a BRACKET does not let the rest of the row escape
+FAIL  task text containing a NEWLINE does not let the rest of the row escape
+FAIL  a DETAIL spanning lines goes to the end, not to the end of the first line
+FAIL  a %40 address goes, like a plain one
+FAIL  a %40 address inside a message goes
+FAIL  a plus-addressed %40 address goes whole, plus and all
+FAIL  a %40 address with a multi-part domain goes
+FAIL  AN UNKNOWN CONTEXT IS DROPPED -- this is the one the review got through, carrying a team name
+FAIL  the device context is dropped: the plan does not ask for the machine's model or memory
+FAIL  the trace context is dropped: tracing is off, and a trace id is not on the plan's list
+FAIL  THE NEXTJS CONTEXT IS DROPPED TOO, request_path and all
+FAIL  an app context is dropped: Sentry's own build metadata is not asked for either
+FAIL  a tag VALUE holding an address is scrubbed
+FAIL  a tag value holding a token is scrubbed
+FAIL  every fingerprint entry is scrubbed
+FAIL  a database error in a tag value loses the quoted row as well
+
+64 of 85 checks passed.
+exit=1
+```
+
+### 1. A database error that quotes the data
+
+The review's finding was not that a rule was missing but that the **whole approach had a floor**.
+Every rule in the file recognised a value by its shape, and Postgres does not quote a value — it
+quotes the row. `Call Dr Patel about results` is a task title with a third party's name in it, and it
+is not address-shaped, not token-shaped, and not 40 characters of anything.
+
+So three rules were added that match on **the words around the values**, not the values, and they run
+**before** every shape rule:
+
+| Construct | Becomes | Why |
+|---|---|---|
+| `DETAIL:` … to the end of the string | `DETAIL: [detail removed]` | The field Postgres puts the offending data in, always last in the message. Blanking it whole cannot be fooled by a bracket or a newline inside a task title |
+| `Failing row contains (…)` | `Failing row contains ([values removed])` | For when it arrives with no `DETAIL` in front — which is how a `PostgrestError`'s `details` field delivers it |
+| `Key (col, col)=(v, v)` | `Key (col, col)=([values removed])` | Column names kept: they are schema, already in this repository, and most of what makes the message readable. The values go |
+
+Two deliberate choices worth challenging if you disagree:
+
+- **The `Failing row` and `Key` patterns are greedy to the last bracket, not the first.** A non-greedy
+  match stops at the first `)`, and a title is free text — `Call Dr Patel (urgent) today` would end
+  the match early and leave the rest of the row in the clear. Greedy can over-reach and swallow a
+  following sentence instead, which is the right direction to be wrong in. Both cases have a check.
+- **Blanking all of `DETAIL:` costs the column names** when a `Key(…)=(…)` sits inside one. The part
+  worth keeping survives either way: the constraint name comes *before* the DETAIL, and
+  `the constraint name SURVIVES` is a check.
+
+### 2. URL-encoded addresses
+
+`raj%40example.com` walked past a rule looking for a literal `@`. One rule added, alongside the plain
+one. This is not a corner case here: every address this app sends to Supabase travels in a query
+string, and a failed `fetch` quotes the URL it called — so the encoded form is the form an address is
+**most** likely to arrive in. `%2B` for a plus needs no rule of its own, because `%` is already in the
+local-part class.
+
+### 3. `contexts` is now an allow-list
+
+Was a deny-list naming one context to drop (`culture`), so `state: { team: "Acme" }` went straight
+through — a team name, which the plan's appendix lists as personal data. A deny-list can only list
+what somebody thought of, and `contexts` is filled in by the installed SDK, so the set of possible
+keys is not this repository's to know.
+
+Now: **`browser`, `os`, `runtime`**, and nothing else. The plan allows "browser and operating-system
+details" and says of the rest "Nothing else".
+
+**`nextjs` is dropped too**, which is a change of approach rather than a tightening: that context held
+`request_path`, and the earlier code scrubbed that field instead of dropping the context. The page
+path is still sent — `event.request.url` carries it and `event.transaction` carries the route, both
+scrubbed and both checked. So the plan's "the path of the page it happened on" still holds; it travels
+by the two routes that have checks rather than three.
+
+### 4. Tag values and fingerprint
+
+Both now go through `scrubText`. Tag **names** are left alone deliberately: they are identifiers
+chosen in code, there is no path by which a person's data becomes one, and scrubbing them would make
+a tag impossible to search for in Sentry, which is the only thing tags are for. Non-string tag values
+(number, boolean, null) pass through untouched rather than being stringified.
+
+**One part of point 4 was deliberately not done, and this is the flag for it.** The instruction said
+`logentry` "(message and params)" should go through the text scrub. `logentry.message` does.
+**`logentry.params` is still deleted outright, as it was before, and that is on purpose:** deleting is
+strictly stronger than scrubbing. Params are arbitrary values substituted into the message, so a
+param could be task text, which no shape rule catches; and the message they were substituted into is
+already sent, scrubbed, so deleting them loses no diagnostic value. Replacing the deletion with a
+scrub would have weakened a check that already passes
+(`logentry's message is scrubbed and its params are removed outright`). **If you would rather have
+them scrubbed than deleted, say so and I will change it** — but it would be a reduction in safety and
+rule 20 says that is your call, not mine.
+
+### The green run
+
+```
+$ node scripts/sentry-scrub-check.mjs
+85 of 85 checks passed.
+exit=0
+
+$ npm --prefix web run lint
+exit=0
+
+$ next build  (VERCEL_ENV=preview, placeholder DSN)
+exit=0
+
+$ grep -ranoE 'sb_secret_|service_role' web/.next/static
+(no output; grep exit 1 = found nothing)
+```
+
+### Two check expectations I wrote wrongly, and corrected (rule 20)
+
+Both were mine, in this session, and in both cases **the code was right and my expectation was
+wrong** — the function removed *more* than I had predicted, never less.
+
+1. `a raw Postgres unique-violation message: the address goes, the team id stays` asserted the team
+   id **survives** inside `Key (team_id, email)=(…)`. Point 1 requires values in that construct to go
+   whatever shape they have, and a uuid is a shape. The check is replaced by
+   `KEY=VALUE: the values go whatever shape they are`, plus a standalone-construct check that shows
+   the column names kept. The owner asked for point 1, which is the agreement for the change.
+2. `a %40 address inside a message goes` expected `?email=eq.[…]`. The real output is `?email=[…]`:
+   PostgREST's `eq.` prefix is consumed with the address, because `eq.raj` is indistinguishable from
+   the local part of a real address (`eq.raj@example.com` would be valid). The check now records the
+   real behaviour and says why, rather than contorting the input to avoid it.
+
+One TypeScript error was fixed on the way: `out.tags` came through the interface's index signature as
+`unknown`, so `typeof x === "object"` narrowed only to `object`. `tags` and `fingerprint` are now
+named fields on `ScrubbableEvent`.
+
+### Not addressed, because it was out of scope for this round
+
+The review's **point 6** — that a per-request user ID is unproven and a stale one would put one
+person's ID on another person's report — is untouched here and remains in the Unverified list below.
+It needs the observation on a preview deployment that the review itself describes, which needs a DSN
+this repository does not have.
+
 ## Unverified — and why each one cannot be settled from here
 
 All three have the same root cause: **no DSN is set in any environment, so this app has never sent an

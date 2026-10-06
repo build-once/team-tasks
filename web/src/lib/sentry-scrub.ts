@@ -48,11 +48,74 @@ export const EMAIL_REMOVED = "[email address removed]";
 export const TOKEN_REMOVED = "[token removed]";
 export const KEY_REMOVED = "[key removed]";
 export const QUERY_REMOVED = "?[query removed]";
+export const VALUES_REMOVED = "[values removed]";
+export const DETAIL_REMOVED = "[detail removed]";
 
 // The text rules, in the order they are applied. Order matters: the broad
 // "any long run of token characters" rule at the end would otherwise swallow
 // the start of something the earlier rules label more precisely.
 const TEXT_RULES: ReadonlyArray<{ readonly find: RegExp; readonly put: string }> = [
+  // ---- A database error that quotes the data back at you -------------------
+  //
+  // THESE THREE COME FIRST, AND THEY ARE THE ONLY RULES HERE THAT DO NOT MATCH
+  // ON SHAPE. Everything below this group recognises a value by what it looks
+  // like: an address has an `@`, a token is 43 characters of base64url. That
+  // approach has a floor, and the review of #160 found it. Postgres does not
+  // quote a value, it quotes THE WHOLE ROW -- and a row is mostly things with
+  // no shape at all:
+  //
+  //     new row for relation "tasks" violates check constraint "tasks_title_len"
+  //     DETAIL: Failing row contains (<uuid>, Call Dr Patel about results, f, 2026-10-06).
+  //
+  // "Call Dr Patel about results" is a task title with a third party's name in
+  // it. It is not address-shaped, not token-shaped, and not 40 characters of
+  // anything. No shape rule will ever catch it, and the next one will be
+  // different again.
+  //
+  // So these three match on THE WORDS AROUND the values -- the construct
+  // Postgres puts data inside -- and take everything within, whatever shape it
+  // has. That is the only way to be right about a value you cannot describe.
+  //
+  // They are first so the quoted data is gone before any shape rule looks at
+  // it. The order does not change the answer, because the constructs are
+  // replaced whole either way; it just means less work and no half-scrubbed
+  // text in the middle.
+
+  // `DETAIL:` to the end of the string, whatever is in it. This is the blunt
+  // one and deliberately so: DETAIL is the field Postgres puts the offending
+  // data in, it is always last in the message, and what counts as "the data"
+  // varies by error. Blanking it whole cannot be fooled by a bracket or a
+  // newline inside a task title, which the two finer rules below have to work
+  // to survive.
+  //
+  // WHAT THIS COSTS, because it is a real cost: the column names inside a
+  // `Key (team_id, email)=(…)` are lost too when that construct sits inside a
+  // DETAIL, and those are schema rather than anybody's data. The part worth
+  // keeping survives regardless -- the constraint name, which is what actually
+  // says what went wrong, comes BEFORE the DETAIL and is untouched.
+  //
+  // Case-sensitive on purpose. Postgres emits `DETAIL:` in capitals; the word
+  // "detail" in a sentence is not this.
+  { find: /DETAIL:[\s\S]*/g, put: `DETAIL: ${DETAIL_REMOVED}` },
+
+  // `Failing row contains (…)`, when it arrives WITHOUT a DETAIL in front --
+  // which it does in a PostgrestError's `details` field, a separate string from
+  // `message`.
+  //
+  // GREEDY TO THE LAST BRACKET, not the first. A non-greedy `*?` would stop at
+  // the first `)`, and a task title is free text: "Call Dr Patel (urgent)
+  // today" would end the match early and leave the rest of the row in the
+  // clear. Greedy can over-reach and swallow a following sentence instead,
+  // which is the right direction to be wrong in -- more is removed, never less.
+  { find: /Failing row contains \([\s\S]*\)/g, put: `Failing row contains (${VALUES_REMOVED})` },
+
+  // `Key (col, col)=(value, value)`, again for the no-DETAIL case. The column
+  // names are kept -- they are the schema, they are in this repository already,
+  // and they are most of what makes the message readable. The values go.
+  { find: /Key \(([^()]*)\)=\([\s\S]*\)/g, put: `Key ($1)=(${VALUES_REMOVED})` },
+
+  // ---- Then the shape rules -----------------------------------------------
+
   // A JSON Web Token. Supabase's access token and refresh token are both this
   // shape, and either one, until it expires, IS the session: three base64url
   // parts separated by dots, the first beginning `eyJ` because that is what
@@ -97,6 +160,20 @@ const TEXT_RULES: ReadonlyArray<{ readonly find: RegExp; readonly put: string }>
   // (`something+alice@example.com`) and a rule that stopped at the `+` would
   // leave half of it behind.
   { find: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, put: EMAIL_REMOVED },
+
+  // THE SAME ADDRESS AFTER A TRIP THROUGH A URL, where the `@` has become
+  // `%40`. The rule above looks for a literal `@` and so walked straight past
+  // `raj%40example.com`, which the review of #160 found.
+  //
+  // This is not a corner case in this app. Every address it sends to Supabase
+  // travels in a query string -- `?email=eq.raj%40example.com` -- and a failed
+  // `fetch` quotes the URL it called in the error message. So the encoded form
+  // is the form an address is MOST likely to arrive in.
+  //
+  // `%2B` for a plus is covered without a rule of its own, because `%` is
+  // already in the local-part class above and below: the whole of
+  // `teamtasks.staging.test%2Balice` matches as a local part.
+  { find: /[A-Za-z0-9._%+-]+%40[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, put: EMAIL_REMOVED },
 
   // Any run of 40 or more base64url characters. This is the one that catches an
   // invitation token, which is the credential this app is most likely to be
@@ -197,6 +274,10 @@ export interface ScrubbableEvent {
   user?: { id?: unknown; [key: string]: unknown };
   extra?: unknown;
   contexts?: Record<string, unknown>;
+  // Named rather than left to the index signature below, which would type them
+  // `unknown` and make `typeof x === "object"` narrow only as far as `object`.
+  tags?: Record<string, unknown>;
+  fingerprint?: unknown[];
   [key: string]: unknown;
 }
 
@@ -208,11 +289,42 @@ export interface ScrubbableEvent {
 // every name.
 const KEPT_REQUEST_HEADER = "user-agent";
 
-// A context that is dropped whole. `cultureContextIntegration` reports the
-// browser's locale and timezone, and neither is in the plan's list of what may
-// be sent. The integration is not switched on (web/src/sentry/options.ts), so
-// this is the second refusal, not the first.
-const DROPPED_CONTEXTS: ReadonlyArray<string> = ["culture"];
+// THE ONLY CONTEXTS THAT MAY BE SENT. An allow-list, not a deny-list, and the
+// review of #160 is why.
+//
+// This used to name the one context to drop -- `culture`, the browser's locale
+// and timezone -- and keep everything else. That is the wrong shape for this
+// decision, and it failed in exactly the way a deny-list fails: the review
+// handed `scrubEvent` a `state` context holding `{ team: "Acme" }` and got it
+// back untouched. A team name is personal data in docs/plan.md's appendix. The
+// rule had never heard of `state`, so it kept it.
+//
+// A deny-list can only ever list what somebody thought of. `contexts` is filled
+// in by Sentry's integrations and by whatever version of the SDK is installed,
+// so the set of possible keys is not this repository's to know -- which means
+// the default has to be "no".
+//
+// These three, and the plan's own words are the whole argument. It allows
+// "browser and operating-system details" and says of everything else "Nothing
+// else". `runtime` is here because which Node version the server is on is an
+// operating-system detail in every sense that matters for reading a stack
+// trace.
+//
+// WHAT WENT, and why none of it is a loss worth reopening:
+//
+//   device   the machine's model, memory and orientation. Not asked for.
+//   culture  the locale and timezone, as before.
+//   trace    trace and span ids. Tracing is off, so there should be none.
+//   app      Sentry's own build metadata.
+//   nextjs   @sentry/nextjs' own context, holding `request_path`. This one is
+//            worth being explicit about, because an earlier version of this
+//            file scrubbed that field rather than dropping the context. The
+//            page path is still sent -- `event.request.url` carries it and
+//            `event.transaction` carries the route, and both go through
+//            scrubUrl and scrubText. So the plan's "the path of the page it
+//            happened on" still holds; it simply travels by the two routes
+//            that are checked, rather than three.
+const ALLOWED_CONTEXTS: ReadonlyArray<string> = ["browser", "os", "runtime"];
 
 function scrubFrame(frame: ScrubbableFrame): ScrubbableFrame {
   // `vars` is the local variables of that stack frame, by name and value. In
@@ -298,6 +410,38 @@ export function scrubEvent(event: ScrubbableEvent): ScrubbableEvent {
     out.contexts = scrubContexts(out.contexts);
   }
 
+  // Tags and the fingerprint. Only this app sets either one today --
+  // `deployment` and `runtime`, in the three init files -- so the risk here is
+  // low, and the review of #160 said so. It is also nearly free to close, and
+  // "only this app sets them" is a fact about today rather than a property of
+  // the code: the next person to add a tag will not read this file first.
+  if (out.tags && typeof out.tags === "object") out.tags = scrubTags(out.tags);
+
+  if (Array.isArray(out.fingerprint)) {
+    out.fingerprint = out.fingerprint.map((part) =>
+      typeof part === "string" ? scrubText(part) : part,
+    );
+  }
+
+  return out;
+}
+
+function scrubTags(tags: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  for (const [name, value] of Object.entries(tags)) {
+    // Only the values. A tag's NAME is an identifier chosen in code -- there is
+    // no path by which a person's data becomes one -- and scrubbing names would
+    // make a tag impossible to search for in Sentry, which is the only thing
+    // tags are for.
+    //
+    // A tag value can be a number, a boolean or null as well as a string.
+    // Those are passed through untouched rather than stringified: changing the
+    // type of a value in the name of safety would be a surprise, and none of
+    // the three can carry text.
+    out[name] = typeof value === "string" ? scrubText(value) : value;
+  }
+
   return out;
 }
 
@@ -336,22 +480,14 @@ function scrubUser(user: ScrubbableEvent["user"]): ScrubbableEvent["user"] {
 }
 
 function scrubContexts(contexts: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...contexts };
+  // Built up from the allow-list rather than filtered down, so a context the
+  // SDK adds in a later version is absent by default instead of present until
+  // somebody notices. Same reasoning as scrubRequest above, and the same
+  // reasoning as the integration allow-list in web/src/sentry/options.ts.
+  const out: Record<string, unknown> = {};
 
-  for (const name of DROPPED_CONTEXTS) delete out[name];
-
-  // @sentry/nextjs' captureRequestError puts the failing request's path into a
-  // "nextjs" context, and Next.js documents that path as including the query
-  // string ("resource path, e.g. /blog?name=foo" --
-  // web/node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/
-  // instrumentation.md). For this app that path can also be
-  // /invite/<token>, so it gets the address treatment and not the text one.
-  const nextjs = out.nextjs;
-  if (nextjs && typeof nextjs === "object" && !Array.isArray(nextjs)) {
-    const copy = { ...(nextjs as Record<string, unknown>) };
-    if (typeof copy.request_path === "string") copy.request_path = scrubUrl(copy.request_path);
-    if (typeof copy.router_path === "string") copy.router_path = scrubText(copy.router_path);
-    out.nextjs = copy;
+  for (const name of ALLOWED_CONTEXTS) {
+    if (Object.prototype.hasOwnProperty.call(contexts, name)) out[name] = contexts[name];
   }
 
   return out;

@@ -48,10 +48,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MODULE_PATH = resolve(HERE, "..", "web", "src", "lib", "sentry-scrub.ts");
 
 const {
+  DETAIL_REMOVED,
   EMAIL_REMOVED,
   KEY_REMOVED,
   QUERY_REMOVED,
   TOKEN_REMOVED,
+  VALUES_REMOVED,
   scrubEvent,
   scrubText,
   scrubUrl,
@@ -224,23 +226,154 @@ check(
   "abcdef",
 );
 
-// The case the issue names outright: "A raw database error message must not go
-// out unscrubbed."
-check(
-  "a raw Postgres unique-violation message: the address goes, the team id stays",
-  scrubText(
-    `duplicate key value violates unique constraint "invitations_one_pending_per_email" ` +
-      `DETAIL: Key (team_id, email)=(${TEAM_ID}, ${ADDRESS}) already exists.`,
-  ),
-  `duplicate key value violates unique constraint "invitations_one_pending_per_email" ` +
-    `DETAIL: Key (team_id, email)=(${TEAM_ID}, ${EMAIL_REMOVED}) already exists.`,
-);
 check(
   "a failed-fetch message quoting a Supabase URL with a filter in it",
   scrubText(
     `TypeError: fetch failed for https://example.supabase.co/rest/v1/tasks?title=eq.Buy%20milk&apikey=sb_publishable_notarealkey123`,
   ),
   `TypeError: fetch failed for https://example.supabase.co/rest/v1/tasks?title=eq.Buy%20milk&apikey=${KEY_REMOVED}`,
+);
+
+// ------------------------------------- scrubText: a database error that quotes
+//
+// The coach's review of #160, point 1. The issue said "A raw database error
+// message must not go out unscrubbed", and the first version of this file read
+// that as "mask the address in it". That was too narrow, and the review showed
+// why with a real message: Postgres quotes THE WHOLE ROW back at you, and most
+// of a row is not address-shaped. Task text is not address-shaped. A team name
+// is not address-shaped. A rule that only recognises shapes can never catch
+// them.
+//
+// So the three constructs Postgres uses to quote data are matched STRUCTURALLY
+// -- by the words around the values, not by what the values look like -- and
+// everything inside them goes whatever shape it has.
+console.log("\nscrubText -- a database error that quotes the data");
+
+// Made up here. This is the kind of thing docs/plan.md's appendix means by
+// "free text; people type anything": a task title with a third party's name in
+// it, belonging to somebody who never agreed to anything.
+const TASK_TEXT = "Call Dr Patel about results";
+
+check(
+  "FAILING ROW: the whole row goes, including task text that is no particular shape",
+  scrubText(
+    `new row for relation "tasks" violates check constraint "tasks_title_len" ` +
+      `DETAIL: Failing row contains (${TEAM_ID}, ${TASK_TEXT}, f, 2026-10-06).`,
+  ),
+  `new row for relation "tasks" violates check constraint "tasks_title_len" ` +
+    `DETAIL: ${DETAIL_REMOVED}`,
+);
+check(
+  "the constraint name SURVIVES, because that is the part that says what went wrong",
+  scrubText(
+    `new row for relation "tasks" violates check constraint "tasks_title_len" ` +
+      `DETAIL: Failing row contains (${TEAM_ID}, ${TASK_TEXT}, f, 2026-10-06).`,
+  ).includes("tasks_title_len"),
+  true,
+);
+check(
+  "KEY=VALUE: the values go whatever shape they are -- the team id is not address-shaped either",
+  scrubText(
+    `duplicate key value violates unique constraint "invitations_one_pending_per_email" ` +
+      `DETAIL: Key (team_id, email)=(${TEAM_ID}, ${ADDRESS}) already exists.`,
+  ),
+  `duplicate key value violates unique constraint "invitations_one_pending_per_email" ` +
+    `DETAIL: ${DETAIL_REMOVED}`,
+);
+check(
+  "a bare DETAIL with no construct in it goes too -- DETAIL is where Postgres puts the data",
+  scrubText(`could not serialize access DETAIL: some row somebody typed`),
+  `could not serialize access DETAIL: ${DETAIL_REMOVED}`,
+);
+
+// The two constructs on their own, with no DETAIL in front. They arrive this way
+// in a PostgrestError's `details` field, which is a separate string from
+// `message`.
+check(
+  "FAILING ROW standing alone, no DETAIL in front of it",
+  scrubText(`Failing row contains (${TEAM_ID}, ${TASK_TEXT}, f, 2026-10-06).`),
+  `Failing row contains (${VALUES_REMOVED}).`,
+);
+check(
+  "KEY=VALUE standing alone keeps the COLUMN NAMES, which are schema rather than anybody's data",
+  scrubText(`Key (team_id, email)=(${TEAM_ID}, ${ADDRESS}) already exists.`),
+  `Key (team_id, email)=(${VALUES_REMOVED}) already exists.`,
+);
+
+// The two ways a shape-based rule gets fooled, and the reason these are matched
+// structurally. Both of these are values a person can type into the task box.
+check(
+  "task text containing a BRACKET does not let the rest of the row escape",
+  scrubText(`Failing row contains (${TEAM_ID}, Call Dr Patel (urgent) today, f, 2026-10-06).`),
+  `Failing row contains (${VALUES_REMOVED}).`,
+);
+check(
+  "task text containing a NEWLINE does not let the rest of the row escape",
+  scrubText(`Failing row contains (${TEAM_ID}, line one\nline two, f, 2026-10-06).`),
+  `Failing row contains (${VALUES_REMOVED}).`,
+);
+check(
+  "a DETAIL spanning lines goes to the end, not to the end of the first line",
+  scrubText(`boom\nDETAIL: Failing row contains (${TEAM_ID}, ${TASK_TEXT},\nf, 2026-10-06).`),
+  `boom\nDETAIL: ${DETAIL_REMOVED}`,
+);
+
+check(
+  "scrubbing a database error twice changes nothing the second time",
+  scrubText(
+    scrubText(`new row for relation "tasks" violates check "c" DETAIL: Failing row contains (${TASK_TEXT}).`),
+  ),
+  scrubText(`new row for relation "tasks" violates check "c" DETAIL: Failing row contains (${TASK_TEXT}).`),
+);
+check(
+  "ordinary prose that merely mentions a key is left alone -- these rules do not reach past their words",
+  scrubText("The key to this is the detail nobody read."),
+  "The key to this is the detail nobody read.",
+);
+
+// -------------------------------------- scrubText: a URL-encoded address
+//
+// The coach's review of #160, point 2. An address that has been through a URL
+// has `%40` where its `@` was, and the address rule looks for a literal `@`, so
+// it went straight through. This is not a hypothetical: every address this app
+// sends to Supabase travels in a query string, and a failed-fetch message
+// quotes the URL it called.
+console.log("\nscrubText -- a URL-encoded address");
+
+check(
+  "a %40 address goes, like a plain one",
+  scrubText("raj%40example.com"),
+  EMAIL_REMOVED,
+);
+// The realistic one: this is the shape a Supabase filter actually has, and the
+// shape a failed `fetch` quotes back.
+//
+// NOTE WHERE THE PLACEHOLDER STARTS. PostgREST's `eq.` operator prefix is
+// consumed along with the address, because `eq.raj` is indistinguishable from
+// the local part of a real address -- `eq.raj@example.com` would be a perfectly
+// valid one. So three characters of query syntax are lost with it. That is the
+// safe direction and the check records it rather than contorting the input to
+// avoid it: this expectation was written the other way first and the function
+// removed MORE than expected, not less.
+check(
+  "a %40 address inside a Supabase filter goes, taking the eq. prefix with it",
+  scrubText("fetch failed: /rest/v1/invitations?email=eq.raj%40example.com"),
+  `fetch failed: /rest/v1/invitations?email=${EMAIL_REMOVED}`,
+);
+check(
+  "a plus-addressed %40 address goes whole, plus and all",
+  scrubText("teamtasks.staging.test%2Balice%40example.com"),
+  EMAIL_REMOVED,
+);
+check(
+  "a %40 address with a multi-part domain goes",
+  scrubText("bob%40mail.example.co.uk"),
+  EMAIL_REMOVED,
+);
+check(
+  "a bare %40 with nothing around it is not an address and is left alone",
+  scrubText("100%40"),
+  "100%40",
 );
 
 check(
@@ -490,8 +623,39 @@ check(
   }),
   { contexts: { browser: { name: "Chrome" } } },
 );
+// The coach's review of #160, point 3. `contexts` used to be a DENY-list: drop
+// `culture`, keep the rest. So an unknown context went straight through -- the
+// review got `state: {team: "Acme"}` out the other side, a team name, which
+// docs/plan.md's appendix lists as personal data. A deny-list cannot be right
+// here, because the list of things Sentry might add is not ours to know.
+//
+// It is now an ALLOW-LIST of the three the plan permits, and the plan's words
+// are the whole argument: it allows "browser and operating-system details" and
+// nothing else about the machine.
 check(
-  "nextjs.request_path is treated as an address, because Next.js documents it as carrying the query string",
+  "the runtime is kept as well: which Node version is an operating-system detail",
+  scrubEvent({ contexts: { runtime: { name: "node", version: "v22.22.2" } } }),
+  { contexts: { runtime: { name: "node", version: "v22.22.2" } } },
+);
+check(
+  "AN UNKNOWN CONTEXT IS DROPPED -- this is the one the review got through, carrying a team name",
+  scrubEvent({
+    contexts: { browser: { name: "Chrome" }, state: { team: "Acme" } },
+  }),
+  { contexts: { browser: { name: "Chrome" } } },
+);
+check(
+  "the device context is dropped: the plan does not ask for the machine's model or memory",
+  scrubEvent({ contexts: { device: { model: "iPhone", memory_size: 4000000000 } } }),
+  { contexts: {} },
+);
+check(
+  "the trace context is dropped: tracing is off, and a trace id is not on the plan's list",
+  scrubEvent({ contexts: { trace: { trace_id: "abc", span_id: "def" } } }),
+  { contexts: {} },
+);
+check(
+  "THE NEXTJS CONTEXT IS DROPPED TOO, request_path and all",
   scrubEvent({
     contexts: {
       nextjs: {
@@ -501,15 +665,51 @@ check(
       },
     },
   }),
-  {
-    contexts: {
-      nextjs: {
-        request_path: `/invite/${TOKEN_REMOVED}${QUERY_REMOVED}`,
-        router_path: "/invite/[token]",
-        route_type: "render",
-      },
-    },
-  },
+  { contexts: {} },
+);
+check(
+  "an app context is dropped: Sentry's own build metadata is not asked for either",
+  scrubEvent({ contexts: { app: { app_start_time: "2026-10-06" }, os: { name: "Windows" } } }),
+  { contexts: { os: { name: "Windows" } } },
+);
+
+// ---------------------------------------- scrubEvent: tags and fingerprint
+//
+// The coach's review of #160, point 4. Both are set only by this app today --
+// `deployment` and `runtime` in the three init files -- so the risk is low. It
+// is also nearly free to close, and "only this app sets them" is a fact about
+// today rather than a property of the code.
+console.log("\nscrubEvent -- tags and fingerprint");
+
+check(
+  "a tag VALUE holding an address is scrubbed",
+  scrubEvent({ tags: { deployment: "preview", who: ADDRESS } }),
+  { tags: { deployment: "preview", who: EMAIL_REMOVED } },
+);
+check(
+  "a tag value holding a token is scrubbed",
+  scrubEvent({ tags: { link: `/invite/${INVITE_TOKEN}` } }),
+  { tags: { link: `/invite/${TOKEN_REMOVED}` } },
+);
+check(
+  "tag values that are not strings are left exactly as they are",
+  scrubEvent({ tags: { count: 3, ok: false, nothing: null } }),
+  { tags: { count: 3, ok: false, nothing: null } },
+);
+check(
+  "every fingerprint entry is scrubbed",
+  scrubEvent({ fingerprint: ["{{ default }}", ADDRESS, `tok-${INVITE_TOKEN}`] }),
+  { fingerprint: ["{{ default }}", EMAIL_REMOVED, TOKEN_REMOVED] },
+);
+check(
+  "a fingerprint entry that is not a string is left alone",
+  scrubEvent({ fingerprint: ["{{ default }}", 7] }),
+  { fingerprint: ["{{ default }}", 7] },
+);
+check(
+  "a database error in a tag value loses the quoted row as well",
+  scrubEvent({ tags: { why: `DETAIL: Failing row contains (${TASK_TEXT})` } }),
+  { tags: { why: `DETAIL: ${DETAIL_REMOVED}` } },
 );
 
 // ------------------------------------------------------------------- purity
