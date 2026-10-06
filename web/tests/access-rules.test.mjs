@@ -29,8 +29,10 @@
 // INVITE_ADDRESS in staging.mjs.
 //
 // WHAT IT NEVER PRINTS: a password, an access token, a refresh token, the
-// publishable key, the project URL, or a user id. Statuses and the bodies the
-// server sent are shown, because those are what the tests assert on.
+// publishable key, the project URL, a user id, or an email address. Statuses
+// are shown, and so are the `error` and `code` fields the tests assert on --
+// but not a whole response body. See describeAnswer below for what changed
+// there in Build it 18 and why.
 
 import { after, before, test } from "node:test";
 import { strict as assert } from "node:assert";
@@ -62,6 +64,28 @@ const sessions = {};
 // configured: there is no setting for it, and the tests cannot create one --
 // a team cannot be deleted through the app and one person may own at most 3.
 let sharedTeamId = null;
+
+// How an invite-member answer is described in a log line or an assertion
+// message. Added by the log-line audit in Build it 18 (issue #157).
+//
+// WHAT IT REPLACED, and why. These lines used to print `answer.text` -- the
+// whole response body. On the 201 path that body is
+// `{"invitation":{"id":...,"email":...,"expires_at":...}}`
+// (supabase/functions/invite-member/index.ts), so an EMAIL ADDRESS went into
+// this repository's run logs, which are public. The address in question is
+// INVITE_ADDRESS, a staging test address that staging.mjs and
+// docs/environments.md both publish on purpose, so nothing belonging to a real
+// person has leaked -- but the line printed whatever the function returned, and
+// "nothing real went out" was luck about which address the test uses rather
+// than a decision anybody made.
+//
+// So: the status, and the two fields every test here actually asserts on. Never
+// the invitation object, which is the only part that holds an address. This is
+// used in the assertion messages too, not only the log lines, because an
+// assertion message is printed on failure and a failure is public as well.
+const describeAnswer = (answer) =>
+  `HTTP ${answer.status} error=${JSON.stringify(answer.json?.error)} ` +
+  `code=${JSON.stringify(answer.json?.code)}`;
 
 // Rows this run created, so the after() hook can take them away again. `by` is
 // who created the row, because only a task's creator can delete it -- which is
@@ -448,7 +472,7 @@ test("Bob CANNOT invite anyone to Alice's team (403)", async () => {
   assert.equal(
     answer.status,
     403,
-    `invite-member answered HTTP ${answer.status}, expected 403. Body: ${answer.text}`,
+    `invite-member answered ${describeAnswer(answer)}, expected 403.`,
   );
   // The status alone is not enough: a suspended caller is also refused with
   // 403, and that would be a refusal for the wrong reason. The message is the
@@ -456,9 +480,9 @@ test("Bob CANNOT invite anyone to Alice's team (403)", async () => {
   assert.equal(
     answer.json?.error,
     "Only the team's owner can invite people.",
-    `403, but not the owner check. Body: ${answer.text}`,
+    `403, but not the owner check. ${describeAnswer(answer)}`,
   );
-  console.log(`# Bob inviting: HTTP ${answer.status} ${answer.text}`);
+  console.log(`# Bob inviting: ${describeAnswer(answer)}`);
 });
 
 test("Alice CAN invite to her own team (201, or 409 with code 23505)", async () => {
@@ -476,21 +500,21 @@ test("Alice CAN invite to her own team (201, or 409 with code 23505)", async () 
   if (answer.status === 201) {
     assert.ok(
       answer.json?.invitation?.id,
-      `201 without an invitation id. Body: ${answer.text}`,
+      `201 without an invitation id. ${describeAnswer(answer)}`,
     );
   } else {
     assert.equal(
       answer.status,
       409,
-      `invite-member answered HTTP ${answer.status}, expected 201 or 409. Body: ${answer.text}`,
+      `invite-member answered ${describeAnswer(answer)}, expected 201 or 409.`,
     );
     assert.equal(
       answer.json?.code,
       "23505",
-      `409, but not the "already invited" one. Body: ${answer.text}`,
+      `409, but not the "already invited" one. ${describeAnswer(answer)}`,
     );
   }
-  console.log(`# Alice inviting: HTTP ${answer.status} ${answer.text}`);
+  console.log(`# Alice inviting: ${describeAnswer(answer)}`);
 });
 
 // ---------------------------------------------------------------------------

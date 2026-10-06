@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_ALL,
@@ -84,6 +85,11 @@ export default async function MyTasksPage({
   // team mate created, which is what decides whether a delete control is drawn.
   // It is compared, never displayed.
   const userId = claimsData.claims.sub;
+
+  // So an error report from the rest of this page carries who hit it, by id and
+  // nothing else (issue #157). Placed after the signed-out redirect above, so
+  // it only ever runs with a verified token in hand.
+  rememberUserForErrorReports(userId);
 
   // The teams this person owns or belongs to, for two jobs on this page: the
   // chooser on the add form, and the label on every team task.

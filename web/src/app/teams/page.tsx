@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
   DISPLAY_NAME_MAX,
@@ -105,6 +106,11 @@ export default async function MyTeamsPage({
   // row, and telling a team they own from a team they only belong to. It is
   // compared, never displayed.
   const userId = claimsData.claims.sub;
+
+  // So an error report from the rest of this page carries who hit it, by id and
+  // nothing else (issue #157). After the signed-out redirect, so it only runs
+  // with a verified token in hand.
+  rememberUserForErrorReports(userId);
 
   // No "where owner_id is me" here: the select rule on teams decides what comes
   // back, in the database rather than in this screen. Since

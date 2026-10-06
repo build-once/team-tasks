@@ -4,6 +4,7 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import { DISPLAY_NAME_MAX, EMAIL_MAX, NAME_MAX } from "@/lib/teams";
 
@@ -119,6 +120,11 @@ export async function saveDisplayName(formData: FormData) {
     // next step is to sign in again.
     redirect("/login");
   }
+
+  // So an error report from the rest of this action carries who hit it, by id
+  // and nothing else (issue #157). After the redirect above, so it only runs
+  // with a verified token in hand.
+  rememberUserForErrorReports(userId);
 
   // Update first, and let .select() report how many rows it touched.
   //

@@ -83,6 +83,10 @@ address. A password, a sign-in token, an invitation token, or any key. Three who
 stay off for the same reason: **no session replay**, **no performance tracing**, and **no request or
 response bodies** — each of them would carry exactly the things in that list.
 
+**And the limit of the thing that enforces it, because it decides how the app's own code must be
+written.** A pattern scrub cannot recognise free text that no known phrase introduces, so error
+messages written by this app must never include task text, names or addresses.
+
 **IP addresses.** Sentry has a setting that stops an event's IP address being stored, and a default
 data-scrubbing step that drops values which look like secrets — the owner's description of the service
 on 5 October 2026, not something read in Sentry's documentation here. The owner will switch the first
