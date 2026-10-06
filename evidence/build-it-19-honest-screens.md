@@ -495,4 +495,15 @@ status means one sentence, which names all three and claims none:
 
 That is less precise than before. The fix is for the function to send a code per refusal, the
 way `accept-invite` already does — which is a change under `supabase/` and so outside this
-issue's limits. Filed as an issue; the number is in the pull request.
+issue's limits. Filed as **#174**.
+
+## 11. Issues filed by this task
+
+| Issue | What it holds |
+|---|---|
+| [#174](https://github.com/build-once/team-tasks/issues/174) | The two server functions should send a refusal code, not only a message — the precision lost in section 10 |
+| [#175](https://github.com/build-once/team-tasks/issues/175) | Unverified: the footer's version has never been read on a Vercel build — the second UNVERIFIED item in section 9 |
+| [#176](https://github.com/build-once/team-tasks/issues/176) | Unverified: none of Build it 19's screens has been seen in a browser or on a phone — the first UNVERIFIED item in section 9 |
+
+The third UNVERIFIED item in section 9 — the access-rule tests on staging — is not filed,
+because CI settles it on this pull request rather than needing anybody to remember it.
