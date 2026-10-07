@@ -2,6 +2,13 @@
 
 > **Right now every account is on a free plan with no payment method, so nothing can bill
 > us. Before adding a card to any account, set its cap or alerts using this table.**
+>
+> **No longer true of every service, as of 2026-10-07.** That sentence was written of the four
+> services below it on 2026-09-27. **Anthropic's Claude API has no free plan** — it is metered per
+> token — and the owner reports a **5-dollar monthly spend limit** on the Team Tasks workspace, which
+> is a setting that only means anything on an account that can be billed. Whether a payment method is
+> on that account has not been checked by anybody writing this. Nothing is installed and no call has
+> ever been made, so nothing has been spent yet.
 
 What each service charges for, and whether it can be made to *stop* rather than just
 warn you. Written 2026-09-27 by reading each vendor's own billing documentation on that
@@ -12,8 +19,13 @@ the session that added it had no web access. Every figure in it says **NOT CONFI
 to read, rather than carrying a number from memory. Nothing is installed and nothing is sending, so
 nothing can be billed in the meantime.
 
-Related: the **Budget** section of `docs/plan.md` (£0/month while building, ceiling about
-£30/month including a domain name).
+**The Anthropic row, added 2026-10-07, is not that exception:** its prices and its spend-limit
+behaviour were read from Anthropic's own pages on that date and are cited in the row. What is *not*
+confirmed there is confirmed-as-unknown on purpose, and says so.
+
+Related: the **Budget** section of `docs/plan.md` (ceiling about £30/month including a domain name; it
+said £0/month while building until 2026-10-07, when the Claude API — which has no free plan — brought a
+5-dollar monthly ceiling of its own).
 
 ## The table
 
@@ -24,6 +36,7 @@ Related: the **Budget** section of `docs/plan.md` (£0/month while building, cei
 | **GitHub** — code and CI | Yes, for metered products: Actions, Packages, Git LFS, Codespaces, Copilot credits. **GitHub Free includes 2,000 Actions minutes/month for private repos; public repos are free on standard runners.** **With no payment method on file, usage is blocked once the quota is used up rather than billed** | **Yes, but off by default.** A budget only blocks usage if you tick "Stop usage when budget limit is reached" | **This is the default.** Without that tick you get email at 75%, 90%, 100% and usage continues | [Budgets and alerts](https://docs.github.com/en/billing/concepts/budgets-and-alerts) · [Set up budgets](https://docs.github.com/en/billing/tutorials/set-up-budgets) · [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) |
 | **Resend** — email (not set up yet) | Yes. Free: 3,000 emails/month and 100/day. Paid plans add pay-as-you-go overage (~$0.90 per 1,000 on Pro) | **A vendor-set cap, not one you choose.** Overage is capped at **5× your plan's monthly quota** by default, then sending pauses until the next cycle. Lowering that figure requires contacting support | Yes — quota alerts by email as you approach and exceed the quota | [Pricing](https://resend.com/pricing) · [Account quotas and limits](https://resend.com/docs/knowledge-base/account-quotas-and-limits) |
 | **Sentry** — error reports (chosen 2026-10-05, not installed) | **NOT CONFIRMED.** Whether the free plan is metered at all, what allowance of error reports it carries, and whether going past that allowance drops the extra reports or starts charging — none of it has been read. It must come from Sentry's own pricing page; no figure is written here from memory | **NOT CONFIRMED** — whether the free plan can bill at all, and whether Sentry offers a spend cap or a "stop at quota" switch, has not been read | **NOT CONFIRMED** — whether quota-warning emails exist, and at what percentages | **NOT READ — Sentry's own pricing page, and its documentation on event quotas and data retention.** No link is given: a URL written from memory is a guess (rule 15). Find them from the vendor's site, paste the exact pages here, and fill this row in |
+| **Anthropic Claude API** — the AI helper (chosen 2026-10-07, not installed) | **Yes, per token, and there is no free plan.** Claude Haiku 4.5 is listed at **$1 / MTok input and $5 / MTok output** on [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), read 2026-10-07 | **Yes, and it stops rather than warns — the strongest control of any service on this page.** A spend limit you set yourself is enforced: "When usage reaches a spend limit you set, requests return HTTP 400 with error type `invalid_request_error`." Limits can be set **per workspace**, which is what the Team Tasks workspace is for. The owner reports setting **5 USD a month**; that figure has not been seen in a dashboard here | **Not confirmed.** The pages read on 2026-10-07 describe what happens when a limit is *reached*, not any notification threshold. The owner reports notifications at **1** and **3** dollars; nothing read here confirms the feature exists or fires | [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · [Rate limits → Spend limits](https://platform.claude.com/docs/en/api/rate-limits#spend-limits) · [Setting your own spend limit](https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit) |
 | **Domain registrar** — not chosen | **UNSURE** — depends entirely on the registrar. Domains are normally a fixed annual fee, not metered | **UNSURE** — and a spending cap is usually not applicable to a fixed annual fee | **UNSURE** | **UNSURE — no registrar chosen, so there is no documentation to link.** Fill this row in once one is picked |
 
 ## Notes per service
@@ -119,6 +132,54 @@ and that is deliberate rather than sloppy.**
   burn a monthly allowance in an afternoon — not growth. That is an argument for finding out what the
   allowance is *before* the first report is ever sent.
 
+### Anthropic Claude API
+
+Added 2026-10-07, when the owner chose Anthropic's Claude API for the "Suggest subtasks" helper
+(`docs/plan.md` → "Suggest subtasks — an outside AI service", `docs/architecture.md` → arrow (12)).
+Unlike the Sentry row, the figures here were read from the vendor's own pages on that date.
+
+- **Nothing is installed, so nothing has been sent, so nothing has been spent.** No package, no
+  `AI_API_KEY` in any environment, no function, no call.
+- **The ceiling is the 5-dollar monthly spend limit**, and it is a real stop rather than an alert. On
+  the limit you set yourself: "When usage reaches a spend limit you set, requests return HTTP 400 with
+  error type `invalid_request_error`. The message begins `You have reached your specified API usage
+  limits`, or `You have reached your specified workspace API usage limits` for a workspace limit, and
+  states when access resumes."
+  ([Setting your own spend limit](https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit),
+  read 2026-10-07.) So the failure mode past 5 dollars is **the helper stops working, not a bill** —
+  which is the right way round while building, and the same shape as Vercel Hobby.
+- **There is a tier cap above it as well**, which the 5-dollar limit sits far below: "Each of the
+  Start, Build, and Scale tiers carries a monthly spend cap", listed as $500 for Start, and reaching it
+  pauses usage "until 00:00 UTC on the first day of the next month"
+  ([Spend limits](https://platform.claude.com/docs/en/api/rate-limits#spend-limits), read 2026-10-07).
+  Which tier this account is on has **not been checked**; it does not matter while the owner's own
+  5-dollar limit is the lower of the two.
+- **The published per-token price, and what it does not tell you.** Claude Haiku 4.5 is **$1 / MTok
+  input and $5 / MTok output** ([Pricing](https://platform.claude.com/docs/en/about-claude/pricing),
+  read 2026-10-07). **The per-call cost is not confirmed**, and cannot be until the code exists: the
+  prompt has not been written, so there is no token count to multiply. What can be done honestly is
+  arithmetic on an assumption, labelled as one. **Assume** 1,000 input tokens (one short title plus the
+  fixed instructions) and 200 output tokens (five short suggestions) — neither figure measured,
+  both invented here to give the price a shape:
+
+  | Line | Calculation | Cost |
+  |---|---|---|
+  | Input | 1,000 × $1 ÷ 1,000,000 | $0.001 |
+  | Output | 200 × $5 ÷ 1,000,000 | $0.001 |
+  | **One call** | | **$0.002** |
+  | **Calls before the 5-dollar limit** | 5 ÷ 0.002 | **2,500** |
+
+  That arithmetic was run on 2026-10-07; the token counts it rests on were not. Replace them with the
+  `usage` figures from a real response once the function exists, and this becomes a measurement instead
+  of an illustration.
+- **The spending risk here is shaped differently again.** Sentry's risk is a looping bug; this one is a
+  person pressing a button, or a loop in our own code pressing it for them. 2,500 calls is a lot for six
+  volunteers and nothing at all for a retry loop, which is why **usage counts and daily limits are
+  Build it 22** (`docs/plan.md`) and why until then the 5-dollar limit is the only thing in the way.
+- **Whether a payment method is on the Anthropic account has not been checked**, and a spend limit
+  implies one. Check it in the Console before trusting the banner at the top of this page for this
+  service.
+
 ### Domain registrar
 
 Nothing can be said until one is chosen. When choosing, the only cost questions that matter
@@ -144,6 +205,19 @@ question does not get re-asked from scratch.
   No Sentry page was read on 2026-10-05, and no number was written from memory.
 - **Not checked — whether the Sentry account has a payment method on file.** The banner at the top of
   this page was written of the four services covered on 2026-09-27.
+- **Not confirmed — the per-call cost of the AI helper.** The per-token price is cited; the token counts
+  in the worked example above are an assumption, because no prompt exists yet to count. Settle it with
+  the `usage` figures from a real response.
+- **Not confirmed — whether Anthropic sends a notification at a spend threshold at all.** The owner
+  reports setting them at 1 and 3 dollars. The pages read on 2026-10-07 describe reaching a limit and
+  say nothing about notifications, so neither the feature nor those two settings has been confirmed.
+- **Not checked — the Anthropic account's usage tier, and whether it has a payment method on file.**
+  Neither matters while the owner's own 5-dollar limit is the lower ceiling, and both are visible only
+  in the Console.
+- **Unverified — the Anthropic row describes an account nobody writing this has opened.** The workspace
+  name, the 5-dollar limit and the two notification thresholds are the owner's report of 2026-10-07. The
+  prices and the spend-limit behaviour are read from Anthropic's pages, which is how Anthropic describes
+  the service, not what this account is set to.
 - **UNSURE — the registrar row in full; no registrar chosen.**
 
 Resolved on 2026-09-27, both confirmed against vendor documentation:
@@ -171,6 +245,10 @@ service, the authoritative place is the billing settings page of the real accoun
 5. **Sentry** → the organisation's Usage and Billing settings → read the free plan's error allowance
    and what it does when the allowance is used up, and confirm no payment method is on file. Read the
    pricing and retention pages at the same sitting, and paste both links into the table above.
-6. **Registrar** → record the renewal price, not the introductory price.
+6. **Anthropic** → Claude Console → Settings → Billing → confirm the **Team Tasks** workspace's spend
+   limit is set to 5 USD, note which usage tier the organisation is on, and check whether a payment
+   method is on file. While you are there, look for whether notifications at 1 and 3 dollars exist as a
+   setting at all — nothing read on 2026-10-07 says they do.
+7. **Registrar** → record the renewal price, not the introductory price.
 
 Do that before real users arrive, alongside `docs/launch-check.md`.
