@@ -1502,3 +1502,301 @@ merely written down.
 | Issue | What it is |
 |---|---|
 | [#191](https://github.com/build-once/team-tasks/issues/191) | The three other staging scripts read a response the same way round: `build-it-16-checks.mjs:1278, 1292`, `build-it-16-suspend-checks.mjs:1226, 1242` and `build-it-18-invitation-status-checks.mjs:1450, 1467`. **Latent, not active** — none of them currently judges a value that its scrub replaces. `build-it-18` is the one to watch: it registers `INVITE_ADDRESS` and reads invitation rows that carry an `email` column, so "the stored address is the one that was invited" would fail on every correct row. Not fixed here, because this task was one fix to one file |
+
+## 12. The deployed staging runs of 7 October 2026, and the signed-out expectation that was wrong
+
+Everything in 12.1 is **the owner's and the coach's report of their own work** (rule 15). No command in
+this session touched staging, nothing was deployed from here, no secret was set from here, and no
+request has gone to Anthropic from this session. The assistant has still never run this script against
+staging.
+
+### 12.1 What the owner and the coach saw
+
+**Run 2 — after the deploy, with no key.** The owner ran, from their own terminal:
+
+```
+supabase functions deploy suggest-subtasks --project-ref ghskxrhqlhvrhpnivqbd
+```
+
+and then the staging script. Reported totals and the one answer that matters:
+
+| | |
+|---|---|
+| Totals | **16 PASS, 1 FAIL, 1 UNVERIFIED** |
+| The FAIL | the signed-out check — section 12.2 below, and it was the check that was wrong |
+| The UNVERIFIED | "it can suggest something". Alice's ask answered **HTTP 503**, `Suggestions aren't available right now.`, code **`not_configured`** — the honest answer with no key set, and production's state for the whole of Build it 20 |
+
+**This closes [#188](https://github.com/build-once/team-tasks/issues/188).** That issue asked whether
+the Supabase bundler would accept `import approvedModels from "./approved-models.json" with { type:
+"json" }`. A deploy that finished and a function that then answered its own 503 settles it: the
+bundler accepted the JSON import. Nothing about it was ever provable from this machine, which is why
+the issue existed.
+
+**Run 3 — after the staging key was set.** The owner ran `supabase secrets set --env-file` against the
+staging project with the staging Claude API key, then the script again:
+
+| | |
+|---|---|
+| Totals | **19 PASS, 1 FAIL, 0 UNVERIFIED** |
+| Alice's own task | **five suggestions came back** — so the whole path works end to end: browser, function, key, Anthropic, and back |
+| Bob on Alice's task, and a made-up id | both **HTTP 404**, `That task was not found.` — a stranger learns nothing, which is the check this feature most needed to pass |
+| Two simultaneous asks | **both HTTP 200**, so the per-instance lock did **not** engage. That is the documented limit rather than a fault: the lock is a `Set` in one isolate's memory and the platform may run several. `judgeOneAtATime` reports it and does not insist |
+| The FAIL | the same signed-out check, both times |
+
+**The screen, driven by a person.** The owner ran the local app from this branch against staging,
+signed in as Alice, on port 3001, with password sign-in working. On the task **"Plan a birthday
+party"**, pressing **Suggest subtasks** drew five suggestions with the line **"Nothing is saved until
+you press Add."** beneath them. Pressing **Add** on one made it a task, and the suggestion list then
+showed four. That is the part no script in this repository can check: that a person reading the screen
+is told a suggestion is not a task until they say so.
+
+**The deliberate failure, which is the half that makes the rest mean something.** The owner set
+`AI_API_KEY` on staging to a wrong value, and the screen said **"Suggestions aren't available right
+now."** — the same fixed sentence, with nothing of the service's own reply in it. They then restored
+the key from their saved file and suggestions appeared again. So the honest-failure path was exercised
+against the real service, not only against a `Response` a test builds.
+
+**Not checked, and so not claimed** (rule 8):
+
+- **The function's own log lines on staging** for any of these calls. Nobody has read them, so what
+  the function logged about a wrong key, a 404 or a refusal is **unverified**. The way to settle it is
+  the Supabase dashboard → Edge Functions → suggest-subtasks → Logs, and it is worth doing once,
+  because a log line carrying a task title would break `docs/plan.md`'s promise about what leaves this
+  project.
+- **A timeout, the rate limit, or the spend limit against the real service.** None can be brought
+  about from outside without changing staging to suit a test. `supabase/functions/_tests/suggest_subtasks_test.ts`
+  covers each one as a `Response` it builds, which is reasoning about the code and not an observation
+  of Anthropic.
+- **The helper on a phone.** `docs/plan.md` asks for a web app that works well in a phone's browser,
+  and nobody has opened this on one.
+
+**Personal data in this section** (rule 18). The staging project reference is already in this
+repository — in `scripts/staging/build-it-20-ai-checks.mjs:143`, in the staging scripts beside it,
+and in `.claude/guard/rules.json` — and it is staging rather than production. The task title **"Plan a birthday party"** is Alice's — a staging test
+account — and was invented for this demonstration; it names nobody and describes nothing real. **The
+five suggestions themselves were not reported and are not recorded here.** No address, no user id, no
+token, no key and no part of a key appears above. **Nothing was shortened or starred out, because
+there was nothing of that kind to shorten: the redaction list for this change is empty.**
+
+### 12.2 The FAIL in both runs was the check's expectation, not the function
+
+Both deployed runs failed the same single check, and the owner agreed on 7 October 2026 that the
+**expectation** was the thing at fault rather than the code (rule 20). What was observed, twice: a
+POST carrying the publishable key in the `apikey` header and **no** `Authorization` header came back
+
+```
+HTTP 401
+code UNUSABLE_CREDENTIAL, "received: authorization absent, apikey publishable"
+```
+
+— which is **`@supabase/server`'s refusal from inside the function**, not the platform's. In the same
+session the coach read staging's settings: **`suggest-subtasks` has `verify_jwt` true**, like the other
+three.
+
+Both of those are true at once, and what follows from them is the correction:
+
+- a **publishable key is a credential the gateway accepts**, so `verify_jwt = true` does not make an
+  apikey-only POST stop before the function;
+- what refuses that call is **`auth: "user"`**, one layer later, in
+  `supabase/functions/suggest-subtasks/index.ts:1057`;
+- the old check demanded the platform's code `UNAUTHORIZED_NO_AUTH_HEADER` for a request that was
+  never going to get it, so it reported a fault where there was none — and worse, it reported it in a
+  way that read as "`verify_jwt` is off", which was false.
+
+**And it is documented behaviour rather than a surprise**, which is why the new expectation is written
+off a page rather than off a memory. `@supabase/server@1.9.0` is the version pinned in
+`supabase/functions/suggest-subtasks/deno.json:4`. That package's own
+`docs/error-handling.md`, under `UNUSABLE_CREDENTIAL`, lists three shapes, and the second is this
+request:
+
+> "API key to an endpoint that reads none. Every accepted mode is `user`, so an API key can't satisfy
+> it in _either_ header. This is what an unauthenticated supabase-js call to a `user`-only endpoint
+> looks like: the publishable key rides both headers, but no session token does."
+
+The same file names the other half of the partition: `MISSING_CREDENTIALS`, "The request carried
+nothing: no `apikey` header, and no `Authorization` header at all". That is the code the library would
+send if a credential-less POST ever reached it — which is how the new check (a) can tell "the platform
+refused" from "the platform let it through and the library caught it".
+
+Read on this machine, in the Deno cache, at
+`~/AppData/Local/deno/npm/registry.npmjs.org/@supabase/server/1.9.0/docs/error-handling.md`, lines
+101–129. Nothing was fetched from the web for it.
+
+### 12.3 One check became two, and the cases were written first
+
+| | (a) no credentials at all | (b) the apikey and nothing else |
+|---|---|---|
+| What is sent | no `apikey`, no `Authorization` | the publishable key in `apikey`, no `Authorization` |
+| Who is expected to refuse it | the **platform**, HTTP 401 `UNAUTHORIZED_NO_AUTH_HEADER` | **`@supabase/server`**, HTTP 401 `UNUSABLE_CREDENTIAL` |
+| Why that is expected | production answered exactly that for `create-team` on 30 September 2026 (`evidence/create-team.md:184-197`) and for two more functions in `evidence/invitations.md`; `.github/workflows/migrate-production.yml`'s smoke-test job requires it of every function in the folder, and that job sends no key and no token either — the same request shape | **observed twice on staging**, 7 October 2026, and documented by the installed library (12.2) |
+| Status here | **UNVERIFIED until the owner's next staging run.** Nobody has ever seen `suggest-subtasks` answer a credential-less POST. The expectation is reasoning from three other functions and one job, which is not an observation | observed |
+| What a pass proves | the request never reached the function | the **handler** did not run: no task was read with anybody's rights, nothing went to Anthropic, nothing was spent |
+
+`judgeApikeyOnly` returns **two** results on purpose, because they are two different pieces of news and
+only the first is a promise this feature makes: "the handler did not run" (which any refusal gives),
+and "and it was the library that said so, with that code" (which is what was observed). If the
+platform ever refuses an apikey-only POST first, the second result is **UNVERIFIED and not a FAIL** — a
+gateway stricter than the one observed is not a hole, and calling it one would be reporting a fault
+that is not there.
+
+**Seen to fail first.** The nine new cases were written while `judgeNoCredentials` and
+`judgeApikeyOnly` were still one-line wrappers around the old single judgement, so this run is the old
+behaviour judged against the new expectations:
+
+```
+$ node scripts/staging/build-it-20-ai-checks.mjs --selftest
+
+  WRONG  APIKEY ONLY: @supabase/server refuses it with UNUSABLE_CREDENTIAL, so the handler did not run -- WHAT STAGING ANSWERED TWICE on 7 October 2026
+          expected PASS, PASS; got FAIL
+          FAIL  a signed-out POST is refused by the platform, before the function runs -- HTTP 401 but the code is "UNUSABLE_CREDENTIAL", not UNAUTHORIZED_NO_AUTH_HEADER. A 401 from the function's own code instead of the platform means the request REACHED the handler, which is what verify_jwt = false looks like. Check [functions.suggest-subtasks] in supabase/config.toml and that the deploy did not pass --no-verify-jwt
+  WRONG  APIKEY ONLY AND THE HANDLER'S OWN SENTENCE CAME BACK: the request got past auth: "user", which is the mistake this check exists to catch
+          expected FAIL, FAIL; got FAIL
+          FAIL  a signed-out POST is refused by the platform, before the function runs -- HTTP 401 but the code is undefined, not UNAUTHORIZED_NO_AUTH_HEADER. [...]
+  WRONG  AN APIKEY-ONLY POST GOT SUGGESTIONS: the worst shape of this fault, and it spends money
+          expected FAIL, FAIL; got FAIL
+          FAIL  a signed-out POST is refused by the platform, before the function runs -- HTTP 200 to a POST with no Authorization header at all, expected 401. [...]
+  WRONG  apikey only, and the PLATFORM refused it first: nothing ran, which is the result that matters, but which layer says no was not exercised
+          expected PASS, UNVERIFIED; got PASS
+          PASS  a signed-out POST is refused by the platform, before the function runs -- HTTP 401, code UNAUTHORIZED_NO_AUTH_HEADER -- verify_jwt = true is doing its job
+  WRONG  apikey only, 401 with a code nobody here has seen: refused, by something unnamed
+          expected PASS, FAIL; got FAIL
+          FAIL  a signed-out POST is refused by the platform, before the function runs -- HTTP 401 but the code is "SOMETHING_ELSE", not UNAUTHORIZED_NO_AUTH_HEADER. [...]
+
+75 cases, 5 wrong.
+
+The judgements in this file do not behave as its comments claim.
+Fix them before running anything against staging: a check that
+cannot fail is worse than no check, because it reports a pass.
+
+exit code: 1
+```
+
+The three `[...]` are the rest of a repeated sentence, cut for length; the full text is the detail line
+quoted in the first block. **The first `WRONG` is the owner's FAIL reproduced on this machine** — the
+real staging answer, handed to the old judgement, called a fault. The four cases for check (a) came out
+`ok` in that run, which is correct and worth saying: (a) keeps the old expectation, and it was never
+the half that was wrong.
+
+Then the two judgements were written properly, and nothing else about the file's behaviour changed:
+
+```
+$ node scripts/staging/build-it-20-ai-checks.mjs --selftest
+
+  ok    the platform refuses a POST carrying no credentials at all
+          expected PASS; got PASS
+  ok    NO CREDENTIALS AND THE LIBRARY ANSWERED: MISSING_CREDENTIALS is @supabase/server's, so the gateway let a credential-less POST through
+          expected FAIL; got FAIL
+  ok    A POST WITH NO CREDENTIALS GOT SUGGESTIONS: a live hole, and one that spends money
+          expected FAIL; got FAIL
+  ok    the credential-less POST never arrived, so nothing is settled
+          expected UNVERIFIED; got UNVERIFIED
+  ok    APIKEY ONLY: @supabase/server refuses it with UNUSABLE_CREDENTIAL, so the handler did not run -- WHAT STAGING ANSWERED TWICE on 7 October 2026
+          expected PASS, PASS; got PASS, PASS
+  ok    APIKEY ONLY AND THE HANDLER'S OWN SENTENCE CAME BACK: the request got past auth: "user", which is the mistake this check exists to catch
+          expected FAIL, FAIL; got FAIL, FAIL
+  ok    AN APIKEY-ONLY POST GOT SUGGESTIONS: the worst shape of this fault, and it spends money
+          expected FAIL, FAIL; got FAIL, FAIL
+  ok    apikey only, and the PLATFORM refused it first: nothing ran, which is the result that matters, but which layer says no was not exercised
+          expected PASS, UNVERIFIED; got PASS, UNVERIFIED
+  ok    apikey only, 401 with a code nobody here has seen: refused, by something unnamed
+          expected PASS, FAIL; got PASS, FAIL
+
+75 cases, 0 wrong.
+
+exit code: 0
+```
+
+**How the handler is recognised**, which is what makes the first of the two results in (b) able to
+fail: `HANDLER_FINGERPRINTS`, eight sentences only this function's own code sends, plus a `suggestions`
+list, which nothing in front of the handler can produce. Copied from `index.ts` rather than imported,
+for the reason the codes and the two sentences above it are: importing would make the two agree however
+the function changed.
+
+### 12.4 The comment in `supabase/config.toml`, which claimed more than was observed
+
+The `[functions.suggest-subtasks]` comment said that with `verify_jwt` false "an unauthenticated
+request would reach the handler". The two staging runs show that is not what decides it:
+`auth: "user"` refuses a caller with no user token whatever `verify_jwt` is set to. The comment now
+says what each half has actually been seen to do, which half refused the two observed calls, and that
+nobody has yet seen this function answer a request carrying no credentials at all.
+
+**Only that one block was changed.** The three blocks above it carry the same overclaim about their own
+functions, and that is filed as an issue rather than fixed here — see 12.7.
+
+### 12.5 Counts, measured on this machine
+
+The selftest's own last line, and its exit code, from the run quoted at the end of 12.3:
+
+```
+75 cases, 0 wrong.
+exit code: 0
+```
+
+That output was also saved and its lines counted, because the number CI uses is the count of lines
+beginning `  ok  ` rather than the "75 cases" line: **75 `ok` lines, 0 `WRONG` lines**. Rule 4 forbids
+chaining, so the count was made by saving the output in one command and counting it in the next, rather
+than by piping into `grep -c`.
+
+| Floor in `ci.yml` | Was | Now | Why |
+|---|---|---|---|
+| `EXPECTED_AI_CASES` | 69 | **75** | nine cases for the two new checks replace three for the one they split; five of the nine FAILED before the split |
+
+`ci.yml` was edited for that one number and its comment, and nothing else. The owner asked for the count
+to be updated in this task (rule 5: a workflow changes only when the owner asks, and raising a floor
+does not weaken a check).
+
+Everything re-run on this machine after the change:
+
+```
+$ node scripts/check-workflows.mjs
+Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
+exit code: 0
+
+$ npm test
+PASS: 537 rule examples across 24 rules, plus 32 fail-closed checks.
+lint-skills: PASS - 12 skills, 0 problems
+launch-check selftest: PASS (171/171 assertions, 39 checklist items, 17 auto checks, git available)
+Self-test: 7/7 cases passed.
+Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
+vet-tool selftest: PASS (34/34 assertions; 20 malicious detections, 24 findings on malicious fixture, 0 HIGH/MEDIUM on benign near-miss control)
+handoff selftest: PASS (57/57 assertions; 11 secret types redacted, 9 controls unchanged, end-to-end ran)
+Self-test: 20/20 cases passed.
+AI team self-test: 258 passed, 0 failed.
+Checked 6 workflow file(s), 14 job(s): 0 problem(s), 0 warning(s).
+exit code: 0
+```
+
+**Not re-run here, and so unverified here:** the Deno function tests, the three staging selftests beside
+this one, and the web app's lint and build. None of their files was touched by this change — the three
+files in it are the staging script, `supabase/config.toml` and `ci.yml` — and CI runs all of them on
+this branch.
+
+**What the next staging run should print, as arithmetic rather than an observation.** Run 3 reported 20
+results (19 PASS, 1 FAIL). The one FAIL was a single result; the two checks that replace it produce
+three. So a run with nothing else changed should print **22 PASS, 0 FAIL, 0 UNVERIFIED** — unless the
+gateway lets a credential-less POST through, in which case check (a) FAILs and names
+`MISSING_CREDENTIALS`, which is the news worth having. Nobody has run it, so this is arithmetic from
+the owner's reported totals and not a result.
+
+### 12.6 A check's expectation was changed, and who agreed to it (rule 20)
+
+| What changed | Where | Who agreed |
+|---|---|---|
+| `judgeSignedOut` — "a signed-out POST is refused by the platform, before the function runs", which demanded HTTP 401 with `UNAUTHORIZED_NO_AUTH_HEADER` for a POST carrying the publishable key — was **removed**, and replaced by `judgeNoCredentials` and `judgeApikeyOnly`. Its three selftest cases were replaced by nine | `scripts/staging/build-it-20-ai-checks.mjs` | **The owner, 7 October 2026**, in the task that asked for this change, after two staging runs showed the function's behaviour and the coach confirmed `verify_jwt` is true on it |
+
+Nothing in `supabase/functions/` was changed by this task: the function's code is exactly as it was
+when the owner ran it. What changed is a check that was asking the wrong question, and a comment that
+answered it wrongly.
+
+### 12.7 Issues filed with this change
+
+| Issue | What it is |
+|---|---|
+| [#192](https://github.com/build-once/team-tasks/issues/192) | The `create-team`, `invite-member` and `accept-invite` blocks in `supabase/config.toml` carry the same overclaim this task corrected for the fourth: each says that with `verify_jwt` false an unauthenticated request would reach the handler, when `withSupabase({ auth: "user" })` is what refuses a caller holding no user token. Not fixed here, because the observation is of one function and the owner asked for one comment |
+| [#193](https://github.com/build-once/team-tasks/issues/193) | Nobody has read `suggest-subtasks`'s own log lines on staging for the 7 October calls — the wrong-key failure, the 404s, the refusals. A log line carrying a task title would break what `docs/plan.md` promises about what leaves this project, and nothing in this repository can check it |
+
+### 12.8 Closed by the owner's run 2
+
+[#188](https://github.com/build-once/team-tasks/issues/188) — whether the Supabase bundler accepts the
+JSON import in `suggest-subtasks`. The deploy finished and the deployed function answered its own 503,
+so the import was accepted. Closed with a link to 12.1.

@@ -310,7 +310,17 @@ jobs:
       # never equal the string it stands for. Four cases, which go through the
       # script's real reading path rather than past it -- the only kind that could
       # have caught it. Two of the four FAILED before the order was fixed.
-      EXPECTED_AI_CASES: "69"
+      #
+      # 69 -> 75 after the same day's deployed runs, where the signed-out check
+      # FAILED and the EXPECTATION was what the owner agreed was wrong (rule 20):
+      # a POST carrying the publishable key and no Authorization header is refused
+      # 401 UNUSABLE_CREDENTIAL by @supabase/server inside the function, not by the
+      # platform, and verify_jwt is true on that function all the same. The one
+      # check became two -- no credentials at all, where the platform's own refusal
+      # is expected, and the apikey alone, where the library's is -- and nine cases
+      # replace three. Five of the nine FAILED before the split, the first of them
+      # the real staging answer being called a fault.
+      EXPECTED_AI_CASES: "75"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

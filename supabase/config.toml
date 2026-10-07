@@ -52,19 +52,48 @@ entrypoint = "./functions/accept-invite/index.ts"
 
 [functions.suggest-subtasks]
 enabled = true
-# verify_jwt = true, for the same reason as the three above, and with one extra
-# reason that is this function's alone: IT SPENDS MONEY. The other three write rows.
-# This one makes a metered request to Anthropic, against a workspace with a 5-dollar
-# monthly ceiling (docs/costs.md). Left at the scaffolded false, an unauthenticated
-# request would reach the handler, and "a person can only ask about a task they can
-# see" would be unenforceable -- there would be no verified caller whose rights the
-# task is read with -- while every stranger's POST cost something.
+# verify_jwt = true, CHANGED from the scaffolded false, for the same reason as the
+# three above, and with one extra reason that is this function's alone: IT SPENDS
+# MONEY. The other three write rows. This one makes a metered request to Anthropic,
+# against a workspace with a 5-dollar monthly ceiling (docs/costs.md).
 #
-# The platform's refusal is also what .github/workflows/migrate-production.yml's
-# smoke-test job checks for, on every function in this folder: HTTP 401 with the code
-# UNAUTHORIZED_NO_AUTH_HEADER, which only the platform sends. This line is what makes
-# that pass, and the job builds its list from the folder, so this function is checked
-# from its first deploy without anybody editing that file.
+# AND HERE IS WHAT THIS LINE DOES NOT DO, corrected on 7 October 2026. The comment
+# that stood here said that with false "an unauthenticated request would reach the
+# handler". That claimed more than anybody had seen, and the owner's staging runs
+# showed it was wrong in a way worth writing down.
+#
+# WHAT WAS OBSERVED, twice, on staging, with this function deployed: a POST carrying
+# the publishable key in the `apikey` header and NO Authorization header came back
+# HTTP 401 with the code UNUSABLE_CREDENTIAL and the message "received: authorization
+# absent, apikey publishable" -- which is @supabase/server's refusal from INSIDE the
+# function, not the platform's. In the same session the coach read staging's settings
+# and found verify_jwt = true on this function. Both of those are true at once, so
+# what follows is: a publishable key IS a credential the gateway accepts, and what
+# refuses an apikey-only call is `auth: "user"` in index.ts, one layer later.
+# @supabase/server@1.9.0's own docs/error-handling.md documents exactly that, under
+# UNUSABLE_CREDENTIAL: an API key sent to an endpoint where every accepted mode is
+# `user` "can't satisfy it in either header".
+#
+# SO THE TWO HALVES ARE NOT INTERCHANGEABLE, and this is the useful part:
+#   * `auth: "user"` is what refuses a caller who holds no user token. It is the half
+#     that makes "only a signed-in person, identity taken from a verified token"
+#     true, and it is what refused the two calls above before the handler ran -- so
+#     no task was read and nothing was spent.
+#   * verify_jwt = true is a second lock in FRONT of that one, and what it has been
+#     seen to refuse is a POST carrying no credentials AT ALL: HTTP 401 with the code
+#     UNAUTHORIZED_NO_AUTH_HEADER, recorded from production for create-team
+#     (evidence/create-team.md, 30 September 2026) and for two more functions in
+#     evidence/invitations.md. It is also what
+#     .github/workflows/migrate-production.yml's smoke-test job requires of every
+#     function in this folder -- a job that sends no key and no token either, which is
+#     what makes its request that same shape. This line is what makes that job pass,
+#     and the job builds its list from the folder, so this function is checked from
+#     its first deploy without anybody editing that file.
+#   * NOT YET OBSERVED ON THIS FUNCTION: nobody has seen suggest-subtasks itself
+#     answer a credential-less POST. scripts/staging/build-it-20-ai-checks.mjs now
+#     asks it as its own check, and until the owner runs that script again this
+#     paragraph is reasoning from the other three functions rather than an
+#     observation.
 verify_jwt = true
 import_map = "./functions/suggest-subtasks/deno.json"
 entrypoint = "./functions/suggest-subtasks/index.ts"

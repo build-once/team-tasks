@@ -45,11 +45,11 @@
 // AT MOST THREE PER RUN reach the service: Alice's ask about her own task, and the two
 // simultaneous asks in the one-at-a-time check. Every other call in this script is
 // refused before any key is touched -- a 400 for a bad id, a 404 for a task the caller
-// cannot see, a 401 for a signed-out call -- so none of those costs anything. Claude
-// Haiku 4.5 is $1 per million input tokens and $5 per million output, and the reply is
-// capped at 300 output tokens (docs/costs.md), so three asks is a fraction of a penny.
-// The ceiling behind all of it is the 5-dollar monthly spend limit on the Team Tasks
-// workspace.
+// cannot see, two 401s for the two shapes of a signed-out call -- so none of those costs
+// anything. Claude Haiku 4.5 is $1 per million input tokens and $5 per million output, and
+// the reply is capped at 300 output tokens (docs/costs.md), so three asks is a fraction of
+// a penny. The ceiling behind all of it is the 5-dollar monthly spend limit on the Team
+// Tasks workspace.
 //
 // WHAT IT CANNOT ASK, so that nobody reads a green run as more than it is (rule 8):
 //
@@ -95,6 +95,12 @@
 //   Prefer: return=representation   -- what makes a write answer with the rows it
 //          touched, so a refusal reads as "0 rows" instead of being guessed at
 //   the API key travels in the `apikey` header; Authorization carries the caller's JWT.
+//
+// ONE CALL IN THIS SCRIPT SENDS NEITHER HEADER, on purpose: section 3's check (a), where a
+// POST with no key and no token is expected to be refused by the platform itself. Every
+// other call carries the publishable key. Which header is missing turns out to decide WHICH
+// LAYER refuses the call, and that is the whole of the note beside PLATFORM_NO_AUTH_CODE
+// below.
 //
 // The sign-out SCOPE is `local`, as in web/tests/staging.mjs and
 // build-it-18-invitation-status-checks.mjs: `global` would end every session belonging
@@ -189,13 +195,83 @@ const SUGGEST_CODES = [
 const SUGGESTIONS_MAX = 5;
 const SUGGESTION_CHARS_MAX = 80;
 
-// What the PLATFORM answers when a function is not deployed under that name, and what
-// it answers to a signed-out call. The second is recorded from production in
-// evidence/create-team.md and evidence/invitations.md; the first is what this script
-// expects to meet on its before-the-deploy run and is NOT something read out of a
-// dashboard here, so the judgement below keys off the status and the absence of our own
-// sentence rather than off a code it has not seen.
+// ---------------------------------------------------------------------------
+// WHO REFUSES A CALL WITH NO USER TOKEN -- and it is TWO questions, not one
+// ---------------------------------------------------------------------------
+//
+// This file asked it as one question until 7 October 2026, and the answer it expected was
+// wrong. The owner agreed the EXPECTATION was the thing at fault rather than the function
+// (rule 20), and these are the two shapes it is now split into.
+//
+// WHAT WAS OBSERVED, twice, on staging. A POST carrying the publishable key in the
+// `apikey` header and NO Authorization header came back
+//
+//   HTTP 401, code UNUSABLE_CREDENTIAL, "received: authorization absent, apikey publishable"
+//
+// which is @supabase/server's refusal from INSIDE the function -- not the platform's. The
+// coach read staging's settings in the same session: suggest-subtasks has
+// verify_jwt = true, like the other three. So BOTH of those are true at once, and what
+// follows from them is the correction: a publishable key is a credential the gateway
+// accepts, so verify_jwt being on does not make an apikey-only POST stop before the
+// function. `auth: "user"` is what refuses that one.
+//
+// AND IT IS THE DOCUMENTED BEHAVIOUR rather than a surprise, which is why the expectation
+// below is written off a page rather than off a memory. @supabase/server@1.9.0 is the
+// version pinned in supabase/functions/suggest-subtasks/deno.json, and that package's own
+// docs/error-handling.md, under "UNUSABLE_CREDENTIAL", lists three shapes it covers. The
+// second is this request, word for word:
+//
+//   "API key to an endpoint that reads none. Every accepted mode is `user`, so an API key
+//    can't satisfy it in either header. This is what an unauthenticated supabase-js call
+//    to a `user`-only endpoint looks like: the publishable key rides both headers, but no
+//    session token does."
+//
+// THE TWO SHAPES, then, and what each one proves:
+//
+//   (a) NO apikey AND NO Authorization. The PLATFORM's own refusal is expected: HTTP 401
+//       with the code UNAUTHORIZED_NO_AUTH_HEADER. Why that is the expectation: it is what
+//       production answered for create-team on 30 September 2026
+//       (evidence/create-team.md) and for two more functions in evidence/invitations.md,
+//       and it is what .github/workflows/migrate-production.yml's smoke-test job requires
+//       of every function in the folder -- a job that sends no key and no token either,
+//       which is what makes its request the same shape as this one.
+//       **IT HAS NEVER BEEN RUN AGAINST THIS FUNCTION.** Nobody has seen suggest-subtasks
+//       answer a credential-less POST, on staging or anywhere else, so this expectation is
+//       UNVERIFIED until the owner's next staging run -- reasoning from three other
+//       functions and one job, which is not the same as an observation (rule 15).
+//       If the gateway did NOT refuse it, the library would, and under a different code:
+//       the same docs file calls that MISSING_CREDENTIALS -- "The request carried nothing:
+//       no `apikey` header, and no `Authorization` header at all" -- so a 401 carrying
+//       THAT code is news about the gateway, and judgeNoCredentials says so rather than
+//       reading any 401 as a pass.
+//
+//   (b) THE apikey AND NOTHING ELSE, which is what a signed-out browser using supabase-js
+//       sends, and what was observed above. The LIBRARY's refusal is expected. What it
+//       proves is narrower than "the platform refused" and is the part that matters: the
+//       handler did not run, so no task was read with anybody's rights and no metered
+//       request was made.
 const PLATFORM_NO_AUTH_CODE = "UNAUTHORIZED_NO_AUTH_HEADER";
+const LIBRARY_UNUSABLE_CODE = "UNUSABLE_CREDENTIAL";
+const LIBRARY_MISSING_CODE = "MISSING_CREDENTIALS";
+
+// SENTENCES ONLY THIS FUNCTION'S OWN CODE SENDS. If one of them turns up in a refusal, the
+// request got past the gateway AND past `withSupabase({ auth: "user" })` and reached the
+// handler -- which is what both checks below are really asking about, and what the code
+// alone cannot settle when the code is missing. Copied from
+// supabase/functions/suggest-subtasks/index.ts (lines 1067, 1091, 1101, 1116, 1125, and
+// SUSPENDED_MESSAGE at 375) rather than imported, for the same reason as the codes and the
+// two sentences above: importing would make the two agree however the function changed.
+// build-it-16-checks.mjs:159 keeps the same kind of list for the other three functions.
+const HANDLER_FINGERPRINTS = [
+  "You must be signed in to ask for suggestions.",
+  "Could not check your account",
+  "Expected a JSON body with a task id.",
+  "Which task are the suggestions for?",
+  "That is not a valid task id.",
+  "You can't do that at the moment.",
+  UNAVAILABLE_MESSAGE,
+  NOT_FOUND_MESSAGE,
+];
 
 // A refusal body is short. 400 characters is generous.
 const MAX_REFUSAL_BODY = 400;
@@ -699,51 +775,172 @@ export function judgeBadRequest(answer, what, expectedStatus) {
   ];
 }
 
-// A signed-out call is refused by the PLATFORM, before the function's code runs.
-//
-// Two different ways a signed-out call can come back 401, and the code tells them
-// apart: the platform's refusal carries UNAUTHORIZED_NO_AUTH_HEADER, and a 401 from the
-// function's own code means the request reached the handler -- which is what
-// verify_jwt = false looks like, and is the exact mistake this check is here to catch.
-// The same argument .github/workflows/migrate-production.yml's smoke-test job makes.
-export function judgeSignedOut(answer) {
-  const what = "a signed-out POST is refused by the platform, before the function runs";
+// DID THIS BODY COME FROM THE FUNCTION'S OWN HANDLER? A sentence only this function
+// sends, or a `suggestions` list, which nothing in front of the handler can produce.
+// Decided on the bytes that arrived, like every other judgement here.
+function handlerAnswered(answer) {
+  const text = answer.body ?? "";
+  if (HANDLER_FINGERPRINTS.some((sentence) => text.includes(sentence))) return true;
+  return Array.isArray(readAnswerBody(text).suggestions);
+}
+
+// (a) A POST CARRYING NO CREDENTIALS AT ALL -- no apikey, no Authorization. The PLATFORM's
+// own refusal is expected. The long note beside PLATFORM_NO_AUTH_CODE says where that
+// expectation comes from, that nobody has seen THIS function answer this request, and what
+// the library would say instead if the gateway let it through.
+export function judgeNoCredentials(answer) {
+  const what =
+    "a POST with NO credentials at all -- no apikey, no Authorization -- is refused by the" +
+    " platform, before the function runs";
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
 
   const { judged: read, show } = readBothWays(answer);
+
   if (answer.status === 401 && read.code === PLATFORM_NO_AUTH_CODE) {
     return [
       {
         what,
         verdict: PASS,
-        detail: `HTTP 401, code ${PLATFORM_NO_AUTH_CODE} -- verify_jwt = true is doing its job`,
+        detail:
+          `HTTP 401, code ${PLATFORM_NO_AUTH_CODE} -- the gateway refused it, so the` +
+          ` function's code was never reached. This is the answer production gives for the` +
+          ` other three functions, and the one the smoke-test job requires`,
       },
     ];
   }
-  if (answer.status === 401) {
+
+  if (answer.status === 401 && read.code === LIBRARY_MISSING_CODE) {
     return [
       {
         what,
         verdict: FAIL,
         detail:
-          `HTTP 401 but the code is ${JSON.stringify(show.code)}, not ${PLATFORM_NO_AUTH_CODE}.` +
-          ` A 401 from the function's own code instead of the platform means the request` +
-          ` REACHED the handler, which is what verify_jwt = false looks like. Check` +
-          ` [functions.${FUNCTION_NAME}] in supabase/config.toml and that the deploy did not` +
-          ` pass --no-verify-jwt`,
+          `HTTP 401 with the code ${LIBRARY_MISSING_CODE}, which is @supabase/server's and` +
+          ` not the platform's: this request was refused INSIDE the function. It is still` +
+          ` refused, the handler still did not run and it still cost nothing -- but the` +
+          ` gateway let a credential-less POST reach the function, which is not what this` +
+          ` check claims and not what production answers for the other three. Check` +
+          ` [functions.${FUNCTION_NAME}] in supabase/config.toml and that the deploy did` +
+          ` not pass --no-verify-jwt`,
       },
     ];
   }
+
+  if (answer.status === 401) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail: handlerAnswered(answer)
+          ? `HTTP 401 and the body is one this function's OWN CODE sends, so the request` +
+            ` reached the handler with no credentials at all -- past the gateway and past` +
+            ` auth: "user". Body: ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`
+          : `HTTP 401, and the code is ${JSON.stringify(show.code)} -- neither the` +
+            ` platform's ${PLATFORM_NO_AUTH_CODE} nor @supabase/server's` +
+            ` ${LIBRARY_MISSING_CODE}. Refused, but by something this script cannot name,` +
+            ` so it will not read it as the platform doing its job. Body:` +
+            ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+      },
+    ];
+  }
+
   return [
     {
       what,
       verdict: FAIL,
       detail:
-        `HTTP ${answer.status} to a POST with no Authorization header at all, expected 401.` +
-        ` Anything in the 2xx range means the function RAN for a caller with no token, and` +
-        ` on this function that means it spent money for one`,
+        `HTTP ${answer.status} to a POST carrying no credentials at all, expected 401.` +
+        ` Anything in the 2xx range means the function RAN for a caller with nothing, and on` +
+        ` this function that means it spent money for one. Body:` +
+        ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
     },
   ];
+}
+
+// (b) A POST CARRYING THE apikey AND NOTHING ELSE -- the publishable key in the `apikey`
+// header, no Authorization. This is what a signed-out browser using supabase-js sends, and
+// it is the request the owner's two staging runs of 7 October 2026 answered
+// 401 UNUSABLE_CREDENTIAL to.
+//
+// TWO RESULTS, because they are two different pieces of news and only the first is a
+// promise this feature makes:
+//
+//   1. THE HANDLER DID NOT RUN. No task was read with anybody's rights, nothing was sent
+//      to the AI service and nothing was spent. True of any refusal, whichever layer sends
+//      it, and this is the result that matters.
+//   2. AND IT IS @supabase/server's REFUSAL, with the code that package documents for this
+//      exact request. That is what was observed, twice. If the PLATFORM refuses it first
+//      instead, result 1 still holds -- nothing ran -- but which layer says no has not been
+//      exercised, so result 2 is UNVERIFIED and not a FAIL: a stricter gateway than the one
+//      observed is not a hole, and reporting it as one would be reporting a fault that is
+//      not there (rule 8).
+export function judgeApikeyOnly(answer) {
+  const whatRan =
+    "an apikey-only POST -- the publishable key, no Authorization -- never reaches the handler";
+  const whatCode =
+    `and it is @supabase/server that refuses it, with the code ${LIBRARY_UNUSABLE_CODE}` +
+    ` -- what staging answered twice on 7 October 2026`;
+
+  if (answer.error) {
+    return [
+      { what: whatRan, verdict: UNVERIFIED, detail: answer.error },
+      { what: whatCode, verdict: UNVERIFIED, detail: answer.error },
+    ];
+  }
+
+  const { judged: read, show } = readBothWays(answer);
+  const reachedHandler = handlerAnswered(answer);
+  const results = [];
+
+  results.push({
+    what: whatRan,
+    verdict: answer.status === 401 && !reachedHandler ? PASS : FAIL,
+    detail: reachedHandler
+      ? `HTTP ${answer.status}, and the body is one this function's OWN CODE sends, so the` +
+        ` request got past auth: "user" with no user token at all. On this function that is` +
+        ` a caller with no identity reading a task and spending money. Body:` +
+        ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`
+      : answer.status === 401
+        ? `HTTP 401, and nothing in the body is a sentence this function's own code sends,` +
+          ` so no task was read and nothing was sent to the AI service`
+        : `HTTP ${answer.status}, expected 401. Body:` +
+          ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+  });
+
+  if (answer.status === 401 && read.code === LIBRARY_UNUSABLE_CODE) {
+    results.push({
+      what: whatCode,
+      verdict: PASS,
+      detail:
+        `HTTP 401, code ${LIBRARY_UNUSABLE_CODE}. @supabase/server@1.9.0's` +
+        ` docs/error-handling.md gives this request as its second shape: an API key sent to` +
+        ` an endpoint where every accepted mode is \`user\`, which no key can satisfy in` +
+        ` either header`,
+    });
+  } else if (answer.status === 401 && read.code === PLATFORM_NO_AUTH_CODE) {
+    results.push({
+      what: whatCode,
+      verdict: UNVERIFIED,
+      detail:
+        `HTTP 401, code ${PLATFORM_NO_AUTH_CODE} -- the PLATFORM refused this one, so the` +
+        ` library was never asked and what it would have said is unexercised. Nothing ran,` +
+        ` which the result above records, and a gateway stricter than the one observed on` +
+        ` 7 October 2026 is not a fault. Worth telling the owner: the platform's behaviour` +
+        ` towards an apikey-only POST is then not what staging did twice`,
+    });
+  } else {
+    results.push({
+      what: whatCode,
+      verdict: FAIL,
+      detail:
+        `HTTP ${answer.status}, code ${JSON.stringify(show.code)} -- neither` +
+        ` @supabase/server's ${LIBRARY_UNUSABLE_CODE} nor the platform's` +
+        ` ${PLATFORM_NO_AUTH_CODE}, so this script cannot say what refused it. Body:` +
+        ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+    });
+  }
+
+  return results;
 }
 
 // Two asks at once. The lock is a Set in one isolate's memory, so this check reports
@@ -1249,21 +1446,76 @@ function runSelftest() {
       expect: [FAIL],
     },
 
-    // ---- signed out ----
+    // ---- signed out, WHICH IS TWO QUESTIONS AND NOT ONE ----
+    //
+    // See the long note beside PLATFORM_NO_AUTH_CODE. (a) nothing at all, where the
+    // platform's refusal is expected and has never been seen on THIS function; (b) the
+    // apikey and nothing else, which is what staging answered twice on 7 October 2026 and
+    // what the single check these replace called a FAIL.
+
+    // ---- (a) no apikey and no Authorization ----
     {
-      name: "the platform refuses a signed-out POST",
-      run: () => judgeSignedOut({ status: 401, body: JSON.stringify({ code: PLATFORM_NO_AUTH_CODE }) }),
+      name: "the platform refuses a POST carrying no credentials at all",
+      run: () => judgeNoCredentials({ status: 401, body: JSON.stringify({ code: PLATFORM_NO_AUTH_CODE }) }),
       expect: [PASS],
     },
     {
-      name: "A 401 FROM THE FUNCTION'S OWN CODE: the request reached the handler, so verify_jwt is off",
-      run: () => judgeSignedOut({ status: 401, body: JSON.stringify({ error: "You must be signed in to ask for suggestions." }) }),
+      name:
+        "NO CREDENTIALS AND THE LIBRARY ANSWERED: MISSING_CREDENTIALS is @supabase/server's," +
+        " so the gateway let a credential-less POST through",
+      run: () => judgeNoCredentials({ status: 401, body: JSON.stringify({ code: LIBRARY_MISSING_CODE }) }),
       expect: [FAIL],
     },
     {
-      name: "A SIGNED-OUT CALL GOT SUGGESTIONS: a live hole, and one that spends money",
-      run: () => judgeSignedOut(ok(goodThree)),
+      name: "A POST WITH NO CREDENTIALS GOT SUGGESTIONS: a live hole, and one that spends money",
+      run: () => judgeNoCredentials(ok(goodThree)),
       expect: [FAIL],
+    },
+    {
+      name: "the credential-less POST never arrived, so nothing is settled",
+      run: () => judgeNoCredentials({ error: "could not reach the function" }),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- (b) the apikey and nothing else ----
+    {
+      name:
+        "APIKEY ONLY: @supabase/server refuses it with UNUSABLE_CREDENTIAL, so the handler" +
+        " did not run -- WHAT STAGING ANSWERED TWICE on 7 October 2026",
+      run: () =>
+        judgeApikeyOnly({
+          status: 401,
+          body: JSON.stringify({ code: LIBRARY_UNUSABLE_CODE, message: "received: authorization absent, apikey publishable" }),
+        }),
+      expect: [PASS, PASS],
+    },
+    {
+      name:
+        "APIKEY ONLY AND THE HANDLER'S OWN SENTENCE CAME BACK: the request got past" +
+        ' auth: "user", which is the mistake this check exists to catch',
+      run: () =>
+        judgeApikeyOnly({
+          status: 401,
+          body: JSON.stringify({ error: "You must be signed in to ask for suggestions." }),
+        }),
+      expect: [FAIL, FAIL],
+    },
+    {
+      name: "AN APIKEY-ONLY POST GOT SUGGESTIONS: the worst shape of this fault, and it spends money",
+      run: () => judgeApikeyOnly(ok(goodThree)),
+      expect: [FAIL, FAIL],
+    },
+    {
+      name:
+        "apikey only, and the PLATFORM refused it first: nothing ran, which is the result that" +
+        " matters, but which layer says no was not exercised",
+      run: () => judgeApikeyOnly({ status: 401, body: JSON.stringify({ code: PLATFORM_NO_AUTH_CODE }) }),
+      expect: [PASS, UNVERIFIED],
+    },
+    {
+      name: "apikey only, 401 with a code nobody here has seen: refused, by something unnamed",
+      run: () => judgeApikeyOnly({ status: 401, body: JSON.stringify({ code: "SOMETHING_ELSE" }) }),
+      expect: [PASS, FAIL],
     },
 
     // ---- one at a time ----
@@ -1517,9 +1769,10 @@ function runSelftest() {
   console.log("Every judgement said FAIL to a function that is not deployed, to six");
   console.log("suggestions where five are allowed, to a suggestion carrying a link, to");
   console.log("one claiming the subtasks were added, to an empty list dressed as a");
-  console.log("result, to a stranger getting a different 404 from a made-up id, to a");
-  console.log("signed-out caller getting suggestions, and to a run that left its own");
-  console.log("task behind. That is what would make a green staging run mean something.");
+  console.log("result, to a stranger getting a different 404 from a made-up id, to either");
+  console.log("shape of signed-out caller getting suggestions, to an apikey-only call that");
+  console.log("reached the handler, and to a run that left its own task behind. That is");
+  console.log("what would make a green staging run mean something.");
   console.log("It is NOT itself a staging result: nothing was sent anywhere by this run.");
   return 0;
 }
@@ -1665,8 +1918,12 @@ const BODIES_SEEN = [];
 // Requests
 // ---------------------------------------------------------------------------
 
-async function callFunction(accessToken, body) {
-  const headers = { apikey: publishableKey, "Content-Type": "application/json" };
+// `apikey: false` sends NEITHER header -- no key and no token, which is the one request
+// shape in this script that carries no credential at all. It is section 3's check (a), and
+// it is the same shape .github/workflows/migrate-production.yml's smoke-test job uses.
+async function callFunction(accessToken, body, { apikey = true } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (apikey) headers.apikey = publishableKey;
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   REQUEST_LOG.push({ method: "POST", path: `/functions/v1/${FUNCTION_NAME}` });
@@ -1877,7 +2134,10 @@ try {
   // 3. Who may NOT ask
   // -------------------------------------------------------------------------
 
-  console.log("3. Who may not ask: a stranger, a made-up id, a malformed id, and nobody at all");
+  console.log(
+    "3. Who may not ask: a stranger, a made-up id, a malformed id, and nobody at all -- in" +
+      " the two shapes 'nobody' comes in",
+  );
 
   // A uuid nobody issued. Built rather than random so two runs produce the same one,
   // which makes two runs' output comparable.
@@ -1926,9 +2186,19 @@ try {
     ),
   );
 
-  const signedOut = await callFunction(null, { task_id: taskId });
-  if (signedOut.printable !== undefined) console.log(`        signed out:      ${signedOut.printable}`);
-  record(judgeSignedOut(signedOut));
+  // NOBODY AT ALL, in the TWO shapes that means -- see the note beside
+  // PLATFORM_NO_AUTH_CODE for why one check could not cover both.
+  //
+  // (b) first, because it is the one that was observed: the publishable key and nothing
+  // else, which is what a signed-out browser using supabase-js sends.
+  const apikeyOnly = await callFunction(null, { task_id: taskId });
+  if (apikeyOnly.printable !== undefined) console.log(`        apikey only:     ${apikeyOnly.printable}`);
+  record(judgeApikeyOnly(apikeyOnly));
+
+  // (a) and then nothing at all -- no apikey, no Authorization.
+  const noCredentials = await callFunction(null, { task_id: taskId }, { apikey: false });
+  if (noCredentials.printable !== undefined) console.log(`        no credentials:  ${noCredentials.printable}`);
+  record(judgeNoCredentials(noCredentials));
   console.log("");
 
   // -------------------------------------------------------------------------
@@ -1999,6 +2269,10 @@ try {
   console.log("    lock is a Set in one isolate's memory and the platform may run");
   console.log("    several. Section 4 reports whether it engaged, not that it must.");
   console.log("  * anything about production. This script refuses to run against it.");
+  console.log("  * WHICH LAYER refuses a call with no credentials at ALL, until this run");
+  console.log("    has actually made one. Section 3 check (a) is the first time anybody");
+  console.log("    has asked suggest-subtasks that; the expectation is the platform's own");
+  console.log("    401, reasoned from the other three functions, not observed here.");
 
   if (failures > 0 || unverified > 0) {
     console.log("");
