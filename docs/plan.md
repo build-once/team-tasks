@@ -232,6 +232,17 @@ means nothing more goes. It does not mean anything comes back.
 installed. Until both of those are true, **production stays exactly as it is**: no key, and the helper
 answers that suggestions are not available, which is a real answer rather than a broken screen.
 
+**And a third precondition, added 2026-10-07: there must be a privacy page.** The app has none today — no
+page, and nothing linking to one — so everything this plan says about what leaves the project is written
+somewhere nobody using the app will ever look. A setting is not consent if the person switching it on cannot
+find out what it sends. Before the production key is installed, a privacy page must exist and must say
+**what Suggest subtasks sends and to whom**: one task's title and fixed instructions, to Anthropic, with
+nothing attached that says who asked; how long Anthropic keeps it; that the setting starts off; and that
+switching it off stops further sending but recalls nothing. [#204](https://github.com/build-once/team-tasks/issues/204)
+holds it, with the full list and how we will know it is done. **Writing the words is the owner's**, not
+least because they carry legal weight; the gate is written here so the release order is decided in one
+place.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. File attachments. Payments. A phone app.

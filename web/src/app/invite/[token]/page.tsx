@@ -103,7 +103,23 @@ export default async function InvitePage({
       <Header signedIn={signedIn} account={claimsData?.claims?.email} />
 
       <main className="page stack">
-        <h1>You have been invited</h1>
+        {/* THIS USED TO READ "You have been invited" (issue #199), stated flatly,
+            for ANY string in the address. The page deliberately does not look the
+            invitation up -- the long note above says why, and both reasons still
+            hold -- so nothing had checked the token when that heading was drawn. A
+            made-up link got the same confident heading as a real one, on our domain
+            and in our styling, which is exactly what makes a crafted link
+            convincing. Somebody whose link had been truncated by a mail client was
+            also told they had been invited, and then told the link was not valid.
+
+            THE CONDITIONAL IS THE FIX: it carries the uncertainty the old heading
+            asserted. "accept it" rather than "see it", which is what the owner
+            first proposed and then accepted a change to, because this page shows
+            nothing ABOUT the invitation even after sign-in -- no team name, no
+            address, not whether the token is real. What a signed-in person gets is
+            the Accept button below, and that is what the words now promise.
+            docs/claims.md §4a row 3 carries the whole argument. */}
+        <h1>If you were invited, sign in to accept it.</h1>
 
         {failure ? (
           <Banner tone="bad" icon="alert">

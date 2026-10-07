@@ -54,10 +54,27 @@ export default function ScreenError({
     <main className="page stack">
       <h1>Something went wrong</h1>
 
+      {/* "Nothing you were doing has been lost unless a message said so." USED TO
+          BE THE MIDDLE SENTENCE (issue #200). It was a promise about the state of
+          the database, and nothing in this repository made it true.
+
+          An error boundary catches a throw during RENDER, and a throw can happen
+          AFTER a write has already landed -- a server action that inserts a row and
+          then throws on the way to its redirect reaches this very screen. The hedge
+          did not cover that case, because in that case there is no message: the
+          screen that would have carried one is the screen that failed. This app has
+          a real version of the failure, too -- accept-invite can mark an invitation
+          accepted and fail to write the membership row, which it logs as needing
+          fixing by hand.
+
+          So it was removed rather than reworded: nothing can make a general promise
+          about unrelated writes true, and the sentence's effect was to tell somebody
+          not to check at the one moment something had definitely gone wrong. What is
+          left is what this screen can keep, and it now matches global-error.tsx,
+          which never made the claim. */}
       <p className="banner banner--bad" role="alert">
         <span>
-          This screen could not be shown. Nothing you were doing has been lost
-          unless a message said so. The details have gone to the owner.
+          This screen could not be shown. The details have gone to the owner.
         </span>
       </p>
 

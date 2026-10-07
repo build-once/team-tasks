@@ -349,8 +349,25 @@ export default async function MyTasksPage({
               >
                 {/* Personal is the default, and its value is empty: the action
                     sends no team_id at all for it, so the row takes the column's
-                    null exactly as it did before teams could hold tasks. */}
-                <option value="">Personal — only you</option>
+                    null exactly as it did before teams could hold tasks.
+
+                    THE LABEL USED TO READ "Personal — only you" (issue #202). That
+                    claim IS enforced against every request through the app -- the
+                    select rule on tasks returns a row to its creator, or to a
+                    member of its team when team_id is not null -- but it was wider
+                    than the rule in one way the screen never mentioned: whoever
+                    holds the Supabase dashboard can read every row in the table.
+                    "Only you" meant "only you, of the people using this app".
+
+                    The second half of that is now said out loud, in the hint below
+                    rather than in this label: an option in a dropdown is a label,
+                    not a paragraph, and the disclosure needs to be read rather than
+                    buried in a list somebody is scrolling past. The hint is tied to
+                    this chooser by aria-describedby, so a screen reader gets both
+                    together. */}
+                <option value="">
+                  Personal — no one else on Team Tasks can see it.
+                </option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>
                     {team.name}
@@ -358,9 +375,10 @@ export default async function MyTasksPage({
                 ))}
               </select>
               <p className="hint" id="team_id-hint">
-                A personal task is yours alone. Everyone in a team can see, tick
-                and rename that team&apos;s tasks; only the person who added a
-                task can delete it.
+                Personal — no one else on Team Tasks can see it. The person who
+                runs this app can access the database. Everyone in a team can
+                see, tick and rename that team&apos;s tasks; only the person who
+                added a task can delete it.
               </p>
             </div>
           ) : null}
@@ -733,7 +751,13 @@ export default async function MyTasksPage({
                         name="team_id"
                         defaultValue={task.team_id ?? ""}
                       >
-                        <option value="">Personal — only you</option>
+                        {/* The same relabelling as the add form's chooser
+                            (issue #202), for the same reason and with the same
+                            split: the first sentence here, both sentences in the
+                            hint below this form. */}
+                        <option value="">
+                          Personal — no one else on Team Tasks can see it.
+                        </option>
                         {teams.map((team) => (
                           <option key={team.id} value={team.id}>
                             {team.name}
@@ -754,9 +778,15 @@ export default async function MyTasksPage({
                         Cancel
                       </Link>
                       <p className={`hint ${styles.moveHint}`}>
+                        {/* "...back to you alone" was the same claim as the old
+                            "Personal — only you" (issue #202), so both wordings get
+                            the same two sentences. The stranded one keeps its own
+                            first half: that message is about a rule the person
+                            cannot see, and it is the only thing telling them how to
+                            get out of it. */}
                         {stranded
-                          ? "This task is in a team you are no longer in, so you cannot tick or rename it while it stays there. Moving it to Personal brings it back to you alone."
-                          : "Everyone in a team can see, tick and rename that team's tasks. Moving a task to Personal takes it back to you alone."}
+                          ? "This task is in a team you are no longer in, so you cannot tick or rename it while it stays there. Moving it to Personal means no one else on Team Tasks can see it. The person who runs this app can access the database."
+                          : "Everyone in a team can see, tick and rename that team's tasks. Moving a task to Personal means no one else on Team Tasks can see it. The person who runs this app can access the database."}
                       </p>
                     </form>
                   ) : (

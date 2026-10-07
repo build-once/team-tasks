@@ -15,13 +15,38 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
       <main className="page stack">
         <h1>Sign in</h1>
+        {/* The same change as the front page and the root layout (issue #196):
+            the third clause was "and who's doing it", and nothing in the app
+            shows who is doing anything. See web/src/app/page.tsx for the full
+            note and docs/claims.md §4a row 1 for what makes each clause true. */}
         <p className="lede">
-          See what&apos;s done, what&apos;s left and who&apos;s doing it.
+          See what&apos;s done, what&apos;s left, and which list it&apos;s on.
         </p>
 
+        {/* THIS USED TO SAY "Your email is confirmed. Please sign in." (issue
+            #198), and it was drawn on the one path where nothing in this app had
+            seen a confirmation.
+
+            `?confirmed=1` is set in exactly one place --
+            web/src/app/auth/callback/route.ts -- and that place is the route's
+            FALL-THROUGH: it is reached when the code exchange FAILED, and when the
+            request carried no code at all. The successful exchange redirects to
+            /tasks instead and never comes here. So somebody whose confirmation had
+            just failed was told it had succeeded, and would sign in, fail, and have
+            no idea why. The value can also simply be typed into the address bar.
+
+            The new sentence asserts nothing about the account, which is the whole
+            repair. What it needs to be true is only that signing in is available
+            and does something, which is the form below and `signIn` in
+            web/src/app/auth/actions.ts.
+
+            ONE LOOSE EDGE, named rather than hidden: on the no-code path nothing
+            was started, so "finish" is imprecise. It states no falsehood about the
+            account, which is what #198 was filed for; splitting the two paths was
+            the other option and the owner chose this one. */}
         {confirmed ? (
           <Banner tone="ok" icon="check">
-            Your email is confirmed. Please sign in.
+            Please sign in to finish.
           </Banner>
         ) : null}
 
