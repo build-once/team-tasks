@@ -104,9 +104,21 @@
 // WHAT IT NEVER PRINTS: a password, an access or refresh token, the publishable key,
 // the project URL, a user id, or an email address -- not Alice's and not Bob's, even
 // though docs/environments.md publishes both. Every response body goes through scrub()
-// first. What does get printed: HTTP statuses, the eleven failure codes, the fixed
-// sentence the function produces, the task id it made, and THE SUGGESTIONS THEMSELVES
-// -- which is a deliberate exception and is argued for beside judgeSuggestions.
+// before it is printed or kept. What does get printed: HTTP statuses, the eleven failure
+// codes, the fixed sentence the function produces, the task id it made, and THE
+// SUGGESTIONS THEMSELVES -- which is a deliberate exception and is argued for beside
+// judgeSuggestions.
+//
+// AND THE ORDER THE SCRUB RUNS IN, which the owner's staging run of 7 October 2026
+// proved is not a detail. Each response is read into TWO forms and they are not
+// interchangeable: the bytes that arrived, which is what every judgement decides on, and
+// a scrubbed copy, which is the only form that is printed or kept in BODIES_SEEN.
+// Scrubbing first and judging the result is how that run reported "the stored title is
+// not the one that was sent" about a perfectly good row -- TASK_TITLE is registered with
+// the scrub before the insert is made, so the title read back arrived as the word
+// TASK_TITLE and could never equal the string it stands for. readRestBody and
+// readFunctionBody below are where that order lives, and --selftest puts bodies through
+// both of them rather than past them.
 //
 // Run it from the repository root. See the bottom of this file.
 
@@ -236,6 +248,22 @@ const UNVERIFIED = "UNVERIFIED";
 // "UNVERIFIED" is for an answer that does not settle the question -- a request that
 // never arrived, a sign-in that failed, a path this run could not reach. AGENTS.md
 // rule 8: that is not a pass.
+//
+// AN ANSWER HAS TWO FORMS, and every judgement below uses both deliberately:
+//
+//   * `body` -- the bytes that actually arrived. A judgement DECIDES on this one, and
+//     only this one. A judgement compares what came back with what this file says it
+//     should be, so comparing a scrubbed copy compares a placeholder with the very value
+//     it stands for: it can only ever be unequal. That is the 7 October fault.
+//   * `printable` -- the same text with every registered address, token, user id and the
+//     task's title replaced. A detail line SHOWS this one, because a detail line is
+//     printed.
+//
+// A fabricated answer in --selftest carries `body` alone, and nothing worth scrubbing, so
+// `shown` falls back to it and every case written before this existed reads unchanged.
+function shown(answer) {
+  return answer.printable ?? answer.body ?? "";
+}
 
 // Is this URL the staging project, and nothing else? Four requirements: https, the host
 // EXACTLY equal to STAGING_HOST, no user name or password in the URL itself, and the
@@ -351,7 +379,7 @@ export function judgeFunctionDeployed(answer) {
           ` there is no function of that name on this project. BEFORE THE DEPLOY THAT IS` +
           ` THE EXPECTED RESULT and this FAIL is the evidence. After the deploy it means` +
           ` the deploy did not happen, or happened under another name. Body: ` +
-          body.slice(0, MAX_REFUSAL_BODY),
+          shown(answer).slice(0, MAX_REFUSAL_BODY),
       },
     ];
   }
@@ -368,11 +396,12 @@ export function judgeFunctionDeployed(answer) {
 }
 
 // Pull the `suggestions` list and the `error`/`code` pair out of a body, without caring
-// what else is in it.
-function readAnswerBody(answer) {
+// what else is in it. It takes the TEXT rather than the answer, because an answer holds
+// two texts and which one is being read has to be said at every call site.
+function readAnswerBody(text) {
   let parsed = null;
   try {
-    parsed = JSON.parse(answer.body ?? "");
+    parsed = JSON.parse(text ?? "");
   } catch {
     parsed = null;
   }
@@ -386,6 +415,18 @@ function readAnswerBody(answer) {
     code: parsed.code,
     extra: Object.keys(parsed),
   };
+}
+
+// The two reads a judgement needs, named so a mix-up is hard to write: `judged` is the
+// bytes that arrived and `show` is the scrubbed copy, for detail lines. They are the same
+// read in --selftest, where there is nothing registered to replace. A scrub can never
+// turn valid JSON invalid -- it swaps a plain substring for a word of capitals and
+// underscores -- but if the scrubbed copy somehow will not parse, detail lines fall back
+// to the judged read rather than going blank.
+function readBothWays(answer) {
+  const judged = readAnswerBody(answer.body);
+  const printable = readAnswerBody(shown(answer));
+  return { judged, show: printable.parsed === null ? judged : printable };
 }
 
 // Is this one line a short plain-text suggestion? The function's usableSuggestion, as
@@ -433,13 +474,15 @@ export function judgeSuggestions(answer) {
   const what = "Alice's ask about her own task answers with up to five short suggestions";
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
 
-  const read = readAnswerBody(answer);
+  // `read` is the bytes that arrived and decides every verdict below; `show` is the
+  // scrubbed copy and appears in the detail lines.
+  const { judged: read, show } = readBothWays(answer);
   if (read.parsed === null) {
     return [
       {
         what,
         verdict: FAIL,
-        detail: `HTTP ${answer.status} with a body that is not a JSON object: ${(answer.body ?? "").slice(0, MAX_REFUSAL_BODY)}`,
+        detail: `HTTP ${answer.status} with a body that is not a JSON object: ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
       },
     ];
   }
@@ -456,8 +499,8 @@ export function judgeSuggestions(answer) {
           ? PASS
           : FAIL,
       detail:
-        `sentence ${JSON.stringify(read.message)}, code ${JSON.stringify(read.code)},` +
-        ` fields ${read.extra.join(", ")}. Expected exactly the sentence` +
+        `sentence ${JSON.stringify(show.message)}, code ${JSON.stringify(show.code)},` +
+        ` fields ${show.extra.join(", ")}. Expected exactly the sentence` +
         ` ${JSON.stringify(UNAVAILABLE_MESSAGE)}, one of the eleven codes, and nothing but` +
         ` error and code`,
     });
@@ -478,7 +521,7 @@ export function judgeSuggestions(answer) {
         what,
         verdict: UNVERIFIED,
         detail:
-          `the function answered the fixed failure with the code "${read.code}", so no` +
+          `the function answered the fixed failure with the code "${show.code}", so no` +
           ` suggestion came back. That is the function working -- it turns everything into` +
           ` one sentence and a code -- but it leaves this question unanswered. Read` +
           ` the function's logs in the Supabase dashboard for the status it saw`,
@@ -504,13 +547,20 @@ export function judgeSuggestions(answer) {
 
   const results = [];
   const list = read.suggestions;
+  // The same list with every registered value replaced, used for the detail lines only.
+  // Where the scrubbed copy is not a list of the same length, the judged one is printed
+  // rather than nothing: a detail line that cannot be lined up is still worth reading.
+  const listShown =
+    Array.isArray(show.suggestions) && show.suggestions.length === (list?.length ?? -1)
+      ? show.suggestions
+      : list;
 
   if (!Array.isArray(list)) {
     return [
       {
         what,
         verdict: FAIL,
-        detail: `HTTP 200 and \`suggestions\` is ${JSON.stringify(list)}, not a list`,
+        detail: `HTTP 200 and \`suggestions\` is ${JSON.stringify(show.suggestions)}, not a list`,
       },
     ];
   }
@@ -536,17 +586,25 @@ export function judgeSuggestions(answer) {
     verdict: list.length <= SUGGESTIONS_MAX ? PASS : FAIL,
     detail:
       `${list.length} suggestion(s) came back, cap ${SUGGESTIONS_MAX}: ` +
-      list.map((s) => JSON.stringify(s)).join(", "),
+      listShown.map((s) => JSON.stringify(s)).join(", "),
   });
 
-  const tooLong = list.filter((s) => !drawable(s));
+  // Judged on the arrived text and shown by position, so a suggestion that is only short
+  // once a registered value inside it is replaced still fails the cap it broke. The
+  // printed form of one of these can therefore read SHORTER than the length that was
+  // judged, which the detail line says out loud rather than leaving to be noticed.
+  const notDrawable = list.map((s, index) => index).filter((index) => !drawable(list[index]));
   results.push({
     what: "every suggestion is short plain text, with no link and no control character",
-    verdict: tooLong.length === 0 ? PASS : FAIL,
+    verdict: notDrawable.length === 0 ? PASS : FAIL,
     detail:
-      tooLong.length === 0
+      notDrawable.length === 0
         ? `all ${list.length} are at most ${SUGGESTION_CHARS_MAX} characters of plain text`
-        : `${tooLong.length} are not: ${tooLong.map((s) => JSON.stringify(String(s).slice(0, 120))).join(", ")}`,
+        : `${notDrawable.length} are not, shown scrubbed and so possibly shorter here than` +
+          ` the text that was judged: ` +
+          notDrawable
+            .map((index) => JSON.stringify(String(listShown[index]).slice(0, 120)))
+            .join(", "),
   });
 
   const whole = JSON.stringify(list).toLowerCase();
@@ -564,7 +622,7 @@ export function judgeSuggestions(answer) {
   results.push({
     what: "the success body carries the suggestions and nothing else",
     verdict: read.extra.join(",") === "suggestions" ? PASS : FAIL,
-    detail: `its fields are ${read.extra.join(", ")}`,
+    detail: `its fields are ${show.extra.join(", ")}`,
   });
 
   return results;
@@ -596,25 +654,31 @@ export function judgeSameAsNotFound(stranger, nonexistent) {
       ` the AI service, which is the worst outcome this feature has`,
   });
 
+  // THE BYTES THAT ARRIVED, on both sides. A scrub is applied to both the same way, so
+  // comparing scrubbed copies would usually agree -- but "usually" is not what this check
+  // claims, and the two are not even scrubbed into the same words when one carries Bob's
+  // token and the other Alice's.
   results.push({
     what,
     verdict: stranger.body === nonexistent.body ? PASS : FAIL,
     detail:
       stranger.body === nonexistent.body
-        ? `both bodies are ${(stranger.body ?? "").slice(0, MAX_REFUSAL_BODY)}`
-        : `they differ. Bob gets ${(stranger.body ?? "").slice(0, MAX_REFUSAL_BODY)} and a` +
-          ` made-up id gets ${(nonexistent.body ?? "").slice(0, MAX_REFUSAL_BODY)}. The` +
+        ? `both bodies are ${shown(stranger).slice(0, MAX_REFUSAL_BODY)}`
+        : `they differ. Bob gets ${shown(stranger).slice(0, MAX_REFUSAL_BODY)} and a` +
+          ` made-up id gets ${shown(nonexistent).slice(0, MAX_REFUSAL_BODY)}. The` +
           ` difference is how somebody learns which task ids are real`,
   });
+
+  const strangerRead = readBothWays(stranger);
 
   results.push({
     what: "the 404 says nothing about whose task it is or why",
     verdict: (() => {
-      const message = String(readAnswerBody(stranger).message ?? "").toLowerCase();
+      const message = String(strangerRead.judged.message ?? "").toLowerCase();
       const telling = ["permission", "allowed", "yours", "belongs", "team", "suspend"];
       return message !== "" && !telling.some((word) => message.includes(word)) ? PASS : FAIL;
     })(),
-    detail: `its sentence is ${JSON.stringify(readAnswerBody(stranger).message)}`,
+    detail: `its sentence is ${JSON.stringify(strangerRead.show.message)}`,
   });
 
   return results;
@@ -623,14 +687,14 @@ export function judgeSameAsNotFound(stranger, nonexistent) {
 // A malformed ask is the caller's mistake, and is answered as one.
 export function judgeBadRequest(answer, what, expectedStatus) {
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
-  const read = readAnswerBody(answer);
+  const { show } = readBothWays(answer);
   return [
     {
       what,
       verdict: answer.status === expectedStatus ? PASS : FAIL,
       detail:
         `HTTP ${answer.status}, expected ${expectedStatus}. Sentence` +
-        ` ${JSON.stringify(read.message)}`,
+        ` ${JSON.stringify(show.message)}`,
     },
   ];
 }
@@ -646,7 +710,7 @@ export function judgeSignedOut(answer) {
   const what = "a signed-out POST is refused by the platform, before the function runs";
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
 
-  const read = readAnswerBody(answer);
+  const { judged: read, show } = readBothWays(answer);
   if (answer.status === 401 && read.code === PLATFORM_NO_AUTH_CODE) {
     return [
       {
@@ -662,7 +726,7 @@ export function judgeSignedOut(answer) {
         what,
         verdict: FAIL,
         detail:
-          `HTTP 401 but the code is ${JSON.stringify(read.code)}, not ${PLATFORM_NO_AUTH_CODE}.` +
+          `HTTP 401 but the code is ${JSON.stringify(show.code)}, not ${PLATFORM_NO_AUTH_CODE}.` +
           ` A 401 from the function's own code instead of the platform means the request` +
           ` REACHED the handler, which is what verify_jwt = false looks like. Check` +
           ` [functions.${FUNCTION_NAME}] in supabase/config.toml and that the deploy did not` +
@@ -697,7 +761,7 @@ export function judgeOneAtATime(first, second) {
   }
 
   const answers = [first, second];
-  const busy = answers.filter((a) => a.status === 503 && readAnswerBody(a).code === "busy");
+  const busy = answers.filter((a) => a.status === 503 && readAnswerBody(a.body).code === "busy");
   const allowed = answers.filter((a) => [200, 503].includes(a.status));
 
   return [
@@ -849,6 +913,57 @@ function scrubWith(text, placeholders) {
 
 function scrub(text) {
   return scrubWith(text, PLACEHOLDERS);
+}
+
+// ---------------------------------------------------------------------------
+// One response, two forms -- and WHICH ONE A JUDGEMENT GETS is the whole point
+// ---------------------------------------------------------------------------
+//
+// These two are pure, they are exported, and `rest` and `callFunction` below do nothing
+// with a response except hand it to one of them. That is deliberate: the order the scrub
+// runs in was wrong from the day this file was written (ac9cdc5, 7 October 2026) and no
+// selftest could see it, because every case handed a judgement a row object or a body
+// string that no scrub had ever touched. Now --selftest goes through the real path.
+//
+// WHAT WENT WRONG, so it is not reintroduced by somebody tidying. The old code read
+//
+//   const text = scrub(await response.text());
+//   const rows = JSON.parse(text);
+//
+// which means judgeTaskCreated received `title: "TASK_TITLE"` -- the placeholder, because
+// TASK_TITLE is registered with the scrub before the insert is ever made -- and compared
+// it with TASK_TITLE, the string it stands for. Those can never be equal, so the check
+// reported "the stored title is not the one that was sent" about a row that was perfectly
+// correct. The owner's staging run of 7 October 2026 is where that showed up: 8 PASS, 9
+// FAIL, 0 UNVERIFIED, and eight of the nine FAILs were the expected "function not
+// deployed". The ninth was this.
+//
+// So: PARSE THE BYTES THAT ARRIVED, and scrub only what is printed or kept.
+
+// One PostgREST response, read into the rows a judgement decides on and the text that may
+// be printed.
+export function readRestBody({ ok, status, raw }, placeholders) {
+  const text = raw ?? "";
+  const printable = scrubWith(text, placeholders);
+
+  if (!ok) return { status, printable, error: `HTTP ${status} ${printable}` };
+  if (text.trim() === "") return { status, printable, rows: [] };
+
+  let rows;
+  try {
+    rows = JSON.parse(text);
+  } catch {
+    return { status, printable, error: `HTTP ${status} with a body that is not JSON` };
+  }
+  if (!Array.isArray(rows)) return { status, printable, error: `expected a JSON array, got ${typeof rows}` };
+  return { status, printable, rows };
+}
+
+// One suggest-subtasks response. Both forms travel on, because this one's body is judged
+// whole -- byte for byte, in judgeSameAsNotFound -- as well as printed.
+export function readFunctionBody({ status, raw }, placeholders) {
+  const text = raw ?? "";
+  return { status, body: text, printable: scrubWith(text, placeholders) };
 }
 
 // Did `value` actually get taken out of `text`? UNVERIFIED when it was not in the text
@@ -1300,6 +1415,77 @@ function runSelftest() {
       run: () => judgeScrubbed("a body with no title in it", '{"msg":"nope"}', TASK_TITLE, [[TASK_TITLE, "TASK_TITLE"]]),
       expect: [UNVERIFIED],
     },
+
+    // ---- THE ORDER THE SCRUB RUNS IN, through the real reading path ----
+    //
+    // The four cases above feed judgements and scrubs separately, which is exactly how
+    // the 7 October fault stayed invisible: no case ever put a body through the step that
+    // does both. These go through readRestBody and readFunctionBody, with the title
+    // registered the way the real run registers it before its first request. The first
+    // and the last FAILED before that order was fixed.
+    {
+      name:
+        "THE REAL PATH: a row read back carrying the title, judged on the bytes that" +
+        " arrived -- the 7 October FAIL, which was this script's own fault and not staging's",
+      run: () =>
+        judgeTaskCreated(
+          readRestBody(
+            {
+              ok: true,
+              status: 201,
+              raw: JSON.stringify([
+                { id: madeUpTaskId, title: TASK_TITLE, done: false, team_id: null, owner_id: madeUpTaskId },
+              ]),
+            },
+            [[TASK_TITLE, "TASK_TITLE"]],
+          ),
+        ),
+      expect: [PASS],
+    },
+    {
+      name:
+        "THE REAL PATH: and the form that gets printed and kept in BODIES_SEEN is still" +
+        " scrubbed, so the fix was not to stop scrubbing",
+      run: () =>
+        judgeNothingLeaked([
+          readRestBody(
+            { ok: true, status: 201, raw: JSON.stringify([{ id: madeUpTaskId, title: TASK_TITLE }]) },
+            [[TASK_TITLE, "TASK_TITLE"]],
+          ).printable,
+        ]),
+      expect: [PASS],
+    },
+    {
+      name:
+        "THE REAL PATH with NOTHING REGISTERED: the title reaches the printable form, which" +
+        " is what makes the case above worth having",
+      run: () =>
+        judgeNothingLeaked([
+          readRestBody(
+            { ok: true, status: 201, raw: JSON.stringify([{ id: madeUpTaskId, title: TASK_TITLE }]) },
+            [],
+          ).printable,
+        ]),
+      expect: [FAIL],
+    },
+    {
+      name:
+        "THE REAL PATH: a suggestion that is only short once the title inside it is replaced." +
+        " The 80-character cap is judged on the 159 characters that arrived, not the 65 printed",
+      run: () =>
+        judgeSuggestions(
+          readFunctionBody(
+            {
+              status: 200,
+              raw: JSON.stringify({
+                suggestions: [`Ask the hall about ${TASK_TITLE}, then print flyers about ${TASK_TITLE}`],
+              }),
+            },
+            [[TASK_TITLE, "TASK_TITLE"]],
+          ),
+        ),
+      expect: [PASS, FAIL, PASS, PASS],
+    },
   ];
 
   let wrong = 0;
@@ -1495,9 +1681,15 @@ async function callFunction(accessToken, body) {
   } catch (cause) {
     return { error: `could not reach ${FUNCTION_NAME} (${cause.message})` };
   }
-  const text = scrub(await response.text());
-  BODIES_SEEN.push(text);
-  return { status: response.status, body: text };
+
+  // Judged on what arrived, printed and kept scrubbed. readFunctionBody is where that
+  // order lives, and --selftest exercises it.
+  const answer = readFunctionBody(
+    { status: response.status, raw: await response.text() },
+    PLACEHOLDERS,
+  );
+  BODIES_SEEN.push(answer.printable);
+  return answer;
 }
 
 // One request through PostgREST. Returns { status, rows } or { error }, and never
@@ -1524,18 +1716,16 @@ async function rest(method, path, { accessToken = null, body } = {}) {
     return { error: `could not reach the database (${cause.message})` };
   }
 
-  const text = scrub(await response.text());
-  BODIES_SEEN.push(text);
-
-  if (!response.ok) return { status: response.status, error: `HTTP ${response.status} ${text}` };
-  if (text.trim() === "") return { status: response.status, rows: [] };
-  try {
-    const rows = JSON.parse(text);
-    if (!Array.isArray(rows)) return { error: `expected a JSON array, got ${typeof rows}` };
-    return { status: response.status, rows };
-  } catch {
-    return { error: `HTTP ${response.status} with a body that is not JSON` };
-  }
+  // The rows come out of the bytes that arrived; the error line and BODIES_SEEN get the
+  // scrubbed copy. readRestBody is where that order lives, and --selftest exercises it:
+  // scrubbing before the parse is what made a correct insert read as a wrong title on
+  // 7 October 2026.
+  const answer = readRestBody(
+    { ok: response.ok, status: response.status, raw: await response.text() },
+    PLACEHOLDERS,
+  );
+  BODIES_SEEN.push(answer.printable);
+  return answer;
 }
 
 async function signIn(person) {
@@ -1678,7 +1868,7 @@ try {
   console.log("2. Alice asks for suggestions on her own task");
 
   const aliceAsk = await callFunction(alice.accessToken, { task_id: taskId });
-  if (aliceAsk.body !== undefined) console.log(`        body: ${aliceAsk.body}`);
+  if (aliceAsk.printable !== undefined) console.log(`        body: ${aliceAsk.printable}`);
   record(judgeFunctionDeployed(aliceAsk));
   record(judgeSuggestions(aliceAsk));
   console.log("");
@@ -1694,7 +1884,7 @@ try {
   const MADE_UP_ID = "00000000-0000-4000-8000-000000000001";
 
   const nonexistent = await callFunction(alice.accessToken, { task_id: MADE_UP_ID });
-  if (nonexistent.body !== undefined) console.log(`        made-up id:      ${nonexistent.body}`);
+  if (nonexistent.printable !== undefined) console.log(`        made-up id:      ${nonexistent.printable}`);
 
   if (bob === null) {
     record([
@@ -1709,25 +1899,25 @@ try {
     ]);
   } else {
     const strangerAsk = await callFunction(bob.accessToken, { task_id: taskId });
-    if (strangerAsk.body !== undefined) console.log(`        Bob on Alice's:  ${strangerAsk.body}`);
+    if (strangerAsk.printable !== undefined) console.log(`        Bob on Alice's:  ${strangerAsk.printable}`);
     record(judgeSameAsNotFound(strangerAsk, nonexistent));
   }
 
   const badId = await callFunction(alice.accessToken, { task_id: "not-a-uuid" });
-  if (badId.body !== undefined) console.log(`        not a uuid:      ${badId.body}`);
+  if (badId.printable !== undefined) console.log(`        not a uuid:      ${badId.printable}`);
   record(
     judgeBadRequest(badId, "a task id that is not a uuid is refused as a bad request", 400),
   );
 
   const noId = await callFunction(alice.accessToken, {});
-  if (noId.body !== undefined) console.log(`        no task id:      ${noId.body}`);
+  if (noId.printable !== undefined) console.log(`        no task id:      ${noId.printable}`);
   record(judgeBadRequest(noId, "a body with no task id at all is refused as a bad request", 400));
 
   // A TITLE INSTEAD OF AN ID, which is the shape issue #183 forbids: "The caller sends a
   // task ID, never a title." If the function ever grew a title parameter, this would
   // stop being a 400 -- and a signed-in person could send any text they liked.
   const titleInstead = await callFunction(alice.accessToken, { title: TASK_TITLE });
-  if (titleInstead.body !== undefined) console.log(`        a title:         ${titleInstead.body}`);
+  if (titleInstead.printable !== undefined) console.log(`        a title:         ${titleInstead.printable}`);
   record(
     judgeBadRequest(
       titleInstead,
@@ -1737,7 +1927,7 @@ try {
   );
 
   const signedOut = await callFunction(null, { task_id: taskId });
-  if (signedOut.body !== undefined) console.log(`        signed out:      ${signedOut.body}`);
+  if (signedOut.printable !== undefined) console.log(`        signed out:      ${signedOut.printable}`);
   record(judgeSignedOut(signedOut));
   console.log("");
 
@@ -1751,8 +1941,8 @@ try {
     callFunction(alice.accessToken, { task_id: taskId }),
     callFunction(alice.accessToken, { task_id: taskId }),
   ]);
-  if (firstAsk.body !== undefined) console.log(`        first:  ${firstAsk.body}`);
-  if (secondAsk.body !== undefined) console.log(`        second: ${secondAsk.body}`);
+  if (firstAsk.printable !== undefined) console.log(`        first:  ${firstAsk.printable}`);
+  if (secondAsk.printable !== undefined) console.log(`        second: ${secondAsk.printable}`);
   record(judgeOneAtATime(firstAsk, secondAsk));
   console.log("");
 } catch (cause) {

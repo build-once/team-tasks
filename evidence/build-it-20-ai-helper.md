@@ -657,6 +657,10 @@ Every planted name was caught, and the check is green again with none planted.
 and no account is used: the `--selftest` branch returns before a setting is read, which is
 why CI can run it with no secret.
 
+**The run below is the 64-case one of that day, kept as it was printed.** The case list has grown
+twice since: to 65 in section 10.7, and to **69** in section 11.5, which is the current floor in
+`ci.yml`.
+
 ```
 $ node scripts/staging/build-it-20-ai-checks.mjs --selftest
 
@@ -1313,3 +1317,167 @@ changes.
   iterates `SUGGEST_CODES`, so it covered the new one the moment it existed.
 - `#185` stays open. This change makes a retired model **diagnosable**; it does not make the
   retirement floor any further away.
+
+---
+
+## 11. The owner's staging run of 7 October 2026, and the FAIL that was this script's own fault
+
+### 11.1 What the owner saw
+
+Before the deploy, on staging:
+
+| | |
+|---|---|
+| Totals | **8 PASS, 9 FAIL, 0 UNVERIFIED** |
+| Eight of the nine FAILs | the expected "function not found" — there is no `suggest-subtasks` on the staging project, so the platform answers 404 to every call. That is section 3's whole point: the before-run **must** fail |
+| The ninth | `Alice can create a personal task, which is what the rest of the run is about — the stored title is not the one that was sent, so the read-back disagrees` |
+
+**This is the owner's report of their own run, and nothing here was observed by the assistant**
+(rule 15). No command in this session touched staging, nothing was deployed, and no request has
+gone to Anthropic. Nothing was captured from that run into this file — no body, no id, no address —
+so the redaction list for this change is **empty** (rule 18).
+
+The ninth FAIL was **the script, not staging**. The row Alice inserted was correct.
+
+### 11.2 The cause, read in the code
+
+`rest()` scrubbed a response and then parsed the scrubbed copy:
+
+```js
+const text = scrub(await response.text());
+BODIES_SEEN.push(text);
+...
+const rows = JSON.parse(text);
+```
+
+`TASK_TITLE` is registered with the scrub **before the first request is made** — deliberately, so
+that no printed line can carry the title even if the function echoes it back. So by the time
+`judgeTaskCreated` saw the inserted row, `row.title` was the word `TASK_TITLE`, the placeholder,
+and it was being compared with `TASK_TITLE`, the 57-character string that placeholder stands for.
+Those two can never be equal. The check could only ever FAIL, on every row, forever.
+
+`callFunction()` had the same order, and a second consequence nobody had met yet because nothing
+is deployed: a suggestion is judged against an 80-character cap, and scrubbing first measures the
+cap against the **shortened** text. A suggestion of 159 characters that quotes the title twice
+scrubs down to 65 and passes a cap it broke.
+
+### 11.3 The fix
+
+One file: `scripts/staging/build-it-20-ai-checks.mjs`.
+
+| Where | Was | Now |
+|---|---|---|
+| `readRestBody`, `readFunctionBody` | did not exist; the reading step lived inside `rest()` and `callFunction()`, where no selftest could reach it | two pure exported functions, the only place the order lives. `rest()` and `callFunction()` do nothing with a response but hand it to one of them |
+| What a judgement decides on | the scrubbed copy | **the bytes that arrived** (`answer.body`) |
+| What a detail line shows | the same scrubbed copy | still the scrubbed copy (`answer.printable`, via `shown` and `readBothWays`) |
+| The nine lines that print a function answer | `X.body` | `X.printable` |
+| `BODIES_SEEN` | scrubbed text | **unchanged** — scrubbed text, and `judgeNothingLeaked` still runs over it |
+| `signIn`'s error line | `scrub(await response.text())` | **unchanged** — that text is printed and never judged, so it was already the right way round |
+
+### 11.4 Seen to fail first
+
+The four new cases go through `readRestBody` and `readFunctionBody` — the real reading path — which
+is the only kind of case that could have caught this: all 65 cases before them handed a judgement a
+row object or a body string that no scrub had ever touched. They were written **first**, with the
+two new functions still carrying the old scrub-then-parse order, so the run below is the old
+behaviour through the new path:
+
+```
+$ node scripts/staging/build-it-20-ai-checks.mjs --selftest
+
+  WRONG  THE REAL PATH: a row read back carrying the title, judged on the bytes that arrived -- the 7 October FAIL, which was this script's own fault and not staging's
+          expected PASS; got FAIL
+          FAIL  Alice can create a personal task, which is what the rest of the run is about -- the stored title is not the one that was sent, so the read-back disagrees
+  ok    THE REAL PATH: and the form that gets printed and kept in BODIES_SEEN is still scrubbed, so the fix was not to stop scrubbing
+          expected PASS; got PASS
+  ok    THE REAL PATH with NOTHING REGISTERED: the title reaches the printable form, which is what makes the case above worth having
+          expected FAIL; got FAIL
+  WRONG  THE REAL PATH: a suggestion that is only short once the title inside it is replaced. The 80-character cap is judged on the 159 characters that arrived, not the 65 printed
+          expected PASS, FAIL, PASS, PASS; got PASS, PASS, PASS, PASS
+          PASS  Alice's ask about her own task answers with up to five short suggestions -- 1 suggestion(s) came back, cap 5: "Ask the hall about TASK_TITLE, then print flyers about TASK_TITLE"
+          PASS  every suggestion is short plain text, with no link and no control character -- all 1 are at most 80 characters of plain text
+          PASS  no suggestion claims anything was done, or tries to give instructions -- none of the claim phrases is in any of them
+          PASS  the success body carries the suggestions and nothing else -- its fields are suggestions
+
+69 cases, 2 wrong.
+
+The judgements in this file do not behave as its comments claim.
+Fix them before running anything against staging: a check that
+cannot fail is worse than no check, because it reports a pass.
+
+exit code: 1
+```
+
+The first `WRONG` is the owner's ninth FAIL reproduced on this machine, word for word, with no
+network and no account. The second is the cap being measured on the wrong text.
+
+Then the order was turned round inside those two functions, and nothing else was changed:
+
+```
+$ node scripts/staging/build-it-20-ai-checks.mjs --selftest
+
+  ok    THE REAL PATH: a row read back carrying the title, judged on the bytes that arrived -- the 7 October FAIL, which was this script's own fault and not staging's
+          expected PASS; got PASS
+  ok    THE REAL PATH: and the form that gets printed and kept in BODIES_SEEN is still scrubbed, so the fix was not to stop scrubbing
+          expected PASS; got PASS
+  ok    THE REAL PATH with NOTHING REGISTERED: the title reaches the printable form, which is what makes the case above worth having
+          expected FAIL; got FAIL
+  ok    THE REAL PATH: a suggestion that is only short once the title inside it is replaced. The 80-character cap is judged on the 159 characters that arrived, not the 65 printed
+          expected PASS, FAIL, PASS, PASS; got PASS, FAIL, PASS, PASS
+
+69 cases, 0 wrong.
+
+exit code: 0
+```
+
+The two middle cases are why "parse the raw text" did not become "stop scrubbing": the form that is
+printed and kept still has the title taken out of it, and the third case shows that check failing
+when nothing is registered, so the second one is not passing vacuously.
+
+### 11.5 Counts, measured rather than estimated
+
+```
+$ node scripts/staging/build-it-20-ai-checks.mjs --selftest | grep -c '^  ok  '
+69
+```
+
+That is the line CI counts. The floor moves with it:
+
+| Floor in `ci.yml` | Was | Now | Why |
+|---|---|---|---|
+| `EXPECTED_AI_CASES` | 65 | **69** | four cases through the script's real reading path; two of them FAILED before the order was fixed |
+
+`ci.yml` was edited for that one number and its comment, and nothing else. The owner asked for the
+count to be updated in this task (rule 5: a workflow changes only when the owner asks, and raising
+a floor does not weaken a check).
+
+Re-run after the change, on this machine:
+
+```
+$ node scripts/check-workflows.mjs
+Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s).
+exit code: 0
+
+$ node scripts/approved-model-check.mjs
+Totals: 6 PASS, 0 FAIL.
+exit code: 0
+
+$ npm test
+AI team self-test: 258 passed, 0 failed.
+Checked 6 workflow file(s), 14 job(s): 0 problem(s), 0 warning(s).
+exit code: 0
+```
+
+The three staging selftests beside this one, the Deno tests and the web app were not touched by this
+change and were not re-run — **unverified here**, and CI runs all of them on this branch.
+
+### 11.6 What this still does not settle
+
+- **The staging path itself.** `--selftest` proves the reading step; it sends nothing. Whether the
+  run now reports the control as PASS is **unverified until the owner runs the script against
+  staging again**, which is their step and not the assistant's (rule 19). Expect the eight
+  "function not found" FAILs to stay until the deploy.
+- **Nothing is deployed and nothing has been sent to Anthropic**, which is unchanged from section
+  10.9.
+- **The other eight FAILs were never in doubt.** They are the before-the-deploy evidence, and this
+  change does not touch them.

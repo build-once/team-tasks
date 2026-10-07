@@ -303,7 +303,14 @@ jobs:
       # to know about -- it fails a 503 carrying a code it does not recognise, so a
       # code added to the function and not here would turn a correct deployed
       # function red.
-      EXPECTED_AI_CASES: "65"
+      #
+      # 65 -> 69 after the owner's staging run of 7 October 2026 reported a FAIL
+      # that was the script's own fault: it scrubbed a response before parsing it,
+      # so the title read back arrived as the placeholder TASK_TITLE and could
+      # never equal the string it stands for. Four cases, which go through the
+      # script's real reading path rather than past it -- the only kind that could
+      # have caught it. Two of the four FAILED before the order was fixed.
+      EXPECTED_AI_CASES: "69"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
