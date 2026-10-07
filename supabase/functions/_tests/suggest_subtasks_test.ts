@@ -494,12 +494,29 @@ const STATUS_CASES: Array<{
     message: "not allowed",
     expect: "refused",
   },
+  // 404 USED TO BE "refused", LUMPED IN WITH A WRONG KEY. The coach's review of PR
+  // #190 asked for it to have its own code, and the reason is the retirement floor
+  // recorded in approved-models.json: a retired model answers 404, and a pinned model
+  // that has gone is a one-line fix which must not look like a credential problem in
+  // the log. The person at the screen still sees the same sentence, which the
+  // "every code produces the SAME sentence" test below covers for all eleven codes.
   {
-    name: "404 not_found_error: refused",
+    name: "404 not_found_error: MODEL UNAVAILABLE, which is not the same fact as a wrong key",
     status: 404,
     type: "not_found_error",
-    message: "model not found",
-    expect: "refused",
+    message: "model: claude-does-not-exist",
+    expect: "model_unavailable",
+  },
+  {
+    name: "404 with no body to read: the status alone is enough, so it must not need the message",
+    status: 404,
+    expect: "model_unavailable",
+  },
+  {
+    name: "404 whose error type is something else entirely: still the model, by the status",
+    status: 404,
+    type: "api_error",
+    expect: "model_unavailable",
   },
   {
     name: "413 request_too_large: refused",
@@ -962,6 +979,149 @@ Deno.test("callAnthropic: a request that never answers times out AND is aborted"
   if (problems.length > 0) throw new Error(`the timeout is wrong: ${problems.join("; ")}`);
 });
 
+// THE SECOND HALF OF THE TIMER, AND THE ONE IT DID NOT COVER.
+//
+// The coach's review of PR #190: "The 15-second timeout stops covering the call once
+// headers arrive. `clearTimeout` runs in the `finally` before `response.json()`, so a
+// reply whose body stalls is not aborted. Keep the timer running until the body has been
+// read. Test first, with a stub whose body never finishes."
+//
+// WHY THAT IS THE DANGEROUS HALF rather than a tidiness point. Headers arrive in one
+// round trip; a body arrives over as many as it takes. A service under load answers
+// `200 OK` and then stalls, which is precisely the shape of failure a timeout exists for
+// -- and it was the shape the timer had stopped watching. What it cost: this function
+// would wait on that body for as long as the platform allowed, holding an invocation
+// open, and then be killed by the platform rather than answering the fixed failure. The
+// person would get whatever a killed invocation produces instead of one clear sentence.
+//
+// The stub below models both of a real fetch's endings for a BODY, the same way the test
+// above models them for headers: a real fetch errors the body stream when the signal
+// aborts, and finishes it if it is never cancelled. Without the second half this test
+// would hang rather than fail, which is the trap the test above already fell into once.
+Deno.test("callAnthropic: a reply whose BODY never finishes is aborted too, not only one whose headers never arrive", async () => {
+  const chosen = chooseModel();
+  if (!chosen.ok) throw new Error("chooseModel() refused the real file; see section 1");
+  const request = buildAnthropicRequest({
+    model: chosen.model,
+    title: MADE_UP_TITLE,
+    apiKey: KEY_SHAPED,
+  });
+
+  let seenSignal: AbortSignal | null = null;
+  let slowTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const got = await callAnthropic(request, {
+    timeoutMs: 20,
+    fetchImpl: (_url, init) => {
+      seenSignal = init.signal;
+
+      // THE HEADERS ARRIVE AT ONCE. That is the whole point: the fetch promise resolves
+      // immediately, so any `clearTimeout` in its own `finally` has already run.
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init.signal.addEventListener("abort", () => {
+            clearTimeout(slowTimer);
+            controller.error(new Error("the body read was aborted"));
+          });
+          slowTimer = setTimeout(() => {
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify(replyWith("Book the hall"))),
+            );
+            controller.close();
+          }, 400);
+        },
+      });
+
+      return Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    },
+  });
+
+  if (slowTimer !== undefined) clearTimeout(slowTimer);
+
+  const problems: string[] = [];
+  if (got.ok) {
+    problems.push(
+      `it answered ok with status ${got.status}. The headers arrived at once and the BODY ` +
+        `took 400ms against a 20ms limit, so the call did NOT finish inside its timeout -- ` +
+        `which means the timer stopped covering the request the moment the headers landed`,
+    );
+  } else if (got.code !== "timeout") {
+    problems.push(`the code is ${got.code}, expected "timeout"`);
+  }
+  if (seenSignal === null) {
+    problems.push("no AbortSignal was passed to fetch at all, so nothing could be cancelled");
+    // deno-lint-ignore no-explicit-any
+  } else if (!(seenSignal as any).aborted) {
+    problems.push(
+      "THE SIGNAL WAS NOT ABORTED, so the stalled body is still being read and the " +
+        "connection is still open",
+    );
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`the timer does not cover the body read: ${problems.join("; ")}`);
+  }
+});
+
+// AND THE OVER-CORRECTION, which is the mistake a fix for the test above could introduce:
+// a timer that is never cleared, or one that aborts whatever happens. A body that finishes
+// COMFORTABLY INSIDE the limit must come back whole.
+Deno.test("callAnthropic: a body that finishes inside the limit is not aborted, and its timer is cleared", async () => {
+  const chosen = chooseModel();
+  if (!chosen.ok) throw new Error("chooseModel() refused the real file; see section 1");
+  const request = buildAnthropicRequest({
+    model: chosen.model,
+    title: MADE_UP_TITLE,
+    apiKey: KEY_SHAPED,
+  });
+
+  let seenSignal: AbortSignal | null = null;
+
+  // If the timer were left pending, Deno's test runner would fail this test for leaking
+  // one -- which is a stronger check of the `finally` than anything this body can assert.
+  const got = await callAnthropic(request, {
+    timeoutMs: 5_000,
+    fetchImpl: (_url, init) => {
+      seenSignal = init.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify(replyWith("Book the hall"))),
+            );
+            controller.close();
+          }, 30);
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { status: 200, headers: { "content-type": "application/json" } }),
+      );
+    },
+  });
+
+  const problems: string[] = [];
+  if (!got.ok) {
+    problems.push(`it answered the failure ${got.code} for a body that arrived in 30ms`);
+  } else {
+    if (got.status !== 200) problems.push(`the status is ${got.status}`);
+    const verdict = readSuggestions(got.body);
+    if (!verdict.ok || verdict.suggestions.join("|") !== "Book the hall") {
+      problems.push(`the body did not survive a slow read: ${JSON.stringify(got.body)}`);
+    }
+  }
+  // deno-lint-ignore no-explicit-any
+  if (seenSignal !== null && (seenSignal as any).aborted) {
+    problems.push("the signal was aborted for a request that answered in time");
+  }
+
+  if (problems.length > 0) throw new Error(problems.join("; "));
+});
+
 Deno.test("callAnthropic: a request that cannot be made at all is unreachable, not a timeout", async () => {
   const chosen = chooseModel();
   if (!chosen.ok) throw new Error("chooseModel() refused the real file; see section 1");
@@ -1376,11 +1536,14 @@ Deno.test("every code produces the SAME sentence and the same status, and carrie
   }
   if (!statuses.has(503)) problems.push(`the status is ${[...statuses].join(", ")}, expected 503`);
 
-  // The nine words themselves, so a code added or removed is noticed here.
-  if (SUGGEST_CODES.length !== 10) {
+  // The words themselves, so a code added or removed is noticed here. Eleven since the
+  // coach's review of PR #190 added `model_unavailable`.
+  if (SUGGEST_CODES.length !== 11) {
     throw new Error(
-      `there are ${SUGGEST_CODES.length} codes; this file was written against 10. A new ` +
-        `code needs a sentence in web/src/lib/suggestions.ts too`,
+      `there are ${SUGGEST_CODES.length} codes; this file was written against 11. A new ` +
+        `code needs no new sentence -- every one of them gets the same one, which is the ` +
+        `point -- but it does need adding to the copy of this list in ` +
+        `scripts/staging/build-it-20-ai-checks.mjs, which refuses a code it does not know`,
     );
   }
   if (new Set(SUGGEST_CODES).size !== SUGGEST_CODES.length) {
@@ -1627,6 +1790,48 @@ Deno.test("the status checks REFUSE a judge that cannot see a spend limit", () =
         `"${testCase.name}" did NOT catch a judge that decides on the status alone, so the ` +
           `spend limit is not actually being tested`,
       );
+    }
+  }
+});
+
+Deno.test("the status checks REFUSE a judge that calls a gone model a wrong key", () => {
+  // THE MISTAKE, and it was this function's own behaviour until the coach's review of
+  // PR #190: every 4xx that is not 429 or a spend limit becomes `refused`. It is right
+  // for 401, 402, 403 and 413, and it turns "the model you pinned no longer exists" into
+  // the same word as "your key is wrong" -- two findings with completely different fixes,
+  // and the log line is the only place the owner could tell them apart.
+  function brokenJudge(status: number): SuggestCode | null {
+    if (status >= 200 && status < 300) return null;
+    if (status === 429) return "rate_limited";
+    if (status >= 500) return "unavailable";
+    return "refused";
+  }
+
+  const goneCases = STATUS_CASES.filter((c) => c.expect === "model_unavailable");
+  if (goneCases.length !== 3) {
+    throw new Error(
+      `expected 3 model_unavailable cases, found ${goneCases.length} -- was one removed?`,
+    );
+  }
+
+  for (const testCase of goneCases) {
+    if (brokenJudge(testCase.status) === testCase.expect) {
+      throw new Error(`the broken judge somehow got "${testCase.name}" right`);
+    }
+  }
+
+  // And the real judge must still answer `refused` for the 4xx that really ARE refusals,
+  // or the new code has been applied too widely.
+  const stillRefused = STATUS_CASES.filter((c) => c.expect === "refused");
+  if (stillRefused.length < 6) {
+    throw new Error(
+      `only ${stillRefused.length} cases still expect "refused"; the new code has swallowed ` +
+        `cases that are genuine refusals`,
+    );
+  }
+  for (const testCase of stillRefused) {
+    if (judgeAnthropicStatus(testCase.status, testCase.type, testCase.message) !== "refused") {
+      throw new Error(`"${testCase.name}" is no longer answered "refused"`);
     }
   }
 });

@@ -297,7 +297,13 @@ jobs:
       # metered requests to Anthropic). This job does not make any: --selftest
       # returns before a setting is read, so there is no key, no account and no
       # network involved, the same as the three beside it.
-      EXPECTED_AI_CASES: "64"
+      #
+      # 64 -> 65 with the coach's review of PR #190: one case for the new
+      # `model_unavailable` code, which this script's own copy of the code list has
+      # to know about -- it fails a 503 carrying a code it does not recognise, so a
+      # code added to the function and not here would turn a correct deployed
+      # function red.
+      EXPECTED_AI_CASES: "65"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -374,15 +380,22 @@ jobs:
       # So the summary line can be read without ANSI colour codes in the way.
       NO_COLOR: "1"
       # Counted from the test run's own summary; a floor, as above. 40 from
-      # suspension_test.ts, 62 from invitation_status_test.ts and 85 from
+      # suspension_test.ts, 62 from invitation_status_test.ts and 90 from
       # suggest_subtasks_test.ts, measured by running the folder:
-      # "ok | 187 passed | 0 failed".
+      # "ok | 192 passed | 0 failed".
       #
       # THE THIRD FILE ARRIVED WITH BUILD IT 20 (issue #183) and needed no change
       # to the step below, because that step names the FOLDER rather than a file --
       # which is exactly what issue #167 changed it to do, and the first time that
       # decision has paid for itself. Only this number moved, from 102.
-      EXPECTED_FUNCTION_TESTS: "187"
+      #
+      # 187 -> 192 with the coach's review of PR #190: five tests, for the two
+      # things it asked for. Three say a 404 from the AI service is
+      # `model_unavailable` rather than `refused`; two say the 15-second timer
+      # covers the BODY of a reply and not only its headers -- and one of those two
+      # is the over-correction guard, because a fix that aborted everything would
+      # pass the other.
+      EXPECTED_FUNCTION_TESTS: "192"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

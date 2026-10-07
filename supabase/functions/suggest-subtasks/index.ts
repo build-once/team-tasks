@@ -216,11 +216,11 @@ const INSTRUCTIONS = [
 // reached, service down, bad reply) gives the caller one fixed answer with a short
 // code."
 //
-// ONE ANSWER means one sentence and one status for all nine codes below, and that
+// ONE ANSWER means one sentence and one status for all eleven codes below, and that
 // is a decision rather than laziness. Compare it with invite-member, which has a
 // different sentence per failure code -- and is right to, because there the owner's
 // next move differs: a refused address wants editing, an unreachable service wants
-// waiting. Here every one of the nine has the same next move, which is to press the
+// waiting. Here every one of the eleven has the same next move, which is to press the
 // button again later or to get on without the suggestions. A screen that explained
 // which of nine things went wrong with a free AI helper would be telling somebody
 // about this app's plumbing instead of about their tasks.
@@ -243,9 +243,23 @@ export const SUGGEST_CODES = [
   // model to spend money on.
   "no_model",
   // The service answered, and the answer was not a yes. 401 (a malformed, revoked
-  // or expired key), 403, 404, 413, and any other 4xx that is not one of the three
-  // below.
+  // or expired key), 402, 403, 409, 413, and any other 4xx that is not one of the
+  // four below.
   "refused",
+  // 404 not_found_error. THE MODEL THIS APP IS PINNED TO IS NOT THERE -- retired,
+  // renamed, or never a model at all.
+  //
+  // It had no code of its own until the coach's review of PR #190 asked for one, and
+  // the argument is the retirement floor recorded in approved-models.json: Anthropic
+  // publishes "not sooner than October 15, 2026" for this model, eight days after it
+  // was approved (issue #185). When that day comes, every ask answers 404 -- and
+  // lumped in with `refused` it would read in the log exactly like a wrong key. Those
+  // are two findings with completely different fixes: one is a line in
+  // approved-models.json, the other is a secret in the Supabase dashboard.
+  //
+  // The person at the screen sees no difference, which is the whole design: one fixed
+  // sentence for every failure. This exists for the log line and for the owner.
+  "model_unavailable",
   // 429. "Your organization has hit a rate limit, reached its usage tier's monthly
   // spend cap, or reached a spend limit on the Claude Code workspace."
   "rate_limited",
@@ -664,7 +678,7 @@ export function readApiKey(
 // WHY READING THE MESSAGE AT ALL IS ALLOWED HERE, when nothing the service says may
 // reach a body or a log. Because this is a CLASSIFICATION and not a disclosure: the
 // two strings below are OUR constants, the test is `startsWith`, and what comes out
-// is one of this file's own nine words. Not one character of the service's message
+// is one of this file's own eleven words. Not one character of the service's message
 // is kept, returned, logged or compared against anything else. A 400 is otherwise
 // indistinguishable from a bad request of our own making, and issue #183 asks for
 // "spend limit reached" to have its own code -- which cannot be done from the status
@@ -706,8 +720,26 @@ export function judgeAnthropicStatus(
   // and not working, which is a different fact from "it refused us".
   if (status >= 500) return "unavailable";
 
+  // 404 not_found_error. THE MODEL IS NOT THERE, and this is its own code since the
+  // coach's review of PR #190.
+  //
+  // The errors page gives 404 as "The requested resource was not found. Check the
+  // endpoint path and any resource IDs in the request URL." For this function there is
+  // exactly one resource id in play -- the model name from approved-models.json -- and
+  // the endpoint is a constant in this file, so a 404 means the model. The one other
+  // reading, a wrong endpoint, would be a bug in this file rather than a thing the owner
+  // could act on, and it would show on the first request after a deploy rather than one
+  // morning months later.
+  //
+  // DECIDED BY THE STATUS ALONE, deliberately. The error type would narrow it further,
+  // and a 404 with no body or an unexpected type must still come out as this rather than
+  // falling through to `refused` -- a model that has gone is the likeliest cause of a 404
+  // here whatever the body says, and the fallback should point at the likeliest cause.
+  // There are selftest cases for all three shapes.
+  if (status === 404) return "model_unavailable";
+
   // Every other 4xx: 401 authentication_error (a malformed, revoked or expired
-  // key), 402, 403, 404, 409, 413. All of them mean the same thing to the person at
+  // key), 402, 403, 409, 413. All of them mean the same thing to the person at
   // the screen and to the owner: the call did not happen and the key or the request
   // is the reason.
   return "refused";
@@ -926,6 +958,27 @@ export function readSuggestions(reply: unknown): ReplyVerdict {
 // reported as the same thing: one means Anthropic was too slow and one means it was
 // never reached.
 //
+// AND IT COVERS THE BODY, NOT ONLY THE HEADERS. That is the coach's finding on PR #190,
+// and it was a real hole rather than a tidiness point: `clearTimeout` used to sit in the
+// `finally` of the FETCH's own try, which runs the moment the headers arrive. So a
+// service that answered `200 OK` and then stalled mid-body was no longer on any clock.
+// This function would have waited on that body for as long as the platform allowed,
+// holding an invocation open, and then been killed rather than answering the fixed
+// failure -- and a killed invocation gives the person something other than one clear
+// sentence.
+//
+// Headers arrive in one round trip; a body arrives over as many as it takes. So the body
+// is the half MORE likely to stall, and it was the half the timer had stopped watching.
+// There is now ONE try/finally around the whole call, headers and body together.
+//
+// WHAT THAT COSTS, named rather than hidden: a NON-2xx whose body stalls now reports
+// `timeout` rather than its status. The status is known by then, so a little is lost --
+// a 400 that was really the spend limit would come back as `timeout`, because telling
+// that apart needs the message and the message is what stalled. It is kept simple on
+// purpose: the one thing certainly true of such a call is that it did not finish inside
+// fifteen seconds, and a stalled body on a refusal is a great deal less likely than a
+// stalled body on a 200, which is where the real essays come from.
+//
 // THE FETCH AND THE TIMER ARE BOTH PASSED IN, with the real ones as defaults. That
 // is what turns "a 15 second timeout that really aborts the request" from a claim in
 // a comment into something a test measures: the test hands this a fetch that never
@@ -953,33 +1006,49 @@ export async function callAnthropic(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
+  // ONE try/finally AROUND THE WHOLE CALL. The `finally` is what clears the timer, and
+  // it is out here rather than around the fetch alone so that the clock keeps running
+  // until the body has been read. See the note above for what the narrower version cost.
   try {
-    response = await send(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      signal: controller.signal,
-    });
-  } catch {
-    // Nothing about the cause is kept -- not the thrown message, which can name a
-    // host, and not the stack.
-    return { ok: false, code: controller.signal.aborted ? "timeout" : "unreachable" };
+    let response: Response;
+    try {
+      response = await send(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        signal: controller.signal,
+      });
+    } catch {
+      // Nothing about the cause is kept -- not the thrown message, which can name a
+      // host, and not the stack.
+      return { ok: false, code: controller.signal.aborted ? "timeout" : "unreachable" };
+    }
+
+    // A body that is not JSON is not an error on its own: on a 2xx it leaves nothing
+    // to read, which readSuggestions answers as bad_reply, and on a non-2xx it leaves
+    // the status to decide, which judgeAnthropicStatus does.
+    //
+    // A BODY THAT WAS ABORTED IS A DIFFERENT THING, and telling the two apart is the
+    // point of this branch. Both arrive through this one `catch`: a body of HTML throws
+    // a parse error, and a body the timer cancelled throws because its stream was
+    // errored. The first means "it answered something unreadable", which is a real
+    // answer with a real status. The second means "it never finished", which is a
+    // timeout. `controller.signal.aborted` is what separates them -- read from the
+    // controller rather than from the error, for the same reason as above.
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      if (controller.signal.aborted) {
+        return { ok: false, code: "timeout" };
+      }
+      body = null;
+    }
+
+    return { ok: true, status: response.status, body };
   } finally {
     clearTimeout(timer);
   }
-
-  // A body that is not JSON is not an error on its own: on a 2xx it leaves nothing
-  // to read, which readSuggestions answers as bad_reply, and on a non-2xx it leaves
-  // the status to decide, which judgeAnthropicStatus does.
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
-
-  return { ok: true, status: response.status, body };
 }
 
 export default {
@@ -1187,7 +1256,7 @@ export default {
 //
 // The console calls above print, between them, exactly three kinds of value: the
 // name of a setting that is not set, an HTTP status the AI service answered with,
-// and one of the nine fixed codes from SUGGEST_CODES. That is all.
+// and one of the eleven fixed codes from SUGGEST_CODES. That is all.
 //
 // THEY NEVER PRINT:
 //   * the task's title, which is free text somebody typed and which docs/plan.md's

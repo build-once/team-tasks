@@ -104,7 +104,7 @@
 // WHAT IT NEVER PRINTS: a password, an access or refresh token, the publishable key,
 // the project URL, a user id, or an email address -- not Alice's and not Bob's, even
 // though docs/environments.md publishes both. Every response body goes through scrub()
-// first. What does get printed: HTTP statuses, the ten failure codes, the fixed
+// first. What does get printed: HTTP statuses, the eleven failure codes, the fixed
 // sentence the function produces, the task id it made, and THE SUGGESTIONS THEMSELVES
 // -- which is a deliberate exception and is argued for beside judgeSuggestions.
 //
@@ -149,12 +149,21 @@ const UNAVAILABLE_MESSAGE = "Suggestions aren't available right now.";
 // does not exist gets. Written out for the same reason.
 const NOT_FOUND_MESSAGE = "That task was not found.";
 
-// The ten codes, copied from supabase/functions/suggest-subtasks/index.ts's
+// The eleven codes, copied from supabase/functions/suggest-subtasks/index.ts's
 // SUGGEST_CODES rather than imported, for the same reason.
+//
+// THIS LIST REFUSES A CODE IT DOES NOT KNOW, which is what makes it worth keeping in
+// step: judgeSuggestions below fails a 503 whose code is not on it, so a code added to
+// the function and not here would turn a correct deployed function red. The Deno test
+// "every code produces the SAME sentence" asserts the count on the other side and names
+// this file in its failure message.
+//
+// `model_unavailable` arrived with the coach's review of PR #190.
 const SUGGEST_CODES = [
   "not_configured",
   "no_model",
   "refused",
+  "model_unavailable",
   "rate_limited",
   "spend_limit",
   "unavailable",
@@ -449,7 +458,7 @@ export function judgeSuggestions(answer) {
       detail:
         `sentence ${JSON.stringify(read.message)}, code ${JSON.stringify(read.code)},` +
         ` fields ${read.extra.join(", ")}. Expected exactly the sentence` +
-        ` ${JSON.stringify(UNAVAILABLE_MESSAGE)}, one of the ten codes, and nothing but` +
+        ` ${JSON.stringify(UNAVAILABLE_MESSAGE)}, one of the eleven codes, and nothing but` +
         ` error and code`,
     });
 
@@ -1033,6 +1042,13 @@ function runSelftest() {
     {
       name: "another code: the answer is still right, and still settles nothing",
       run: () => judgeSuggestions(unavailable("bad_reply")),
+      expect: [PASS, UNVERIFIED],
+    },
+    {
+      name:
+        "THE MODEL HAS GONE: model_unavailable is a known code, so the answer is right and the" +
+        " question is unsettled -- and this is the one to expect after 15 October 2026 (#185)",
+      run: () => judgeSuggestions(unavailable("model_unavailable")),
       expect: [PASS, UNVERIFIED],
     },
     {

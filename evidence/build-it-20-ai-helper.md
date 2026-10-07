@@ -1030,3 +1030,286 @@ that look real:
 | `not-a-real-api-key-zzzz…` | 24 repeated characters. Built to be dull on purpose: a realistic blob is what `.githooks/pre-commit` refuses, gitleaks reporting `generic-api-key` on entropy |
 | `claude-haiku-4-5-20991231` and the other fixtures in `approved-model-check.mjs` | assembled from pieces at runtime, so the file contains no model-shaped literal; the date is in 2099 and names nothing |
 | `00000000-0000-4000-8000-000000000001` | the "made-up task id" the staging script asks about. Fixed rather than random, so two runs are comparable |
+
+---
+
+## 10. The coach's review of PR #190: two changes, test first
+
+Added 2026-10-07, after the review. **Both findings were right**, and both were about the log
+line rather than about what a person sees — the screen's one fixed sentence is unchanged by
+either.
+
+The review also asked for nothing else to change, so nothing else did: no new feature, no
+screen change, no change to what is sent, and `suspension_test.ts` still untouched.
+
+### 10.1 What was asked
+
+> 1. **The 15-second timeout stops covering the call once headers arrive.** `clearTimeout` runs
+>    in the `finally` before `response.json()`, so a reply whose body stalls is not aborted. Keep
+>    the timer running until the body has been read. Test first, with a stub whose body never
+>    finishes.
+> 2. **Give a retired or unknown model its own code.** A 404 from the service currently becomes
+>    `refused`, the same as a wrong key. With the retirement floor for this model recorded as 15
+>    October 2026 (#185), make 404 a distinct code (for example `model_unavailable`) so the log
+>    says which it is. The person still sees the same sentence.
+
+### 10.2 Why point 1 was a hole and not a tidiness point
+
+Headers arrive in **one** round trip; a body arrives over as many as it takes. So the body is the
+half **more** likely to stall — and it was the half the timer had stopped watching, because
+`clearTimeout` sat in the `finally` of the fetch's own `try`, which completes the moment the
+headers land.
+
+What that cost: a service answering `200 OK` and then stalling mid-body would have been waited on
+for as long as the platform allowed, holding an invocation open, and then **killed by the platform
+rather than answering the fixed failure**. The person would get whatever a killed invocation
+produces instead of one clear sentence — which is the exact outcome the whole one-fixed-answer
+design exists to prevent.
+
+### 10.3 The tests first, and the run where they FAILED
+
+Five tests, written before either fix. The only thing changed in the function to get them to
+compile was adding the word `model_unavailable` to `SUGGEST_CODES` — declaring an allowed word,
+not implementing the mapping, which is the behaviour under test. So all four failures below are
+behavioural, not type errors:
+
+```
+$ deno test --no-lock --allow-env --config supabase/functions/suggest-subtasks/deno.json supabase/functions/_tests/suggest_subtasks_test.ts
+
+(only the failing lines and their messages; the 86 passing lines are left out)
+
+judgeAnthropicStatus: 404 not_found_error: MODEL UNAVAILABLE, which is not the same fact as a wrong key ... FAILED (4ms)
+judgeAnthropicStatus: 404 with no body to read: the status alone is enough, so it must not need the message ... FAILED (0ms)
+judgeAnthropicStatus: 404 whose error type is something else entirely: still the model, by the status ... FAILED (0ms)
+callAnthropic: a reply whose BODY never finishes is aborted too, not only one whose headers never arrive ... FAILED (421ms)
+ ERRORS 
+
+judgeAnthropicStatus: 404 not_found_error: MODEL UNAVAILABLE, which is not the same fact as a wrong key => ./supabase/functions/_tests/suggest_subtasks_test.ts:607:8
+error: Error: answered "refused", expected "model_unavailable"
+      throw new Error(
+            ^
+
+judgeAnthropicStatus: 404 with no body to read: the status alone is enough, so it must not need the message => ./supabase/functions/_tests/suggest_subtasks_test.ts:607:8
+error: Error: answered "refused", expected "model_unavailable"
+      throw new Error(
+            ^
+
+judgeAnthropicStatus: 404 whose error type is something else entirely: still the model, by the status => ./supabase/functions/_tests/suggest_subtasks_test.ts:607:8
+error: Error: answered "refused", expected "model_unavailable"
+      throw new Error(
+            ^
+
+callAnthropic: a reply whose BODY never finishes is aborted too, not only one whose headers never arrive => ./supabase/functions/_tests/suggest_subtasks_test.ts:1001:6
+error: Error: the timer does not cover the body read: it answered ok with status 200. The headers arrived at once and the BODY took 400ms against a 20ms limit, so the call did NOT finish inside its timeout -- which means the timer stopped covering the request the moment the headers landed; THE SIGNAL WAS NOT ABORTED, so the stalled body is still being read and the connection is still open
+    throw new Error(`the timer does not cover the body read: ${problems.join("; ")}`);
+          ^
+
+FAILED | 86 passed | 4 failed (595ms)
+
+exit code: 1
+```
+
+Read the last message closely: **both halves of the body-stall test failed.** It answered `ok`
+with status 200, *and* the signal was never aborted — so the stalled body was still being read
+and the connection was still open. A test that had only checked the returned code would have
+reported the first and missed the second.
+
+**The stub models both of a real fetch's endings for a body**, the same way the headers test does:
+a real fetch errors the body stream when the signal aborts, and finishes the body if it is never
+cancelled. Without that second half this test would have **hung instead of failing** — which is
+the trap the headers test already fell into once, recorded in section 1b. The lesson got applied
+the second time rather than relearned.
+
+### 10.4 The fixes
+
+**Point 1.** One `try`/`finally` around the whole call, headers and body together, so the clock
+keeps running until the body has been read. The `catch` around `response.json()` now reads
+`controller.signal.aborted` to separate two things that arrive through it identically: a body of
+HTML, which throws a parse error and is a real answer with a real status; and a body the timer
+cancelled, which throws because its stream was errored and is a `timeout`.
+
+**What that costs, named rather than hidden:** a **non-2xx** whose body stalls now reports
+`timeout` rather than its status. A 400 that was really the spend limit would come back as
+`timeout`, because telling that apart needs the message and the message is what stalled. Kept
+simple on purpose — the one thing certainly true of such a call is that it did not finish inside
+fifteen seconds, and a stalled body on a refusal is far less likely than one on a 200, which is
+where the long replies come from.
+
+**Point 2.** `judgeAnthropicStatus` answers `model_unavailable` for 404, **decided by the status
+alone**. The errors page gives 404 as "The requested resource was not found. Check the endpoint
+path and any resource IDs in the request URL"; this function has exactly one resource id in play,
+the model name from `approved-models.json`, and the endpoint is a constant in the file. The only
+other reading — a wrong endpoint — would be a bug in this file that showed on the first request
+after a deploy, not one morning months later. So a 404 with no body, or with an unexpected error
+type, still comes out as the model rather than falling through to `refused`: the fallback points
+at the likeliest cause. There are cases for all three shapes.
+
+### 10.5 Green
+
+```
+$ deno test --no-lock --allow-env --config supabase/functions/suggest-subtasks/deno.json supabase/functions/_tests/suggest_subtasks_test.ts
+
+running 90 tests from ./supabase/functions/_tests/suggest_subtasks_test.ts
+approved-models.json names exactly one model to use, and the function uses it ... ok (14ms)
+chooseModel refuses nought, two, and a nameless entry ... ok (0ms)
+the request carries the title and the fixed instructions, and nothing else ... ok (0ms)
+A TITLE THAT CONTAINS INSTRUCTIONS is still sent as the title, unchanged ... ok (0ms)
+judgeAnthropicStatus: 200: not a failure at all -- the reply still has to be read ... ok (0ms)
+judgeAnthropicStatus: 201, which this endpoint does not send, is still not a failure ... ok (0ms)
+judgeAnthropicStatus: 401 authentication_error -- A WRONG, REVOKED OR EXPIRED KEY ... ok (0ms)
+judgeAnthropicStatus: 402 billing_error: refused ... ok (0ms)
+judgeAnthropicStatus: 403 permission_error: refused ... ok (0ms)
+judgeAnthropicStatus: 404 not_found_error: MODEL UNAVAILABLE, which is not the same fact as a wrong key ... ok (0ms)
+judgeAnthropicStatus: 404 with no body to read: the status alone is enough, so it must not need the message ... ok (0ms)
+judgeAnthropicStatus: 404 whose error type is something else entirely: still the model, by the status ... ok (0ms)
+judgeAnthropicStatus: 413 request_too_large: refused ... ok (0ms)
+judgeAnthropicStatus: 429 RATE LIMITED, which is also a tier spend cap ... ok (0ms)
+judgeAnthropicStatus: THE SPEND LIMIT: 400, invalid_request_error, and the published opening words ... ok (0ms)
+judgeAnthropicStatus: THE WORKSPACE SPEND LIMIT, which is the 5-dollar one on Team Tasks ... ok (0ms)
+judgeAnthropicStatus: a 400 that is OUR mistake, not a spend limit: same status, same type, different words ... ok (0ms)
+judgeAnthropicStatus: a 400 with the spend-limit words but the WRONG error type: not claimed as a spend limit ... ok (0ms)
+judgeAnthropicStatus: a 400 with the spend-limit words somewhere in the MIDDLE, not at the start ... ok (0ms)
+judgeAnthropicStatus: a 400 with no body to read at all ... ok (0ms)
+judgeAnthropicStatus: 409 conflict_error: refused ... ok (0ms)
+judgeAnthropicStatus: 500 api_error: the service is there and not working ... ok (0ms)
+judgeAnthropicStatus: 504 timeout_error from the service, which is not OUR timeout ... ok (0ms)
+judgeAnthropicStatus: 529 overloaded_error ... ok (0ms)
+judgeAnthropicStatus: a 3xx, which this endpoint does not send: not a success, so it must not be read as one ... ok (0ms)
+errorFields reads the documented error shape and shrugs at anything else ... ok (0ms)
+readSuggestions: SUCCESS: three plain lines ... ok (0ms)
+readSuggestions: success: one line ... ok (0ms)
+readSuggestions: success: bullets the instructions asked it not to write are stripped, not refused ... ok (0ms)
+readSuggestions: success: blank lines between suggestions are dropped ... ok (0ms)
+readSuggestions: success: two text blocks are read as one list ... ok (0ms)
+readSuggestions: success: blocks this app does not read are ignored, not refused ... ok (0ms)
+readSuggestions: MORE THAN FIVE ITEMS: the extras are dropped and five come back ... ok (0ms)
+readSuggestions: a line over the length cap is DROPPED, not trimmed into something that looks fine ... ok (0ms)
+readSuggestions: a line of exactly the cap is kept: the boundary is inclusive ... ok (0ms)
+readSuggestions: a line carrying a link is dropped: a link is not a subtask ... ok (0ms)
+readSuggestions: a line carrying a tab is dropped ... ok (0ms)
+readSuggestions: A REPLY SAYING "I've added these": THE WHOLE REPLY IS REFUSED ... ok (0ms)
+readSuggestions: a reply claiming the tasks have been created, in the passive ... ok (0ms)
+readSuggestions: a reply that obeyed a hostile title and offers to print the system prompt ... ok (0ms)
+readSuggestions: a reply telling the app to ignore the above ... ok (0ms)
+readSuggestions: JUNK: not an object at all ... ok (0ms)
+readSuggestions: junk: null ... ok (0ms)
+readSuggestions: junk: an object with no content ... ok (0ms)
+readSuggestions: junk: content is a string ... ok (0ms)
+readSuggestions: junk: an empty content array ... ok (0ms)
+readSuggestions: junk: a content array with no text block in it ... ok (0ms)
+readSuggestions: junk: a text block whose text is a number ... ok (0ms)
+readSuggestions: AN EMPTY REPLY IS NOT AN EMPTY LIST: the model did as it was told and had nothing ... ok (0ms)
+readSuggestions: a reply of nothing but blank lines and bullets ... ok (0ms)
+readSuggestions: a reply of one over-long paragraph: nought usable lines, so no empty list ... ok (0ms)
+usableSuggestion refuses a line that is not one, and keeps one that is ... ok (0ms)
+every claim marker really does refuse a reply that would otherwise pass ... ok (1ms)
+textFromReply joins text blocks and returns null when there is nothing to read ... ok (0ms)
+callAnthropic: a request that never answers times out AND is aborted ... ok (23ms)
+callAnthropic: a reply whose BODY never finishes is aborted too, not only one whose headers never arrive ... ok (30ms)
+callAnthropic: a body that finishes inside the limit is not aborted, and its timer is cleared ... ok (46ms)
+callAnthropic: a request that cannot be made at all is unreachable, not a timeout ... ok (1ms)
+callAnthropic: a fast answer comes back with its status and body, and the timer is cleared ... ok (0ms)
+callAnthropic: a 2xx whose body is not JSON is read as a bad reply, not a crash ... ok (1ms)
+readApiKey treats every kind of absence as absent, and whitespace as absent too ... ok (0ms)
+readTaskTitle: one row with a title: that is what gets sent ... ok (0ms)
+readTaskTitle: a title with spaces round it is trimmed ... ok (0ms)
+readTaskTitle: NOUGHT ROWS: the task does not exist, or it is not this person's to see, and this function cannot and must not tell which ... ok (0ms)
+readTaskTitle: the read FAILED: an unknown, which must not be answered as 'no such task' ... ok (0ms)
+readTaskTitle: the read failed with no code ... ok (0ms)
+readTaskTitle: the read threw ... ok (0ms)
+readTaskTitle: the read's promise rejected ... ok (0ms)
+readTaskTitle: no error and no list either: an unanswered question, not an empty one ... ok (0ms)
+readTaskTitle: a row with no title ... ok (0ms)
+readTaskTitle: a row whose title is a number ... ok (0ms)
+readTaskTitle: a row whose title is only spaces ... ok (0ms)
+readTaskTitle: a title longer than this database can hold: refused rather than sent, because the request is paid for by the character ... ok (0ms)
+readTaskTitle: a title of exactly the limit: sent, because the database allows it ... ok (0ms)
+the 404 for a task you cannot see says nothing about the task at all ... ok (0ms)
+checkSuspension: no row: not suspended, so the call may go ahead ... ok (2ms)
+checkSuspension: A ROW: SUSPENDED, so no title leaves and no money is spent ... ok (0ms)
+checkSuspension: THE READ FAILED: fail CLOSED. An unknown is not a 'no row' ... ok (0ms)
+checkSuspension: the read threw: still closed ... ok (0ms)
+checkSuspension: no error and no array: still closed ... ok (0ms)
+the suspended refusal is the same 403 the other doors send ... ok (0ms)
+every code produces the SAME sentence and the same status, and carries its own code ... ok (1ms)
+the success answer carries the suggestions and nothing else ... ok (0ms)
+beginCall refuses a second call and endCall lets the next one through ... ok (0ms)
+endCall on somebody who has no call in flight is harmless ... ok (0ms)
+the reply checks REFUSE a reader that passes a claim straight through ... ok (0ms)
+the request checks REFUSE a builder that helpfully attaches who asked ... ok (0ms)
+the status checks REFUSE a judge that cannot see a spend limit ... ok (0ms)
+the status checks REFUSE a judge that calls a gone model a wrong key ... ok (0ms)
+the timeout check REFUSES a timer that gives up without aborting ... ok (28ms)
+
+ok | 90 passed | 0 failed (183ms)
+
+
+exit code: 0
+```
+
+### 10.6 A test's expectation was changed, and who agreed to it (rule 20)
+
+One existing case changed meaning rather than being added:
+
+| | |
+|---|---|
+| Was | `judgeAnthropicStatus: 404 not_found_error: refused` |
+| Now | `judgeAnthropicStatus: 404 not_found_error: MODEL UNAVAILABLE, which is not the same fact as a wrong key` |
+| Agreed by | the owner, in the coach review comment on PR #190, point 2, which asks for 404 to be "a distinct code (for example `model_unavailable`)" |
+
+Nothing was loosened by it: the case still asserts an exact code for an exact status, and **six**
+other cases still expect `refused`. A test asserts that too — "the status checks REFUSE a judge
+that calls a gone model a wrong key" fails if the new code has been applied so widely that the
+genuine refusals stopped being refusals.
+
+### 10.7 And the two scripts the new code had to reach
+
+`scripts/staging/build-it-20-ai-checks.mjs` holds its **own copy** of the code list, and
+`judgeSuggestions` fails a 503 carrying a code it does not recognise. So a code added to the
+function and not to that script would have turned a **correct** deployed function red. The list
+gained `model_unavailable` and one selftest case for it — the case that, after 15 October 2026,
+is the one to expect.
+
+The Deno test that counts the codes now names that script in its failure message, so the next
+person to add a code is told where the other copy is instead of finding out from a staging run.
+
+### 10.8 Counts
+
+Measured by running each check, not estimated:
+
+| Floor in `ci.yml` | Was | Now | Why |
+|---|---|---|---|
+| `EXPECTED_FUNCTION_TESTS` | 187 | **192** | five tests: three for the 404 code, two for the body-stall timer (one of which is the over-correction guard) |
+| `EXPECTED_AI_CASES` | 64 | **65** | one selftest case for `model_unavailable` |
+| `EXPECTED_APPROVED_MODEL_CHECKS` | 6 | 6 | unchanged |
+
+```
+$ node <run each check and report the number CI counts>
+deno folder              exit 0   counted 192   fails 0
+deno suggest only        exit 0   counted 90    fails 0
+staging ai selftest      exit 0   counted 65    fails 0
+approved-model-check     exit 0   counted 6     fails 0
+tasks-filter-check       exit 0   counted 47    fails 0
+password-reset-check     exit 0   counted 84    fails 0
+sentry-scrub-check       exit 0   counted 95    fails 0
+screen-state-check       exit 0   counted 110   fails 0
+friendly-words-check     exit 0   counted 45    fails 0
+build-it-16-checks       exit 0   counted 39    fails 0
+build-it-16-suspend      exit 0   counted 40    fails 0
+build-it-18-invitation   exit 0   counted 57    fails 0
+```
+
+`npm run lint` clean, `npm run build` compiled and type-checked, `node scripts/check-workflows.mjs`
+4 files and 20 jobs with 0 problems, and the root `npm test` green — all re-run after these
+changes.
+
+### 10.9 Still unchanged by all of this
+
+- **Nothing is deployed**, and no request has gone to Anthropic. These two changes are the
+  difference between two log lines and between a stalled call being cut off or not; neither has
+  been observed against a running function, and neither can be until the owner deploys.
+- **The person at the screen sees exactly what they saw before**: one sentence, for all eleven
+  codes now rather than ten. The test that asserts one sentence and one status across every code
+  iterates `SUGGEST_CODES`, so it covered the new one the moment it existed.
+- `#185` stays open. This change makes a retired model **diagnosable**; it does not make the
+  retirement floor any further away.

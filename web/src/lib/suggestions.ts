@@ -46,10 +46,10 @@
 // THE SENTENCE, and it is the function's too. issue #183: on any failure the screen
 // says "Suggestions aren't available right now."
 //
-// WHAT IT DELIBERATELY DOES NOT SAY: which of the ten things went wrong, whether
+// WHAT IT DELIBERATELY DOES NOT SAY: which of the eleven things went wrong, whether
 // this environment has a key, which company was asked, what it answered, or how
 // much anything costs. A person pressing a button on a to-do list is owed the
-// answer to "can I have suggestions" and nothing about the plumbing. The ten codes
+// answer to "can I have suggestions" and nothing about the plumbing. The eleven codes
 // exist for the owner, in the function's log lines.
 //
 // AND IT IS THE SAME SENTENCE FOR THE NO-KEY CASE, which is what production will
