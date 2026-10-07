@@ -104,11 +104,31 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  NEVER sent: an address, task text, a team name, a token, a key.      |
    |  OFF: session replay, performance tracing, request bodies.            |
    +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  AI HELPER  -  ANTHROPIC CLAUDE API chosen 7 Oct 2026.                |
+   |  NOT INSTALLED YET. Separate Console workspace "Team Tasks", 5 USD    |
+   |  monthly spend limit - owner-reported, not seen in a dashboard.       |
+   |  Model: Claude Haiku 4.5, dated name TO BE CONFIRMED BY THE OWNER.    |
+   |                                                                       |
+   |  (12) a SERVER FUNCTION sends ONE TASK TITLE + fixed instructions     |
+   |       AI_API_KEY -- *** SECRET ***, one per Supabase project          |
+   |       The BROWSER never holds it and never calls Anthropic.           |
+   |  Back: up to five short suggestions, TREATED AS DATA, never as        |
+   |  instructions. One becomes a task only when the person adds it.       |
+   |  NEVER sent: an address, a name, a user ID, a team name, any other    |
+   |  task, a sign-in token, a key.                                        |
+   |  STAGING has a key from Build it 20. PRODUCTION has NO KEY until the  |
+   |  consent setting lands in Build it 21 - until then production answers |
+   |  that suggestions are not available.                                  |
+   +-----------------------------------------------------------------------+
 ```
 
 ## The arrows that carry a secret key
 
-Five, and all five start at the server functions:
+Five, and all five start at the server functions. (This sentence already said five on 2026-10-06 while
+the table listed four rows. The AI call added on 2026-10-07 is the fifth row, so the word and the
+number of rows now agree — counted here, not remembered.)
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
@@ -116,6 +136,7 @@ Five, and all five start at the server functions:
 | **(5)** write the invitation row | Supabase **service-role key** | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets | Bob has no account yet, so no RLS rule can let "Bob" write his own invitation. Only trusted server code may create that row — and the 20-pending limit below needs to count the team's other invitations, which a policy cannot do. |
 | **(7)** send the invitation email | **Resend API key** (`EMAIL_API_KEY`) | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets, **per project** | Anyone holding this key could send email as your app. It must never reach a browser. |
 | **accept an invitation** — not drawn on the map yet | Supabase **service-role key** | Supabase Edge Function (`accept-invite`) | Supabase Edge Functions secrets | Marking an invitation accepted and writing the `team_members` row both have to happen for somebody who is not yet in the team, so no policy on either table can allow it. The claim also has to be atomic, or two clicks both succeed. |
+| **(12)** ask for subtask suggestions — **nothing is installed yet** | **Anthropic Claude API key** (`AI_API_KEY`) | Supabase Edge Function | Supabase Edge Functions secrets, **per project** | Anyone holding this key can spend the owner's money at Anthropic, so it must never reach a browser — which is the whole reason this is a server function and not a `fetch` from a screen. The function is also where the three limits live that a browser could not be trusted with: only the one task's title goes out, nothing identifying the asker goes with it, and a suspended caller is refused. **Staging holds a key from Build it 20; production holds none until the consent setting lands in Build it 21**, so on production the function answers that suggestions are not available. See `docs/plan.md` → "Suggest subtasks — an outside AI service". |
 
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
 row-level security rule. It is the most damaging value in this project to lose.
@@ -164,7 +185,8 @@ anything.
 
 **Where these keys live, and the one place they do not.** All the keys above live *only* in the
 function's own settings on Supabase — Edge Functions secrets — and **each project has its own**:
-staging's Resend key is not production's. **Never in a file.** Not in this
+staging's Resend key is not production's, and staging's `AI_API_KEY` is not production's either —
+production has no `AI_API_KEY` at all until Build it 21. **Never in a file.** Not in this
 repository, not in a `.env` file on anybody's laptop, not in `.env.example`, not in Vercel, not in
 GitHub Actions secrets, and not pasted into a chat. A server function reads its key from its own
 environment at run time and nowhere else, so there is no file to leak and nothing for the secret
@@ -198,6 +220,15 @@ publishable key; it is not a password for the account. Sentry's setup wizard wou
 an **auth token** for uploading source maps, which *is* a secret. The wizard is not used and no source
 maps are uploaded, so that token does not exist and there is no fourth secret store. See
 `docs/plan.md` → "Error reports to an outside service".
+
+**Arrow (12), the AI helper, is the opposite case, and that is also a decision.** Anthropic has no
+public key that a browser could safely carry: the API key *is* the credential, and anything holding it
+can spend money. So the call cannot be made from `web/` at all, and the arrow starts where every other
+secret arrow starts — inside a server function, reading `AI_API_KEY` from that project's Edge Functions
+secrets. It adds a key, but **not a new secret store**: it goes in the one that already holds the
+service-role key and the Resend key. What crosses that arrow is deliberately thin — one task title and
+fixed instructions written by this app — and what comes back is treated as text to read, never as
+something to act on. See `docs/plan.md` → "Suggest subtasks — an outside AI service".
 
 **No secret arrow starts at the web app.** There is no mobile app. If you ever find yourself
 wanting a secret in `web/` client code, the answer is a new server function, not an exception.
@@ -339,6 +370,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
 | Monitoring | Will tell you the app is broken before a volunteer does, by sending an error report when a screen or a server route throws | **Sentry**, free plan, data region United States — chosen 5 Oct 2026, **not installed yet** | **Public** — the DSN is meant to be in the browser. No secret, because the setup wizard and its source-map auth token are not used |
+| AI helper | "Suggest subtasks" on one task: sends that task's title and fixed instructions, offers back up to five short suggestions | **Anthropic Claude API**, Claude Haiku 4.5, in a Console workspace named Team Tasks with a 5 USD monthly spend limit — chosen 7 Oct 2026, **not installed yet** | **Secret** API key (`AI_API_KEY`), held per project in Supabase Edge Functions secrets. There is no public key here, so the browser never calls Anthropic at all |
 
 ## What I left out, and why
 
@@ -348,7 +380,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | **Payments** | On the plan's not-yet list. The app is free for six volunteers. No payments means no webhook, no entitlement check, and no card data anywhere — a large amount of risk simply absent. |
 | **Webhooks** | A webhook is a message *in* from an outside service. Nothing sends you one: no payments, and the app does not need Resend's delivery reports. Adding one would mean signature checking, which is a real job. |
 | **File storage** | File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes. |
-| **AI or other outside services** | "An AI helper" is on the not-yet list. No model is called, so no prompt, no token bill, and no third party receiving task text. |
+| **AI or other outside services** | **No longer left out, as of 7 Oct 2026.** This row used to read: "'An AI helper' is on the not-yet list. No model is called, so no prompt, no token bill, and no third party receiving task text." All three halves of that sentence stop being true when Build it 20's code lands — a model *is* called, there *is* a token bill, and a third party *does* receive one task's text. The plan was changed first (`docs/plan.md` → "Suggest subtasks"), and the box and arrow (12) are on the map above. Still nothing installed. What is left out *inside* it is deliberate: no name, no user ID, no team name, no second task, and no production key until the consent setting lands in Build it 21. |
 | **Monitoring** | No longer empty: **Sentry** was chosen on 5 Oct 2026 and is drawn on the map, still with nothing installed. What is left out *inside* it is deliberate: no session replay, no performance tracing, and no request or response bodies — the three Sentry features that would carry task text, addresses and tokens out of this project. |
 
 ## Two things settled
@@ -405,6 +437,11 @@ Before any real volunteer signs up:
 - Error monitoring set up — **Sentry** chosen on 5 Oct 2026, **nothing installed yet**, and it needs to
   happen before real volunteers rely on the app. Two settings go with it, neither yet seen in the
   dashboard: storing IP addresses **off**, and default data scrubbing **on** (`docs/plan.md`).
+- The AI helper's consent setting — Build it 21. Until it exists, **production has no `AI_API_KEY`**,
+  which is what keeps a task title from leaving production before anybody has been asked. Checking that
+  production really has no such secret is a thing to do with eyes on the dashboard, not an assumption
+  (`docs/plan.md` → "Suggest subtasks"). Usage counts and daily limits are Build it 22; until then the
+  only ceiling is the 5-dollar spend limit at Anthropic (`docs/costs.md`).
 - Some way to delete an account, or a written decision that there is none (`docs/plan.md` appendix).
 - `npm run launch:check` completed with evidence.
 

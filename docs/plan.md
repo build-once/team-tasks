@@ -122,11 +122,85 @@ its email, so the person who sent it can tell whether it actually went.
 - **Kept and deleted with the invitation itself.** It has no life of its own, and no history is kept
   of earlier attempts.
 
+## Suggest subtasks — an outside AI service
+
+Added 2026-10-07. Unlike the three sections above, this one **is** a new thing people can press. It is
+in the plan because it sends text somebody typed **out of this project**, to a company that was not
+part of it yesterday. "An AI helper" sat on the not-in-the-first-version list below until today; the
+line moved before any code was written, which is the order rule 9 asks for.
+
+What it is: on a task the person can already see, a **Suggest subtasks** button. The app sends that
+one task's title to Anthropic's Claude API and offers back up to five short suggestions. A suggestion
+stays a suggestion: nothing is written to the database until the person presses add on one.
+
+**The service.** Anthropic's Claude API, in a separate Console workspace named **Team Tasks**, with a
+monthly spend limit of **5 US dollars** and notifications at **1** and **3** dollars — the owner's
+report of what they set, 7 October 2026, not something seen in a dashboard by anybody writing this.
+Two keys, one for staging and one for production, each held only in that Supabase project's function
+secrets as **`AI_API_KEY`** and nowhere else. **Nothing is installed yet:** no package, no key in any
+environment, no code.
+
+**The model.** Claude **Haiku 4.5**, pinned by its dated API name rather than a moving alias, so the
+model cannot change under the app without somebody editing a line. The exact dated name is **to be
+confirmed by the owner** on Anthropic's models page before the code pull request; no name is written
+here from memory.
+
+**What is sent, and nothing else:** the **title of the one task the person asked about**, and **fixed
+instructions written by this app**. That is the whole request.
+
+**What must never be sent.** An email address. A display name. A user ID. A team name. Any other
+task, including the rest of the list the person is looking at. Anything else that identifies who
+asked. The request also carries no sign-in token and no key belonging to the person: the server
+function holds the key, and the request says nothing about who is behind it.
+
+**What comes back is data, never instructions.** Up to five short suggestions. Whatever the reply
+says, the app does not act on it: it is drawn on a screen as text to read, and it becomes a task only
+when the person presses add — through exactly the same rules, and the same limits, as a task they
+typed themselves. A reply is treated the way task text is treated: as something a stranger wrote.
+
+**What Anthropic keeps, for how long, and whether it trains on it.** Both read on 7 October 2026 from
+Anthropic's own published pages, and cited rather than remembered:
+
+- **Retention.** "we automatically delete inputs and outputs on our backend within 30 days of receipt
+  or generation", with exceptions for longer-retention services, agreed arrangements, enforcing the
+  Usage Policy, and legal requirements. Where something is flagged as a Usage Policy violation,
+  "we retain inputs and outputs for up to 2 years and trust and safety classification scores for up
+  to 7 years" — [How long do you store my organization's
+  data?](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data)
+- **Training.** "By default, we will not use your inputs or outputs from our commercial products
+  (e.g. Claude for Work, Anthropic API, Claude Gov, etc.) to train our models", and the one stated
+  exception is explicitly reporting feedback or bugs, or otherwise choosing to allow it — [Is my data
+  used for model
+  training?](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training). This
+  app reports no feedback and opts into nothing, so the default is what applies.
+
+**Who can see what was sent.** The person who pressed the button, the owner through Anthropic's
+console, and Anthropic.
+
+**Order of release, which is the part that decides what production does.** The **consent setting
+arrives in Build it 21**, not here. Until it exists, **the production key is not installed** — so on
+production the helper answers that suggestions are not available, which is a real answer rather than a
+broken screen. **Staging has its key from Build it 20**, which is where the thing is actually tried.
+Nobody's task title leaves production before there is a setting that lets them say no.
+
+**Usage counts and daily limits arrive in Build it 22.** They are not designed here and no number for
+them is written here. Until they exist, the only thing between a loop and a bill is the 5-dollar spend
+limit at Anthropic — see `docs/costs.md`.
+
+**A suspended person gets no suggestions.** The helper is a server function holding a secret key, so
+it belongs with the other three: it reads `account_status` by user id and refuses a suspended caller,
+the way `create-team`, `invite-member` and `accept-invite` do. "Suspending an account" above says a
+suspended person can read and change nothing; a fourth door that ignored that would undo it.
+
 ## Deliberately not in the first version
 
-Comments. Reminder emails. File attachments. An AI helper. Payments. A phone app.
+Comments. Reminder emails. File attachments. Payments. A phone app.
 
 Some of these come later, on purpose. When one does, this plan gets updated first.
+
+**An AI helper left this list on 2026-10-07.** It is "Suggest subtasks" above. That is what "updated
+first" looks like in practice: the line moved out of this list, and the section above was written,
+before any code existed.
 
 ## Personal data it will hold
 
@@ -140,6 +214,8 @@ Some of these come later, on purpose. When one does, this plan gets updated firs
 - Whether an invitation was queued, sent or failed, and a short code if it failed
 - Error reports when the app breaks: what went wrong, which page, which browser, and the user ID of
   whoever hit it — sent to Sentry, outside this project
+- The title of one task, sent to Anthropic's Claude API when somebody presses Suggest subtasks, and
+  the suggestions that come back — outside this project, and with nothing attached that says who asked
 
 Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
 sensitive information in task text, and the app does not need it.
@@ -167,6 +243,12 @@ Sentry, added 2026-10-05, is on its free plan and adds £0 today. What volume of
 make it stop or start charging is **not confirmed** — see `docs/costs.md`, which says the same thing
 and names the page to read.
 
+The Claude API, added 2026-10-07, is the first service here with **no free plan**: it is metered per
+token. Its ceiling is the **5-dollar monthly spend limit** on the Team Tasks workspace, which sits
+inside the £30-a-month ceiling above but is **not £0** — so the first sentence of this section is no
+longer true of every service while building. `docs/costs.md` carries the published per-token prices,
+the arithmetic, and what Anthropic does when a spend limit is reached.
+
 ---
 
 # Appendix — every piece of personal data
@@ -175,7 +257,7 @@ The one-page plan ends above. This appendix is reference material; it is not par
 
 Table names marked *(proposed)* do not exist yet — no database has been created. "Owner" means
 anyone with access to the Supabase or Vercel dashboard, which today is one person. Supabase, Vercel,
-Resend and now Sentry can technically reach the data they hold; that is true of any host.
+Resend, Sentry and now Anthropic can technically reach the data they hold; that is true of any host.
 
 **What "Sensitive? Yes" means here.** None of this is special-category data — no health, beliefs,
 ethnicity or anything of that kind. "Yes" means handle it carefully: a credential, an IP address, or
@@ -206,6 +288,8 @@ free text that could contain absolutely anything.
 | An error report: the error's type, message and stack trace; the page path; browser and operating system | "Error reports to an outside service" above — so a broken app is noticed by the owner rather than by a volunteer | Sentry — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | Owner via Sentry; Sentry | **Not confirmed** — Sentry publishes a free-plan retention period; that page has not been read, so no number is written here | **No way in the app.** The owner can search Sentry for a person's events and delete them — **not yet tried** | **Yes** — a message or a stack trace can quote whatever the code was holding, which is why task text, addresses and tokens must never reach one |
 | The signed-in person's user ID, attached to an error report | Tells the owner whether one person or everyone is hitting an error, without an address | Sentry — as the row above | Owner via Sentry; Sentry | **Not confirmed** — as the row above | **No way in the app** — it is what the owner searches by to delete the events; **not yet tried** | No on its own — it is not an address — but it links a person to everything else in the report |
 | The caller's IP address on an error report | **Nothing** — Sentry stores one by default, and we do not want it | Sentry, unless switched off | Owner via Sentry; Sentry | **Owner to set, not yet reported**: the owner will switch on Sentry's setting that stops an IP being stored, and its default data scrubbing. Neither has been seen in the dashboard | Not user-deletable | **Yes** — IP address |
+| One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
+| The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
 
 ## Collecting less — decided
 
@@ -266,6 +350,25 @@ exist in this plan then. Each one is a thing Sentry can send and will not:
 - **The reason an invitation failed is a short code, not the email service's reply.** The reply can
   quote the address and the message; a code cannot.
 
+### Added 2026-10-07 — collecting less in a request to an AI service
+
+Kept apart again, for the same reason: a different service, and a different shape of risk. Here the
+data leaves because somebody asked for help with it, not because something broke.
+
+- **One title, not the list.** The request carries the title of the one task the person asked about.
+  Not its team, not its dates, not the other tasks on the screen beside it.
+- **No name, and not even a user ID.** The error-report decision above kept the user ID, because the
+  owner needed to know whether one person or everyone was affected. There is no equivalent question
+  here, so nothing identifying the asker is sent at all — no address, no display name, no user ID, no
+  team name.
+- **The reply is data, not instructions.** Up to five short suggestions, drawn as text. Nothing a
+  reply says makes the app do anything, and a suggestion becomes a task only when the person adds it.
+- **The key never reaches a browser.** `AI_API_KEY` lives only in each Supabase project's function
+  secrets, one per project, exactly like the Resend key — so the call is made by server code and the
+  browser never holds anything that could spend money.
+- **Production waits for consent.** The production key is not installed until the Build it 21 setting
+  exists, so until then nothing is sent from production at all.
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -279,9 +382,11 @@ The three things below are unchanged, because there was nothing to reduce:
 ## Two gaps this table exposes
 
 **There is no way for anyone to delete their account.** Features 1 to 5 do not include it, which is
-why **fifteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
-the first version, the two suspension rows added on 2026-10-04, and four added on 2026-10-05 — an
-invitation's status and the three error-report rows. That is a report, not a suggestion: as written,
+why **sixteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
+the first version, the two suspension rows added on 2026-10-04, four added on 2026-10-05 — an
+invitation's status and the three error-report rows — and one added on 2026-10-07, the task title sent
+to Anthropic. (Fifteen until today; the sixteenth is the new row, and the count was made by reading
+the table's last column on 2026-10-07.) That is a report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
 volunteers, or whether the plan changes.
 
@@ -294,6 +399,14 @@ Error reports widen it by one service: a person cannot see their own reports, ca
 delete them, and the reports sit in a company's system outside this project. The owner can delete them
 by searching for a user ID — **not yet tried** — and nothing but the owner's hand will do it.
 
+Suggest subtasks widens it by a second service, and differently. What goes to Anthropic is not a
+by-product of the app breaking: it is **something a person typed**, sent because they asked for help
+with it. They cannot ask the app to pull it back — there is nothing of ours to delete — and because
+nothing identifying them is sent, the owner cannot search for one person's requests either, which is
+the price of sending no user ID. What Anthropic holds runs on the 30-day clock cited above and on
+nothing this project controls. The consent setting in Build it 21 is what will make that a choice
+rather than a consequence of pressing a button.
+
 **Four rows are things you never chose to collect.** The sign-in audit records, both log stores and
 the session tokens are created by Supabase and Vercel whether you want them or not, and they
 include IP addresses. They are not in your tables and you cannot turn most of them off. The
@@ -303,6 +416,9 @@ exist.
 Still four, after 2026-10-05. The IP address on an error report looks like a fifth, but it is not the
 same kind of thing: that one arrives because we chose to add Sentry, and Sentry has a setting that
 stops it. The four above cannot be switched off at all.
+
+Still four on 2026-10-07 as well. Everything Anthropic receives, it receives because this app chose to
+send it, and not sending it is always available.
 
 ## Unverified
 
@@ -325,3 +441,17 @@ stops it. The four above cannot be switched off at all.
 - **Unverified — the whole Sentry entry describes an intention.** The account and the `team-tasks`
   project exist, by the owner's word on 2026-10-05; no package is installed, no DSN is set in any
   environment, and no error report has left this app.
+- **Unverified — the whole Suggest subtasks entry describes an intention.** Nothing is installed: no
+  package, no `AI_API_KEY` in any environment, no function, and no call ever made. The Console
+  workspace named Team Tasks, the 5-dollar monthly spend limit and the 1- and 3-dollar notifications
+  are the **owner's report of 2026-10-07**; nobody writing this opened a dashboard, and nothing in this
+  repository can show what that account is set to.
+- **To be confirmed by the owner — Claude Haiku 4.5's exact dated API name.** It is to be read off
+  Anthropic's models page and pinned in the code pull request. No name is written here from memory.
+- **Not confirmed — whether Anthropic sends a notification at the 1- and 3-dollar thresholds.** The
+  Anthropic pages read on 2026-10-07 describe what happens when a spend limit is *reached*
+  (`docs/costs.md` quotes them) and say nothing about notification thresholds. Only the Console shows
+  whether the two the owner reported are there.
+- **Not tried — asking Anthropic to delete one person's data.** No request has ever been sent, so the
+  30-day and 2-year retention figures cited above are what Anthropic publishes, not something observed
+  or exercised. Nothing identifying the asker is sent, so there would be nothing to search by.
