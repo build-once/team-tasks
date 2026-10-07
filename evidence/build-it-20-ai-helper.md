@@ -1481,3 +1481,9 @@ change and were not re-run — **unverified here**, and CI runs all of them on t
   10.9.
 - **The other eight FAILs were never in doubt.** They are the before-the-deploy evidence, and this
   change does not touch them.
+
+### 11.7 Issue filed with this change
+
+| Issue | What it is |
+|---|---|
+| [#191](https://github.com/build-once/team-tasks/issues/191) | The three other staging scripts read a response the same way round: `build-it-16-checks.mjs:1278, 1292`, `build-it-16-suspend-checks.mjs:1226, 1242` and `build-it-18-invitation-status-checks.mjs:1450, 1467`. **Latent, not active** — none of them currently judges a value that its scrub replaces. `build-it-18` is the one to watch: it registers `INVITE_ADDRESS` and reads invitation rows that carry an `email` column, so "the stored address is the one that was invited" would fail on every correct row. Not fixed here, because this task was one fix to one file |
