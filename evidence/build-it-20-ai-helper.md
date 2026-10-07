@@ -1482,6 +1482,21 @@ change and were not re-run — **unverified here**, and CI runs all of them on t
 - **The other eight FAILs were never in doubt.** They are the before-the-deploy evidence, and this
   change does not touch them.
 
+### 11.6a And CI counted it on another machine
+
+Run [37618592191](https://github.com/build-once/team-tasks/actions/runs/37618592191), commit
+`5180c83`, all 16 jobs green. The `staging-script-selftests` job printed:
+
+```
+build-it-16-checks: counted 39 cases; at least 39 expected.
+build-it-16-suspend-checks: counted 40 cases; at least 40 expected.
+build-it-18-invitation-status-checks: counted 57 cases; at least 57 expected.
+build-it-20-ai-checks: counted 69 cases; at least 69 expected.
+```
+
+So the 69 is not a number from this machine alone, and the raised floor is met rather than
+merely written down.
+
 ### 11.7 Issue filed with this change
 
 | Issue | What it is |
