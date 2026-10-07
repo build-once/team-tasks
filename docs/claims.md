@@ -8,11 +8,18 @@ those decisions were carried out.** #196, #197, #198, #199, #200, #201 and #202 
 changed, and every row in §1 and §2 below now cites the file and line that makes the new claim true, or
 records the removal. §4 and §4a are kept as the record of what was wrong and why each choice was made.
 
-**One thing from those decisions is NOT done, and it is a release gate rather than a loose end.** #202 asked
-that a privacy page say the operator can access the database. The sentence is on the screen; **there is no
-privacy page**, and the app therefore tells the people using it nothing about what it holds or where it
-goes. [#204](https://github.com/build-once/team-tasks/issues/204) holds it, and `docs/plan.md`'s consent
-entry now names a privacy page as a precondition for installing the production `AI_API_KEY`.
+**Two things from those decisions are NOT finished, and neither is a loose end.**
+
+- **There is no privacy page, and it is now a release gate.** #202 asked that a privacy page say the operator
+  can access the database. The sentence is on the screen; the page does not exist, so the app tells the people
+  using it nothing about what it holds or where it goes.
+  [#204](https://github.com/build-once/team-tasks/issues/204) holds it, and `docs/plan.md`'s consent entry now
+  names a privacy page as a precondition for installing the production `AI_API_KEY`.
+- **#197 is enforced in the app, and the account-level floor is still unverified.** `signUp` refuses a short
+  password, which is what the decision asked for. It does **not** bind a caller who uses the public
+  publishable key against Supabase Auth directly and never passes through this app; there the project's own
+  minimum password length is the only rule, and nobody here has read it. Both §1c password rows say so, and §6
+  carries what would settle it: the owner confirming the setting on staging and on production.
 
 **What this file is.** Two lists. The first is every factual claim the app makes on a screen, with the
 file and line where the words are and the file and line that makes them true. The second is every email
@@ -81,10 +88,10 @@ a fact is below.
 |---|---|---|
 | `No card needed to sign up.` | `web/src/app/signup/page.tsx:42` | **ENFORCED (#201, done).** Unlike the promise about money it replaces, this is a statement about the app as built, so a file and line can carry it: the form asks for an address and a password and nothing else — the whole of it is `web/src/app/signup/page.tsx:69-110`, with the two fields at `:74-82` and `:89-97` — and `credentials()` at `web/src/app/auth/actions.ts:19-24` reads only those two before `signUp` sends them at `:134-137`. **And there is no payment flow anywhere** — no dependency, route, action or table; §4a row 4 records the four searches |
 | ~~`Free for your volunteer group.`~~ | **REMOVED (#201)** | **Recorded as a removal.** It was NOT ENFORCED and could not be made so by any file: it was a promise about money. §4 item 2 carries the reasoning, and the comment at `web/src/app/signup/page.tsx:30-41` keeps it beside the new wording |
-| `A password needs at least 8 characters.` | `web/src/app/signup/page.tsx:53`, from `PASSWORD_TOO_SHORT` in `web/src/lib/password-reset.ts:100` | **ENFORCED, and new with #197.** The sentence is drawn for `?problem=password` only (`web/src/app/signup/page.tsx:51`), and that code is sent by `signUp` at `web/src/app/auth/actions.ts:127-129` — which calls `passwordProblem` **before** `createClient()` and before `auth.signUp`, so a password this app refuses never reaches Supabase. **Same constant as the reset screen**, so the two cannot drift. Checked by `scripts/password-reset-check.mjs` §7b, including both orderings and three controls |
+| `A password needs at least 8 characters.` | `web/src/app/signup/page.tsx:53`, from `PASSWORD_TOO_SHORT` in `web/src/lib/password-reset.ts:100` | **ENFORCED IN THE APP; ACCOUNT-LEVEL DEPENDS ON THE SUPABASE SETTING, NOT VERIFIED.** New with #197. The sentence is drawn for `?problem=password` only (`web/src/app/signup/page.tsx:51`), and that code is sent by `signUp` at `web/src/app/auth/actions.ts:127-129` — which calls `passwordProblem` **before** `createClient()` and before `auth.signUp`, so a password this app refuses never reaches Supabase. **Same constant as the reset screen**, so the two cannot drift. Checked by `scripts/password-reset-check.mjs` §7b, including both orderings and three controls. **What it does not reach:** a caller using the public publishable key against Supabase Auth directly, who never passes through this action — there the project's own minimum is the only rule, and it is **not verified**. See §6 |
 | `That did not work. Check the email address and password and try again.` | `web/src/app/signup/page.tsx:55-59` | `web/src/app/auth/actions.ts:139` sends `?problem=1` for any error Supabase returned, and `:88-90` for a post that did not come from this page's button. Deliberately does not say which half was wrong — unlike the password sentence above, which is safe to be specific because it is about the password just typed and says nothing about the address |
 | `Check your email. We've sent you a link to confirm your account.` | `web/src/app/signup/page.tsx:62-67` | `web/src/app/auth/actions.ts:144` draws it only when Supabase returned no session, which is what a project that asks people to confirm does. **Whether an email actually went is not verified** — the sending, and the project's "Confirm email" setting, are Supabase's, and no template or setting for them exists in this repository (see §5). |
-| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:99`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **NOW ENFORCED ON THE SERVER (#197, done).** It used to be kept only by the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`web/src/app/signup/page.tsx:95`), which a direct post skips. `signUp` now refuses a short password itself, at `web/src/app/auth/actions.ts:127-129`, with the same message the screen shows. The attribute stays — it is the rule stated where somebody is typing — but it is no longer the only thing applying it. **Supabase's own project minimum is a separate floor and still lives in a dashboard — not verified** |
+| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:99`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **ENFORCED IN THE APP; ACCOUNT-LEVEL DEPENDS ON THE SUPABASE SETTING, NOT VERIFIED (#197, done).** Two paths, and only one of them is this repository's to keep. **Through this app**: `signUp` refuses a short password at `web/src/app/auth/actions.ts:127-129`, before `createClient()` and before `auth.signUp`, with the same message the screen shows. It used to be kept only by the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`:95`), which a direct post skips; the attribute stays as the rule stated where somebody is typing, but is no longer the only thing applying it. **Round this app**: the publishable key is public and reaches the browser (`web/src/lib/env.ts:44`), so anybody holding it can call Supabase Auth's sign-up endpoint directly, bypass this action entirely, and get whatever minimum the **project** is set to. **On that path nothing in this repository applies, and the only floor is Supabase's own minimum — not verified**, in staging or production. See §6 |
 
 ### 1d. Sign in, `/login`
 
@@ -309,6 +316,21 @@ browser attribute; `signUp` never checks it.
 > One warning carried forward for whoever writes it: `scripts/password-reset-check.mjs` reads these
 > actions' source and counts branches and exits, and uses `signIn` as its deliberate control. If a new
 > guard moves those counts, the fix is the code and never the check (rule 20).
+>
+> **DONE 2026-10-07 — AND HERE IS THE LIMIT OF WHAT IT ACHIEVED, which the owner named and this register
+> had overstated.** The guard is in (`web/src/app/auth/actions.ts:127-129`) and tested
+> (`scripts/password-reset-check.mjs` §7b). But it binds **callers who go through this app**, and the app is
+> not the only way to reach the account system: the publishable key is public and is inlined into the browser
+> bundle (`web/src/lib/env.ts:44`), so anybody holding it can POST to Supabase Auth's sign-up endpoint
+> directly and never execute a line of this repository. On that path the **project's own minimum password
+> length** is the only floor, it lives in a dashboard, and it is **not verified** — §6 carries it, and both
+> §1c password rows now say so rather than claiming the screen's words are enforced outright.
+>
+> **Why that is a real limit and not a quibble.** "Enforced" in this file has always meant "something would
+> refuse the thing the words promise". For a person using the app, something now does. For the account that
+> gets created, the answer is the dashboard's and nobody here has read it. The row therefore reads **enforced
+> in the app; account-level depends on the Supabase setting, not verified** — which is the honest shape, and
+> is the same shape as the `minLength` attribute it replaced, one layer further out.
 
 **4. `Your email is confirmed. Please sign in.`** (#198) — `web/src/app/login/page.tsx:22-26`, reached only from
 the fall-through at `web/src/app/auth/callback/route.ts:37`, which is also where a request with no code
@@ -494,8 +516,16 @@ Collected so it is not buried in a table. Each one names what would settle it.
 - **Not verified — the three Supabase email templates** (sign-up confirmation, password reset, address
   change). No template text is in this repository. Settled by reading Authentication → Emails in each
   Supabase project's dashboard and recording the subject and first line for both projects.
-- **Not verified — Supabase's own minimum password length**, which is the only server-side floor at
-  sign-up today. Settled in Authentication → Policies in each project's dashboard.
+- **Not verified — Supabase's own minimum password length**, and since #197 this is the **account-level**
+  floor rather than "the only" one. The distinction matters and is the reason the two §1c password rows are
+  worded as they are: `signUp` now refuses a short password (`web/src/app/auth/actions.ts:127-129`), but that
+  guard only binds callers who go **through this app**. The publishable key is public by design — it is
+  inlined into the browser bundle, and `web/src/lib/env.ts:44` says so in as many words: "Both of this app's
+  settings are PUBLIC and reach the browser." So anyone holding it can call Supabase Auth's sign-up endpoint
+  directly, never reach this app's action, and create an account under whatever minimum the **project** is
+  set to. **On that path this repository enforces nothing**, and nothing in it can: the only floor is the
+  dashboard setting. Settled in Authentication → Policies in each project's dashboard, staging and
+  production, and the owner has said they will confirm both. Linked from the two password rows in §1c.
 - **Not verified — how long a password-reset link lasts**, which the forgot-password page describes as
   "a short while". Settled in the same place.
 - **Not verified — whether Supabase's "Confirm email" setting is on**, which is what makes the sign-up
