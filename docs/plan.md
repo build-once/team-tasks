@@ -178,9 +178,9 @@ Anthropic's own published pages, and cited rather than remembered:
 console, and Anthropic.
 
 **Order of release, which is the part that decides what production does.** The **consent setting
-arrives in Build it 21**, not here. Until it exists, **the production key is not installed** — so on
-production the helper answers that suggestions are not available, which is a real answer rather than a
-broken screen. **Staging has its key from Build it 20**, which is where the thing is actually tried.
+arrives in Build it 21** — it is "AI suggestions — the consent setting" below — not here. Until it
+exists, **the production key is not installed** — so on production the helper answers that suggestions
+are not available, which is a real answer rather than a broken screen. **Staging has its key from Build it 20**, which is where the thing is actually tried.
 Nobody's task title leaves production before there is a setting that lets them say no.
 
 **Usage counts and daily limits arrive in Build it 22.** They are not designed here and no number for
@@ -191,6 +191,46 @@ limit at Anthropic — see `docs/costs.md`.
 it belongs with the other three: it reads `account_status` by user id and refuses a suspended caller,
 the way `create-team`, `invite-member` and `accept-invite` do. "Suspending an account" above says a
 suspended person can read and change nothing; a fourth door that ignored that would undo it.
+
+## AI suggestions — the consent setting
+
+Added 2026-10-07. Not a sixth feature of the list above, and not a new thing to send anywhere: it is the
+**off switch** for the section directly above, which that section's "Order of release" paragraph has been
+promising since before the helper was written. It is in the plan because it is the thing that decides
+whether anybody's task title leaves this project at all.
+
+**What it is.** A setting called **AI suggestions**, on each person's profile. **Off for everyone** —
+including every account that already exists on the day it arrives, so nobody is opted in by a migration
+and a person who never touches it has never sent anything. **Only that person can switch it, and only
+for themselves.** Not their team's owner, not another member, not the owner of the app on their behalf:
+there is no screen on which anybody changes anybody else's.
+
+**Where it is checked, which is the only part that counts.** `suggest-subtasks` sends nothing to the AI
+service unless the setting is on, and that is **checked in the function** — in the same place and for
+the same reason the suspension check is there: the function holds the key, so the function is the only
+thing that can decide not to spend it. A screen that hid the button would not be this, and a screen is
+not where a rule lives.
+
+**If the setting cannot be read, it is off.** A failed read is not a yes. The function answers that
+suggestions are not available — the one sentence it already has for every other refusal — rather than
+treating an unknown as permission. Same way round as `create-team` counting teams: an unknown is not a
+zero.
+
+**What is stored:** whether it is **on or off**, and **when it was last changed**. Nothing else — no
+history of earlier switches, and no record of who read it. **Who can see it:** the person whose setting
+it is, and the owner through the database. **Deleted with the profile**; it has no life of its own.
+
+**Switching it off stops any further sending at once**, because the function reads the setting on each
+request and nothing caches it. **It does not recall what was already sent, and it cannot.** What
+Anthropic holds runs on the clock quoted in "Suggest subtasks" above and on nothing this project
+controls: deleted "within 30 days of receipt or generation", with the stated exceptions, and up to 2
+years — with classification scores up to 7 years — for anything flagged as a Usage Policy violation. Off
+means nothing more goes. It does not mean anything comes back.
+
+**Order of release, which is again the part that decides what production does.** Once this setting is
+**live on production** and has been **seen to refuse with it off**, the production `AI_API_KEY` may be
+installed. Until both of those are true, **production stays exactly as it is**: no key, and the helper
+answers that suggestions are not available, which is a real answer rather than a broken screen.
 
 ## Deliberately not in the first version
 
@@ -216,6 +256,7 @@ before any code existed.
   whoever hit it — sent to Sentry, outside this project
 - The title of one task, sent to Anthropic's Claude API when somebody presses Suggest subtasks, and
   the suggestions that come back — outside this project, and with nothing attached that says who asked
+- Whether somebody has switched AI suggestions on, and when they last changed it
 
 Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
 sensitive information in task text, and the app does not need it.
@@ -289,6 +330,7 @@ free text that could contain absolutely anything.
 | The signed-in person's user ID, attached to an error report | Tells the owner whether one person or everyone is hitting an error, without an address | Sentry — as the row above | Owner via Sentry; Sentry | **Not confirmed** — as the row above | **No way in the app** — it is what the owner searches by to delete the events; **not yet tried** | No on its own — it is not an address — but it links a person to everything else in the report |
 | The caller's IP address on an error report | **Nothing** — Sentry stores one by default, and we do not want it | Sentry, unless switched off | Owner via Sentry; Sentry | **Owner to set, not yet reported**: the owner will switch on Sentry's setting that stops an IP being stored, and its default data scrubbing. Neither has been seen in the dashboard | Not user-deletable | **Yes** — IP address |
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
+| Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles` *(proposed column)* | The person whose setting it is; owner | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
 
 ## Collecting less — decided
@@ -366,8 +408,12 @@ data leaves because somebody asked for help with it, not because something broke
 - **The key never reaches a browser.** `AI_API_KEY` lives only in each Supabase project's function
   secrets, one per project, exactly like the Resend key — so the call is made by server code and the
   browser never holds anything that could spend money.
-- **Production waits for consent.** The production key is not installed until the Build it 21 setting
-  exists, so until then nothing is sent from production at all.
+- **Production waits for consent.** The production key is not installed until the Build it 21 setting is
+  live on production and has been seen to refuse with it off — "AI suggestions — the consent setting"
+  above says it in those words — so until then nothing is sent from production at all.
+- **Off is the starting point, for everybody.** The setting arrives off for every account that already
+  exists, so the first version of consent here is not a box somebody has to find and clear. Nobody has
+  sent anything until they have switched it on themselves.
 
 ### Not affected by any of these decisions
 
@@ -382,11 +428,12 @@ The three things below are unchanged, because there was nothing to reduce:
 ## Two gaps this table exposes
 
 **There is no way for anyone to delete their account.** Features 1 to 5 do not include it, which is
-why **sixteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
+why **seventeen** rows above say the owner must delete by hand, or that nobody can: nine of them from
 the first version, the two suspension rows added on 2026-10-04, four added on 2026-10-05 — an
-invitation's status and the three error-report rows — and one added on 2026-10-07, the task title sent
-to Anthropic. (Fifteen until today; the sixteenth is the new row, and the count was made by reading
-the table's last column on 2026-10-07.) That is a report, not a suggestion: as written,
+invitation's status and the three error-report rows — and two added on 2026-10-07, the task title sent
+to Anthropic and the AI-suggestions setting. (Fifteen before 2026-10-07; the count was made again by
+reading the table's last column on 2026-10-07, after the consent row was added, and it came to
+seventeen.) That is a report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
 volunteers, or whether the plan changes.
 
@@ -455,3 +502,7 @@ send it, and not sending it is always available.
 - **Not tried — asking Anthropic to delete one person's data.** No request has ever been sent, so the
   30-day and 2-year retention figures cited above are what Anthropic publishes, not something observed
   or exercised. Nothing identifying the asker is sent, so there would be nothing to search by.
+- **Unverified — the AI suggestions setting does not exist.** Written on 2026-10-07 as the thing to
+  build: there is no column, no screen, no check in `suggest-subtasks`, and no production key. Nothing in
+  this repository can show it refusing, because there is nothing to refuse with yet. "Seen to refuse with
+  it off", in the order of release above, is the step that settles it.
