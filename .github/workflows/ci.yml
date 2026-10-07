@@ -190,7 +190,7 @@ jobs:
     # The display name carries both script names on purpose: this is the string
     # that shows in the checks list on a pull request, and issue #87 asks that a
     # red check name tasks-filter-check rather than leave you opening logs.
-    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check, screen-state-check, friendly-words-check)
+    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check, screen-state-check, friendly-words-check, approved-model-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -198,13 +198,26 @@ jobs:
     # A FLOOR, not an equality. Adding checks to any of the scripts must not
     # fail this job, but a run that checked fewer things than it used to has
     # lost coverage, and a run that checked nothing is not a pass (AGENTS.md
-    # rule 8). All five numbers were counted from the scripts' own output.
+    # rule 8). All six numbers were counted from the scripts' own output.
     env:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
       EXPECTED_SENTRY_SCRUB_CHECKS: "95"
       EXPECTED_SCREEN_STATE_CHECKS: "110"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
+      # The sixth arrived with Build it 20 (issue #183). Five PASS lines: the
+      # 27 logic cases behaving as described, the approved file existing and
+      # parsing, the approved file being usable (one entry marked for use, each
+      # with the date it was approved), the count of text files read, and no
+      # file naming an unapproved model.
+      #
+      # IT RUNS ITS OWN LOGIC CASES ON EVERY RUN, not only with --selftest, so
+      # this one number counts both "the scan is clean" and "the scan could
+      # still have caught something". That is deliberate: the other five
+      # scripts here have no such half, and this check's whole value rests on
+      # the pattern it uses to recognise a model name still telling
+      # claude-code-action from a model id.
+      EXPECTED_APPROVED_MODEL_CHECKS: "5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -243,12 +256,13 @@ jobs:
           run_and_count sentry-scrub-check   scripts/sentry-scrub-check.mjs   "$EXPECTED_SENTRY_SCRUB_CHECKS"
           run_and_count screen-state-check   scripts/screen-state-check.mjs   "$EXPECTED_SCREEN_STATE_CHECKS"
           run_and_count friendly-words-check scripts/friendly-words-check.mjs "$EXPECTED_FRIENDLY_WORDS_CHECKS"
+          run_and_count approved-model-check scripts/approved-model-check.mjs "$EXPECTED_APPROVED_MODEL_CHECKS"
 
-  # The --selftest of the three staging scripts that have one: issues #114, #136
-  # and #167. A selftest here is the thing that makes a green staging run mean
+  # The --selftest of the four staging scripts that have one: issues #114, #136,
+  # #167 and #183. A selftest here is the thing that makes a green staging run mean
   # anything -- it feeds every judgement in the script an answer from a world
   # where the door is open and requires each one to come out FAIL. None of them
-  # sends a request, reads web/.env.local or uses an account, so all three run here
+  # sends a request, reads web/.env.local or uses an account, so all four run here
   # with no secret of any kind.
   #
   # THE THIRD ARRIVED WITH ISSUE #167. build-it-18-invitation-status-checks.mjs was
@@ -270,6 +284,20 @@ jobs:
       EXPECTED_BUILD_IT_16_CASES: "39"
       EXPECTED_SUSPEND_CASES: "40"
       EXPECTED_INVITATION_STATUS_CASES: "57"
+      # THE FOURTH ARRIVED WITH BUILD IT 20 (issue #183), which asks for it here
+      # by name. build-it-20-ai-checks.mjs is the script the owner runs before
+      # and after deploying suggest-subtasks to staging, and its 64 cases are
+      # what make a green run from it mean anything: they feed every judgement
+      # an answer from a world where the function is not deployed, or sends six
+      # suggestions, or sends one carrying a link, or claims the subtasks were
+      # added, or gives a stranger a different 404 from a made-up id -- and
+      # require each one to come out FAIL.
+      #
+      # It is the only script here whose staging run COSTS MONEY (at most three
+      # metered requests to Anthropic). This job does not make any: --selftest
+      # returns before a setting is read, so there is no key, no account and no
+      # network involved, the same as the three beside it.
+      EXPECTED_AI_CASES: "64"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -277,7 +305,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all three self-tests, and count the cases each one ran
+      - name: Run all four self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -303,13 +331,16 @@ jobs:
           run_and_count build-it-16-checks                 scripts/staging/build-it-16-checks.mjs                 "$EXPECTED_BUILD_IT_16_CASES"
           run_and_count build-it-16-suspend-checks         scripts/staging/build-it-16-suspend-checks.mjs         "$EXPECTED_SUSPEND_CASES"
           run_and_count build-it-18-invitation-status-checks scripts/staging/build-it-18-invitation-status-checks.mjs "$EXPECTED_INVITATION_STATUS_CASES"
+          run_and_count build-it-20-ai-checks                scripts/staging/build-it-20-ai-checks.mjs                "$EXPECTED_AI_CASES"
 
-  # The Deno tests over the three Edge Functions: issues #136 and #167. They are
-  # the only thing that proves the suspended-account check fails CLOSED when the
+  # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
+  # are the only thing that proves the suspended-account check fails CLOSED when the
   # account_status read errors, the only thing that notices if one of the
-  # three copies of checkSuspension drifts from the other two, and the only thing
-  # that proves invite-member never answers "sent" over a row that says otherwise.
-  # Until this job there was no Deno step anywhere in this repository.
+  # four copies of checkSuspension drifts from the others, the only thing
+  # that proves invite-member never answers "sent" over a row that says otherwise,
+  # and -- since Build it 20 -- the only thing that proves what suggest-subtasks
+  # actually sends to Anthropic, and that it refuses a reply claiming to have added
+  # anything. Until this job there was no Deno step anywhere in this repository.
   #
   # IT NAMES THE FOLDER, NOT A FILE, and that is issue #167's fix. This job used
   # to name `supabase/functions/_tests/suspension_test.ts` by path, so the second
@@ -343,9 +374,15 @@ jobs:
       # So the summary line can be read without ANSI colour codes in the way.
       NO_COLOR: "1"
       # Counted from the test run's own summary; a floor, as above. 40 from
-      # suspension_test.ts and 62 from invitation_status_test.ts, measured by
-      # running the folder: "ok | 102 passed | 0 failed".
-      EXPECTED_FUNCTION_TESTS: "102"
+      # suspension_test.ts, 62 from invitation_status_test.ts and 85 from
+      # suggest_subtasks_test.ts, measured by running the folder:
+      # "ok | 187 passed | 0 failed".
+      #
+      # THE THIRD FILE ARRIVED WITH BUILD IT 20 (issue #183) and needed no change
+      # to the step below, because that step names the FOLDER rather than a file --
+      # which is exactly what issue #167 changed it to do, and the first time that
+      # decision has paid for itself. Only this number moved, from 102.
+      EXPECTED_FUNCTION_TESTS: "187"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -358,7 +395,7 @@ jobs:
           echo "${DENO_SHA256}  $RUNNER_TEMP/deno.zip" | sha256sum --check --strict
           unzip -q -o "$RUNNER_TEMP/deno.zip" -d "$RUNNER_TEMP"
           "$RUNNER_TEMP/deno" --version
-      - name: Every Deno test beside the functions (suspension, invitation status)
+      - name: Every Deno test beside the functions (suspension, invitation status, suggest subtasks)
         # --allow-read is narrowed to the migrations folder and nothing else.
         # invitation_status_test.ts reads
         # supabase/migrations/20261006095847_invitation_status.sql so that the fixed

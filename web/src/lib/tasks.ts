@@ -144,11 +144,26 @@ export function filterAfterAdd(
 // refusal in between. A list that jumps back to "all tasks" after each action is
 // a list nobody can work in -- and the filter is the one thing on this page that
 // has to persist, because it decides what the person can see.
+// `suggest` is a task's id, and it is the one key here that COSTS MONEY to follow:
+// the page, finding it, asks the AI helper for subtasks for that task, which is a
+// metered request to Anthropic (docs/costs.md). Two things follow from that, and both
+// are in web/src/app/tasks/page.tsx rather than here, because this function only
+// builds strings:
+//
+//   * the link that carries it sets prefetch={false}, so Next.js does not follow it
+//     when it scrolls into view or when somebody's pointer passes over it;
+//   * nothing else on the page carries it, so a tick, a rename or a move does not
+//     quietly ask again.
+//
+// What it is NOT is a place the suggestions themselves travel. They never go in a
+// URL: the page asks for them and draws them in the same request, so the model's
+// words are never echoed back out of the address bar.
 export function tasksPath(params: {
   filter?: string | null;
   rename?: string;
   confirm?: string;
   move?: string;
+  suggest?: string;
   added?: string;
   moved?: string;
   problem?: string;

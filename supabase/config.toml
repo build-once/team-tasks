@@ -49,3 +49,22 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/accept-invite/deno.json"
 entrypoint = "./functions/accept-invite/index.ts"
+
+[functions.suggest-subtasks]
+enabled = true
+# verify_jwt = true, for the same reason as the three above, and with one extra
+# reason that is this function's alone: IT SPENDS MONEY. The other three write rows.
+# This one makes a metered request to Anthropic, against a workspace with a 5-dollar
+# monthly ceiling (docs/costs.md). Left at the scaffolded false, an unauthenticated
+# request would reach the handler, and "a person can only ask about a task they can
+# see" would be unenforceable -- there would be no verified caller whose rights the
+# task is read with -- while every stranger's POST cost something.
+#
+# The platform's refusal is also what .github/workflows/migrate-production.yml's
+# smoke-test job checks for, on every function in this folder: HTTP 401 with the code
+# UNAUTHORIZED_NO_AUTH_HEADER, which only the platform sends. This line is what makes
+# that pass, and the job builds its list from the folder, so this function is checked
+# from its first deploy without anybody editing that file.
+verify_jwt = true
+import_map = "./functions/suggest-subtasks/deno.json"
+entrypoint = "./functions/suggest-subtasks/index.ts"
