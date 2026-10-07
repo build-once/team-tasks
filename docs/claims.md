@@ -8,18 +8,22 @@ those decisions were carried out.** #196, #197, #198, #199, #200, #201 and #202 
 changed, and every row in §1 and §2 below now cites the file and line that makes the new claim true, or
 records the removal. §4 and §4a are kept as the record of what was wrong and why each choice was made.
 
-**Two things from those decisions are NOT finished, and neither is a loose end.**
+**One thing from those decisions is NOT finished. The other has since been settled.**
 
 - **There is no privacy page, and it is now a release gate.** #202 asked that a privacy page say the operator
   can access the database. The sentence is on the screen; the page does not exist, so the app tells the people
   using it nothing about what it holds or where it goes.
   [#204](https://github.com/build-once/team-tasks/issues/204) holds it, and `docs/plan.md`'s consent entry now
   names a privacy page as a precondition for installing the production `AI_API_KEY`.
-- **#197 is enforced in the app, and the account-level floor is still unverified.** `signUp` refuses a short
-  password, which is what the decision asked for. It does **not** bind a caller who uses the public
-  publishable key against Supabase Auth directly and never passes through this app; there the project's own
-  minimum password length is the only rule, and nobody here has read it. Both §1c password rows say so, and §6
-  carries what would settle it: the owner confirming the setting on staging and on production.
+- **SETTLED 2026-10-07 — #197 is enforced in the app, and the account-level floor is now known to be 8 as
+  well.** `signUp` refuses a short password, which is what the decision asked for; it does **not** bind a
+  caller who uses the public publishable key against Supabase Auth directly and never passes through this app.
+  That path was the open question, and the owner has closed it: Supabase's **"Minimum password length" changed
+  from 6 to 8** on staging and on production, and on **staging** a direct `POST` to `/auth/v1/signup` with the
+  publishable key and a **7-character** password answered **HTTP 422**, `error_code` `weak_password`,
+  "Password should be at least 8 characters." **Production's setting is the owner's report and was not
+  tested.** Both §1c password rows and §6 now say that rather than "not verified". Nobody writing this opened a
+  dashboard or sent that request.
 
 **What this file is.** Two lists. The first is every factual claim the app makes on a screen, with the
 file and line where the words are and the file and line that makes them true. The second is every email
@@ -88,10 +92,10 @@ a fact is below.
 |---|---|---|
 | `No card needed to sign up.` | `web/src/app/signup/page.tsx:42` | **ENFORCED (#201, done).** Unlike the promise about money it replaces, this is a statement about the app as built, so a file and line can carry it: the form asks for an address and a password and nothing else — the whole of it is `web/src/app/signup/page.tsx:69-110`, with the two fields at `:74-82` and `:89-97` — and `credentials()` at `web/src/app/auth/actions.ts:19-24` reads only those two before `signUp` sends them at `:134-137`. **And there is no payment flow anywhere** — no dependency, route, action or table; §4a row 4 records the four searches |
 | ~~`Free for your volunteer group.`~~ | **REMOVED (#201)** | **Recorded as a removal.** It was NOT ENFORCED and could not be made so by any file: it was a promise about money. §4 item 2 carries the reasoning, and the comment at `web/src/app/signup/page.tsx:30-41` keeps it beside the new wording |
-| `A password needs at least 8 characters.` | `web/src/app/signup/page.tsx:53`, from `PASSWORD_TOO_SHORT` in `web/src/lib/password-reset.ts:100` | **ENFORCED IN THE APP; ACCOUNT-LEVEL DEPENDS ON THE SUPABASE SETTING, NOT VERIFIED.** New with #197. The sentence is drawn for `?problem=password` only (`web/src/app/signup/page.tsx:51`), and that code is sent by `signUp` at `web/src/app/auth/actions.ts:127-129` — which calls `passwordProblem` **before** `createClient()` and before `auth.signUp`, so a password this app refuses never reaches Supabase. **Same constant as the reset screen**, so the two cannot drift. Checked by `scripts/password-reset-check.mjs` §7b, including both orderings and three controls. **What it does not reach:** a caller using the public publishable key against Supabase Auth directly, who never passes through this action — there the project's own minimum is the only rule, and it is **not verified**. See §6 |
+| `A password needs at least 8 characters.` | `web/src/app/signup/page.tsx:53`, from `PASSWORD_TOO_SHORT` in `web/src/lib/password-reset.ts:100` | **ENFORCED IN THE APP, AND NOW AT THE ACCOUNT LEVEL TOO — staging tested, production owner-reported.** New with #197. The sentence is drawn for `?problem=password` only (`web/src/app/signup/page.tsx:51`), and that code is sent by `signUp` at `web/src/app/auth/actions.ts:127-129` — which calls `passwordProblem` **before** `createClient()` and before `auth.signUp`, so a password this app refuses never reaches Supabase. **Same constant as the reset screen**, so the two cannot drift. Checked by `scripts/password-reset-check.mjs` §7b, including both orderings and three controls. **The path this file cannot reach is no longer unguarded:** a caller using the publishable key against Supabase Auth directly, who never passes through this action, now meets the project's own minimum of 8 — the owner changed it from 6 to 8 on both projects on 7 Oct 2026, and a direct `POST` to staging's `/auth/v1/signup` with a 7-character password answered HTTP 422, `weak_password`. **Nothing in this repository enforces that and nothing in it can; production's setting was not tested.** See §6 |
 | `That did not work. Check the email address and password and try again.` | `web/src/app/signup/page.tsx:55-59` | `web/src/app/auth/actions.ts:139` sends `?problem=1` for any error Supabase returned, and `:88-90` for a post that did not come from this page's button. Deliberately does not say which half was wrong — unlike the password sentence above, which is safe to be specific because it is about the password just typed and says nothing about the address |
 | `Check your email. We've sent you a link to confirm your account.` | `web/src/app/signup/page.tsx:62-67` | `web/src/app/auth/actions.ts:144` draws it only when Supabase returned no session, which is what a project that asks people to confirm does. **Whether an email actually went is not verified** — the sending, and the project's "Confirm email" setting, are Supabase's, and no template or setting for them exists in this repository (see §5). |
-| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:99`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **ENFORCED IN THE APP; ACCOUNT-LEVEL DEPENDS ON THE SUPABASE SETTING, NOT VERIFIED (#197, done).** Two paths, and only one of them is this repository's to keep. **Through this app**: `signUp` refuses a short password at `web/src/app/auth/actions.ts:127-129`, before `createClient()` and before `auth.signUp`, with the same message the screen shows. It used to be kept only by the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`:95`), which a direct post skips; the attribute stays as the rule stated where somebody is typing, but is no longer the only thing applying it. **Round this app**: the publishable key is public and reaches the browser (`web/src/lib/env.ts:44`), so anybody holding it can call Supabase Auth's sign-up endpoint directly, bypass this action entirely, and get whatever minimum the **project** is set to. **On that path nothing in this repository applies, and the only floor is Supabase's own minimum — not verified**, in staging or production. See §6 |
+| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:99`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **ENFORCED IN THE APP, AND THE ACCOUNT-LEVEL FLOOR IS NOW 8 AS WELL (#197, done; the setting settled 7 Oct 2026).** Two paths, and only one of them is this repository's to keep. **Through this app**: `signUp` refuses a short password at `web/src/app/auth/actions.ts:127-129`, before `createClient()` and before `auth.signUp`, with the same message the screen shows. It used to be kept only by the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`:95`), which a direct post skips; the attribute stays as the rule stated where somebody is typing, but is no longer the only thing applying it. **Round this app**: the publishable key is public and reaches the browser (`web/src/lib/env.ts:44`), so anybody holding it can call Supabase Auth's sign-up endpoint directly, bypass this action entirely, and get whatever minimum the **project** is set to. **Nothing in this repository applies on that path and nothing in it can** — but the project's minimum is no longer unknown: the owner changed it from 6 to 8 on staging and on production, and on staging a 7-character password was refused HTTP 422 `weak_password`. So the two paths now agree on 8. **Production's setting was not tested.** See §6 |
 
 ### 1d. Sign in, `/login`
 
@@ -228,7 +232,7 @@ drawn graphics are two inline SVGs written in this repository: the ticked box in
 
 | The number | Where it is shown | Where it came from |
 |---|---|---|
-| `8` characters | `web/src/app/signup/page.tsx:68-71`, `web/src/app/reset-password/page.tsx:109-112`, `web/src/lib/password-reset.ts:100` | `PASSWORD_MIN_LENGTH`, `web/src/lib/password-reset.ts:91`. The app's own floor; Supabase's project minimum is separate and **not verified**. |
+| `8` characters | `web/src/app/signup/page.tsx:68-71`, `web/src/app/reset-password/page.tsx:109-112`, `web/src/lib/password-reset.ts:100` | `PASSWORD_MIN_LENGTH`, `web/src/lib/password-reset.ts:91`. The app's own floor. Supabase's project minimum is a **separate** number in a dashboard and is **also 8** since 7 Oct 2026 — the owner changed it from 6, and staging refused a 7-character password with HTTP 422 `weak_password`. The two agree today; nothing in this repository would notice if the dashboard one changed again. |
 | `7` days | `web/src/app/invite/[token]/page.tsx:27`, `158`; `web/src/app/teams/page.tsx:662` | `INVITATION_DAYS`, `web/src/lib/teams.ts:219`, from `docs/plan.md` feature 3. Enforced copy: `supabase/functions/invite-member/index.ts:82`. |
 | `20` invitations | `web/src/app/teams/page.tsx:664`, `694`; `web/src/lib/teams.ts:446` | `MAX_PENDING_INVITATIONS`, `web/src/lib/teams.ts:218`. Enforced copy: `supabase/functions/invite-member/index.ts:71`. |
 | `3` teams | `web/src/lib/teams.ts:429`; and counted at `web/src/app/teams/page.tsx:436-438` | `MAX_TEAMS_PER_OWNER`, `web/src/lib/teams.ts:37`. Enforced copy: `supabase/functions/create-team/index.ts:66`. |
@@ -323,14 +327,25 @@ browser attribute; `signUp` never checks it.
 > not the only way to reach the account system: the publishable key is public and is inlined into the browser
 > bundle (`web/src/lib/env.ts:44`), so anybody holding it can POST to Supabase Auth's sign-up endpoint
 > directly and never execute a line of this repository. On that path the **project's own minimum password
-> length** is the only floor, it lives in a dashboard, and it is **not verified** — §6 carries it, and both
-> §1c password rows now say so rather than claiming the screen's words are enforced outright.
+> length** is the only floor, and it lives in a dashboard.
 >
 > **Why that is a real limit and not a quibble.** "Enforced" in this file has always meant "something would
 > refuse the thing the words promise". For a person using the app, something now does. For the account that
-> gets created, the answer is the dashboard's and nobody here has read it. The row therefore reads **enforced
-> in the app; account-level depends on the Supabase setting, not verified** — which is the honest shape, and
-> is the same shape as the `minLength` attribute it replaced, one layer further out.
+> gets created, the answer is the dashboard's — and this register cannot see it, which is the same shape as
+> the `minLength` attribute the guard replaced, one layer further out.
+>
+> **SETTLED 2026-10-07, the same day — and the limit above is unchanged by it.** The owner has read and
+> changed the dashboard setting: **"Minimum password length" went from 6 to 8** on staging and on production,
+> and on **staging** a direct `POST` to `/auth/v1/signup` with the publishable key and a **7-character**
+> password answered **HTTP 422**, `error_code` `weak_password`, "Password should be at least 8 characters."
+> So the round-the-app path now has a floor, and it is the same number the screen shows.
+>
+> **What has NOT changed, and is the reason this note is three paragraphs rather than one.** This repository
+> still enforces nothing on that path and still cannot. The number agreeing today is a fact about two
+> settings in two dashboards on one day, not a guarantee they stay level: nothing in CI, no test and no
+> check reads the project setting, so if it were lowered tomorrow every row above would still say 8 and
+> nothing here would notice. **And production's setting was not tested** — it is the owner's report, where
+> staging's was exercised with a real refused request. Both distinctions are carried in §6.
 
 **4. `Your email is confirmed. Please sign in.`** (#198) — `web/src/app/login/page.tsx:22-26`, reached only from
 the fall-through at `web/src/app/auth/callback/route.ts:37`, which is also where a request with no code
@@ -516,16 +531,25 @@ Collected so it is not buried in a table. Each one names what would settle it.
 - **Not verified — the three Supabase email templates** (sign-up confirmation, password reset, address
   change). No template text is in this repository. Settled by reading Authentication → Emails in each
   Supabase project's dashboard and recording the subject and first line for both projects.
-- **Not verified — Supabase's own minimum password length**, and since #197 this is the **account-level**
-  floor rather than "the only" one. The distinction matters and is the reason the two §1c password rows are
-  worded as they are: `signUp` now refuses a short password (`web/src/app/auth/actions.ts:127-129`), but that
+- **SETTLED 2026-10-07 — Supabase's own minimum password length is 8**, which since #197 is the
+  **account-level** floor rather than "the only" one. The distinction is why the two §1c password rows are
+  worded as they are: `signUp` refuses a short password (`web/src/app/auth/actions.ts:127-129`), but that
   guard only binds callers who go **through this app**. The publishable key is public by design — it is
   inlined into the browser bundle, and `web/src/lib/env.ts:44` says so in as many words: "Both of this app's
   settings are PUBLIC and reach the browser." So anyone holding it can call Supabase Auth's sign-up endpoint
   directly, never reach this app's action, and create an account under whatever minimum the **project** is
-  set to. **On that path this repository enforces nothing**, and nothing in it can: the only floor is the
-  dashboard setting. Settled in Authentication → Policies in each project's dashboard, staging and
-  production, and the owner has said they will confirm both. Linked from the two password rows in §1c.
+  set to. **On that path this repository still enforces nothing, and nothing in it can.** What has changed is
+  that the number is known. Two facts, both the owner's, 7 October 2026:
+  - the project's **"Minimum password length" changed from 6 to 8** on staging **and** on production;
+  - on **staging**, a direct `POST` to `/auth/v1/signup` with the publishable key and a **7-character**
+    password answered **HTTP 422**, `error_code` `weak_password`, "Password should be at least 8 characters."
+
+  **Two things this does not become.** **Production's setting is owner-reported and was NOT tested** — only
+  staging's was exercised with a real refused request, so production is a statement about a dashboard and not
+  an observation of a refusal. And **nothing watches it**: no test, check or CI job reads either project's
+  setting, so if one were lowered the rows in §1c and §2 would still say 8 and nothing in this repository
+  would notice. Re-settled only by reading the dashboard again. Linked from the two password rows in §1c and
+  the `8` row in §2.
 - **Not verified — how long a password-reset link lasts**, which the forgot-password page describes as
   "a short while". Settled in the same place.
 - **Not verified — whether Supabase's "Confirm email" setting is on**, which is what makes the sign-up
