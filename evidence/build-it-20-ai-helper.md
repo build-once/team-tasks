@@ -1778,6 +1778,22 @@ gateway lets a credential-less POST through, in which case check (a) FAILs and n
 `MISSING_CREDENTIALS`, which is the news worth having. Nobody has run it, so this is arithmetic from
 the owner's reported totals and not a result.
 
+### 12.5a And CI counted it on another machine
+
+Run [37623483011](https://github.com/build-once/team-tasks/actions/runs/37623483011), commit
+`885d24b`, all 16 jobs green. The `staging-script-selftests` job printed:
+
+```
+build-it-16-checks: counted 39 cases; at least 39 expected.
+build-it-16-suspend-checks: counted 40 cases; at least 40 expected.
+build-it-18-invitation-status-checks: counted 57 cases; at least 57 expected.
+build-it-20-ai-checks: counted 75 cases; at least 75 expected.
+```
+
+So the 75 is not a number from this machine alone, and the raised floor is met rather than merely
+written down. That run is also where the Deno function tests, the web app's build and the app tests ran
+— the ones 12.5 says were not re-run here.
+
 ### 12.6 A check's expectation was changed, and who agreed to it (rule 20)
 
 | What changed | Where | Who agreed |
