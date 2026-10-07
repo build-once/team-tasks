@@ -763,6 +763,131 @@ check(
   ["/tasks", "/reset-password?problem=1", "/reset-password?link=0"],
 );
 
+// ------------------------- 7b. sign-up enforces it too, on the SERVER (#197)
+console.log("\n7b. sign-up refuses a short password on the server, not in the browser");
+
+// WHAT THIS SECTION IS FOR. The number and the sentence were already shared (section
+// 7 above), and the sign-up SCREEN has said "At least 8 characters" from the start.
+// What was missing was anybody applying it: the only thing enforcing it at sign-up
+// was `minLength={PASSWORD_MIN_LENGTH}` on the input, which is an attribute in a page
+// and which a post made by hand skips entirely. docs/claims.md recorded that as NOT
+// ENFORCED, and issue #197 is the owner's decision to make it true.
+//
+// SO THESE CHECKS ARE ABOUT THE ACTION, and they are written to go red if the guard
+// is deleted, moved after the thing it guards, or quietly changed to a different
+// message. Each one has its control, as everything else in this file does.
+check(
+  "the sign-up action is found, so the checks below are reading something",
+  signUpAction !== null,
+  true,
+);
+
+// THE GUARD IS THERE AT ALL. Counted rather than eyeballed, and over the body with
+// comments stripped -- the comment beside the guard names `passwordProblem`, and a
+// search that counted the comment would still pass with the code deleted.
+check(
+  "signUp asks passwordProblem, and redirects when it answers",
+  [
+    count(withoutComments(signUpAction ?? ""), "passwordProblem("),
+    count(withoutComments(signUpAction ?? ""), "?problem=password"),
+  ],
+  [1, 1],
+);
+
+// AND IT IS AHEAD OF THE THING IT GUARDS. This is the check that cannot be done by
+// counting: a refusal written after `supabase.auth.signUp` would let the account be
+// created and then redirect, which is not a guard. Two orderings, because the client
+// is created before the call and a password this app refuses should not reach either.
+check(
+  "the refusal comes BEFORE the account is created, and before the client is made",
+  [
+    orderedBefore(
+      withoutComments(signUpAction ?? ""),
+      "passwordProblem(",
+      "auth.signUp(",
+    ),
+    orderedBefore(
+      withoutComments(signUpAction ?? ""),
+      "passwordProblem(",
+      "createClient(",
+    ),
+  ],
+  [true, true],
+);
+
+// THE SAME MESSAGE THE SCREEN SHOWS, which is the half of #197 that stops the two
+// screens drifting. The page draws the constant rather than spelling a sentence, so
+// the words on sign-up and on the reset screen cannot diverge; and it draws it for
+// the code the action actually sends.
+check(
+  "the sign-up screen draws the shared constant for that code, and spells no sentence of its own",
+  [
+    // Comments stripped, for the reason the guard count above strips them: the
+    // note beside the import names the constant, and a search that counted the
+    // note would still pass with the import and the usage both gone.
+    count(withoutComments(source.signup), "PASSWORD_TOO_SHORT"),
+    count(source.signup, 'problem === "password"'),
+    // The hint INTERPOLATES the number rather than spelling it -- the same
+    // property section 7 checks for `minLength`. Written as the source writes it,
+    // because "At least 8 characters" as a literal is absent on purpose and a
+    // check looking for it would be a check that can only fail.
+    count(source.signup, "At least {PASSWORD_MIN_LENGTH} characters"),
+    count(source.signup, "A password needs at least"),
+  ],
+  // PASSWORD_TOO_SHORT twice: the import and the one place it is drawn. The
+  // sentence itself is spelled nowhere -- it comes from the constant, which is
+  // what keeps this screen and the reset screen saying one thing.
+  [2, 1, 1, 0],
+);
+
+// CONTROL for the ordering checks: the same question asked of a fixture with the
+// guard in the wrong place, and of one with no guard at all. Both must come out
+// false, or the two orderings above are decoration.
+check(
+  "CONTROL -- a refusal written after the sign-up call is not mistaken for a guard",
+  orderedBefore(
+    'const { data, error } = await supabase.auth.signUp(c);\nif (passwordProblem(p)) redirect("/signup?problem=password");',
+    "passwordProblem(",
+    "auth.signUp(",
+  ),
+  false,
+);
+check(
+  "CONTROL -- an action with no password guard counts nought, not one",
+  count(
+    'const { data, error } = await supabase.auth.signUp(credentials(formData));',
+    "passwordProblem(",
+  ),
+  0,
+);
+
+// CONTROL for the whole section: signIn, in the same file, legitimately has no
+// password rule -- it is not the place a password is chosen. If the searches above
+// matched everywhere, this would not be nought.
+check(
+  "CONTROL -- signIn has no password rule, so these searches are specific rather than everywhere",
+  [
+    count(withoutComments(signInAction ?? ""), "passwordProblem("),
+    count(withoutComments(signInAction ?? ""), "?problem=password"),
+  ],
+  [0, 0],
+);
+
+// AND THE RULE ITSELF IS THE SAME RULE, asked through the same function the action
+// now calls. Not a new number, not a second copy: section 7 above proves what
+// `passwordProblem` answers, and this says the sign-up path reaches that answer for
+// the value a form actually carries -- including the missing-field case, which
+// arrives as null rather than as a short string.
+check(
+  "the rule the action applies: seven characters refused, eight allowed, a missing field refused",
+  [
+    passwordProblem("1234567"),
+    passwordProblem("12345678"),
+    passwordProblem(null),
+  ],
+  [PASSWORD_TOO_SHORT, null, PASSWORD_TOO_SHORT],
+);
+
 // ------------------------------------------------- 8. the doors on the screens
 console.log("\n8. which screens a signed-out person may open");
 

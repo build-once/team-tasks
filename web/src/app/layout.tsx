@@ -17,9 +17,15 @@ const sans = Source_Sans_3({
   subsets: ["latin"],
 });
 
+// The third place the app's one-line promise appears -- the others are the front
+// page and the sign-in page. It said "and who's doing it" until issue #196, which
+// nothing in the app did: no screen shows who created a task, and no column records
+// who ticked one. All three were changed together on purpose, because a description
+// in <head> is what a search result and a shared link show, and leaving this one
+// behind would have kept the claim alive in the place most people meet it first.
 export const metadata: Metadata = {
   title: "Team Tasks",
-  description: "See what's done, what's left and who's doing it.",
+  description: "See what's done, what's left, and which list it's on.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

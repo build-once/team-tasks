@@ -89,6 +89,45 @@ export async function signUp(formData: FormData) {
     redirect("/signup?problem=1");
   }
 
+  // THE PASSWORD RULE, ON THE SERVER (issue #197).
+  //
+  // WHAT WAS WRONG: the sign-up screen said "At least 8 characters" and the only
+  // thing enforcing it was `minLength={PASSWORD_MIN_LENGTH}` on the input -- an
+  // attribute in a page, which a post made by hand skips entirely. So the app
+  // stated a rule it did not keep, on the screen where somebody chooses the
+  // credential that protects everything else they put in. docs/claims.md recorded
+  // it as NOT ENFORCED and the owner decided to make it true rather than to
+  // soften the words.
+  //
+  // IT IS THE SAME FUNCTION AND THE SAME MESSAGE as the reset screen, which is
+  // the half that keeps the two from drifting: `passwordProblem` is the one check
+  // (web/src/lib/password-reset.ts), `PASSWORD_TOO_SHORT` is the one sentence, and
+  // web/src/app/signup/page.tsx draws that same constant. "The same password rules
+  // as sign-up" was already true of the number; now it is true of the refusal too.
+  //
+  // BEFORE `createClient()` AND BEFORE ANYTHING IS SENT, on purpose. A password
+  // this app will not accept should not reach Supabase at all, and ordering the
+  // gate ahead of the thing it guards is what makes it a gate rather than a
+  // comment -- the same argument `setNewPassword` makes below, and the thing
+  // scripts/password-reset-check.mjs checks by order rather than by presence.
+  //
+  // `formData.get` is passed STRAIGHT IN, not through String(). passwordProblem
+  // takes `unknown` and treats anything that is not a string as too short, which
+  // is the honest reading of a missing field -- where String(null) would become
+  // the four characters "null" and be judged as a password somebody typed.
+  //
+  // THE PATH IS AN INLINE LITERAL, like every other redirect in this file. It is a
+  // CODE and not a sentence: the page owns the words and draws its own constant for
+  // this code, so nothing a caller puts in the address bar is ever printed (issue
+  // #45's lesson). It is a SEPARATE code from `problem=1` because `problem=1`
+  // deliberately will not say which half was wrong -- telling an address apart from
+  // a password is how somebody sorts addresses into accounts and not-accounts --
+  // whereas this one is about the password just typed and gives nothing away: seven
+  // characters are refused identically whether or not the address has an account.
+  if (passwordProblem(formData.get("password"))) {
+    redirect("/signup?problem=password");
+  }
+
   const supabase = await createClient();
   const emailRedirectTo = await confirmationRedirect();
 
