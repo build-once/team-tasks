@@ -82,6 +82,10 @@ import { withSupabase } from "@supabase/server";
 // a JSON import, THE DEPLOY FAILS AND NOTHING IS DEPLOYED, which is the safe
 // direction for an unknown to fail in; the staging script's before-run tells the
 // two apart, because a function that is not there answers 404.
+//
+// ISSUE #188 HOLDS IT, with the three ways to keep the one-file rule if it turns out
+// the bundler refuses this one. It closes when the owner's staging deploy answers the
+// question either way, not when anything necessarily changes.
 import approvedModels from "./approved-models.json" with { type: "json" };
 
 // ---------------------------------------------------------------------------
@@ -528,6 +532,11 @@ export async function readTaskTitle(read: TaskTitleRead): Promise<TaskRead> {
 //     https://supabase.com/docs/guides/functions/limits is the page to read, and
 //     issue #168 already holds that question for invite-member.
 //
+// ISSUE #186 HOLDS ALL OF THAT, with what a real fix would have to show. The short
+// version of it: this lock is a courtesy, not a control, and anybody deciding whether
+// this feature is safe for more than six volunteers should read it as one. Issue #184
+// is the same gap from the other side -- a reload asks again, and nothing counts it.
+//
 // Exported, and the test drives THESE functions, so what it asserts about
 // double-entry is what the handler does.
 export const IN_FLIGHT: Set<string> = new Set();
@@ -767,6 +776,10 @@ export function errorFields(body: unknown): {
 // mistake in the other direction -- a screen telling somebody their tasks were
 // created when nothing was -- costs them their trust in the list, which is the thing
 // this whole app is for.
+//
+// ISSUE #189 HOLDS THE TRADE-OFF, and says plainly that shortening this list is NOT
+// the fix: what is missing is a count of how often a marker fires and a test that
+// writes down which innocent sentences it refuses, not a looser list.
 export const CLAIM_MARKERS: readonly string[] = [
   // Claims to have acted.
   "i've added",

@@ -31,7 +31,7 @@
       "readOn": "2026-10-07",
       "readAs": "The 'Claude API ID' row of the model comparison table, under the Claude Haiku 4.5 column. The page's own note on that row: 'Every Claude model ID is a pinned snapshot, including the dateless IDs used from the 4.6 generation on.'",
       "retirementNotSoonerThan": "2026-10-15",
-      "retirementReadAs": "The same page's 'Retirement' row for this column reads 'Not sooner than October 15, 2026'. READ THAT DATE AGAINST THE APPROVAL DATE ABOVE: it is eight days later. This is the owner's decision to make and it is recorded, not argued with, but it is written here so that nobody meets a dead model and goes looking for a bug. See the issue filed with this change."
+      "retirementReadAs": "The same page's 'Retirement' row for this column reads 'Not sooner than October 15, 2026'. READ THAT DATE AGAINST THE APPROVAL DATE ABOVE: it is eight days later. 'Not sooner than' is a floor rather than a date of death, and every other model in that table has a floor in September 2027. This is the owner's decision to make and it is recorded, not argued with, but it is written here so that nobody meets a dead model and goes looking for a bug: a retired model answers 404, which this function maps to the code 'refused', which looks exactly like a wrong key. Issue #185 holds it."
     }
   ]
 }

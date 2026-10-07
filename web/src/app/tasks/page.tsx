@@ -169,7 +169,7 @@ export default async function MyTasksPage({
   // scroll or on hover -- but a person pressing F5 is a person spending another
   // request. Until Build it 22's usage counts exist, what bounds that is the
   // 5-dollar monthly limit at Anthropic and nothing else (docs/plan.md says so in
-  // those words). Issue filed with this change.
+  // those words). Issue #184 holds it, with what a fix must and must not change.
   const suggestTask =
     tasks.find((task) => task.id === String(suggest ?? "").trim().toLowerCase()) ??
     null;

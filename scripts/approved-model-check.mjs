@@ -33,6 +33,26 @@
 // the act of approving it, which is why the file also carries who approved it and when,
 // and why a reviewer looking at one changed file can see the whole decision.
 //
+// AND evidence/ IS A RECORD RATHER THAN CODE, which is the one other exemption and the
+// one that needs arguing for. An evidence file's job is to say what a command printed on
+// a given day, verbatim. This very check's output NAMES the model it refused -- that is
+// the most useful thing a failure can say -- so an evidence file recording a run of it
+// necessarily quotes an unapproved name. Refusing that would mean either no evidence of
+// this check ever failing, or evidence that had been edited to pass a check, which is
+// worse than both.
+//
+// Issue #179 already settled the same question about a different file:
+// evidence/build-it-18-sentry.md carries a sentence that stopped being true, and that
+// issue says of it, "That one is a dated record of what was true on the day the check was
+// run and should NOT be rewritten."
+//
+// THE EXEMPTION IS NEVER SILENT. Names found under evidence/ are counted and the files
+// are listed on every run, so somebody reading the output can see how much is being let
+// through and where. What makes it safe is that nothing reads an evidence file: no
+// function, no script and no workflow takes a model name from one, so a name there cannot
+// become the model this app sends to. Every other directory -- docs/, scripts/,
+// supabase/, web/, .github/ -- is scanned in full.
+//
 // WHAT IT CANNOT DO, so that a green run is not read as more than it is:
 //   * It cannot tell whether the approved model is a GOOD choice, whether it still
 //     exists, or whether it is about to be retired. approved-models.json records the
@@ -224,6 +244,17 @@ const SKIP_EXTENSIONS = new Set([
 function extensionOf(name) {
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();
+}
+
+// Directories whose files are a RECORD of what happened rather than code. Still read,
+// still counted, and the names they carry are reported -- but not required to be
+// approved. See the long argument in the header. Exported so --selftest can check the
+// boundary rather than take it on trust.
+export const RECORD_DIRECTORIES = ["evidence/"];
+
+/** Is this path a dated record rather than something that decides behaviour? */
+export function isRecord(path) {
+  return RECORD_DIRECTORIES.some((prefix) => path.startsWith(prefix));
 }
 
 /** Every text file under `from`, as paths relative to the repository root. */
@@ -449,6 +480,32 @@ function runSelftest() {
         }).approved,
       expect: [FIXTURE_APPROVED],
     },
+    // ---- the record exemption, and exactly where its edge is ----
+    //
+    // THESE EXIST SO THE EXEMPTION CANNOT WIDEN WITHOUT SOMEBODY NOTICING. An exemption
+    // tested only by the directory it was written for is an exemption that grows a
+    // `docs/` or a `scripts/staging/` the next time one is inconvenient.
+    { name: "a record: an evidence file is exempt", run: () => isRecord("evidence/build-it-20-ai-helper.md"), expect: true },
+    { name: "a record: nested under evidence/", run: () => isRecord("evidence/old/run.md"), expect: true },
+    { name: "NOT a record: docs/, which is read by people and quoted into code", run: () => isRecord("docs/plan.md"), expect: false },
+    { name: "NOT a record: a script", run: () => isRecord("scripts/approved-model-check.mjs"), expect: false },
+    { name: "NOT a record: a staging script", run: () => isRecord("scripts/staging/build-it-20-ai-checks.mjs"), expect: false },
+    { name: "NOT a record: the function itself", run: () => isRecord("supabase/functions/suggest-subtasks/index.ts"), expect: false },
+    { name: "NOT a record: a test file", run: () => isRecord("supabase/functions/_tests/suggest_subtasks_test.ts"), expect: false },
+    { name: "NOT a record: a workflow", run: () => isRecord(".github/workflows/ci.yml"), expect: false },
+    { name: "NOT a record: anything in the web app", run: () => isRecord("web/src/lib/suggestions.ts"), expect: false },
+    {
+      name: "NOT a record: a file whose name merely STARTS with the word evidence",
+      run: () => isRecord("evidence-notes.md"),
+      expect: false,
+    },
+    {
+      name: "NOT a record: evidence/ somewhere in the middle of a path",
+      run: () => isRecord("docs/evidence/plan.md"),
+      expect: false,
+    },
+    { name: "the record list is exactly one directory", run: () => RECORD_DIRECTORIES, expect: ["evidence/"] },
+
     // ---- and the comparison the whole check comes down to ----
     {
       name: "AN UNAPPROVED NAME IN A FILE IS CAUGHT -- the alias beside the approved id",
@@ -535,6 +592,7 @@ function runScan() {
   }
 
   const offences = [];
+  const inRecords = new Map();
   let scanned = 0;
   let mentioning = 0;
 
@@ -556,6 +614,13 @@ function runScan() {
     // THE APPROVED FILE IS THE AUTHORITY, so names in it are approved by being there.
     if (file === APPROVED_FILE.split(sep).join("/")) continue;
 
+    // A DATED RECORD, not code. Counted and listed below rather than refused.
+    if (isRecord(file)) {
+      const unapproved = names.filter((name) => !allowed.has(name));
+      if (unapproved.length > 0) inRecords.set(file, unapproved);
+      continue;
+    }
+
     for (const name of names) {
       if (!allowed.has(name)) offences.push({ file, name });
     }
@@ -565,6 +630,24 @@ function runScan() {
     `${scanned} text files were read, of which ${mentioning} ` +
       `${mentioning === 1 ? "names" : "name"} a model at all`,
   );
+
+  // THE EXEMPTION, SAID OUT LOUD ON EVERY RUN. A check that lets something through
+  // quietly is a check nobody can audit.
+  if (inRecords.size === 0) {
+    pass(
+      `no file under ${RECORD_DIRECTORIES.join(", ")} names an unapproved model, so the ` +
+        `record exemption let nothing through on this run`,
+    );
+  } else {
+    const total = [...inRecords.values()].reduce((sum, list) => sum + list.length, 0);
+    pass(
+      `${total} unapproved model name(s) appear in ${inRecords.size} file(s) under ` +
+        `${RECORD_DIRECTORIES.join(", ")}, and are ALLOWED there: those files record what a ` +
+        `command printed on a given day, and this check's own failure output names the model ` +
+        `it refused. Nothing reads a model name from them. The files: ` +
+        [...inRecords.keys()].join(", ")
+    );
+  }
 
   if (offences.length === 0) {
     pass(

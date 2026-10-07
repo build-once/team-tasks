@@ -50,7 +50,7 @@ each one is.
 $ deno test --no-lock --allow-env --config supabase/functions/suggest-subtasks/deno.json supabase/functions/_tests/suggest_subtasks_test.ts
 
 running 85 tests from ./supabase/functions/_tests/suggest_subtasks_test.ts
-approved-models.json names exactly one model to use, and the function uses it ... ok (13ms)
+approved-models.json names exactly one model to use, and the function uses it ... ok (9ms)
 chooseModel refuses nought, two, and a nameless entry ... ok (0ms)
 the request carries the title and the fixed instructions, and nothing else ... ok (0ms)
 A TITLE THAT CONTAINS INSTRUCTIONS is still sent as the title, unchanged ... ok (0ms)
@@ -102,10 +102,10 @@ readSuggestions: a reply of one over-long paragraph: nought usable lines, so no 
 usableSuggestion refuses a line that is not one, and keeps one that is ... ok (0ms)
 every claim marker really does refuse a reply that would otherwise pass ... ok (0ms)
 textFromReply joins text blocks and returns null when there is nothing to read ... ok (0ms)
-callAnthropic: a request that never answers times out AND is aborted ... ok (29ms)
+callAnthropic: a request that never answers times out AND is aborted ... ok (23ms)
 callAnthropic: a request that cannot be made at all is unreachable, not a timeout ... ok (0ms)
-callAnthropic: a fast answer comes back with its status and body, and the timer is cleared ... ok (9ms)
-callAnthropic: a 2xx whose body is not JSON is read as a bad reply, not a crash ... ok (1ms)
+callAnthropic: a fast answer comes back with its status and body, and the timer is cleared ... ok (5ms)
+callAnthropic: a 2xx whose body is not JSON is read as a bad reply, not a crash ... ok (0ms)
 readApiKey treats every kind of absence as absent, and whitespace as absent too ... ok (0ms)
 readTaskTitle: one row with a title: that is what gets sent ... ok (0ms)
 readTaskTitle: a title with spaces round it is trimmed ... ok (0ms)
@@ -120,7 +120,7 @@ readTaskTitle: a row whose title is a number ... ok (0ms)
 readTaskTitle: a row whose title is only spaces ... ok (0ms)
 readTaskTitle: a title longer than this database can hold: refused rather than sent, because the request is paid for by the character ... ok (0ms)
 readTaskTitle: a title of exactly the limit: sent, because the database allows it ... ok (0ms)
-the 404 for a task you cannot see says nothing about the task at all ... ok (1ms)
+the 404 for a task you cannot see says nothing about the task at all ... ok (0ms)
 checkSuspension: no row: not suspended, so the call may go ahead ... ok (0ms)
 checkSuspension: A ROW: SUSPENDED, so no title leaves and no money is spent ... ok (0ms)
 checkSuspension: THE READ FAILED: fail CLOSED. An unknown is not a 'no row' ... ok (0ms)
@@ -131,13 +131,14 @@ every code produces the SAME sentence and the same status, and carries its own c
 the success answer carries the suggestions and nothing else ... ok (0ms)
 beginCall refuses a second call and endCall lets the next one through ... ok (0ms)
 endCall on somebody who has no call in flight is harmless ... ok (0ms)
-the reply checks REFUSE a reader that passes a claim straight through ... ok (1ms)
+the reply checks REFUSE a reader that passes a claim straight through ... ok (0ms)
 the request checks REFUSE a builder that helpfully attaches who asked ... ok (0ms)
 the status checks REFUSE a judge that cannot see a spend limit ... ok (0ms)
-the timeout check REFUSES a timer that gives up without aborting ... ok (36ms)
+the timeout check REFUSES a timer that gives up without aborting ... ok (28ms)
 
-ok | 85 passed | 0 failed (131ms)
+ok | 85 passed | 0 failed (96ms)
 
+Check supabase/functions/_tests/suggest_subtasks_test.ts
 
 exit code: 0
 ```
@@ -164,14 +165,14 @@ the run below. The comment on that test now says so.
 Can the new Deno tests fail? One plausible mistake at a time.
 
 target: supabase/functions/suggest-subtasks/index.ts
-sha256 of the real file before any of this: 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350
+sha256 of the real file before any of this: 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13
 
 ==============================================================================
 BREAK 1. The claim-marker check is removed, so a reply saying "I've added these" is passed straight through
 WHY IT IS PLAUSIBLE: The mistake anybody would make first: take the lines, cap them, return them. Every happy case still passes. The person is told their tasks were created when nothing was.
 
 exit code: 1
-summary:   FAILED | 80 passed | 5 failed (116ms)
+summary:   FAILED | 80 passed | 5 failed (118ms)
 tests that FAILED (5):
   - readSuggestions: A REPLY SAYING "I've added these": THE WHOLE REPLY IS REFUSED
   - readSuggestions: a reply claiming the tasks have been created, in the passive
@@ -182,14 +183,14 @@ tests that FAILED (5):
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 BREAK 2. The request carries the asker's user id, as an Anthropic-documented optional header and in a metadata field
 WHY IT IS PLAUSIBLE: Added with the best intentions, so the owner can tell whose request a Console entry belongs to. docs/plan.md forbids it in so many words.
 
 exit code: 1
-summary:   FAILED | 83 passed | 2 failed (102ms)
+summary:   FAILED | 83 passed | 2 failed (114ms)
 tests that FAILED (2):
   - the request carries the title and the fixed instructions, and nothing else
   - the request checks REFUSE a builder that helpfully attaches who asked
@@ -197,14 +198,14 @@ tests that FAILED (2):
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 BREAK 3. The spend limit is judged on the status alone, so the 5-dollar ceiling reads as an ordinary refusal
 WHY IT IS PLAUSIBLE: A 400 is a 400. This is the obvious reading, and it turns the one failure the owner can act on into the same word as a malformed request.
 
 exit code: 1
-summary:   FAILED | 83 passed | 2 failed (101ms)
+summary:   FAILED | 83 passed | 2 failed (112ms)
 tests that FAILED (2):
   - judgeAnthropicStatus: THE SPEND LIMIT: 400, invalid_request_error, and the published opening words
   - judgeAnthropicStatus: THE WORKSPACE SPEND LIMIT, which is the 5-dollar one on Team Tasks
@@ -212,28 +213,28 @@ tests that FAILED (2):
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 BREAK 4. The timer gives up without aborting, so the request is left running
 WHY IT IS PLAUSIBLE: Racing the fetch against a sleep reports a timeout at exactly the right moment and leaves a metered request in flight. Reading only the code would pass it.
 
 exit code: 1
-summary:   FAILED | 84 passed | 1 failed (477ms)
+summary:   FAILED | 84 passed | 1 failed (480ms)
 tests that FAILED (1):
   - callAnthropic: a request that never answers times out AND is aborted
 
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 BREAK 5. A failed task read is treated as 'no such task', so a database fault is reported as a 404
 WHY IT IS PLAUSIBLE: `if (!data?.length) return missing` is one line shorter and sends somebody looking for a task that is sitting right there.
 
 exit code: 1
-summary:   FAILED | 82 passed | 3 failed (102ms)
+summary:   FAILED | 82 passed | 3 failed (103ms)
 tests that FAILED (3):
   - readTaskTitle: the read FAILED: an unknown, which must not be answered as 'no such task'
   - readTaskTitle: the read failed with no code
@@ -242,14 +243,14 @@ tests that FAILED (3):
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 BREAK 6. Nought usable suggestions comes back as an EMPTY LIST rather than a failure
 WHY IT IS PLAUSIBLE: An empty array is the natural thing to return from a filter. The screen then draws an empty list as if it were a result, which issue #183 forbids by name.
 
 exit code: 1
-summary:   FAILED | 82 passed | 3 failed (111ms)
+summary:   FAILED | 82 passed | 3 failed (99ms)
 tests that FAILED (3):
   - readSuggestions: AN EMPTY REPLY IS NOT AN EMPTY LIST: the model did as it was told and had nothing
   - readSuggestions: a reply of nothing but blank lines and bullets
@@ -258,7 +259,7 @@ tests that FAILED (3):
 the first failure's message, as Deno printed it:
   (not found in the output)
 
-restored: sha256 is now 44965a13da63e71b4af03e4b0c8b5701935592b5ca3e38bb0115ad51a6ee4350 -- IDENTICAL to before
+restored: sha256 is now 53f5998ef751c2342d24b13fb06f89563cdf3ea0edb57fcbc5a11b628ccb7e13 -- IDENTICAL to before
 
 ==============================================================================
 All 6 breaks were caught, and the function was restored byte for byte after each one.
@@ -274,7 +275,7 @@ moved, from 102 to 187.
 $ deno test --no-lock --allow-env --allow-read=supabase/migrations --config supabase/functions/create-team/deno.json supabase/functions/_tests
 
 running 62 tests from ./supabase/functions/_tests/invitation_status_test.ts
-invitationAnswer: the email went and the row says sent ... ok (33ms)
+invitationAnswer: the email went and the row says sent ... ok (17ms)
 invitationAnswer: the email went to the test inbox and the row says sent ... ok (0ms)
 invitationAnswer: a retry's email went and the row says sent ... ok (0ms)
 invitationAnswer: THE EMAIL WENT AND THE STATUS WRITE FAILED: the row still says queued, so the answer must say queued ... ok (0ms)
@@ -287,15 +288,15 @@ sendFailureAnswer: refused, recorded on the row ... ok (0ms)
 sendFailureAnswer: refused, and the status write ALSO failed ... ok (0ms)
 sendFailureAnswer: unconfirmed, recorded on the row ... ok (0ms)
 sendFailureAnswer: unconfirmed, and the status write ALSO failed ... ok (0ms)
-every failure code has its own plain sentence, and no two share one ... ok (1ms)
-the statuses and the failure codes are the ones the migration allows ... ok (9ms)
-codeFromSendResponse: 200 with an id: the email exists ... ok (1ms)
+every failure code has its own plain sentence, and no two share one ... ok (0ms)
+the statuses and the failure codes are the ones the migration allows ... ok (3ms)
+codeFromSendResponse: 200 with an id: the email exists ... ok (0ms)
 codeFromSendResponse: a 2xx that is not 200, with an id: still a send ... ok (0ms)
 codeFromSendResponse: 422 with the service's own complaint: refused, and not one word of it kept ... ok (0ms)
 codeFromSendResponse: 401, which is what a wrong key looks like: refused ... ok (0ms)
 codeFromSendResponse: 429, rate limited: refused ... ok (0ms)
 codeFromSendResponse: 500 from the service: refused ... ok (0ms)
-codeFromSendResponse: 200 WITH A BODY THAT IS NOT JSON: nothing can be said to have been sent ... ok (2ms)
+codeFromSendResponse: 200 WITH A BODY THAT IS NOT JSON: nothing can be said to have been sent ... ok (0ms)
 codeFromSendResponse: 200 WITH NO id AT ALL: unconfirmed, not a send ... ok (0ms)
 codeFromSendResponse: 200 with an empty id: unconfirmed ... ok (0ms)
 codeFromSendResponse: 200 with an id that is a number rather than a string: unconfirmed ... ok (0ms)
@@ -337,7 +338,7 @@ the failure checks REFUSE every broken failure answer ... ok (0ms)
 the retry-reset checks REFUSE a write that is not a compare-and-set ... ok (0ms)
 the retry cases REFUSE a verdict that sends a second email ... ok (0ms)
 running 85 tests from ./supabase/functions/_tests/suggest_subtasks_test.ts
-approved-models.json names exactly one model to use, and the function uses it ... ok (13ms)
+approved-models.json names exactly one model to use, and the function uses it ... ok (9ms)
 chooseModel refuses nought, two, and a nameless entry ... ok (0ms)
 the request carries the title and the fixed instructions, and nothing else ... ok (0ms)
 A TITLE THAT CONTAINS INSTRUCTIONS is still sent as the title, unchanged ... ok (0ms)
@@ -387,11 +388,11 @@ readSuggestions: AN EMPTY REPLY IS NOT AN EMPTY LIST: the model did as it was to
 readSuggestions: a reply of nothing but blank lines and bullets ... ok (0ms)
 readSuggestions: a reply of one over-long paragraph: nought usable lines, so no empty list ... ok (0ms)
 usableSuggestion refuses a line that is not one, and keeps one that is ... ok (0ms)
-every claim marker really does refuse a reply that would otherwise pass ... ok (1ms)
+every claim marker really does refuse a reply that would otherwise pass ... ok (0ms)
 textFromReply joins text blocks and returns null when there is nothing to read ... ok (0ms)
-callAnthropic: a request that never answers times out AND is aborted ... ok (34ms)
+callAnthropic: a request that never answers times out AND is aborted ... ok (25ms)
 callAnthropic: a request that cannot be made at all is unreachable, not a timeout ... ok (0ms)
-callAnthropic: a fast answer comes back with its status and body, and the timer is cleared ... ok (8ms)
+callAnthropic: a fast answer comes back with its status and body, and the timer is cleared ... ok (7ms)
 callAnthropic: a 2xx whose body is not JSON is read as a bad reply, not a crash ... ok (0ms)
 readApiKey treats every kind of absence as absent, and whitespace as absent too ... ok (0ms)
 readTaskTitle: one row with a title: that is what gets sent ... ok (0ms)
@@ -407,12 +408,12 @@ readTaskTitle: a row whose title is a number ... ok (0ms)
 readTaskTitle: a row whose title is only spaces ... ok (0ms)
 readTaskTitle: a title longer than this database can hold: refused rather than sent, because the request is paid for by the character ... ok (0ms)
 readTaskTitle: a title of exactly the limit: sent, because the database allows it ... ok (0ms)
-the 404 for a task you cannot see says nothing about the task at all ... ok (0ms)
+the 404 for a task you cannot see says nothing about the task at all ... ok (1ms)
 checkSuspension: no row: not suspended, so the call may go ahead ... ok (0ms)
 checkSuspension: A ROW: SUSPENDED, so no title leaves and no money is spent ... ok (0ms)
 checkSuspension: THE READ FAILED: fail CLOSED. An unknown is not a 'no row' ... ok (0ms)
 checkSuspension: the read threw: still closed ... ok (0ms)
-checkSuspension: no error and no array: still closed ... ok (1ms)
+checkSuspension: no error and no array: still closed ... ok (0ms)
 the suspended refusal is the same 403 the other doors send ... ok (0ms)
 every code produces the SAME sentence and the same status, and carries its own code ... ok (1ms)
 the success answer carries the suggestions and nothing else ... ok (0ms)
@@ -421,9 +422,9 @@ endCall on somebody who has no call in flight is harmless ... ok (0ms)
 the reply checks REFUSE a reader that passes a claim straight through ... ok (0ms)
 the request checks REFUSE a builder that helpfully attaches who asked ... ok (0ms)
 the status checks REFUSE a judge that cannot see a spend limit ... ok (0ms)
-the timeout check REFUSES a timer that gives up without aborting ... ok (25ms)
+the timeout check REFUSES a timer that gives up without aborting ... ok (23ms)
 running 40 tests from ./supabase/functions/_tests/suspension_test.ts
-create-team: one row: this person is suspended ... ok (19ms)
+create-team: one row: this person is suspended ... ok (10ms)
 create-team: a row carrying a reason: still refused, and the reason does not come back ... ok (0ms)
 create-team: two rows, which the primary key makes impossible: still refused ... ok (0ms)
 create-team: no rows: this person is not suspended, and everything still works ... ok (0ms)
@@ -457,14 +458,14 @@ accept-invite: FAIL CLOSED: no error, but data is null -- an unknown, not an emp
 accept-invite: FAIL CLOSED: no error, but data is an object rather than a list ... ok (0ms)
 accept-invite: FAIL CLOSED: no error, but data is a number ... ok (0ms)
 the three functions give the same verdict for every case ... ok (0ms)
-the fail-closed cases REFUSE a check that fails open ... ok (1ms)
-create-team: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (13ms)
+the fail-closed cases REFUSE a check that fails open ... ok (0ms)
+create-team: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (6ms)
 invite-member: the suspended refusal it sends is 403 with the sentence, the code and nothing else ... ok (0ms)
 accept-invite: the suspended refusal it sends is 403 with the sentence, the code, the reason and nothing else ... ok (0ms)
 the three refusals carry the same sentence and the same code ... ok (0ms)
-the body checks REFUSE every broken refusal ... ok (2ms)
+the body checks REFUSE every broken refusal ... ok (1ms)
 
-ok | 187 passed | 0 failed (821ms)
+ok | 187 passed | 0 failed (526ms)
 
 
 exit code: 0
@@ -513,27 +514,43 @@ approved-model-check: can these judgements fail?
   ok    an entry with a date and no model name
   ok    a model name that is not shaped like one, so nothing could ever match it
   ok    a good file still lists its approved name, lower-cased
+  ok    a record: an evidence file is exempt
+  ok    a record: nested under evidence/
+  ok    NOT a record: docs/, which is read by people and quoted into code
+  ok    NOT a record: a script
+  ok    NOT a record: a staging script
+  ok    NOT a record: the function itself
+  ok    NOT a record: a test file
+  ok    NOT a record: a workflow
+  ok    NOT a record: anything in the web app
+  ok    NOT a record: a file whose name merely STARTS with the word evidence
+  ok    NOT a record: evidence/ somewhere in the middle of a path
+  ok    the record list is exactly one directory
   ok    AN UNAPPROVED NAME IN A FILE IS CAUGHT -- the alias beside the approved id
   ok    the approved name in a file is not caught
 
-27 logic cases, 0 wrong.
+39 logic cases, 0 wrong.
 
-PASS the judgements can fail: all 27 logic cases behaved as described, including the four strings already in this repository that look like models and are not, and the undated alias, which must be caught
+PASS the judgements can fail: all 39 logic cases behaved as described, including the four strings already in this repository that look like models and are not, and the undated alias, which must be caught
 PASS supabase\functions\suggest-subtasks\approved-models.json exists and parses as JSON
 PASS supabase\functions\suggest-subtasks\approved-models.json approves 1 model name(s), each with the date it was approved, and exactly one is marked for use
-PASS 250 text files were read, of which 1 names a model at all
+PASS 251 text files were read, of which 2 name a model at all
+PASS 7 unapproved model name(s) appear in 1 file(s) under evidence/, and are ALLOWED there: those files record what a command printed on a given day, and this check's own failure output names the model it refused. Nothing reads a model name from them. The files: evidence/build-it-20-ai-helper.md
 PASS no file names a model that is not in supabase\functions\suggest-subtasks\approved-models.json. The approved name lives in that one file, so changing which model this app sends a task title to is a one-line edit a reviewer cannot miss
 
-Totals: 5 PASS, 0 FAIL.
+Totals: 6 PASS, 0 FAIL.
 
 exit code: 0
 ```
 
-### 2b. It caught ITSELF, before anything was planted
+### 2b. It caught ITSELF twice, before anything was planted
 
-Worth recording because it was not planned. The first run failed on **four** model names
-— in this script's own explanatory comments, where the shape of a model id was spelled out
-with real examples:
+Worth recording because neither was planned, and because each one was the check doing its
+job on the author.
+
+**First, on its own comments.** The first run ever failed on **four** model names — in this
+script's own explanatory comments, where the shape of a model id was spelled out with real
+examples:
 
 ```
 PASS 248 text files were read, of which 2 name a model at all
@@ -549,6 +566,39 @@ The comments were rewritten to use placeholders — `claude-<family>-<version>-<
 the selftest fixtures are assembled from pieces at runtime, so the file contains no
 model-shaped literal and can be scanned like every other. The same trick
 `invitation_status_test.ts` uses to keep a token-shaped fixture past gitleaks.
+
+**Then, on THIS EVIDENCE FILE.** Once section 2b above existed, the check failed again,
+seven times — because an evidence file that faithfully quotes this check's failure output
+necessarily quotes the model names it refused, and section 9's fixture table names the
+composed ones:
+
+```
+PASS 251 text files were read, of which 2 name a model at all
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-opus-5-5", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-3-5-sonnet-20241022", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-haiku-4-5", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-haiku-4-5@20251001", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-opus-4-1-20250805", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-sonnet-3-7", which is not approved. ...
+FAIL evidence/build-it-20-ai-helper.md names the model "claude-haiku-4-5-20991231", which is not approved. ...
+
+Totals: 4 PASS, 7 FAIL.
+```
+
+That is a real tension and the two ways out were both bad: no evidence that this check can
+ever fail, or evidence edited to pass a check. So `evidence/` became an **exemption that is
+reported out loud on every run** — names there are counted, the files listed, and the
+reason printed — on the grounds that nothing reads a model name from an evidence file, and
+that issue #179 already settled the same question about `evidence/build-it-18-sentry.md`:
+"a dated record of what was true on the day the check was run and should **not** be
+rewritten."
+
+**The exemption has its own selftest cases, twelve of them**, because an exemption tested
+only by the directory it was written for is one that grows a `docs/` the next time one is
+inconvenient. `docs/`, `scripts/`, `scripts/staging/`, the function, the test file, the
+workflow, `web/`, a file merely *named* `evidence-notes.md`, and `docs/evidence/plan.md`
+must all be refused the exemption, and `RECORD_DIRECTORIES` must be exactly one directory.
+That is why the logic-case count went from 27 to 39.
 
 ### 2c. And it fails on a planted name, three ways
 
@@ -566,21 +616,21 @@ the planted file: docs/SCRATCH-model-check-demo.md (created, then deleted)
 PLANTED: THE UNDATED ALIAS of the approved model, in a document -- the two-character difference docs/plan.md pins the dated name to avoid
 
 exit code: 1
-Totals: 4 PASS, 1 FAIL.
+Totals: 5 PASS, 1 FAIL.
 FAIL docs/SCRATCH-model-check-demo.md names the model "claude-haiku-4-5", which is not approved. Either add it to supabase\functions\suggest-subtasks\approved-models.json with the date and who agreed to it, or take it out of that file. If it is the undated alias of an approved id, taking it out is the answer: docs/plan.md pins the dated name on purpose, "so the model cannot change under the app without somebody editing a line"
 
 ==============================================================================
 PLANTED: a different model entirely, in a code-shaped line
 
 exit code: 1
-Totals: 4 PASS, 1 FAIL.
+Totals: 5 PASS, 1 FAIL.
 FAIL docs/SCRATCH-model-check-demo.md names the model "claude-opus-4-1-20250805", which is not approved. Either add it to supabase\functions\suggest-subtasks\approved-models.json with the date and who agreed to it, or take it out of that file. If it is the undated alias of an approved id, taking it out is the answer: docs/plan.md pins the dated name on purpose, "so the model cannot change under the app without somebody editing a line"
 
 ==============================================================================
 PLANTED: the Amazon Bedrock form of an unapproved model
 
 exit code: 1
-Totals: 4 PASS, 1 FAIL.
+Totals: 5 PASS, 1 FAIL.
 FAIL docs/SCRATCH-model-check-demo.md names the model "claude-sonnet-3-7", which is not approved. Either add it to supabase\functions\suggest-subtasks\approved-models.json with the date and who agreed to it, or take it out of that file. If it is the undated alias of an approved id, taking it out is the answer: docs/plan.md pins the dated name on purpose, "so the model cannot change under the app without somebody editing a line"
 
 ==============================================================================
@@ -588,12 +638,13 @@ the planted file is gone: true
 
 with nothing planted, the same command again:
 exit code: 0
-  PASS the judgements can fail: all 27 logic cases behaved as described, including the four strings already in this repository that look like models and are not, and the undated alias, which must be caught
+  PASS the judgements can fail: all 39 logic cases behaved as described, including the four strings already in this repository that look like models and are not, and the undated alias, which must be caught
   PASS supabase\functions\suggest-subtasks\approved-models.json exists and parses as JSON
   PASS supabase\functions\suggest-subtasks\approved-models.json approves 1 model name(s), each with the date it was approved, and exactly one is marked for use
-  PASS 250 text files were read, of which 1 names a model at all
+  PASS 251 text files were read, of which 2 name a model at all
+  PASS 7 unapproved model name(s) appear in 1 file(s) under evidence/, and are ALLOWED there: those files record what a command printed on a given day, and this check's own failure output names the model it refused. Nothing reads a model name from them. The files: evidence/build-it-20-ai-helper.md
   PASS no file names a model that is not in supabase\functions\suggest-subtasks\approved-models.json. The approved name lives in that one file, so changing which model this app sends a task title to is a one-line edit a reviewer cannot miss
-  Totals: 5 PASS, 0 FAIL.
+  Totals: 6 PASS, 0 FAIL.
 
 Every planted name was caught, and the check is green again with none planted.
 ```
@@ -826,7 +877,7 @@ password-reset-check   exit 0   PASS 84   FAIL 0   floor 84 OK
 sentry-scrub-check     exit 0   PASS 95   FAIL 0   floor 95 OK
 screen-state-check     exit 0   PASS 110  FAIL 0   floor 110 OK
 friendly-words-check   exit 0   PASS 45   FAIL 0   floor 45 OK
-approved-model-check   exit 0   PASS 5    FAIL 0   floor 5 OK
+approved-model-check   exit 0   PASS 6    FAIL 0   floor 6 OK
 ```
 
 ```
@@ -843,14 +894,25 @@ two new `run_and_count` lines:
 | Floor | Was | Now | Why |
 |---|---|---|---|
 | `EXPECTED_FUNCTION_TESTS` | 102 | 187 | 85 new Deno tests, picked up because the job names the folder |
-| `EXPECTED_APPROVED_MODEL_CHECKS` | — | 5 | new |
+| `EXPECTED_APPROVED_MODEL_CHECKS` | — | 6 | new |
 | `EXPECTED_AI_CASES` | — | 64 | new |
 
 **No floor was lowered, no assertion loosened, and no existing test file was edited.**
 `suspension_test.ts` was deliberately left exactly as it is (rule 20): the new function has
 a fourth copy of `checkSuspension`, and rather than change that file, the new test file
 imports create-team's copy and asserts the two agree on every case. That file's prose still
-says "the three functions"; an issue is filed.
+says "the three functions"; **issue #187** holds it.
+
+### Issues filed with this change
+
+| | What |
+|---|---|
+| [#184](https://github.com/build-once/team-tasks/issues/184) | The AI helper asks again on every reload, and nothing counts the asks |
+| [#185](https://github.com/build-once/team-tasks/issues/185) | The approved model's published retirement floor is eight days after it was approved |
+| [#186](https://github.com/build-once/team-tasks/issues/186) | "One call at a time per person" is per isolate, so it is a courtesy and not a control |
+| [#187](https://github.com/build-once/team-tasks/issues/187) | `suspension_test.ts` says "the three functions" and there are now four doors |
+| [#188](https://github.com/build-once/team-tasks/issues/188) | Unverified: whether the Supabase bundler accepts the JSON import in suggest-subtasks |
+| [#189](https://github.com/build-once/team-tasks/issues/189) | The claim-marker list refuses some legitimate suggestions, and nothing counts how often |
 
 ---
 

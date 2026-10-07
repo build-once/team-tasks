@@ -205,11 +205,11 @@ jobs:
       EXPECTED_SENTRY_SCRUB_CHECKS: "95"
       EXPECTED_SCREEN_STATE_CHECKS: "110"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
-      # The sixth arrived with Build it 20 (issue #183). Five PASS lines: the
-      # 27 logic cases behaving as described, the approved file existing and
+      # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
+      # 39 logic cases behaving as described, the approved file existing and
       # parsing, the approved file being usable (one entry marked for use, each
-      # with the date it was approved), the count of text files read, and no
-      # file naming an unapproved model.
+      # with the date it was approved), the count of text files read, what the
+      # evidence/ exemption let through, and no file naming an unapproved model.
       #
       # IT RUNS ITS OWN LOGIC CASES ON EVERY RUN, not only with --selftest, so
       # this one number counts both "the scan is clean" and "the scan could
@@ -217,7 +217,7 @@ jobs:
       # scripts here have no such half, and this check's whole value rests on
       # the pattern it uses to recognise a model name still telling
       # claude-code-action from a model id.
-      EXPECTED_APPROVED_MODEL_CHECKS: "5"
+      EXPECTED_APPROVED_MODEL_CHECKS: "6"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
