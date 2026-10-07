@@ -3,6 +3,13 @@
 Written 2026-10-07 for issue #194, from commit `11e091f5bc364d9f6b09ddcb572f59717c10ac1a` — the head of
 `origin/main` when this file was started (`git rev-parse HEAD`, run in this session).
 
+**Updated 2026-10-07, same day, with the owner's decisions** on all seven rows in §4. The decisions are
+recorded against each row and collected in **§4a**, which carries the new wording and the file and line
+that will make each new claim true. **No screen is changed by that update either**: the wording edits come
+in a separate pull request from `main`. Two things in those decisions could not be carried out and are the
+owner's — the privacy page that #202's operator disclosure needs, which does not exist, and the exact
+wording for #199, which the decision's own "no lookup" constraint makes uncitable as given.
+
 **What this file is.** Two lists. The first is every factual claim the app makes on a screen, with the
 file and line where the words are and the file and line that makes them true. The second is every email
 Team Tasks sends or causes to be sent. Nothing here changes any behaviour: the register is a reading of
@@ -18,11 +25,18 @@ skipped; where that is all there is, the row says so.
 repository makes the words true; or **not verified**, meaning the thing that would decide lives in a
 dashboard and nobody writing this opened one. Rule 8: a check that could not run is not a pass.
 
-**What was NOT done here.** No screen was opened, no browser was used, no connector was used, nothing
-was deployed, and nothing was run against staging or production. Every line below was read in this
-repository. So every row is a claim about **the code on this commit**, not about what any deployed
-version is currently doing — and `web/src/lib/suggestions.ts`'s own header is the reason that
-distinction matters: a deployed Edge Function can be a different program from the one in this branch.
+**What was NOT done here.** No screen was opened, no browser was used, no connector was used, and nothing
+was deployed. Every claim's wording was read in this repository. So every row is a claim about **the code
+on this commit**, not about what any deployed version is currently doing — and
+`web/src/lib/suggestions.ts`'s own header is the reason that distinction matters: a deployed Edge Function
+can be a different program from the one in this branch.
+
+**One exception, added with the decisions and worth being exact about.** §4a row 5 cites a run against
+**staging**. Nobody here ran it: it is the `App tests (access rules on staging)` job of this branch's own
+CI, and what was done in this session was to read its log with `gh run view --log`. No command in either
+session touched staging or production, and no production action was taken, so there is no
+`evidence/production-log.md` entry to make. The distinction matters because that log line is the one piece
+of evidence in this file that is an **observation of a running database** rather than a reading of source.
 
 ---
 
@@ -42,34 +56,34 @@ a fact is below.
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `See what's done, what's left and who's doing it.` (the page description in `<head>`) | `web/src/app/layout.tsx:22` | **Partly NOT ENFORCED** — see the home-page row below. "what's done" and "what's left" are kept by `tasks.done` (`supabase/migrations/20260927182443_create_tasks.sql:28`) and the count at `web/src/app/tasks/page.tsx:322-327`. Nothing anywhere shows **who is doing** a task. |
+| `See what's done, what's left and who's doing it.` (the page description in `<head>`) | `web/src/app/layout.tsx:22` | **Partly NOT ENFORCED** — see the home-page row below. "what's done" and "what's left" are kept by `tasks.done` (`supabase/migrations/20260927182443_create_tasks.sql:28`) and the count at `web/src/app/tasks/page.tsx:322-327`. Nothing anywhere shows **who is doing** a task. **DECIDED 2026-10-07 — remove (#196)**; replacement and citations in §4a row 1 |
 | `Team Tasks — Version 1234567` / `Team Tasks — Version 1234567 (preview)` / `Team Tasks — Local development — no deployed version` | `web/src/app/components/Footer.tsx:31-34`, wording decided in `web/src/lib/app-version.ts:107-130` | `web/next.config.ts:47-48` sets `APP_COMMIT` from `VERCEL_GIT_COMMIT_SHA` at build time; `web/src/lib/app-version.ts:67` refuses anything that is not 40 hex digits, so the only two things the footer can say are a real commit or the local-development sentence. Checked by `scripts/screen-state-check.mjs`. |
 | `Loading…` | `web/src/app/loading.tsx:24-26` | True by construction: Next.js draws this file while the server page is still rendering (`loading.tsx` convention, cited in the file's own header). |
-| `This screen could not be shown. Nothing you were doing has been lost unless a message said so. The details have gone to the owner.` | `web/src/app/error.tsx:57-62` | Split in two. **"The details have gone to the owner"**: `web/src/app/error.tsx:50` reports the error, and `web/src/lib/env.ts:91-115` stops a Production or Preview build that has no `NEXT_PUBLIC_SENTRY_DSN`, so a deployed build cannot be in the state where nothing is sent. On a build with **no** DSN — local development — `web/src/instrumentation-client.ts:48` never starts Sentry and the sentence is not true; that build is nobody's public site. **"Nothing you were doing has been lost"**: **NOT ENFORCED** — see §3. |
+| `This screen could not be shown. Nothing you were doing has been lost unless a message said so. The details have gone to the owner.` | `web/src/app/error.tsx:57-62` | Split in two. **"The details have gone to the owner"**: `web/src/app/error.tsx:50` reports the error, and `web/src/lib/env.ts:91-115` stops a Production or Preview build that has no `NEXT_PUBLIC_SENTRY_DSN`, so a deployed build cannot be in the state where nothing is sent. On a build with **no** DSN — local development — `web/src/instrumentation-client.ts:48` never starts Sentry and the sentence is not true; that build is nobody's public site. **"Nothing you were doing has been lost"**: **NOT ENFORCED** — see §4 item 6. **DECIDED 2026-10-07 — remove the sentence (#200)**, with no replacement, so it adds no row to §4a |
 | `Team Tasks could not be shown at all. The details have gone to the owner.` | `web/src/app/global-error.tsx:57-60` | As the row above: `web/src/app/global-error.tsx:41` reports it, `web/src/lib/env.ts:91-115` is what makes a deployed build have somewhere to send it. |
 
 ### 1b. The home page, `/`
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `See what's done, what's left and who's doing it.` | `web/src/app/page.tsx:14-16` | **NOT ENFORCED for the third clause.** `tasks` has `owner_id` (`supabase/migrations/20260927182443_create_tasks.sql:24`), but **no screen shows it**: `web/src/app/tasks/page.tsx:604` compares it with the signed-in person's id and the comment at `web/src/lib/tasks.ts:16` says it is "only ever compared with the signed-in person's own id — never shown". There is also **no column recording who ticked a task** — searched for `done_by`, `ticked_by` and `completed_by` across `supabase/`, `web/src/`, `scripts/` and `docs/` in this session: no match. So nothing in the app answers "who's doing it". |
+| `See what's done, what's left and who's doing it.` | `web/src/app/page.tsx:14-16` | **NOT ENFORCED for the third clause.** `tasks` has `owner_id` (`supabase/migrations/20260927182443_create_tasks.sql:24`), but **no screen shows it**: `web/src/app/tasks/page.tsx:604` compares it with the signed-in person's id and the comment at `web/src/lib/tasks.ts:16` says it is "only ever compared with the signed-in person's own id — never shown". There is also **no column recording who ticked a task** — searched for `done_by`, `ticked_by` and `completed_by` across `supabase/`, `web/src/`, `scripts/` and `docs/` in this session: no match. So nothing in the app answers "who's doing it". **DECIDED 2026-10-07 — remove (#196).** Replaced by `See what's done, what's left, and which list it's on.`, whose three clauses are each cited in §4a row 1 |
 | `No account yet? Sign up` | `web/src/app/page.tsx:25` | `web/src/app/signup/page.tsx` draws the form and `web/src/app/auth/actions.ts:87-109` creates the account. |
 
 ### 1c. Sign up, `/signup`
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `Free for your volunteer group.` | `web/src/app/signup/page.tsx:23` | **NOT ENFORCED.** No file makes it true and none can: it is a promise about money. What can be shown is that nothing in the app charges anybody — searched `web/src/`, `supabase/functions/` and `scripts/` for `stripe`, `payment`, `billing` and `subscribe` in this session; the only hits are a fake key in a test fixture (`scripts/launch-check.mjs:505`) and the word "price" in a comment. `docs/plan.md:197` keeps Payments on the not-in-the-first-version list. |
+| `Free for your volunteer group.` | `web/src/app/signup/page.tsx:23` | **NOT ENFORCED.** No file makes it true and none can: it is a promise about money. What can be shown is that nothing in the app charges anybody — searched `web/src/`, `supabase/functions/` and `scripts/` for `stripe`, `payment`, `billing` and `subscribe` in this session; the only hits are a fake key in a test fixture (`scripts/launch-check.mjs:505`) and the word "price" in a comment. `docs/plan.md:197` keeps Payments on the not-in-the-first-version list. **DECIDED 2026-10-07 — remove (#201).** Replaced by `No card needed to sign up.`, which is allowed because the no-payment-flow condition was checked and met — §4a row 4 |
 | `That did not work. Check the email address and password and try again.` | `web/src/app/signup/page.tsx:26-29` | `web/src/app/auth/actions.ts:100` sends `?problem=1` for any error Supabase returned, and `web/src/app/auth/actions.ts:88-90` for a post that did not come from this page's button. Deliberately does not say which half was wrong. |
 | `Check your email. We've sent you a link to confirm your account.` | `web/src/app/signup/page.tsx:32-37` | `web/src/app/auth/actions.ts:105` draws it only when Supabase returned no session, which is what a project that asks people to confirm does. **Whether an email actually went is not verified** — the sending, and the project's "Confirm email" setting, are Supabase's, and no template or setting for them exists in this repository (see §5). |
-| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:68-71`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **NOT ENFORCED on the server.** The only thing in this repository that applies it at sign-up is the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`web/src/app/signup/page.tsx:65`), which a direct post skips: `signUp` (`web/src/app/auth/actions.ts:87-109`) never calls `passwordProblem`. The reset form does (`web/src/app/auth/actions.ts:223`). Supabase's own project minimum is the only other floor and it lives in a dashboard — **not verified**. |
+| `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:68-71`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **NOT ENFORCED on the server.** The only thing in this repository that applies it at sign-up is the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`web/src/app/signup/page.tsx:65`), which a direct post skips: `signUp` (`web/src/app/auth/actions.ts:87-109`) never calls `passwordProblem`. The reset form does (`web/src/app/auth/actions.ts:223`). Supabase's own project minimum is the only other floor and it lives in a dashboard — **not verified**. **DECIDED 2026-10-07 — make it true (#197)**: a server-side check in `signUp` carrying the same message, with a test. The wording does not change, so this cell is what changes once the fix lands — **in the next pull request, not this one** |
 
 ### 1d. Sign in, `/login`
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `See what's done, what's left and who's doing it.` | `web/src/app/login/page.tsx:18-20` | As §1b: **NOT ENFORCED for the third clause**. |
-| `Your email is confirmed. Please sign in.` | `web/src/app/login/page.tsx:22-26` | **NOT ENFORCED.** `?confirmed=1` is set by `web/src/app/auth/callback/route.ts:37`, which is the route's **fall-through**: it is reached when the code exchange **failed** (`web/src/app/auth/callback/route.ts:24-27`) and when the request carried **no code at all** (`web/src/app/auth/callback/route.ts:16`). The successful exchange goes to `/tasks` instead (`web/src/app/auth/callback/route.ts:25`). So the one path that draws this sentence is the path on which nothing in this app saw a confirmation. The query value can also simply be typed. |
+| `See what's done, what's left and who's doing it.` | `web/src/app/login/page.tsx:18-20` | As §1b: **NOT ENFORCED for the third clause**. **DECIDED 2026-10-07 — remove (#196)**, in this place as well as the other two; §4a row 1 |
+| `Your email is confirmed. Please sign in.` | `web/src/app/login/page.tsx:22-26` | **NOT ENFORCED.** `?confirmed=1` is set by `web/src/app/auth/callback/route.ts:37`, which is the route's **fall-through**: it is reached when the code exchange **failed** (`web/src/app/auth/callback/route.ts:24-27`) and when the request carried **no code at all** (`web/src/app/auth/callback/route.ts:16`). The successful exchange goes to `/tasks` instead (`web/src/app/auth/callback/route.ts:25`). So the one path that draws this sentence is the path on which nothing in this app saw a confirmation. The query value can also simply be typed. **DECIDED 2026-10-07 — replace with `Please sign in to finish.` (#198)**; §4a row 2 |
 | `That email and password don't match. Check them and try again.` | `web/src/app/login/page.tsx:28-32` | `web/src/app/auth/actions.ts:81` redirects here for any `signInWithPassword` error. **Note, not a defect:** `web/src/app/auth/actions.ts:74-76` gives the same sentence to a post that carried no recognised button identifier, where the stated cause is not the cause. That path is not reachable from this screen, and the file's comment at 78-81 says the single sentence is deliberate — telling the two apart would help somebody sort addresses into accounts and not-accounts. |
 
 ### 1e. Forgot password, `/forgot-password`
@@ -94,7 +108,7 @@ a fact is below.
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `You have been invited` | `web/src/app/invite/[token]/page.tsx:106` | **NOT ENFORCED.** The page deliberately does not look the invitation up — its own comment says so at `web/src/app/invite/[token]/page.tsx:72-77` — so this heading is drawn for any string in the address, including a made-up one. Nothing checks the token until `accept-invite` runs, on the button press. |
+| `You have been invited` | `web/src/app/invite/[token]/page.tsx:106` | **NOT ENFORCED.** The page deliberately does not look the invitation up — its own comment says so at `web/src/app/invite/[token]/page.tsx:72-77` — so this heading is drawn for any string in the address, including a made-up one. Nothing checks the token until `accept-invite` runs, on the button press. **DECIDED 2026-10-07 — replace (#199)**, with no lookup before sign-in. The decided wording says "see it", which that constraint makes uncitable, so §4a row 3 proposes a one-word variant and **the owner's word is outstanding** |
 | `Accepting adds you to the team.` | `web/src/app/invite/[token]/page.tsx:121` | `supabase/functions/accept-invite/index.ts:455-456` inserts the `team_members` row, after the four refusals at 374-400. |
 | `If you are signed in as somebody else, the invitation will be refused: it only works for the address it was sent to.` | `web/src/app/invite/[token]/page.tsx:135-138` | `supabase/functions/accept-invite/index.ts:394-400` compares the invitation's address with the signed-in person's, both lowercased (`261`, and the constraint `invitations_email_lowercase` at `supabase/migrations/20260930193813_create_invitations.sql:72`). `supabase/config.toml:49` keeps `verify_jwt = true`, which is what makes "the signed-in person" trustworthy. |
 | `To accept this invitation, sign in with the email address it was sent to — or sign up with that address if you do not have an account yet. Then open this link again.` | `web/src/app/invite/[token]/page.tsx:142-146` | `supabase/functions/accept-invite/index.ts:246-261` refuses a caller with no address on the token; `394-400` refuses the wrong one. |
@@ -124,7 +138,7 @@ that tell somebody what the rules are.
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `Personal — only you` (the chooser option, on the add form and on Move to…) | `web/src/app/tasks/page.tsx:353` and `736` | The select policy on `tasks`: `supabase/migrations/20261002133637_tasks_join_teams.sql:137-144` returns a row to its creator, or to a member of its team when `team_id` is not null — so a row with `team_id` null reaches nobody but its creator. **See §4 for the one way these words are wider than the policy.** |
+| `Personal — only you` (the chooser option, on the add form and on Move to…) | `web/src/app/tasks/page.tsx:353` and `736` | The select policy on `tasks`: `supabase/migrations/20261002133637_tasks_join_teams.sql:137-144` returns a row to its creator, or to a member of its team when `team_id` is not null — so a row with `team_id` null reaches nobody but its creator. **See §4 for the one way these words are wider than the policy.** **DECIDED 2026-10-07 — replace with `Personal — no one else on Team Tasks can see it.` (#202)**, in both choosers; §4a row 5 cites the policy and the staging test. The operator disclosure the owner asked for **has nowhere to live: there is no privacy page** |
 | `A personal task is yours alone. Everyone in a team can see, tick and rename that team's tasks; only the person who added a task can delete it.` | `web/src/app/tasks/page.tsx:360-364` | Three separate rules. **Yours alone / team can see**: the select policy, `supabase/migrations/20261002133637_tasks_join_teams.sql:137-144`. **Tick and rename**: the update policy, same file `166-177`. **Only the creator can delete**: the original owner-only delete policy, `supabase/migrations/20260927182443_create_tasks.sql:73-77`, deliberately left standing — `supabase/migrations/20261002170244_tasks_drop_owner_only_rules.sql:202-207` says why it was not dropped. |
 | `Everyone in a team can see, tick and rename that team's tasks. Moving a task to Personal takes it back to you alone.` | `web/src/app/tasks/page.tsx:759` | As the row above, plus the trigger that decides which columns may change: `tasks_enforce_column_rules()` in `supabase/migrations/20261002133637_tasks_join_teams.sql` (part 3, from line 260). |
 | `A nickname of up to 40 characters, shown to your team mates. Please not your full name.` | `web/src/app/teams/page.tsx:378-381`, the number from `DISPLAY_NAME_MAX` in `web/src/lib/teams.ts:236` | **40**: `profiles_display_name_length` at `supabase/migrations/20261002122203_team_rules.sql:174-175`, with `profiles_display_name_not_blank` at `173`. **Shown to your team mates**: the profiles select policy at `supabase/migrations/20261002122203_team_rules.sql:228`, read through the `team_roster` view at `423-424`, which is `security_invoker = true` so the policies decide what comes back. "Please not your full name" is a request, not a claim; nothing enforces it and nothing could. |
@@ -213,12 +227,20 @@ limit from `docs/plan.md` or a count of rows the same request just read.
 
 ---
 
-## 4. The NOT ENFORCED rows, and what to do about each
+## 4. The NOT ENFORCED rows, the proposals, and the owner's decisions
 
-Six rows, plus one that is enforced and narrower than its words. Issue #194 asks for a proposal per row
-and for no change here. **Nothing below has been changed.** Each row has its own issue so the decision has
-somewhere to live and can be closed on its own: #196, #201, #197, #198, #199, #200, and #202 for the last
-one.
+Six rows, plus one that is enforced and narrower than its words. Issue #194 asked for a proposal per row
+and for no change. **The owner decided all seven on 2026-10-07**, and each decision is recorded against
+its row below, with the issue it will be carried out in.
+
+**Still nothing here is changed.** The decisions are written down; the edits to screens happen in a
+separate pull request from `main` after this one is merged. This round is documents only.
+
+**THE RULE THE OWNER SET FOR EVERY REWORD, and it governs §4a below:** new wording is a new claim. It gets
+its own row with the file and line that make it true. **If no line can be cited, the decision becomes
+"remove the words" instead.** That rule is what produced the one deviation flagged in §4a — the wording
+decided for #199 cannot be cited while the page is forbidden to look an invitation up, so a citable
+variant is proposed and the owner's confirmation is outstanding.
 
 **1. `See what's done, what's left and who's doing it.`** (#196) — home page, sign-in page and the page
 description (`web/src/app/page.tsx:14-16`, `web/src/app/login/page.tsx:18-20`,
@@ -228,16 +250,23 @@ description (`web/src/app/page.tsx:14-16`, `web/src/app/login/page.tsx:18-20`,
   recording who last changed `done`. Both are new personal data on a screen and a new column, so they
   are a `docs/plan.md` change first, not a code change — and the appendix row "Who created and who
   ticked off each task" already claims the second one exists, which it does not.
-- *Remove the words*: change the third clause to something the app does do — "See what's done, what's
-  left and whose list it's on" — in the three places above.
+- *Remove the words*: change the third clause to something the app does do, in the three places above.
+
+> **DECIDED 2026-10-07 — remove.** Replace only with wording that describes what the screen actually
+> shows. The replacement and its citations are row 1 of §4a. The appendix row in `docs/plan.md` still
+> claims who-ticked-it is stored and is corrected in the same pull request as the screens (#196).
 
 **2. `Free for your volunteer group.`** (#201) — `web/src/app/signup/page.tsx:23`. True today, and no file can
 keep it true.
 
 - *Make it true*: nothing in code can. The nearest honest thing is to say for how long, or to say what
   it is free of.
-- *Remove the words*: drop the line, or narrow it to "No payment, no card, no adverts", each of which is
-  a fact about the app as built rather than a promise about next year.
+- *Remove the words*: drop the line, or narrow it to a fact about the app as built rather than a promise
+  about next year.
+
+> **DECIDED 2026-10-07 — remove.** Replace with `No card needed to sign up.` **only if no payment flow
+> exists anywhere in the repository.** That condition was checked in this session and is met — the
+> evidence is in row 4 of §4a, and it is the whole reason the replacement is allowed.
 
 **3. `At least 8 characters.` on sign-up** (#197) — `web/src/app/signup/page.tsx:68-71`. Enforced only by a
 browser attribute; `signUp` never checks it.
@@ -249,6 +278,17 @@ browser attribute; `signUp` never checks it.
 - *Remove the words*: not sensible — the number would still be in the `minLength` attribute, and
   removing the sentence would leave a rule nobody is told about.
 
+> **DECIDED 2026-10-07 — make it true.** A server-side check in `signUp`, carrying **the same message as
+> the browser check**, **with a test**. The words on screen do not change, so this adds no row to §4a:
+> what changes is the "What makes them true" cell for this claim in §1c, which says NOT ENFORCED today and
+> will cite the new line in `web/src/app/auth/actions.ts` once the fix lands. The same message means
+> `PASSWORD_TOO_SHORT` (`web/src/lib/password-reset.ts:100`), which is already the one constant both
+> password screens use. **Not done in this pull request** — the owner put it in the next one.
+>
+> One warning carried forward for whoever writes it: `scripts/password-reset-check.mjs` reads these
+> actions' source and counts branches and exits, and uses `signIn` as its deliberate control. If a new
+> guard moves those counts, the fix is the code and never the check (rule 20).
+
 **4. `Your email is confirmed. Please sign in.`** (#198) — `web/src/app/login/page.tsx:22-26`, reached only from
 the fall-through at `web/src/app/auth/callback/route.ts:37`, which is also where a request with no code
 at all lands.
@@ -257,8 +297,12 @@ at all lands.
   `?confirmed=1`, and a request with no code goes to `/login` with nothing set. That still rests on the
   reasoning at `web/src/app/auth/callback/route.ts:29-32` (Supabase has confirmed the address by the
   time the link is followed), which nothing here has observed.
-- *Remove the words*: say what is known instead — "Please sign in to finish" — which is true on both
-  paths and sends the person to the same place.
+- *Remove the words*: say what is known instead, which is true on both paths and sends the person to the
+  same place.
+
+> **DECIDED 2026-10-07 — replace with `Please sign in to finish.`** Row 2 of §4a. The claim about the
+> account is gone, which is the point: the sentence no longer asserts anything that the fall-through
+> cannot support.
 
 **5. `You have been invited`** (#199) — `web/src/app/invite/[token]/page.tsx:106`. Drawn for any string in the
 address, because the page deliberately looks nothing up.
@@ -266,8 +310,14 @@ address, because the page deliberately looks nothing up.
 - *Make it true*: it cannot be made true without looking the invitation up, and the comment at
   `web/src/app/invite/[token]/page.tsx:63-77` gives two good reasons not to — the page is public, and a
   mail scanner fetching the link must not be able to learn anything. Making it true would undo both.
-- *Remove the words*: this is the recommended one. `Invitation` or `An invitation to a team` as the
-  heading claims nothing, and the sentence underneath already explains what to do.
+- *Remove the words*: this is the recommended one. A heading that claims nothing, with the sentence
+  underneath already explaining what to do.
+
+> **DECIDED 2026-10-07 — replace**, with wording like `If you were invited, sign in to see it.`, and
+> **no invitation lookup before sign-in**. Row 3 of §4a, which is the one row carrying a flagged
+> deviation: with no lookup — before *or* after sign-in, since the page never looks one up in either
+> state — nothing makes "see it" true, so by the owner's own rule a citable variant is proposed instead.
+> **Awaiting the owner's word on the exact wording.**
 
 **6. `Nothing you were doing has been lost unless a message said so.`** (#200) —
 `web/src/app/error.tsx:57-62`.
@@ -278,6 +328,11 @@ said so" does not cover it, because in that case there is no message.
 - *Make it true*: nothing can make a general promise about unrelated writes true.
 - *Remove the words*: this is the recommended one. Drop the sentence; what remains — "This screen could
   not be shown. The details have gone to the owner." — is true and is the part a person needs.
+
+> **DECIDED 2026-10-07 — remove the sentence.** No replacement, so **no row in §4a**: removing words
+> makes no new claim, which is the one case the owner's rule does not have to cover. What remains on the
+> screen is already in §1a with its citations, and it matches `global-error.tsx:57-60`, which never made
+> this claim.
 
 **And one more, for the owner to decide rather than a NOT ENFORCED row (#202).**
 `Personal — only you` (`web/src/app/tasks/page.tsx:353`, `736`) and `A personal task is yours alone`
@@ -290,7 +345,40 @@ app's strongest privacy claim and it is made in the one place somebody is about 
 
 - *Make it true*: not possible on this stack. Whoever holds the database holds the rows.
 - *Change the words*: `Personal — only you and the owner` is accurate and clumsy;
-  `Personal — not shared with your teams` says exactly what the policy does. No change made.
+  `Personal — not shared with your teams` says exactly what the policy does.
+
+> **DECIDED 2026-10-07 — replace with `Personal — no one else on Team Tasks can see it.`** Row 5 of §4a,
+> which cites the read policy and the staging test the owner asked for by name.
+>
+> **AND: the privacy page must say the operator can access the database.** **There is no privacy page.**
+> Checked in this session: `git ls-files` matching `privacy`, `terms` and `legal` returns nothing, and
+> `web/src/app` holds eight `page.tsx` files — the front page, sign-up, sign-in, both password screens,
+> the invitation page, My tasks and My teams — none of which is one. A search of `web/src` for `privacy`
+> finds no match. So **that half of the decision cannot be carried out, and the owner has kept it**: this
+> is flagged at the top of pull request #203 and left for them. The new wording's own accuracy does not
+> depend on it — "no one else **on Team Tasks**" is a claim about other people using the app, and the
+> operator reaches rows through the Supabase dashboard rather than through Team Tasks — but the
+> disclosure the owner asked for has nowhere to live until a privacy page exists.
+
+---
+
+## 4a. The decided new wording, and what makes each new claim true
+
+The owner's rule, applied. One row per new claim, each with the file and line that would make it true
+**once the wording lands**. Nothing in this table is on a screen yet: the wording is decided and the edits
+come in a separate pull request (#196, #198, #199, #201, #202).
+
+Two of the seven decisions produce no row, for two different reasons, and both are stated in §4 rather
+than left to inference: **#200** removes a sentence and adds no claim, and **#197** keeps its existing
+wording and changes only what enforces it.
+
+| # | The new wording | Where it will go | What will make it true |
+|---|---|---|---|
+| **1** | `See what's done, what's left, and which list it's on.` (#196) | `web/src/app/page.tsx:14-16`, `web/src/app/login/page.tsx:18-20`, `web/src/app/layout.tsx:22` — the three places the old sentence is | Three clauses, three citations, which is why the wording was chosen. **"what's done"**: the `done` column, `supabase/migrations/20260927182443_create_tasks.sql:28`, drawn as the tick at `web/src/app/tasks/page.tsx:764-812` and read back after every press by `web/src/app/tasks/actions.ts:189`. **"what's left"**: the count at `web/src/app/tasks/page.tsx:322-327`, computed at `:273` from exactly the rows about to be drawn. **"which list it's on"**: the team chip at `web/src/app/tasks/page.tsx:795-810`, decided by `taskTeam()` at `web/src/lib/tasks.ts:214-233`, which also covers the two honest cases where a name cannot be shown (`TEAM_NOT_SHOWN`, `TEAM_LEFT`). **No clause claims to show a person**, which is what #196 is about |
+| **2** | `Please sign in to finish.` (#198) | `web/src/app/login/page.tsx:22-26`, replacing `Your email is confirmed. Please sign in.` | It asserts nothing about the account, which is the whole repair — so what has to be citable is only that signing in is available and does something: the form at `web/src/app/login/page.tsx:34-69` and the action at `web/src/app/auth/actions.ts:68-85`, which signs the person in and sends them to `/tasks` at `:84`. True on **both** paths that reach it — a failed code exchange (`web/src/app/auth/callback/route.ts:24-27`) and a request with no code (`:16`). **One loose edge, named rather than hidden:** on the no-code path nothing was started, so "finish" is imprecise. It states no falsehood about the account, which is what #198 was filed for, and the alternative — splitting the two paths — is the *make it true* option the owner did not choose |
+| **3** | **Decided:** `If you were invited, sign in to see it.` **Proposed instead:** `If you were invited, sign in to accept it.` (#199) — **the owner's word is outstanding** | `web/src/app/invite/[token]/page.tsx:106`, replacing `You have been invited` | **The decided wording cannot be cited, and the owner's own constraint is why.** "No invitation lookup before sign-in" was part of the decision, and the page looks an invitation up in **neither** state — signed out or signed in — by deliberate design (`web/src/app/invite/[token]/page.tsx:72-77`). So after signing in a person does not *see* the invitation: they see an Accept button and nothing about the team, the address, or whether the token is real. Nothing makes "see it" true, so the owner's rule turns it into "remove the words". **The one-word variant is citable**: "accept it" is made true by the signed-in branch drawing the Accept form at `web/src/app/invite/[token]/page.tsx:114-139` and by `accept-invite` performing the acceptance at `supabase/functions/accept-invite/index.ts:455-456`. The conditional `If you were invited` carries the uncertainty that the heading used to assert, which is the part both versions get right |
+| **4** | `No card needed to sign up.` (#201) | `web/src/app/signup/page.tsx:23`, replacing `Free for your volunteer group.` | **The sign-up form asks for two things**: email and password, at `web/src/app/signup/page.tsx:44-52` and `:59-67`, and `credentials()` at `web/src/app/auth/actions.ts:19-24` reads only those two before `signUp` at `:95-98` sends them. **And the condition the owner attached — no payment flow anywhere in the repository — was checked in this session and is met**, four ways: no payment dependency in `web/package.json`, the root `package.json` or any function's `deno.json`; no payment route or action among the seven files in `web/src/app` matching `route.ts` or `actions.ts`; no payment table among the eight migrations in `supabase/migrations`; and a search of every tracked file under `web/src/` and `supabase/` for `stripe`, `paypal`, `payment`, `billing`, `subscription`, `invoice`, `price_`, `sk_live` and `pk_live` returning **two hits, both in one test case** — `supabase/functions/_tests/suggest_subtasks_test.ts:484-486`, which checks how `suggest-subtasks` handles a `402 billing_error` from Anthropic. That is **Anthropic billing the owner**, not this app charging a person. Unlike the sentence it replaces, this is a statement about the app as built, so a file and line can carry it |
+| **5** | `Personal — no one else on Team Tasks can see it.` (#202) | `web/src/app/tasks/page.tsx:353` and `:736` — both choosers — replacing `Personal — only you` | **The policy**: the select rule on `tasks`, `supabase/migrations/20261002133637_tasks_join_teams.sql:137-144`, returns a row to its creator or to a member of its team when `team_id` is not null, so a row with a null `team_id` reaches nobody else. **The test, which the owner asked for by name**: `web/tests/access-rules.test.mjs:372-384`, "Bob CANNOT read Alice's personal task" — and note `:379`, which asserts the row Bob is refused **actually exists**, so the refusal is not vacuous. **It ran on staging in this pull request's own CI**, not merely on a laptop: run [37639457834](https://github.com/build-once/team-tasks/actions/runs/37639457834), job "App tests (access rules on staging)", whose log reads `# Bob reading Alice's personal task: no row matched, so nothing changed` with `# pass 25`, `# fail 0`, `# skipped 0`. The job also refuses a skipped test and enforces a floor of 25 (`.github/workflows/ci.yml:654`, `:707-714`), so a run that tested nothing could not have passed. **The operator is out of scope of the new wording on purpose** — "on Team Tasks" is a claim about other people using the app — and the disclosure that the operator can reach the database is the half of this decision with nowhere to live yet, because there is no privacy page |
 
 ---
 
@@ -378,6 +466,15 @@ Collected so it is not buried in a table. Each one names what would settle it.
   an Edge Function is the code **on this commit**. `web/src/lib/suggestions.ts:7-14` records that this
   repository has twice been in a state where the deployed function was a different program. Settled by
   deploying, or by a staging run that exercises the refusal.
+- **Outstanding from the owner's decisions — there is no privacy page**, so #202's requirement that "the
+  privacy page must say the operator can access the database" has nowhere to go. Established, not assumed:
+  `git ls-files` matching `privacy`, `terms` or `legal` returns nothing; `web/src/app` has eight
+  `page.tsx` files and none is a privacy page; `web/src` contains no match for `privacy`. Settled by the
+  owner deciding whether to add one — flagged at the top of #203 and left with them.
+- **Outstanding from the owner's decisions — the exact wording for #199.** The decided sentence says "sign
+  in to **see** it", and the same decision forbids looking an invitation up before sign-in; the page looks
+  one up in neither state, so nothing makes "see" true. §4a row 3 proposes "accept it", which is citable.
+  Settled by the owner's word on #199 before that pull request is written.
 - **One thing found while writing this, and filed rather than fixed here: #195.** `docs/plan.md` still says
   of Suggest subtasks that there is "no `AI_API_KEY` in any environment, no function, and no call ever
   made", and `evidence/build-it-20-ai-helper.md` section 12 records the owner deploying the function to
