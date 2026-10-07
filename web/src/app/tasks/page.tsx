@@ -14,6 +14,12 @@ import {
   showsData,
 } from "@/lib/screen-state";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
+import {
+  SUGGESTIONS_UNAVAILABLE,
+  SUGGEST_DATA,
+  SUGGEST_UNAVAILABLE,
+  suggestOutcome,
+} from "@/lib/suggestions";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_ALL,
@@ -80,7 +86,7 @@ function ShowLink({
 export default async function MyTasksPage({
   searchParams,
 }: PageProps<"/tasks">) {
-  const { problem, added, moved, rename, confirm, move, filter } =
+  const { problem, added, moved, rename, confirm, move, suggest, filter } =
     await searchParams;
   const supabase = await createClient();
 
@@ -133,6 +139,88 @@ export default async function MyTasksPage({
     .order("created_at", { ascending: false });
 
   const tasks = (data ?? []) as Task[];
+
+  // ---- THE AI HELPER (Build it 20, issue #183) ----------------------------
+  //
+  // `?suggest=<task id>` means somebody pressed Suggest subtasks on that task. The
+  // page asks the helper HERE and draws the answer in the same request, which is the
+  // whole reason it works this way: the model's words never travel through the
+  // address bar, so nothing drawn below comes out of a query string.
+  //
+  // IT COSTS MONEY -- one metered request to Anthropic per ask (docs/costs.md) -- so
+  // it is asked for as narrowly as the page can manage:
+  //
+  //   * ONLY WHEN THE ID NAMES A TASK THIS PAGE JUST READ. That is a stricter test
+  //     than a shape check and it costs nothing extra: `tasks` is already in hand, and
+  //     an id that is not in it was never going to get suggestions. The function
+  //     checks the same thing properly, with the caller's own rights, and answers 404
+  //     for anything else -- this is about not making a request that cannot succeed,
+  //     not about security, which is the function's job and not a screen's.
+  //   * A FAILED TASK READ ASKS NOTHING. `tasks` is empty when the read failed, so
+  //     `find` answers undefined, so nothing is asked. That is the right way round: a
+  //     database fault must not turn into a bill.
+  //   * NOTHING ELSE ON THE PAGE CARRIES `suggest`. Every other link and form builds
+  //     its address through tasksPath without it, so a tick, a rename, a move or a
+  //     Cancel does not quietly ask again.
+  //
+  // WHAT IT STILL COSTS, said plainly because nobody should have to discover it: this
+  // is a GET, so a reload asks again, and so does opening the same address twice. The
+  // link that carries it sets prefetch={false}, which stops Next.js following it on
+  // scroll or on hover -- but a person pressing F5 is a person spending another
+  // request. Until Build it 22's usage counts exist, what bounds that is the
+  // 5-dollar monthly limit at Anthropic and nothing else (docs/plan.md says so in
+  // those words). Issue #184 holds it, with what a fix must and must not change.
+  const suggestTask =
+    tasks.find((task) => task.id === String(suggest ?? "").trim().toLowerCase()) ??
+    null;
+
+  let suggestionsData: unknown = null;
+  let suggestionsFailed = false;
+
+  if (suggestTask !== null) {
+    // ONLY THE TASK'S ID GOES IN THE BODY. Not its title -- the function reads that
+    // itself, with the caller's own rights, which is what makes "a person can only
+    // ask about a task they can see" true in the database rather than on this screen.
+    // There is nothing here for a caller to tamper with to ask about somebody else's
+    // task.
+    //
+    // NOTHING IS REPORTED TO SENTRY ON FAILURE, and that is deliberate. See the note
+    // at the top of web/src/lib/suggestions.ts: the object the client throws carries
+    // the request, the function has already reduced every failure to a fixed code,
+    // and issue #183 says "Nothing from the title or the reply goes to error
+    // reporting."
+    const { data: answer, error: suggestError } = await supabase.functions.invoke(
+      "suggest-subtasks",
+      { body: { task_id: suggestTask.id } },
+    );
+    suggestionsData = answer;
+    suggestionsFailed = Boolean(suggestError);
+  }
+
+  // Three states, never an empty list. suggestOutcome puts `failed` ahead of the data
+  // for the reason screenState puts it ahead of the row count, and answers
+  // "unavailable" rather than handing this page nought suggestions to draw.
+  const suggestions = suggestOutcome({
+    asked: suggestTask !== null,
+    failed: suggestionsFailed,
+    data: suggestionsData,
+  });
+
+  // Which list a suggestion would be added to: the parent task's, when that team is
+  // one the page could read -- which means one this person belongs to, because the
+  // select rule on teams is is_team_member(id). Otherwise Personal, by the same empty
+  // value the add form's chooser uses for it.
+  //
+  // THE ALTERNATIVE WAS WORSE. Sending the parent's team_id regardless would, for a
+  // task stranded in a team its creator has left, produce a 42501 and the "You cannot
+  // do that" banner on a button the person had every reason to expect to work. This
+  // way the subtask lands somewhere, and `addTask`'s own redirect names where.
+  const suggestionList =
+    suggestTask !== null &&
+    suggestTask.team_id !== null &&
+    teamNames.has(suggestTask.team_id)
+      ? suggestTask.team_id
+      : "";
 
   // Which list the person asked for. resolveFilter has thrown away anything that
   // is not "personal" or one of the team ids passed to it, so by this point the
@@ -724,6 +812,48 @@ export default async function MyTasksPage({
                       </form>
 
                       <div className={styles.actions}>
+                        {/* THE AI HELPER (Build it 20, issue #183). A link, like
+                            Rename, Move to… and Delete beside it, and for the same
+                            reason every control on this page is one: the screen is
+                            rendered on the server and a link needs no JavaScript.
+                            Following it reloads this page with ?suggest= set, and the
+                            page asks the helper and draws the answer in the same
+                            request.
+
+                            prefetch={false} IS NOT A TIDINESS SETTING. Next.js
+                            prefetches a Link when it enters the viewport and again on
+                            hover, and the installed version's own reference says of
+                            this value: "Prefetching will never happen both on entering
+                            the viewport and on hover"
+                            (web/node_modules/next/dist/docs/01-app/03-api-reference/02-components/link.md).
+                            Without it, scrolling past a task list would ask the AI
+                            service once per task, on a workspace with a 5-dollar
+                            monthly ceiling. It is the only link in this app where the
+                            default would cost money.
+
+                            Drawn on every task the person can see, because the plan
+                            says "on a task the person can already see" and the
+                            database has already decided which those are. A stranded
+                            task is included on purpose: suggestions are reading, not
+                            writing, and the Add button is what writes. */}
+                        <Link
+                          className={styles.action}
+                          prefetch={false}
+                          href={tasksPath({
+                            filter: carried,
+                            suggest: task.id,
+                          })}
+                        >
+                          Suggest
+                          <span className={styles.wideWord} aria-hidden="true">
+                            {" "}
+                            subtasks
+                          </span>
+                          <span className="visually-hidden">
+                            {" "}
+                            subtasks for {task.title}
+                          </span>
+                        </Link>
                         <Link
                           className={styles.action}
                           href={tasksPath({
@@ -775,6 +905,99 @@ export default async function MyTasksPage({
                           </Link>
                         ) : null}
                       </div>
+                    </div>
+                  )}
+
+                  {/* ---- THE SUGGESTIONS, for the one task that was asked about ----
+                      Drawn UNDER the row rather than instead of it, unlike renaming,
+                      deleting and moving: those three replace the row because they are
+                      about changing it, and this one is about adding something beside
+                      it. The task stays where it is, visible, while the person reads
+                      what the helper offered for it.
+
+                      Three states and never a fourth. web/src/lib/suggestions.ts
+                      answers "unavailable" rather than handing this page an empty list,
+                      so there is no branch here that could draw a heading with nothing
+                      under it -- which is what issue #183's "never shows an empty list
+                      as if it were a result" forbids. */}
+                  {suggestTask?.id !== task.id ? null : suggestions.state ===
+                      SUGGEST_UNAVAILABLE ? (
+                    <div className={styles.suggest}>
+                      {/* ONE SENTENCE, for all eleven of the function's codes. It says
+                          what this costs the person and nothing about why: no status,
+                          no code, no company's name, and nothing the service said.
+                          On production for the whole of Build it 20 this is the honest
+                          answer rather than an error -- there is no key there until the
+                          consent setting lands, so suggestions genuinely are not
+                          available. */}
+                      <Banner tone="bad" icon="alert">
+                        {SUGGESTIONS_UNAVAILABLE}
+                      </Banner>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
+                    </div>
+                  ) : suggestions.state !== SUGGEST_DATA ? null : (
+                    <div className={styles.suggest}>
+                      <p className={styles.suggestHead}>
+                        Suggested subtasks
+                        <span className={styles.suggestHint}>
+                          Nothing is saved until you press Add.
+                        </span>
+                      </p>
+                      <ul className={styles.suggestList}>
+                        {suggestions.suggestions.map((suggestion, index) => (
+                          <li
+                            className={styles.suggestItem}
+                            key={`${task.id}-${index}`}
+                          >
+                            {/* ADD IS THE EXISTING ADD-TASK ACTION, which issue #183
+                                asks for by name: "Add uses the existing add-task
+                                action, rules and read-back." Same action, same button
+                                identifier, same length check, same insert, same
+                                read-back, same "Task added." banner. A suggestion
+                                becomes a task through exactly the path a task somebody
+                                typed goes through, which is what docs/plan.md promises:
+                                "it becomes a task only when the person presses add --
+                                through exactly the same rules, and the same limits, as
+                                a task they typed themselves."
+
+                                The suggestion travels in a hidden field, and it is
+                                DRAWN beside the button as text, so what the person is
+                                agreeing to is what gets sent. */}
+                            <form className={styles.suggestRow} action={addTask}>
+                              <input
+                                type="hidden"
+                                name="filter"
+                                value={carried ?? ""}
+                              />
+                              <input type="hidden" name="title" value={suggestion} />
+                              <input
+                                type="hidden"
+                                name="team_id"
+                                value={suggestionList}
+                              />
+                              <span className={styles.suggestText}>{suggestion}</span>
+                              <ActButton
+                                className="btn btn--quiet"
+                                act={BUTTON_IDS.taskAdd}
+                              >
+                                Add
+                                <span className="visually-hidden"> {suggestion}</span>
+                              </ActButton>
+                            </form>
+                          </li>
+                        ))}
+                      </ul>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
                     </div>
                   )}
                 </li>

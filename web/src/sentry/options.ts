@@ -91,8 +91,24 @@ export const DATA_COLLECTION = {
   // already no.
   graphQL: { document: false, variables: false },
 
-  // Default: { inputs: true, outputs: true }. Same reasoning. docs/plan.md puts
-  // an AI helper under "deliberately not in the first version".
+  // Default: { inputs: true, outputs: true }. THE VALUE IS UNCHANGED AND THE
+  // REASON IS NOT (issue #179). This used to say docs/plan.md put an AI helper
+  // under "deliberately not in the first version", which made it read as a
+  // precaution about something that did not exist -- and a reader who believed
+  // that is a reader who might relax it.
+  //
+  // It is a live control from 2026-10-07. "Suggest subtasks" is in the plan and
+  // built (issue #183): supabase/functions/suggest-subtasks sends one task's
+  // title to Anthropic's Claude API and offers back up to five suggestions.
+  // `inputs` here IS that task title, which is free text somebody typed and
+  // which docs/plan.md's appendix marks sensitive; `outputs` is the reply. The
+  // plan's list of what may never reach an error report names task text first.
+  //
+  // Nothing in this app would send one today in any case -- the call is made by
+  // server code in a Supabase function, which has no Sentry SDK in it, and
+  // web/src/lib/suggestions.ts explains why the page that reads the answer
+  // reports nothing either. This option is the answer for the day somebody adds
+  // an AI call where the SDK IS watching.
   genAI: { inputs: false, outputs: false },
 
   // Default: true. "bound query parameters, data payloads for write

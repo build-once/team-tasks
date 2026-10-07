@@ -1,0 +1,37 @@
+{
+  "note": [
+    "THE ONLY FILE IN THIS REPOSITORY THAT MAY NAME AN AI MODEL.",
+    "scripts/approved-model-check.mjs scans every tracked file for a string shaped like",
+    "an Anthropic model API name and fails if it finds one that is not listed here. So a",
+    "model name pasted into a function, a test, a document or a workflow turns a pull",
+    "request red, and changing which model this app sends a person's task title to is a",
+    "one-line edit to this file that a reviewer cannot miss.",
+    "",
+    "THE UNDATED ALIAS IS DELIBERATELY NOT WRITTEN ANYWHERE, including here. docs/plan.md",
+    "says the model is 'pinned by its dated API name rather than a moving alias, so the",
+    "model cannot change under the app without somebody editing a line'. Anthropic's models",
+    "page describes the alias for a model of this generation as 'a convenience pointer that",
+    "resolves to the dated ID' -- which is the moving part the plan refuses. Writing it down",
+    "would make it an approved name that some later file could use, so it is described",
+    "rather than spelled: it is the dated id below with the date removed.",
+    "",
+    "EXACTLY ONE ENTRY MAY CARRY \"use\": true, and that is the model the function sends to.",
+    "supabase/functions/_tests/suggest_subtasks_test.ts asserts that, so a second one is a",
+    "failing test rather than an ambiguity resolved by array order."
+  ],
+  "approved": [
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "use": true,
+      "approvedOn": "2026-10-07",
+      "approvedBy": "owner",
+      "whichModelThisIs": "Claude Haiku 4.5",
+      "why": "docs/plan.md, 'Suggest subtasks': 'Claude Haiku 4.5, pinned by its dated API name rather than a moving alias.'",
+      "readFrom": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "readOn": "2026-10-07",
+      "readAs": "The 'Claude API ID' row of the model comparison table, under the Claude Haiku 4.5 column. The page's own note on that row: 'Every Claude model ID is a pinned snapshot, including the dateless IDs used from the 4.6 generation on.'",
+      "retirementNotSoonerThan": "2026-10-15",
+      "retirementReadAs": "The same page's 'Retirement' row for this column reads 'Not sooner than October 15, 2026'. READ THAT DATE AGAINST THE APPROVAL DATE ABOVE: it is eight days later. 'Not sooner than' is a floor rather than a date of death, and every other model in that table has a floor in September 2027. This is the owner's decision to make and it is recorded, not argued with, but it is written here so that nobody meets a dead model and goes looking for a bug: a retired model answers 404, which this function maps to the code 'refused', which looks exactly like a wrong key. Issue #185 holds it."
+    }
+  ]
+}

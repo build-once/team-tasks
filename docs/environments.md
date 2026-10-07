@@ -206,11 +206,51 @@ database and the functions are not served locally.
 | `APP_URL` | Not secret | Needed — currently `http://localhost:3000`, see below | Needed, a **different** value, and `https` | The site's own address, used to build the `<APP_URL>/invite/<token>` link. **Only ever read from this setting, never from a request header** — a link built from `Host` or `X-Forwarded-Host` could be pointed at a site an attacker owns, harvesting the token |
 | `EMAIL_TEST_INBOX` | Not secret | **Set** — `teamtasks.staging.test@gmail.com`, the Gmail test mailbox. Every invitation email goes there instead of to the invited person | **Not set** | Where staging's invitation mail is redirected. Its presence *alone* is what redirects mail, and it **overrides `EMAIL_DELIVERY`**: if a test inbox is set, nothing reaches a real recipient |
 | `EMAIL_DELIVERY` | Not secret | **Not set** | **Needed**, exactly `live` | The only value that permits sending to a real recipient. Not `true`, not `Live`, not `1` — a delivery switch that accepts near-misses is one that turns itself on by accident |
+| `AI_API_KEY` | **Secret** | **Needed from Build it 20** | **Deliberately NOT SET until Build it 21** — see below | The Anthropic Claude API key, for `suggest-subtasks`. Each project gets its own, from the **Team Tasks** Console workspace with its 5-dollar monthly spend limit, so a leaked staging key cannot spend production's allowance. It is the first key here that **spends money per request** |
 
 **With none of these set, `invite-member` creates nothing and sends nothing.** It refuses, names the
 settings that are missing, and writes no invitation row — because an invitation that exists but whose
 email never went is worse than none: it occupies one of the team's 20 pending slots and the person it
 names never heard about it. No setting's **value** is ever logged.
+
+### `AI_API_KEY`, and why production has none yet
+
+Added 2026-10-07 with Build it 20 part 1 (**issue #183**, which closes **#179**). The row above used to
+sit in the "Removed" table at the bottom of this file, saying "No AI feature. `docs/plan.md` lists an AI
+helper under 'deliberately not in the first version'". **Both halves stopped being true on 2026-10-07**:
+`docs/plan.md` gained a "Suggest subtasks" section and "An AI helper" left its not-in-the-first-version
+list. Issue #179 was filed because this is the file somebody reads to find out where a secret belongs,
+and a stale "no AI feature" row is how a key ends up in the wrong store.
+
+**Where it lives, and nowhere else.** In each Supabase project's own Edge Functions secrets, exactly
+like `EMAIL_API_KEY`. **Not in Vercel**, not in `.env.example`, not in `web/.env.local`, not in a GitHub
+Actions secret, and not in this repository. `docs/architecture.md`'s arrow (12) is the reason in one
+line: the key never reaches a browser, so the call is made by server code and the browser never holds
+anything that could spend money.
+
+**Production is deliberately left without one for the whole of Build it 20.** `docs/plan.md`:
+"the consent setting arrives in Build it 21, not here. Until it exists, the production key is not
+installed — so on production the helper answers that suggestions are not available, which is a real
+answer rather than a broken screen. Staging has its key from Build it 20, which is where the thing is
+actually tried. Nobody's task title leaves production before there is a setting that lets them say no."
+
+So the production deploy of `suggest-subtasks` is expected and correct, and it will answer every ask
+with one fixed sentence and the code `not_configured` until somebody sets this. **That is not a
+misconfiguration to fix.** The function treats whitespace as absent, matching every other settings check
+here, so a key of spaces does not accidentally switch it on.
+
+**What it costs, which no other setting in this file does.** Anthropic's Claude API has no free plan and
+charges per token. The ceiling is the **5-dollar monthly spend limit** on the Team Tasks workspace; past
+it, requests come back refused and the helper answers that suggestions are not available.
+`docs/costs.md` carries the published prices and the arithmetic. **Usage counts and daily limits arrive
+in Build it 22** — until then the spend limit is the only thing between a loop and a bill, which
+`docs/plan.md` says in those words.
+
+**Unverified — what either project actually holds today.** Nothing in this repository can see a Supabase
+project's function secrets, and no `supabase secrets set` has been run from any assistant session. The
+staging key is the owner's step, with `supabase functions deploy suggest-subtasks`; the Supabase
+dashboard is the only authoritative place. `evidence/build-it-20-ai-helper.md` records what has and has
+not been done.
 
 `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are not in that table because nobody sets them: Supabase
 pre-populates both in every function's settings, and `withSupabase` reads them.
@@ -440,7 +480,7 @@ piece of staleness, corrected here along with the new name.
 | `SUPABASE_SERVICE_ROLE_KEY` | Not used. It bypasses every database rule, and must never live in Vercel |
 | `PAYMENTS_SECRET_KEY`, `PAYMENTS_WEBHOOK_SIGNING_SECRET`, `PUBLIC_PAYMENTS_PUBLISHABLE_KEY` | No payments. `docs/plan.md` puts them outside the first version |
 | `EMAIL_API_KEY` | No email sending yet. Invitations (plan feature 3) are not built; the name comes back when they are, and the value lives in Supabase Edge Functions secrets, not Vercel |
-| `AI_API_KEY` | No AI feature. `docs/plan.md` lists an AI helper under "deliberately not in the first version" |
+| `AI_API_KEY` | **It came back on 2026-10-07, and it is NOT in Vercel.** This row used to read "No AI feature. `docs/plan.md` lists an AI helper under 'deliberately not in the first version'", and both halves stopped being true that day: the plan gained a "Suggest subtasks" section and an AI helper left that list. The name is still rightly absent from `.env.example` and from Vercel, because the app does not read it — the Edge Function does. See **"`AI_API_KEY`, and why production has none yet"** above, which is where it is now described. Issue #179 |
 | `PUBLIC_MONITORING_DSN` | Not used, and still not — but the reasoning in this row has changed. It used to read "No monitoring or error reporting. The plan says none is collected and none is planned", and that stopped being true on 2026-10-05, when `docs/plan.md` added "Error reports to an outside service" and issue #157 built it. What is true now is narrower: the name is wrong twice over. `PUBLIC_…` is inert in Next.js, and the app reads `NEXT_PUBLIC_SENTRY_DSN` — see "Every setting the app uses" above |
 
 If one of these comes back, add the name with an empty value, and put the real value only where that
