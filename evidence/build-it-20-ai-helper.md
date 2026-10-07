@@ -933,6 +933,59 @@ Exit 0.
 
 ---
 
+## 7a. And the same counts, in CI rather than on this machine
+
+Everything above was run on one Windows laptop. CI ran it on Ubuntu, Windows and macOS.
+
+Run [37597656634](https://github.com/build-once/team-tasks/actions/runs/37597656634), on
+PR [#190](https://github.com/build-once/team-tasks/pull/190), commit `6987067`. **Every job
+passed, including `required`** — which is the only one the branch rules ask for, and which fails
+if any needed job was skipped as well as if one failed.
+
+The three counting jobs, from their own logs rather than from their green ticks:
+
+```
+Edge function tests (Deno)
+  running 62 tests from ./supabase/functions/_tests/invitation_status_test.ts
+  running 85 tests from ./supabase/functions/_tests/suggest_subtasks_test.ts
+  running 40 tests from ./supabase/functions/_tests/suspension_test.ts
+  ok | 187 passed | 0 failed (338ms)
+  Counted 187 passing tests; at least 187 expected.
+```
+
+```
+Pure-function checks
+  tasks-filter-check: counted 47 PASS lines; at least 47 expected.
+  password-reset-check: counted 84 PASS lines; at least 84 expected.
+  sentry-scrub-check: counted 95 PASS lines; at least 95 expected.
+  screen-state-check: counted 110 PASS lines; at least 110 expected.
+  friendly-words-check: counted 45 PASS lines; at least 45 expected.
+  approved-model-check: counted 6 PASS lines; at least 6 expected.
+```
+
+```
+Staging script self-tests (can these checks fail?)
+  build-it-16-checks: counted 39 cases; at least 39 expected.
+  build-it-16-suspend-checks: counted 40 cases; at least 40 expected.
+  build-it-18-invitation-status-checks: counted 57 cases; at least 57 expected.
+  build-it-20-ai-checks: counted 64 cases; at least 64 expected.
+```
+
+The other jobs that passed: Guard self-test, Skills lint, Launch check self-test, Workflow lint,
+Vet-tool self-test, Handoff self-test, Drift-check self-test, `npm test` on windows-latest and
+macos-latest, Secret scan (gitleaks), App build, App tests (access rules on staging), and
+`required`.
+
+**`approved-model-check` ran in CI and was green there too**, which matters more than it looks:
+that is the check whose own first two runs failed on this author's work, so a green tick from a
+machine that is not this one is the useful version.
+
+**What CI still cannot say.** No job here deploys anything, calls Anthropic, or reads a Supabase
+project's function secrets. `App tests (access rules on staging)` is the only job that signs in
+to a real project, and it tests the Build it 17 access rules, not this feature.
+
+---
+
 ## 8. Where the model name came from
 
 `docs/plan.md` said: "**To be confirmed by the owner — Claude Haiku 4.5's exact dated API
