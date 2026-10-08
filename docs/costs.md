@@ -187,6 +187,124 @@ for this plan are the **renewal** price (not the first-year price, which is ofte
 discounted) and whether WHOIS privacy costs extra. Both are fixed annual fees, so a
 spending cap does not really apply. The plan's £30/month ceiling includes the domain.
 
+## Daily limits per person, and the worst case they allow
+
+Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
+built**: there is no `usage_counts` table, no config file and no check in either function, so every figure
+below is arithmetic on a design, not a measurement of anything that has run.
+
+> **The owner read this section on 2026-10-08 and kept both limits at 20, and kept this arithmetic as
+> written.** That is worth recording here rather than only in the plan, because the arithmetic says the
+> limits do **not** keep either service inside its ceiling at six people — and the decision was taken with
+> that in front of them, for the reason set out under the Anthropic table below: the vendor cap stops the
+> *bill*, and the daily limit stops *one person or one loop* taking the month in an afternoon. Nothing on
+> this page is softened to make the numbers look better.
+
+**Two services are in scope, because they are the only two a person can spend by pressing a button.**
+Supabase, Vercel, GitHub and Sentry are not: nothing a volunteer does meters them per action — Supabase
+and Vercel are metered by hosting a working app, GitHub by CI runs that a volunteer cannot start, and
+Sentry by the app *breaking*, which is why its own row calls a looping bug the risk rather than growth. A
+per-person daily limit on any of them would have nothing to count.
+
+| Service | Per-person daily limit | Spend cap in its dashboard | Worst case per month |
+|---|---|---|---|
+| **Anthropic Claude API** | **20** AI suggestions | **5 USD a month** on the Team Tasks workspace, owner-set and owner-reported — a real stop (HTTP 400), see the row above | **$9.30 at six people** — which is **above** the 5-dollar cap, so the cap binds first and the helper stops |
+| **Resend** | **20** invitations | **No cap you choose.** The free plan's own quota is the ceiling: **100 emails a day and 3,000 a month**, taken from this page's own Resend row | **$0** — the free plan cannot generate overage charges. The worst case is not a bill but **120 emails a day against a 100-a-day quota**, so invitations stop going |
+
+### Anthropic: the arithmetic, shown
+
+Two inputs. One is read from the code and one is an assumption, and they are marked:
+
+- **Output: 300 tokens**, the hard cap `MAX_OUTPUT_TOKENS` in
+  `supabase/functions/suggest-subtasks/index.ts`, read in the session that wrote this. A reply cannot be
+  longer, so this is a real worst case and not a guess.
+- **Input: 1,000 tokens — AN ASSUMPTION, still not measured.** The same assumption the Anthropic row
+  above has carried since 2026-10-07: one short title plus the fixed instructions. The instructions now
+  exist and could be counted; they have not been. Replace it with the `usage` figures from a real
+  response and this becomes a measurement.
+- Prices as cited above: **$1 / MTok input, $5 / MTok output** for Claude Haiku 4.5.
+
+| Line | Calculation | Result |
+|---|---|---|
+| Input, one call | 1,000 × $1 ÷ 1,000,000 | $0.0010 |
+| Output, one call | 300 × $5 ÷ 1,000,000 | $0.0015 |
+| **One call, worst case** | | **$0.0025** |
+| One person, one day, at the limit | 20 × $0.0025 | $0.05 |
+| One person, one month (31 days, the longest) | 20 × 31 × $0.0025 | **$1.55** |
+| **Six people, one month** — the plan's group size | 6 × $1.55 | **$9.30** |
+
+**So the daily limit does not on its own keep this inside the 5-dollar cap, and that is the finding.**
+$9.30 is 1.86 times the cap. The number of people the limit alone keeps under 5 dollars is
+**5 ÷ 1.55 = 3.2**, so three people at full tilt is $4.65 and four is $6.20. The plan's group is about
+six.
+
+That is not an argument for a lower limit, and it is worth saying why. **The two controls do different
+jobs.** The 5-dollar cap stops the *bill*, properly, by refusing requests — so money cannot run away
+whatever the daily limit is. What it cannot do is stop **one** person, or one retry loop, from using the
+whole month's allowance in an afternoon and leaving the other five with a helper that has stopped
+working. That is the job of the daily limit, and 20 a day is sized for a volunteer using the feature
+rather than for the arithmetic above: twenty presses is a generous day's use, and a loop reaches it in
+seconds and then stops.
+
+**What would make the two agree**, if the daily limit were wanted as the binding one at six people: it
+would have to be **5 ÷ (6 × 31 × $0.0025) ≈ 10.7**, so **10 a day**. **Not taken.** The owner kept 20 on
+2026-10-08, for the reason in the paragraph above. The figure is kept here because it is the thing to
+re-read if the group ever grows, or if a measured input token count moves the per-call cost.
+
+### Resend: the arithmetic, shown
+
+The limit is 20 invitations per person per day, and the quota it runs into is the free plan's, from this
+page's own Resend row: **100 a day, 3,000 a month.**
+
+| Line | Calculation | Result |
+|---|---|---|
+| Six people, one day, at the limit | 6 × 20 | **120 emails** |
+| Against the free plan's daily quota | 120 vs 100 | **over by 20** |
+| Six people, one month (31 days) | 120 × 31 | **3,720 emails** |
+| Against the free plan's monthly quota | 3,720 vs 3,000 | **over by 720** |
+| People the daily quota allows at 20 each | 100 ÷ 20 | **5 exactly** |
+| People the monthly quota allows at 20 each | 3,000 ÷ 31 ÷ 20 | **4.8, so four** |
+| **Cost of any of it** | free plan has no overage | **$0** |
+
+**So here too the daily limit is not the binding ceiling at six people — Resend's free quota is.** The
+difference from Anthropic is the failure mode: **nothing is billed**, because overage exists only on
+paid plans, so what happens instead is that sending stops. **And what the free plan actually does at
+quota is UNSURE** — this page has said so since 2026-09-27 and reading it is still the only way to know
+whether sending pauses or fails, and whether a failed send would land in `invitations.failure_code` as
+`refused` or as something else.
+
+**Three reasons the 120 is a worst case nobody is near.** Twenty invitations a day each, by six people,
+every day for a month, is 3,720 invitations to a group of about six. The plan's existing limits push the
+same way: at most **20 pending** invitations per team, at most **3 teams** per person, and a **7-day**
+expiry. And `docs/plan.md` already calls the realistic shape of this risk a loop rather than growth.
+
+**And one thing that makes the 20 tighter than it looks: a retry counts.** The owner decided on
+2026-10-08 that re-sending an invitation whose email failed consumes a slot, because it sends a second
+email and the email is the metered thing. So a person whose sends are failing works through their twenty
+faster, which is the right way round — a failing email service is exactly the situation in which a
+person presses the button repeatedly, and that is what this limit exists to bound.
+
+### One email path these limits do not cover, and when it gets read
+
+**The sign-up confirmation and the password-reset email are sent by Supabase, not by `invite-member`**,
+and **nothing in Build it 22 counts them — decided by the owner on 2026-10-08.** They cannot be counted
+the way the other two are: both are sent to somebody who is **not signed in**, so there is no person's ID
+to key a count by, and the password-reset path deliberately answers identically whether or not the
+address has an account (`docs/plan.md`, and `scripts/password-reset-check.mjs` enforces it) — so counting
+per address would rebuild exactly the distinction that screen refuses to make. A limit that undid a
+privacy promise to save an email would be the wrong trade.
+
+What holds them is **Supabase's own rate limits on its built-in email**, and **what those are has not
+been read.** No figure is written here. **Reading them is Build it 25** — the owner's decision of
+2026-10-08, and [#219](https://github.com/build-once/team-tasks/issues/219) holds it with what to read
+and how we will know it is done.
+
+The nearest thing to a number this project has today is `docs/stack.md`'s decision that the built-in
+sender is for testing only and is "rate-limited and Supabase documents it as unsuitable for production".
+The cost today is **£0**: it is Supabase's own sending on the free plan, not Resend's quota. **Which is
+also why this is Build it 25 rather than urgent** — nothing here can produce a bill, so what is at risk
+is a volunteer not getting a reset email, not money.
+
 ## Unverified
 
 These are gaps in this page, not findings. Resolved items are listed at the end so the same
@@ -219,6 +337,20 @@ question does not get re-asked from scratch.
   prices and the spend-limit behaviour are read from Anthropic's pages, which is how Anthropic describes
   the service, not what this account is set to.
 - **UNSURE — the registrar row in full; no registrar chosen.**
+- **Unverified — the "Daily limits per person" section is arithmetic on a design, even though the design
+  is now decided.** Added 2026-10-08; the owner settled the limits, the retention and the counting rule
+  the same day. **The code did not arrive with the decisions**: no `usage_counts` table, no config file,
+  no check in either function, and nothing has ever been counted. Everything in that section except the
+  two limits and the cited prices is multiplication done by hand in the session that wrote it.
+- **Still not confirmed — the input token count the Anthropic worst case rests on.** 1,000 is the same
+  assumption carried since 2026-10-07, and the fixed instructions that would let somebody count it now
+  exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an
+  assumption: it is `MAX_OUTPUT_TOKENS` in that file, read in this session. So **$9.30 is an upper bound
+  on a guess**, and the owner's decision to keep the limits at 20 was taken knowing that.
+- **Not read, and now scheduled — Supabase's rate limits on the sign-up and password-reset emails it
+  sends.** They are the one email path no daily limit here covers, by the owner's decision of
+  2026-10-08, and no figure for them is written on this page. **Reading them is Build it 25**:
+  [#219](https://github.com/build-once/team-tasks/issues/219).
 
 Resolved on 2026-09-27, both confirmed against vendor documentation:
 

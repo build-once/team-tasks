@@ -243,6 +243,187 @@ holds it, with the full list and how we will know it is done. **Writing the word
 least because they carry legal weight; the gate is written here so the release order is decided in one
 place.
 
+## Daily limits on what costs money
+
+Added 2026-10-08. Not a sixth feature of the list above, and **nothing new leaves this project**: it is a
+ceiling on the two things in this app that spend money when somebody presses a button. It is in the plan
+because it holds a **new kind of row the appendix did not list** — a count, per person, per day — and
+because rule 9 asks for the plan before the code. Build it 22 is where it is built; this section is
+written first, with no code, no migration and no table in existence on the day it was written.
+
+**What it is.** A count of how many times each person used each limited feature on each day, kept in this
+project's own database in a table called **`usage_counts`**, and a refusal once that count has reached the
+day's limit. It is the thing "Suggest subtasks" above has been promising since 7 October — "**Usage counts
+and daily limits arrive in Build it 22.** They are not designed here and no number for them is written
+here" — and this is where they are designed and where the numbers are written.
+
+**Decided 2026-10-08, and this section was written before those decisions rather than after them.** It
+went to the owner with **seven** open questions and one wording point, and all eight came back settled
+the same day. Each is recorded in its place below; they are gathered here so the whole set is in one
+view. **Nine rows for eight answers**, because one question — the names — covered two things:
+
+| | Decided |
+|---|---|
+| How long a count is kept | **7 days**, removed by the same statement that does the counting |
+| The two limits | **20 and 20**, unchanged, **with the arithmetic kept as written** in `docs/costs.md` — which says they are not the binding ceiling at six people |
+| A retry of an invitation | **Counts.** It sends a second email |
+| When the count is written | **Before the paid call, and never given back** |
+| The table's name | **`usage_counts`**, everywhere |
+| The config file | **`supabase/functions/_shared/limits.ts`**, as proposed |
+| The refusal's sentence | **Stands as written below**, and [#184](https://github.com/build-once/team-tasks/issues/184) is the one to update |
+| "It resets tomorrow" | **Stays**, with the inaccuracy for people not on UTC recorded rather than fixed |
+| The sign-up and reset emails | **Not counted.** Supabase's own rate limits hold them, and reading those is **Build it 25** |
+
+**What is stored, and nothing else:** the **person's ID**, the **feature**, the **day**, and the
+**count**. Four values. **Nothing about which task** and **nothing about which address**: not a task id,
+not a title, not an invited person's email, not a team, not a time of day, not whether the use succeeded.
+A row says "this person used this feature this many times on this day" and is incapable of saying more.
+
+**Who can see it: no app user, not even the person whose count it is.** Not their team's owner, not
+another member, and not through a signed-in request — the table carries **no rule and no privileges** that
+would let one through, exactly as `account_status` carries none. Only the **server functions**, which hold
+the secret key and are what does the counting, and **the app's operator**, through the database.
+
+*"The app's operator", not "owner", and the distinction is the reason the words were chosen.* In this app
+"owner" also means the owner of a team — feature 2 — and **a team's owner can see nothing here**, not even
+for a member of their own team. The person who can is whoever has the Supabase dashboard, which today is
+one person.
+
+**How long it is kept: 7 days, removed by the same statement that does the counting. Decided by the owner
+on 2026-10-08.** The count's only job in the app is to answer "how many today", so yesterday's row is
+already useless for enforcement; everything past today is for the operator, and a row per person per
+feature per day is a record of **which days somebody used this app**, which is the same kind of fact the
+appendix already flags about exact timestamps. A week is enough for the operator to tell a spike from a
+habit, and no more than that is kept.
+
+**The removal is in code, not in a routine, and that is the half of the decision that matters.** It
+happens on a path that is already writing, so it needs **no scheduler, no new dependency and no second
+thing for anybody to remember** — and it cannot drift, because it runs on every use. A retention period
+that depends on somebody doing it is not a retention period; it is a permanent record wearing a window's
+label. The cost, stated rather than hidden: one extra statement on every counted use, and the deletion is
+a side effect of counting rather than a job you can watch run.
+
+**The two options not chosen**, kept here on purpose so the question is not re-argued from scratch later,
+the way the "Collecting less — declined" list below keeps its reasons:
+
+| Not chosen | Why not |
+|---|---|
+| 35 days, removed by hand by the operator | It would cover a month, so a month of counts could be held against a month of Anthropic's billing. But **nobody will do it** — and then it is not a 35-day window, it is a permanent activity log that says it is a window |
+| Only today, older rows deleted on the next write | Collects least, which is this plan's bias everywhere else. But the operator loses the one view that would show a loop: "this person did 20 a day for six days" is the shape of a problem, and a single day cannot show it |
+
+**Deleted with the account.** The rows are keyed by the person's ID and go when the account goes. There is
+still no way to delete an account in this app, which the appendix's "Two gaps" section already says and
+this section does not improve.
+
+**The limits: 20 AI suggestions and 20 invitations per person per day. Confirmed by the owner on
+2026-10-08, after the arithmetic, and the arithmetic is kept as written.** That last clause is the
+decision, not a formality: `docs/costs.md` works out that at the plan's group size of about six, **20 a
+day is not the binding ceiling for either service** — Anthropic's worst case is above the 5-dollar spend
+limit, and 20 invitations each is above the email service's free daily quota. The numbers stand anyway,
+because **the two controls do different jobs**. The vendor cap stops the *bill*, properly, by refusing
+requests. What it cannot do is stop **one** person, or one retry loop, from using the whole month's
+allowance in an afternoon and leaving the other five with a helper that has stopped working. That is this
+limit's job, and 20 is sized for a volunteer's day rather than for the multiplication. The arithmetic is
+kept **because** it says so: a page that showed only the reassuring half would be the page somebody
+trusted later.
+
+Both numbers live in **one config file**: `supabase/functions/_shared/limits.ts`, the location proposed
+when this section was written and confirmed on 2026-10-08, read by both `suggest-subtasks` and
+`invite-member`. Not spelled at a call site and not in two places. Changing a limit is then a one-line
+change in one file, which is also what makes it reviewable: a limit nobody can find is a limit nobody can
+check.
+
+**Per person, not per team**: one person who owns three teams has 20 invitations a day in total, not 20
+for each team. The existing limits are untouched and are different things — at most 20 **pending**
+invitations per team, at most 3 teams per person, and a 7-day expiry — none of which caps how many a
+person may send in a day.
+
+**The day is a UTC day**, and the count is keyed by that date. Not the person's local day, because the
+app does not know what that is: nothing in this project stores a time zone, and a zone taken from the
+browser would make the same person's limit reset at a different moment depending on which device they
+picked up.
+
+**So what "resets tomorrow" means for somebody not on UTC.** Their counter rolls over at **00:00 UTC**,
+which is some fixed hour of their own afternoon or evening rather than their midnight: at UTC+13 it is
+13:00 their time, and at UTC−5 it is 19:00 the previous local evening. Two consequences, both stated
+rather than hidden:
+
+- **Their "day" is not their day.** Twenty uses spread across one local Monday can fall in two different
+  UTC days, or two local days can share one.
+- **The sentence below is approximate for them, and can be wrong by up to the offset.** Somebody at UTC−5
+  who reaches the limit at 10:00 local gets their allowance back at 19:00 **the same local day**, and the
+  app will have told them "tomorrow". **The wording stays, decided by the owner on 2026-10-08** with that
+  inaccuracy in front of them: "it resets at 00:00 UTC" is precise and means nothing to a volunteer, and
+  this app is for one group of about six. So the inaccuracy is **recorded here rather than fixed**, which
+  is the honest version of leaving it alone — and if this app ever has people spread across time zones,
+  this paragraph is the one to come back to.
+
+**What counts as a use. Decided by the owner on 2026-10-08, and this is the half that decides whether the
+limit protects anything.** The rule is: **a use is counted the moment this app is about to spend money,
+and it is never given back.** The count is written immediately before the paid call is made, and no
+answer — success, refusal, timeout or silence — changes it afterwards.
+
+| Does it count? | `suggest-subtasks` | `invite-member` |
+|---|---|---|
+| **No — refused before anything is sent** | No signed-in caller; `account_suspended`; a suspension read that did not answer; `ai_suggestions_off`; `ai_suggestions_unknown`; a malformed body or a bad task id; `busy`; a task that was not found or whose title is unusable; a task read that did not answer; `not_configured` (production has no key); `no_model` | No signed-in caller; `account_suspended`; a caller who does not own the team; inviting yourself; inviting somebody already in the team; the team's 20-pending limit; no `EMAIL_FROM` or no delivery setting; a failure writing the invitation row |
+| **Yes — the request was made** | The call to Anthropic, whatever comes back: suggestions, `refused`, `model_unavailable`, `rate_limited`, `spend_limit`, `unavailable`, `timeout`, `bad_reply` | The send to the email service, whether it answers **sent** or **failed** — and **a retry counts**, decided 2026-10-08: it replaces the link and sends a second email, so it is a second use. See below |
+| **Yes, and it is the awkward one** | `unreachable` — the request could never be made at all, so it cost nothing | — |
+
+**A retry of an invitation counts. Decided by the owner on 2026-10-08**, and the argument against it was
+real enough to be worth keeping: somebody retrying because the first send failed is not doing a second
+thing, and charging them a slot for the email service's bad day reads as unfair. It counts anyway,
+because **the thing being limited is the email and a retry sends one** — `invite-member`'s retry path
+replaces the link and starts the 7 days again, so it is a second send by every measure except intent.
+The alternative would also need the app to tell a retry from a first attempt in the count, which is a
+second thing to get right in exchange for softening a limit.
+
+**Why `unreachable` still counts, which is the one place this rule gives a wrong-looking answer. Decided
+by the owner on 2026-10-08: the count is written before the paid call and never given back.** That
+ordering is the whole protection:
+a count written only on success makes a loop of failures free, and a failing service is exactly when
+something retries. Over-counting by one when the network is down costs a person one press; under-counting
+when the service is broken costs the owner the thing this limit exists for. **The count may therefore be
+higher than the number of requests that reached anybody, and never lower**, which is the direction an
+unknown should fail in — the same way round as `create-team` counting teams, where an unknown is not a
+zero.
+
+**When the limit is reached the person sees:** "You've reached today's limit. It resets tomorrow."
+
+One sentence for both features, saying what happened and when it ends, and naming **no** company, model,
+key, status or number. It is **not** one of the twelve fixed failure codes `suggest-subtasks` already has,
+for the same reason the consent refusal is not: those twelve all mean "something in this app's plumbing
+went wrong, press it again later", and this one is a fact about the person's own day that they can plan
+around. Like the consent refusal, it gets its own sentence and its own code.
+
+**The sentence stands. Decided by the owner on 2026-10-08**, against
+[#184](https://github.com/build-once/team-tasks/issues/184)'s condition 3, which asks for this refusal to
+reuse the function's existing fixed sentence and one of its existing codes. **#184 is the thing that
+changes, not the sentence**, and a comment on that issue says so. The reason the condition was written
+that way is sound — a new sentence usually means new plumbing on a screen to explain it — and the consent
+refusal has since shown the other shape: a refusal a person can act on earns its own words, and hiding it
+behind "Suggestions aren't available right now" would be using a sentence designed to conceal plumbing to
+conceal something useful instead.
+
+**This replaces the per-instance "one call at a time" lock as the real control, and that lock stays
+exactly where it is.** [#186](https://github.com/build-once/team-tasks/issues/186) records what is wrong
+with it: it is a `Set` of user IDs in one isolate's memory, so two asks from one person that land on two
+isolates both proceed, and it is "a courtesy, not a control". A count in a table is the control, because
+every isolate reads the same row.
+
+What happens to the lock: **nothing is removed.** It keeps catching the double click without a database
+write, which is worth having and costs nothing, and **it stops being the thing anybody points at** when
+asked what keeps this feature from spending money. The caveat in the code stays true and stays written
+down, so #186 does **not** close when this lands — its four conditions are about two *simultaneous* asks
+being counted, not about a daily limit — and nothing in this section softens it.
+
+**And it does not close [#184](https://github.com/build-once/team-tasks/issues/184) either, which is
+worth saying because it looks as though it should.** #184 is the reload: asking is a GET, so every reload
+of `/tasks?suggest=<id>` asks again and spends again. A daily limit does not stop the second ask — it
+stops the twenty-first. What it does is make the asks **countable**, which is #184's condition 2 and
+half of its condition 4; its condition 1, "the second ask did not reach the AI service", stays open and
+needs something this section does not design. **And its condition 3 is departed from on purpose** — see
+the sentence above, and the owner's decision of 2026-10-08 that #184 is what updates.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. File attachments. Payments. A phone app.
@@ -268,6 +449,8 @@ before any code existed.
 - The title of one task, sent to Anthropic's Claude API when somebody presses Suggest subtasks, and
   the suggestions that come back — outside this project, and with nothing attached that says who asked
 - Whether somebody has switched AI suggestions on, and when they last changed it
+- How many times each person used each limited feature on each day — a count, and nothing about which
+  task or which address
 
 Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
 sensitive information in task text, and the app does not need it.
@@ -343,6 +526,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
+| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` *(named 2026-10-08; no table exists yet)*. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — the table is planned with no rule and no table privileges for signed-in or signed-out callers, the way `account_status` has none. The app's **operator** via the dashboard; the **server functions**, which hold the secret key and do the counting. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
 ## Collecting less — decided
 
@@ -426,6 +610,26 @@ data leaves because somebody asked for help with it, not because something broke
   exists, so the first version of consent here is not a box somebody has to find and clear. Nobody has
   sent anything until they have switched it on themselves.
 
+### Added 2026-10-08 — collecting less in a usage count
+
+Kept apart again, and this one is a different shape from all three above: nothing leaves the project, and
+the data is not something anybody typed. It is a number this app writes about a person, which is the first
+time that has been true of anything in this plan except a suspension.
+
+- **A count, not a log.** One row per person, per feature, per day, holding a number. **Not a row per
+  use**, which would be a timestamped record of each time somebody pressed a button, and would be the
+  request logging "Logs: we add none of our own" rules out above.
+- **Nothing about what was used.** No task id, no title, no invited address, no team, and no time of day
+  — so the count cannot be read backwards into what somebody was doing, only how often.
+- **Nobody can read it through the app, not even the person it is about.** No rule and no table
+  privileges for signed-in or signed-out callers, the way `account_status` has none.
+- **A short window, and one that enforces itself.** **7 days**, decided 2026-10-08, removed by the same
+  statement that does the counting — because a retention period that depends on somebody remembering is
+  one that quietly becomes "forever". Both halves were the owner's choice: the length, and that it be
+  enforced by code rather than by intention.
+- **One file holds the numbers.** Two limits, in one place, so the thing a reviewer has to find is in one
+  place.
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -439,12 +643,14 @@ The three things below are unchanged, because there was nothing to reduce:
 ## Two gaps this table exposes
 
 **There is no way for anyone to delete their account.** Features 1 to 5 do not include it, which is
-why **seventeen** rows above say the owner must delete by hand, or that nobody can: nine of them from
+why **eighteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
 the first version, the two suspension rows added on 2026-10-04, four added on 2026-10-05 — an
-invitation's status and the three error-report rows — and two added on 2026-10-07, the task title sent
-to Anthropic and the AI-suggestions setting. (Fifteen before 2026-10-07; the count was made again by
-reading the table's last column on 2026-10-07, after the consent row was added, and it came to
-seventeen.) That is a report, not a suggestion: as written,
+invitation's status and the three error-report rows — two added on 2026-10-07, the task title sent
+to Anthropic and the AI-suggestions setting, and **one added on 2026-10-08**, the daily usage count.
+(Fifteen before 2026-10-07, seventeen after it; the count was made again on **2026-10-08** by reading
+the table's "How a user deletes it" column for all **27** data rows after the usage-count row was added,
+and it came to eighteen. Both numbers were counted in that session, not carried forward.) That is a
+report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
 volunteers, or whether the plan changes.
 
@@ -465,6 +671,13 @@ the price of sending no user ID. What Anthropic holds runs on the 30-day clock c
 nothing this project controls. The consent setting in Build it 21 is what will make that a choice
 rather than a consequence of pressing a button.
 
+The daily usage count widens it a third way, and it is the smallest of the three and worth one sentence
+anyway: it adds no service and leaves no company holding anything — the row is ours, and it goes with
+the account — but it joins the two suspension rows as something **nobody can see through the app,
+including the person it is about**. So a person cannot find out from the app how many
+times it thinks they have done something, which is a reasonable price for a count that holds nothing but
+a number, and is still a thing to have said rather than to have passed over.
+
 **Four rows are things you never chose to collect.** The sign-in audit records, both log stores and
 the session tokens are created by Supabase and Vercel whether you want them or not, and they
 include IP addresses. They are not in your tables and you cannot turn most of them off. The
@@ -477,6 +690,10 @@ stops it. The four above cannot be switched off at all.
 
 Still four on 2026-10-07 as well. Everything Anthropic receives, it receives because this app chose to
 send it, and not sending it is always available.
+
+Still four on 2026-10-08. The daily usage count is the most chosen row in this table: it exists only
+because we decided to write it, in our own database, and the whole of it is one number we picked the
+shape of.
 
 ## Unverified
 
@@ -536,18 +753,64 @@ send it, and not sending it is always available.
     staging apply and both sets of connector reads are the owner's and the coach's, recorded in
     `evidence/build-it-21-ai-consent-migration.md` and `evidence/production-log.md`, and the production
     run's step conclusions were read with `gh run view --json`. Nobody writing this opened a dashboard.
-  - **The check in `suggest-subtasks` exists in this repository and is deployed to production, not to
-    staging.** Build it 21 part 2b added it: `withConsent` refuses a caller whose setting is off with its
-    own sentence and the code `ai_suggestions_off`, and refuses an unreadable setting with the fixed
-    sentence and `ai_suggestions_unknown`. Production gets every function on merge, through the same
-    workflow. **Staging is deployed by hand and has not been**, so the version running there is still
-    Build it 20's, with no consent check — `docs/environments.md` says where each thing stands.
-  - **The screen exists**: `/settings`, with the switch and the words. Nobody has opened it in a browser.
-  - **The production key is still not installed**, and all three of its preconditions are still open:
-    the setting has not been *seen to refuse* with it off on production, and there is no privacy page
-    ([#204](https://github.com/build-once/team-tasks/issues/204)).
+  - **The check in `suggest-subtasks` exists in this repository and is now deployed to both projects.**
+    Build it 21 part 2b added it: `withConsent` refuses a caller whose setting is off with its own
+    sentence and the code `ai_suggestions_off`, and refuses an unreadable setting with the fixed sentence
+    and `ai_suggestions_unknown`. Production gets every function on merge, through the same workflow.
+    **Staging is deployed by hand, and on 8 October 2026 it was** — which is a change from what this
+    bullet said when it was written that morning, and the sentence it replaces ("Staging is deployed by
+    hand and has not been") is exactly the kind of claim this list exists to keep from going stale.
+  - **And on staging the setting has been seen to refuse with it off.** The owner ran
+    `scripts/staging/build-it-20-ai-checks.mjs` **before** the deploy — 37 PASS, 8 FAIL, the 8 being
+    sections 2 and 7, where the deployed function answered 200 with suggestions for a person whose
+    setting was off — and **after** it: 45 PASS, 0 FAIL, 0 UNVERIFIED, with the setting off answering 403
+    `ai_suggestions_off`. The before-and-after pair is what makes that the deploy's doing rather than a
+    coincidence. **None of it was run or seen by the assistant**: it is the coach's record of the owner's
+    runs, copied into `evidence/build-it-21-ai-consent-function-and-screen.md`, and nobody writing this
+    opened a dashboard or a terminal on staging.
+  - **The screen exists**: `/settings`, with the switch and the words. The owner reports using it against
+    staging on 8 October — off, switched on, suggestions, switched off again, all as the words say — and
+    reported it as "all are right and passed", with **no screenshots**. Nobody writing this has opened it
+    in a browser ([#212](https://github.com/build-once/team-tasks/issues/212)).
+  - **The production key is still not installed**, and **two** of its three preconditions are still open:
+    the setting has **not** been seen to refuse with it off **on production** — staging is not production,
+    and production has no profile rows at all because nobody has signed up — and there is still no privacy
+    page ([#204](https://github.com/build-once/team-tasks/issues/204)).
 
-  So "seen to refuse with it off", in the order of release above, is still the step that settles it, and
-  it is still not done. What this repository can show today is the check refusing in Deno tests, with the
-  task never read and a stubbed service receiving nothing. A refusal from a **deployed** function is the
-  owner's staging run, and `scripts/staging/build-it-20-ai-checks.mjs` is what makes it.
+  So "seen to refuse with it off" in the order of release above is **done for staging and not for
+  production**, and production is the one the order of release is about. What this repository can show by
+  itself is the check refusing in Deno tests, with the task never read and a stubbed service receiving
+  nothing; what settles a **deployed** refusal is a run of
+  `scripts/staging/build-it-20-ai-checks.mjs`, and the production equivalent of that run does not exist,
+  because rule 19 does not permit one.
+- **Unverified — "Daily limits on what costs money" is decided but not built.** The nine decisions in that
+  section's table are the owner's, taken on 2026-10-08. **The code is not**: there is no `usage_counts`
+  table, no migration, no config file, no check in either function, and nothing has ever been counted.
+  Every column, privilege and refusal in that section is a design, not something read back from a
+  database. **Decided is not the same as true**, and this entry stays until Build it 22's code exists and
+  a run shows the limit refusing.
+- **Decided, so no longer open — the four questions this list carried on the morning of 2026-10-08.** How
+  long a count is kept (7 days, removed by the counting statement), whether the limits stay at 20 (they
+  do), whether a retry counts (it does), and when the count is written (before the paid call, never given
+  back). They are recorded in the section itself. They are named here so that somebody reading this list
+  for open questions does not go looking for answers that are already above.
+- **Confirmed and accepted — a 20-a-day limit does NOT keep either service inside its ceiling.** This was
+  a "not confirmed" until the arithmetic was done on 2026-10-08, and the answer in both cases is **no** at
+  about six people: the Anthropic worst case is above the 5-dollar monthly limit, and 20 invitations each
+  is above the email service's free 100-a-day. **The owner kept both limits and kept the arithmetic**, so
+  this is now a known fact rather than a gap: the vendor ceilings are the outer limit, and the daily limit
+  is what stops **one person or one loop** reaching them alone. `docs/costs.md` has the numbers.
+- **Still not confirmed — the input token count that half of that arithmetic rests on.** The Anthropic
+  figure assumes 1,000 input tokens per call, the same assumption `docs/costs.md` has carried since
+  2026-10-07, and it has never been measured. The output figure is not an assumption: it is
+  `MAX_OUTPUT_TOKENS` read from the function. So the $9.30 is an upper bound on a guess, and settling it
+  needs the `usage` figures from a real response.
+- **Not read, and now scheduled — what limits Supabase applies to the sign-up and password-reset emails
+  it sends.** Those two are the only email this app sends that `invite-member` does not, they are sent to
+  people who are **not signed in**, and **nothing in Build it 22 counts them** — decided by the owner on
+  2026-10-08, because there is no person's ID to key a count by, and the reset screen deliberately
+  answers identically whether or not an address has an account, so counting per address would rebuild the
+  exact distinction that screen refuses to make. What holds them is **Supabase's own rate limits**, and
+  **reading those is Build it 25** — the owner's decision of 2026-10-08.
+  [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
+  know it is done. No figure is written here until somebody has read the page.
