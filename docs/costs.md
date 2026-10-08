@@ -190,8 +190,10 @@ spending cap does not really apply. The plan's £30/month ceiling includes the d
 ## Daily limits per person, and the worst case they allow
 
 Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
-built**: there is no `usage_counts` table, no config file and no check in either function, so every figure
-below is arithmetic on a design, not a measurement of anything that has run.
+limited yet**: the `usage_counts` migration now exists in this repository
+(`supabase/migrations/20261008115900_usage_counts.sql`) and **has been applied nowhere**, there is no
+config file, and neither Edge Function counts — so every figure below is still arithmetic on a design,
+not a measurement of anything that has run.
 
 > **The owner read this section on 2026-10-08 and kept both limits at 20, and kept this arithmetic as
 > written.** That is worth recording here rather than only in the plan, because the arithmetic says the
@@ -339,9 +341,12 @@ question does not get re-asked from scratch.
 - **UNSURE — the registrar row in full; no registrar chosen.**
 - **Unverified — the "Daily limits per person" section is arithmetic on a design, even though the design
   is now decided.** Added 2026-10-08; the owner settled the limits, the retention and the counting rule
-  the same day. **The code did not arrive with the decisions**: no `usage_counts` table, no config file,
-  no check in either function, and nothing has ever been counted. Everything in that section except the
-  two limits and the cited prices is multiplication done by hand in the session that wrote it.
+  the same day. **The code arrived in halves**: the `usage_counts` migration exists and is **applied
+  nowhere** (`supabase/migrations/20261008115900_usage_counts.sql`, proved only on a throwaway local
+  PostgreSQL sandbox — `evidence/build-it-22-usage-counts.md`), and there is still no config file, no
+  check in either function, and **nothing has ever been counted outside that sandbox**. Everything in
+  that section except the two limits and the cited prices is multiplication done by hand in the session
+  that wrote it.
 - **Still not confirmed — the input token count the Anthropic worst case rests on.** 1,000 is the same
   assumption carried since 2026-10-07, and the fixed instructions that would let somebody count it now
   exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an

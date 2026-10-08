@@ -281,8 +281,17 @@ A row says "this person used this feature this many times on this day" and is in
 
 **Who can see it: no app user, not even the person whose count it is.** Not their team's owner, not
 another member, and not through a signed-in request — the table carries **no rule and no privileges** that
-would let one through, exactly as `account_status` carries none. Only the **server functions**, which hold
-the secret key and are what does the counting, and **the app's operator**, through the database.
+would let one through, exactly as `account_status` carries none. Only **the app's operator**, through the
+database.
+
+**And not the server functions either, which is a correction the owner made on 2026-10-08** while the
+migration was being written. This section first said the server functions could see it, because they were
+expected to read and write the table directly the way the other three read `account_status`. They do not:
+there is **one database function** that counts, and the role those functions connect as holds **the right
+to run it and no privilege on the table at all** — no select, no insert, no update, no delete. So a server
+function can ask for one use and be told yes or no, and can neither read which days somebody used this app
+nor reset a count to start their day again. `docs/architecture.md` carried the same sentence and is
+corrected in the same change.
 
 *"The app's operator", not "owner", and the distinction is the reason the words were chosen.* In this app
 "owner" also means the owner of a team — feature 2 — and **a team's owner can see nothing here**, not even
@@ -526,7 +535,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` *(named 2026-10-08; no table exists yet)*. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — the table is planned with no rule and no table privileges for signed-in or signed-out callers, the way `account_status` has none. The app's **operator** via the dashboard; the **server functions**, which hold the secret key and do the counting. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
+| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **the migration exists and has been applied nowhere**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
 ## Collecting less — decided
 
@@ -783,12 +792,27 @@ shape of.
   nothing; what settles a **deployed** refusal is a run of
   `scripts/staging/build-it-20-ai-checks.mjs`, and the production equivalent of that run does not exist,
   because rule 19 does not permit one.
-- **Unverified — "Daily limits on what costs money" is decided but not built.** The nine decisions in that
-  section's table are the owner's, taken on 2026-10-08. **The code is not**: there is no `usage_counts`
-  table, no migration, no config file, no check in either function, and nothing has ever been counted.
-  Every column, privilege and refusal in that section is a design, not something read back from a
-  database. **Decided is not the same as true**, and this entry stays until Build it 22's code exists and
-  a run shows the limit refusing.
+- **Unverified — "Daily limits on what costs money" is half built, and the half that is built is applied
+  nowhere.** The nine decisions in that section's table are the owner's, taken on 2026-10-08. Rewritten
+  the same day, when the migration was written, because the sentence this replaces — "there is no
+  `usage_counts` table, no migration, no config file, no check in either function" — stopped being true
+  of its first two clauses. Taken one at a time:
+
+  - **The migration exists**: `supabase/migrations/20261008115900_usage_counts.sql`, the table and
+    `count_daily_use()`. **It has been applied nowhere** — not local, not staging, not production. Every
+    column, constraint and privilege in it was read back from a **throwaway PostgreSQL sandbox on the
+    owner's machine**, twice over, with the counting raced 20 ways at a limit of 2 and the read-then-write
+    version shown failing: `evidence/build-it-22-usage-counts.md`. A sandbox is not staging and is not
+    production, and nothing in that evidence file is otherwise.
+  - **Nothing counts yet.** There is no `supabase/functions/_shared/limits.ts`, `suggest-subtasks` and
+    `invite-member` are untouched, and **no number has ever been counted anywhere but in that sandbox**.
+    So nothing is limited today, and `docs/costs.md` is right that the vendor ceilings are the only thing
+    in the way.
+  - **The refusal sentence does not exist in any code.** "You've reached today's limit. It resets
+    tomorrow." is in this plan and nowhere else.
+
+  **Decided is not the same as true, and written is not the same as applied.** This entry stays until the
+  two functions count and a run shows the limit refusing.
 - **Decided, so no longer open — the four questions this list carried on the morning of 2026-10-08.** How
   long a count is kept (7 days, removed by the counting statement), whether the limits stay at 20 (they
   do), whether a retry counts (it does), and when the count is written (before the paid call, never given
