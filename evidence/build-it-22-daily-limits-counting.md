@@ -231,7 +231,7 @@ shared file rather than in either function. **Two codes, not one**, because they
 the owner: `daily_limit` is a quiet day, `daily_limit_unknown` is a page to open.
 
 **The body carries `error` and `code` and nothing else.** No limit, no count, no feature word, no date,
-no user id — asserted by the test "the limit refusal is the plan's sentence, character for charactermigr",
+no user id — asserted by the test "the limit refusal is the plan's sentence, character for character",
 which also requires the sentence to contain no digit, no raw code, and none of the words Anthropic,
 Claude, Resend, `usage_counts` or `count_daily_use`.
 
