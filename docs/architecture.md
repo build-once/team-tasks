@@ -235,9 +235,13 @@ wanting a secret in `web/` client code, the answer is a new server function, not
 
 ## `usage_counts`, and which functions write it
 
-Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
-built**: there is no migration and no table. This section is the shape, agreed before anything is typed,
-which is what the top of this file says the whole document is for.
+Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"), when nothing was
+built. **The migration now exists in this repository and has been applied nowhere** — not local, not
+staging, not production: `supabase/migrations/20261008115900_usage_counts.sql`, the table and the one
+counting function, with the proof in `evidence/build-it-22-usage-counts.md`. **Nothing calls it yet**:
+there is no `supabase/functions/_shared/limits.ts`, neither Edge Function counts, and so nothing is
+limited. The rest of this section is the shape, agreed before anything was typed, which is what the top
+of this file says the whole document is for.
 
 **The table is called `usage_counts`** — named by the owner on 2026-10-08, and the name to use
 everywhere. One row per person, per feature, per day, holding four values and nothing else:
@@ -291,13 +295,20 @@ or `authenticated` — the same shape as `account_status`, and the same reasonin
 unreachable through the Data API, so the `revoke` is the lock that matters and the absence of a policy is
 intended rather than an oversight. (Supabase's security advisor reports that as an
 `RLS-enabled-no-policy` notice, which is the table working as designed; `evidence/production-log.md`
-records the same notice being accepted for `account_status` on 4 October 2026.) `service_role` needs
-**select, insert, update and delete** — it is what the two functions connect as, and **delete is needed
-because of the 7-day decision**: the statement that counts is also the statement that removes the
-person's rows older than the window, so the role doing the counting has to be able to delete. That is the
-one privilege this table needs that `account_status` does not, and it is a consequence of a retention
-choice rather than of anything about the counting. It needs nothing beyond those four, and the operator
-reads it in the dashboard.
+records the same notice being accepted for `account_status` on 4 October 2026.) **And `service_role`
+needs no privilege on the table at all — only the right to run the one function that counts.** It holds
+`EXECUTE` on `public.count_daily_use()` and **no `select`, `insert`, `update` or `delete`**, which is
+what `supabase/migrations/20261008115900_usage_counts.sql` builds and what
+`evidence/build-it-22-usage-counts.md` reads back.
+
+*That is a correction, made by the owner on 8 October 2026, to what this section said when it was written
+earlier the same day: "`service_role` needs select, insert, update and delete ... delete is needed because
+of the 7-day decision". The second half was the mistake. The 7-day removal does need a deleter, but the
+deleter is the **function**, which runs as its owner, not the role that calls it.* What the narrower shape
+buys: a server function holding the service-role key cannot add to a count, cannot reset one to start
+somebody's day again, cannot delete the window early, and cannot read which days a person used this app.
+The only thing it can do is ask for one use and be told yes or no. The operator still reads the table in
+the dashboard.
 
 **It adds no secret and no new arrow.** Both writes happen inside functions that already hold the
 service-role key, on connections that already exist, so nothing crosses a boundary that was not already
