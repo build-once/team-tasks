@@ -760,10 +760,15 @@ question has no yes for anybody. Only the operator, in the dashboard, could see 
 thing about the decision. Deleting an account cascades to that person's `tasks` rows — so if the database
 refuses to delete a task that still has files, **deleting an account is refused too** while any of those
 tasks has one. The intention "we should remove their files as well" stops being something anybody has to
-remember and becomes something they cannot get past. **Not confirmed**: nobody has built or tried this,
-and whether a refusal fires on a cascade the way it fires on a direct delete is a question about Postgres
-that this plan has not answered by reading or by trying. If it turns out not to, the Build it 26
-requirement is still a requirement and is simply no longer self-enforcing.
+remember and becomes something they cannot get past. **Confirmed later the same day, by trying.** This
+paragraph said "**Not confirmed**: nobody has built or tried this, and whether a refusal fires on a
+cascade the way it fires on a direct delete is a question about Postgres that this plan has not answered
+by reading or by trying." It has now been built — the trigger in
+`supabase/migrations/20261008191804_attachments_bucket.sql` — and tried:
+`evidence/build-it-23-attachments-bucket.md` section 8.5 shows the account deletion refused, with the
+cascade's own statement as the error's context. **On a local PostgreSQL sandbox, and the migration is
+applied nowhere**, so it is a property of PostgreSQL rather than something seen on Supabase. The
+"Unverified" list below carries both caveats.
 
 **And what "refused" can now mean has narrowed, which is the second thing the rights decision bought.**
 Before it, the most likely reason a file could not be removed was **permission** — somebody else's file
@@ -1387,13 +1392,29 @@ it rather than a reason to recount.
   **reading those is Build it 25** — the owner's decision of 2026-10-08.
   [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
   know it is done. No figure is written here until somebody has read the page.
-- **Unverified — "Files attached to a task" describes nothing that exists.** Added 2026-10-08 for Build
-  it 23 part 0, documents only. **There is no bucket**, no storage rule, no migration, no screen, no code
-  and no package; **no file has ever been uploaded to any project**, and Supabase Storage is still the
-  empty, unused thing `docs/architecture.md` has called it since the start. Every sentence in that section
-  is a decision about what will be built, and the facts about Supabase Storage in it come from the pages
-  cited there — read on 2026-10-08, with no connector and no browser used — which is how Supabase
-  describes the service, not something observed in this project.
+- **Unverified — "Files attached to a task" is now a migration and is APPLIED NOWHERE.** The sentence
+  this replaces was written for Build it 23 part 0, documents only, and said "**There is no bucket**, no
+  storage rule, no migration, no screen, no code and no package". The middle of that stopped being true
+  later the same day. Taken one at a time:
+
+  - **The migration exists**: `supabase/migrations/20261008191804_attachments_bucket.sql` (issue #237) —
+    the bucket row, the three policies on `storage.objects`, the two counted limits, and the trigger that
+    refuses to delete a task with files. **It has been applied nowhere**: not local, not staging, not
+    production. Rule 19, and the owner was not asked to apply it in the session that wrote it.
+  - **Nothing else exists.** No screen, no Edge Function, no client code, no package, and **no upload
+    path at all** — so nothing in this repository can put a file in the bucket or draw one, and **no file
+    has ever been uploaded to any project**. Supabase Storage is still the empty, unused thing
+    `docs/architecture.md` has called it since the start.
+  - **What the proof is, and is not.** `evidence/build-it-23-attachments-bucket.md` is four throwaway
+    local PostgreSQL databases, with every rule attacked as the task's creator, a team member, an
+    outsider, a suspended member and signed out. **Its `storage` schema is a stand-in the assistant
+    wrote**: the column names are Supabase's and cited, every type is a choice, and
+    `storage.foldername()` is not there at all. So the rules are proved against PostgreSQL, not against
+    Supabase Storage — and **the bucket's own 5 MB and type limits are not proved at all**, because
+    nothing in PostgreSQL enforces them.
+  - **And the facts about Supabase Storage** in that section still come from the pages cited there, read
+    on 2026-10-08 with no connector and no browser — which is how Supabase describes the service, not
+    something observed in this project.
 - **Decided, so no longer open — the five decisions and two acceptances this section carried when it was
   written on 2026-10-08, and the eighth question that writing them down produced.** Three files per task;
   100 MB per person, **enforced on the server at upload**; one line beside the upload box about what is
@@ -1419,12 +1440,19 @@ it rather than a reason to recount.
   own task, the deletion runs as the person asking, permitted by a database rule rather than by code
   acting on somebody's behalf. Nothing in the plan now asks for a delete that carries the service-role
   key. **Nothing is built**, so this is a property of the design rather than of anything observed.
-- **Not confirmed — whether a refusal to delete a task that still has files also fires on a cascade.**
-  The Build it 26 requirement is made self-enforcing by the expectation that deleting an account, which
-  cascades to that person's tasks, would be refused the same way a direct delete is. That is a question
-  about Postgres this plan has answered neither by reading nor by trying, and nothing of it is built. If
-  it turns out not to fire, the Build it 26 requirement stands and is simply no longer enforced by the
-  database.
+- **Confirmed by trying, 2026-10-08 — a refusal to delete a task that still has files DOES fire on a
+  cascade.** This entry said it was "a question about Postgres this plan has answered neither by reading
+  nor by trying, and nothing of it is built". The refusal is now built — the trigger in
+  `supabase/migrations/20261008191804_attachments_bucket.sql` — and
+  `evidence/build-it-23-attachments-bucket.md` section 8.5 is the run: deleting the `auth.users` row is
+  refused, and the error carries the cascade's own statement as its context, which is what says the
+  refusal came from inside the cascade rather than from somewhere else. **So deleting an account is
+  refused while any of that person's tasks still has a file, and the Build it 26 requirement
+  ([#235](https://github.com/build-once/team-tasks/issues/235)) is self-enforcing rather than
+  aspirational.** Two caveats that remain: it was tried on a local PostgreSQL 17.10 sandbox with a
+  two-column stand-in for `auth.users`, and **the migration is applied nowhere** — so what is established
+  is a property of PostgreSQL, which is the right place for it to be a property of, and not something
+  observed on Supabase.
 - **A requirement of Build it 26, not of this one — removing a person's files when their account is
   deleted.** The owner's decision of 2026-10-08. Nothing about it is designed here, deliberately: whose
   job it is to walk a person's tasks and clear their files is Build it 26's question.
