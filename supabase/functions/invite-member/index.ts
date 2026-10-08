@@ -64,9 +64,45 @@
 // BEFORE and AFTER that deploy, and the before-run is expected to fail: that is
 // how the pair of runs shows the deploy is what changed the behaviour.
 
+// AND A THIRD EXCEPTION, as of 8 October 2026, ALSO NOT DEPLOYED ANYWHERE: the
+// daily count. Build it 22 part 2, issue #221. An email is one of the two things in
+// this app that spends money when somebody presses a button, so this function now
+// counts one use immediately before each send -- including a retry, which sends a
+// second email -- and refuses once the day's count has reached the limit in
+// ../_shared/limits.ts. Nothing about it is deployed: not staging, not production.
+
 // Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
+
+// THE ONE FILE THAT HOLDS THE DAILY LIMITS, imported rather than copied, so there is
+// no second place for either number to drift to. docs/plan.md requires both to live
+// in one file read by this function and by suggest-subtasks, and issue #221's first
+// condition is that neither number is spelled at a call site.
+//
+// NOTE WHAT IS *NOT* IMPORTED FROM IT: nothing about the 20-pending-per-team limit,
+// which is MAX_PENDING_PER_TEAM below and is a different thing entirely -- a cap on
+// how many addresses one team may be holding at once, not on how many emails one
+// person may send in a day. docs/plan.md keeps them apart in those words.
+//
+// WHETHER THE SUPABASE BUNDLER ACCEPTS AN IMPORT FROM OUTSIDE THIS FOLDER IS
+// UNVERIFIED. `deno check` and `deno test` accept it here; nothing in this session
+// can run `supabase functions deploy` (rule 19 -- the owner deploys). It is
+// Supabase's own documented layout for shared code, and the last time this question
+// came up the answer was to decline it and copy the code instead
+// (evidence/build-it-16-suspend-functions.md, "Three copies, not a shared module").
+// This time the shared file is what the owner asked for, by name and by path. If the
+// bundler refuses it THE DEPLOY FAILS AND NOTHING IS DEPLOYED, which is the safe
+// direction: the deployed function would stay the one that counts nothing rather than
+// become one that counts wrongly. The long note at the top of the imported file has
+// the rest.
+import {
+  COUNT_RPC,
+  DAILY_LIMIT_UNKNOWN_CODE,
+  dailyLimit,
+  FEATURE_INVITATIONS,
+  withDailyLimit,
+} from "../_shared/limits.ts";
 
 const MAX_PENDING_PER_TEAM = 20;
 const TOKEN_BYTES = 32; // 32 random bytes = 256 bits. See makeToken below.
@@ -1342,76 +1378,170 @@ export default {
       `If you were not expecting this, you can ignore this email.`,
     ].join("\n");
 
-    const sent = await sendEmail({
-      apiKey: (Deno.env.get("EMAIL_API_KEY") ?? "").trim(),
-      from: (Deno.env.get("EMAIL_FROM") ?? "").trim(),
-      to: decision.to,
-      subject: decision.subject,
-      text,
-    });
-
-    // ---- Write down what happened to the email ----------------------------
+    // ---- TODAY'S LIMIT: the last thing before an email is sent ------------
     //
-    // THE ROW NO LONGER DISAPPEARS WHEN A SEND FAILS, and that is the change
-    // issue #166 asks for. What the old code did instead -- delete the
-    // invitation -- threw away the only record that anybody had tried, so the
-    // owner saw an empty list and had no way to tell "nobody invited them" from
-    // "the email bounced off the service twice this morning". A failed row stays,
-    // says so, and offers to go again.
+    // Build it 22 part 2, issue #221. docs/plan.md: "invite-member -- after the
+    // door checks and the team's 20-pending check, IMMEDIATELY BEFORE the send --
+    // and a retry counts, because it sends a second email."
     //
-    // The status write is the LAST thing, after the send, because until the
-    // service has answered there is nothing true to write. What that leaves
-    // behind if this function stops between the insert and this line is a row at
-    // 'queued' and no second write -- see STALE_QUEUED_MINUTES, which is how such
-    // a row becomes retryable rather than sitting there for seven days.
-    const outcome = sent.ok
-      ? { status: "sent" as const, failure_code: "" }
-      : { status: "failed" as const, failure_code: sent.code };
+    // A RETRY COUNTS, AND IT COUNTS HERE WITHOUT A SECOND CALL SITE, which is worth
+    // saying because it looks as though it would need one. Both paths above -- the
+    // fresh insert and the retry's compare-and-set -- fall through to this one
+    // `sendEmail`, because a retry is "a new invitation in every respect except
+    // which row it lives in". So one count in front of one send is the whole of it,
+    // and there is no way to add a send that skips the count without moving this
+    // line. The owner decided it on 2026-10-08, against a real argument the plan
+    // keeps: "somebody retrying because the first send failed is not doing a second
+    // thing" -- but "the thing being limited is the email and a retry sends one".
+    //
+    // WHY HERE AND NOWHERE EARLIER. Everything above this line is a refusal that
+    // sends no email, and docs/plan.md's table lists all of them as NOT counted: no
+    // signed-in caller, `account_suspended`, a caller who does not own the team,
+    // inviting yourself, inviting somebody already in the team, the team's
+    // 20-pending limit, no EMAIL_FROM or no delivery setting, and a failure writing
+    // the invitation row. That last one is why this is not a line or two higher: the
+    // insert and the retry's update are both above it, so a database that refused to
+    // write the row costs nobody one of their twenty.
+    //
+    // WHAT THAT ORDER COSTS, STATED RATHER THAN HIDDEN, because it is a real and
+    // visible consequence rather than a theoretical one. At the limit, the
+    // invitation row has ALREADY been written (or already been reset by the retry
+    // path) and it stays behind at `queued`. So the team's owner sees an invitation
+    // that says "sending" for an email that will never go, and it occupies one of
+    // the team's 20 pending slots until it expires. It is not lost work: after
+    // STALE_QUEUED_MINUTES the row becomes retryable, so tomorrow's first press
+    // sends it. The alternatives were both worse -- counting BEFORE the insert makes
+    // a failed insert cost a slot of somebody's twenty, which the plan's table
+    // forbids by name, and writing the row as `failed` would need a fifth failure
+    // code, which is a check constraint in 20261006095847_invitation_status.sql and
+    // so a migration this change does not have. Issue filed, and named in the pull
+    // request, rather than left for somebody to find on a screen.
+    //
+    // THE RPC IS WRITTEN OUT HERE for the reason every other read in this file is:
+    // a reviewer sees which function is called with which arguments. `callerId` is
+    // the verified token's id, read before the body was parsed, so nothing a caller
+    // can put in a body changes whose count is spent -- and it is the CALLER'S count,
+    // not the team's and not the invited person's. docs/plan.md: "Per person, not per
+    // team: one person who owns three teams has 20 invitations a day in total."
+    //
+    // ctx.supabaseAdmin, because `service_role` is the only role holding EXECUTE on
+    // it: 20261008115900_usage_counts.sql revokes it from PUBLIC, `anon` and
+    // `authenticated` by name, since the limit is an argument and a caller who could
+    // call it would choose the limit.
+    // THE GATE IS ONE EXPORTED FUNCTION AND THE WHOLE OF THE SEND IS ITS SECOND
+    // ARGUMENT, which is the shape suggest-subtasks' consent check already uses and
+    // the reason is the same: it is what makes "when the count refuses, the email
+    // service receives NOTHING" a fact a test can establish about this handler rather
+    // than about a copy of its order written out in a test file.
+    return await withDailyLimit(
+      {
+        count: () =>
+          ctx.supabaseAdmin.rpc(COUNT_RPC, {
+            p_user_id: callerId,
+            p_feature: FEATURE_INVITATIONS,
+            p_limit: dailyLimit(FEATURE_INVITATIONS),
+          }),
+        // THE COUNT DID NOT ANSWER, so whether this person may send is NOT KNOWN --
+        // and an unknown is not a yes. Issue #221: "A failed count is not permission
+        // to spend money." Its own sentence, in the shape this function uses for every
+        // other check that did not answer ("Could not check your account, so no
+        // invitation was created"), and a 500 because the cause is a failed check
+        // rather than a limit.
+        //
+        // LOGGED, unlike the at-limit refusal the gate sends, because a count that has
+        // stopped working refuses everybody and nothing else will notice. The code is
+        // one of this app's own fixed words; the Postgres error code goes no further
+        // than countOneUse's return value, and no address, team name or user id is
+        // named.
+        unknownAnswer: () => {
+          console.error(
+            "invite-member: today's usage count could not be written, so no invitation " +
+              `email was sent. Code: ${DAILY_LIMIT_UNKNOWN_CODE}. The invitation row is ` +
+              "left as it stands. No address, team name, user id or database message is logged.",
+          );
+          return fail(
+            "Could not check today's limit, so no invitation email was sent. Please try again.",
+            500,
+            DAILY_LIMIT_UNKNOWN_CODE,
+          );
+        },
+      },
+      async () => {
+        // THE USE IS ALREADY COUNTED by the time this line runs, and nothing below
+        // gives it back -- not a refusal from the email service, not a timeout, not
+        // silence. See the note above.
+        const sent = await sendEmail({
+          apiKey: (Deno.env.get("EMAIL_API_KEY") ?? "").trim(),
+          from: (Deno.env.get("EMAIL_FROM") ?? "").trim(),
+          to: decision.to,
+          subject: decision.subject,
+          text,
+        });
 
-    const { data: recorded, error: recordError } = await ctx.supabaseAdmin
-      .from("invitations")
-      .update(outcome)
-      .eq("id", invitationId)
-      .select("id, email, expires_at, status");
+        // ---- Write down what happened to the email --------------------------
+        //
+        // THE ROW NO LONGER DISAPPEARS WHEN A SEND FAILS, and that is the change
+        // issue #166 asks for. What the old code did instead -- delete the
+        // invitation -- threw away the only record that anybody had tried, so the
+        // owner saw an empty list and had no way to tell "nobody invited them" from
+        // "the email bounced off the service twice this morning". A failed row stays,
+        // says so, and offers to go again.
+        //
+        // The status write is the LAST thing, after the send, because until the
+        // service has answered there is nothing true to write. What that leaves
+        // behind if this function stops between the insert and this line is a row at
+        // 'queued' and no second write -- see STALE_QUEUED_MINUTES, which is how such
+        // a row becomes retryable rather than sitting there for seven days.
+        const outcome = sent.ok
+          ? { status: "sent" as const, failure_code: "" }
+          : { status: "failed" as const, failure_code: sent.code };
 
-    // F14 on the status write. One row back, with no error, is the only thing
-    // that means the row says what this function is about to claim it says.
-    const wroteOneRow =
-      !recordError && Array.isArray(recorded) && recorded.length === 1;
+        const { data: recorded, error: recordError } = await ctx.supabaseAdmin
+          .from("invitations")
+          .update(outcome)
+          .eq("id", invitationId)
+          .select("id, email, expires_at, status");
 
-    if (!wroteOneRow) {
-      // The row still says 'queued', whatever happened to the email. Said in a
-      // log line because nothing else will notice: the owner's screen will show
-      // "sending" and, after STALE_QUEUED_MINUTES, a Try again button -- which is
-      // the right offer, but somebody looking into why wants to find this.
-      //
-      // The invitation id is named, as the old orphan line named it. No address,
-      // no token, no hash, and nothing the email service said.
-      console.error(
-        `invite-member: the email ${sent.ok ? "WENT" : "did not go"} and the status could not be written. Invitation id ${invitationId} still says "queued". Error code: ${recordError?.code ?? "none"}; rows updated: ${Array.isArray(recorded) ? recorded.length : "unknown"}.`,
-      );
-    }
+        // F14 on the status write. One row back, with no error, is the only thing
+        // that means the row says what this function is about to claim it says.
+        const wroteOneRow =
+          !recordError && Array.isArray(recorded) && recorded.length === 1;
 
-    if (!sent.ok) {
-      // Named, not described, and never the service's own reply. `recorded` is
-      // what makes the answer match the row: a 502 says the invitation is marked
-      // as failed, and this function only says that when it is.
-      console.error(
-        `invite-member: the invitation email did not go. Code: ${sent.code}. Recorded on the row: ${wroteOneRow ? "yes" : "NO"}. No address, token or email-service reply is logged.`,
-      );
-      return sendFailureAnswer({ code: sent.code, recorded: wroteOneRow });
-    }
+        if (!wroteOneRow) {
+          // The row still says 'queued', whatever happened to the email. Said in a
+          // log line because nothing else will notice: the owner's screen will show
+          // "sending" and, after STALE_QUEUED_MINUTES, a Try again button -- which is
+          // the right offer, but somebody looking into why wants to find this.
+          //
+          // The invitation id is named, as the old orphan line named it. No address,
+          // no token, no hash, and nothing the email service said.
+          console.error(
+            `invite-member: the email ${sent.ok ? "WENT" : "did not go"} and the status could not be written. Invitation id ${invitationId} still says "queued". Error code: ${recordError?.code ?? "none"}; rows updated: ${Array.isArray(recorded) ? recorded.length : "unknown"}.`,
+          );
+        }
 
-    // The email went. The status is the one the database confirmed, so a failed
-    // status write answers 'queued' rather than claiming 'sent'.
-    return invitationAnswer({
-      id: invitationId,
-      email: wroteOneRow ? recorded[0].email : invitationEmail,
-      expires_at: wroteOneRow ? recorded[0].expires_at : invitationExpiry,
-      status: wroteOneRow ? "sent" : "queued",
-      redirected: decision.redirected,
-      retried,
-    });
+        if (!sent.ok) {
+          // Named, not described, and never the service's own reply. `recorded` is
+          // what makes the answer match the row: a 502 says the invitation is marked
+          // as failed, and this function only says that when it is.
+          console.error(
+            `invite-member: the invitation email did not go. Code: ${sent.code}. Recorded on the row: ${wroteOneRow ? "yes" : "NO"}. No address, token or email-service reply is logged.`,
+          );
+          return sendFailureAnswer({ code: sent.code, recorded: wroteOneRow });
+        }
+
+        // The email went. The status is the one the database confirmed, so a failed
+        // status write answers 'queued' rather than claiming 'sent'.
+        return invitationAnswer({
+          id: invitationId,
+          email: wroteOneRow ? recorded[0].email : invitationEmail,
+          expires_at: wroteOneRow ? recorded[0].expires_at : invitationExpiry,
+          status: wroteOneRow ? "sent" : "queued",
+          redirected: decision.redirected,
+          retried,
+        });
+      },
+    );
   }),
 };
 
@@ -1435,7 +1565,13 @@ export default {
 //     data under docs/plan.md's appendix.
 //
 // docs/plan.md decided "Logs: we add none of our own ... task text and email
-// addresses never go into a log line from server code". The two lines here are
-// the narrow exception that decision allows for: a misconfiguration and a failed
-// cleanup both need to be discoverable, and neither message contains anything
-// personal or secret.
+// addresses never go into a log line from server code". The lines here are the
+// narrow exception that decision allows for: a misconfiguration, a failed cleanup
+// and -- since Build it 22 -- a usage count that could not be written all need to be
+// discoverable, and none of those messages contains anything personal or secret.
+//
+// AND THE DAILY LIMIT ITSELF PRINTS NOTHING, which is the other half of that
+// decision: a person having used their twenty is not news, so the refusal has no log
+// line at all. Nothing from the count ever reaches one -- not the feature word, not
+// the limit, not the number used, not the date, and not the Postgres error code when
+// the call fails. countOneUse's return value is where that stops.

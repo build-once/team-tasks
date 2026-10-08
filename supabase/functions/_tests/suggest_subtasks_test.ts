@@ -1930,17 +1930,20 @@ Deno.test("every code produces the SAME sentence and the same status, and carrie
   if (!statuses.has(503)) problems.push(`the status is ${[...statuses].join(", ")}, expected 503`);
 
   // The words themselves, so a code added or removed is noticed here. Eleven after the
-  // coach's review of PR #190 added `model_unavailable`; TWELVE since Build it 21
-  // (issue #211) added `ai_suggestions_unknown`, counted from the list in this session.
+  // coach's review of PR #190 added `model_unavailable`; twelve since Build it 21
+  // (issue #211) added `ai_suggestions_unknown`; THIRTEEN since Build it 22
+  // (issue #221) added `daily_limit_unknown`, counted from the list in this session.
   //
-  // RAISING THIS NUMBER IS THE ONLY THING A NEW CODE MAY DO TO THIS TEST. The two
-  // assertions that matter -- one sentence, one status, across every code in the list
-  // -- are untouched, and `ai_suggestions_unknown` is held to both of them by being in
-  // the list at all. The OFF refusal is deliberately NOT in the list, and section 8b
-  // asserts that it is not, so there is no way to satisfy both by loosening either.
-  if (SUGGEST_CODES.length !== 12) {
+  // RAISING THIS NUMBER IS THE ONLY THING A NEW CODE MAY DO TO THIS TEST, and that is
+  // all either change did. The two assertions that matter -- one sentence, one status,
+  // across every code in the list -- are untouched, and `daily_limit_unknown` is held
+  // to both of them by being in the list at all. The two refusals that are deliberately
+  // NOT in the list are the consent OFF refusal, which section 8b asserts is absent, and
+  // the daily LIMIT refusal, which daily_limit_test.ts asserts is absent -- so there is
+  // no way to satisfy both halves by loosening either.
+  if (SUGGEST_CODES.length !== 13) {
     throw new Error(
-      `there are ${SUGGEST_CODES.length} codes; this file was written against 12. A new ` +
+      `there are ${SUGGEST_CODES.length} codes; this file was written against 13. A new ` +
         `code needs no new sentence -- every one of them gets the same one, which is the ` +
         `point -- but it does need adding to the copy of this list in ` +
         `scripts/staging/build-it-20-ai-checks.mjs, which refuses a code it does not know`,

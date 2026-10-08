@@ -210,7 +210,26 @@ jobs:
       # words, and that no screen selects either new column -- which after
       # 20261007204900_ai_suggestions_consent.sql is refused for everybody, the
       # person included. Counted from the script's own output.
-      EXPECTED_SCREEN_STATE_CHECKS: "158"
+      #
+      # 158 -> 182 WITH BUILD IT 22 (issue #221). Twenty-four checks over today's
+      # limit, and the thing they are about is that THERE IS ONE SENTENCE: it lives in
+      # three places that must agree character for character -- the function's
+      # supabase/functions/_shared/limits.ts, web/src/lib/suggestions.ts for My tasks,
+      # and web/src/lib/teams.ts for My teams -- and each is a deliberate copy, because
+      # the deployed function is a different program from the one in this branch until
+      # somebody deploys. This is the only thing that would notice a drift.
+      #
+      # The rest: that both screens match on the CODE the function actually sends (the
+      # pair that would otherwise fail silently -- a screen reading a code that is never
+      # sent draws the fixed sentence and nobody ever sees the limit's words); that
+      # neither screen names a number, so limits.ts stays the one place; that the limit
+      # is told apart BEFORE the thirteen plumbing failures, because "please try again"
+      # is the one piece of advice that is certainly wrong here; and that the code is
+      # matched as an exact word, so a near-miss cannot become a refusal.
+      #
+      # It is also the first coverage web/src/lib/suggestions.ts has had from this
+      # script: before this change nothing here read that module at all.
+      EXPECTED_SCREEN_STATE_CHECKS: "182"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and
@@ -334,7 +353,26 @@ jobs:
       # being left as the run found it. Thirty-five cases, and the one that matters
       # feeds judgeRefusedWhenOff the answer a function with NO consent check gives
       # -- 200 with suggestions -- and requires all four parts to come out FAIL.
-      EXPECTED_AI_CASES: "110"
+      #
+      # 110 -> 140 WITH BUILD IT 22 (issue #221), which extends the same script with
+      # today's limit: the ask after the limit, five asks at once where two uses are
+      # left, and a signed-out call still being refused at the door. Thirty cases.
+      #
+      # The one that matters feeds judgeRefusedAtLimit the answer a function that COUNTS
+      # NOTHING gives -- 200 with suggestions, which is what staging answers before the
+      # deploy -- and requires all four parts to come out FAIL. Six more are the
+      # arithmetic the script's own drive-to-the-limit rests on: which answers spend one
+      # of the day's uses, read off docs/plan.md's table, including `unreachable`, which
+      # costs nothing and counts anyway. Getting one of those wrong in the generous
+      # direction would make the script ask more times than it meant to, which costs
+      # real money, so they are checked rather than trusted.
+      #
+      # THE STAGING RUN OF THAT SECTION NEEDS A FLAG and is not part of an ordinary run:
+      # --ai-limit=<n> tells the script what limit the deployed function has, which it
+      # cannot read. Without it the section reports UNVERIFIED and makes no asks. This
+      # job passes no flag and makes no request of any kind: --selftest returns before a
+      # setting is read.
+      EXPECTED_AI_CASES: "140"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -438,7 +476,36 @@ jobs:
       # unreadable setting, the task is NEVER read and a stubbed AI service receives
       # NOTHING -- and with it on, `proceed` runs exactly once. The last is the
       # can-this-fail guard for a gate that reads the setting with a truthy test.
-      EXPECTED_FUNCTION_TESTS: "213"
+      #
+      # 213 -> 250 WITH BUILD IT 22 (issue #221), and the FOURTH FILE in that folder
+      # arrived with it: supabase/functions/_tests/daily_limit_test.ts, 37 tests over
+      # the daily limits. It needed no change to the step below, because that step
+      # names the FOLDER rather than a file -- the second time issue #167's decision
+      # has paid for itself.
+      #
+      # What the 37 are: three over the config (both numbers are 20, the feature words
+      # are the ones the migration's check constraint allows, and NEITHER function
+      # spells a limit at a call site); seventeen over countOneUse, which include every
+      # truthy shape a boolean read back as text arrives in and both raises the coach
+      # measured in a sandbox on PR #224; four over the refusal's own sentence, status
+      # and two codes, including that the LIMIT code is deliberately not one of the
+      # thirteen fixed-failure codes while the COUNTER-ERROR code is; one that limits.ts
+      # exports no way to give a counted use back; eight over the gate itself across
+      # BOTH functions -- at the limit and on a counter error, the stubbed AI service
+      # and the stubbed email service receive NOTHING and `proceed` never runs, and
+      # under the limit it runs exactly once and its answer comes back untouched; and
+      # four can-this-fail guards, which feed the same assertions a gate that counts and
+      # carries on, a gate that counts AFTER the paid call, a gate that reads an error as
+      # permission, and the world issue #221 names by name -- a count that always says
+      # yes -- and require each one to come out RED.
+      #
+      # THE ONE TEST IN AN EXISTING FILE THAT CHANGED is suggest_subtasks_test.ts's
+      # count of SUGGEST_CODES, from 12 to 13, because `daily_limit_unknown` was added
+      # to that list. That test says in its own words that raising the number is the only
+      # thing a new code may do to it, and the two assertions that matter -- one sentence
+      # and one status across every code in the list -- are untouched. The pull request
+      # has its own line about it.
+      EXPECTED_FUNCTION_TESTS: "250"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -451,13 +518,27 @@ jobs:
           echo "${DENO_SHA256}  $RUNNER_TEMP/deno.zip" | sha256sum --check --strict
           unzip -q -o "$RUNNER_TEMP/deno.zip" -d "$RUNNER_TEMP"
           "$RUNNER_TEMP/deno" --version
-      - name: Every Deno test beside the functions (suspension, invitation status, suggest subtasks)
-        # --allow-read is narrowed to the migrations folder and nothing else.
-        # invitation_status_test.ts reads
-        # supabase/migrations/20261006095847_invitation_status.sql so that the fixed
-        # list of invitation failure codes is compared with the check constraint
-        # that enforces it, rather than with a second copy of itself. The run
-        # therefore cannot read a key, a .env file or anything else on the disk.
+      - name: Every Deno test beside the functions (suspension, invitation status, suggest subtasks, daily limits)
+        # --allow-read is narrowed to TWO named directories and nothing else, and both
+        # hold only code that is committed to this repository.
+        #
+        #   supabase/migrations   invitation_status_test.ts reads
+        #                         20261006095847_invitation_status.sql and
+        #                         daily_limit_test.ts reads
+        #                         20261008115900_usage_counts.sql, so each fixed list in
+        #                         TypeScript is compared with the check constraint that
+        #                         enforces it rather than with a second copy of itself.
+        #   supabase/functions    ADDED WITH BUILD IT 22 (issue #221). One test reads the
+        #                         two handlers' own source, because "neither function
+        #                         spells a limit at a call site" is an ABSENCE and there
+        #                         is no value to pass in that would reveal a stray 20
+        #                         sitting in a file. docs/plan.md's "one config file"
+        #                         decision is what that test holds.
+        #
+        # IT IS A WIDENING THAT ENABLES A CHECK, never one that skips or weakens one, and
+        # the pull request calls it out on its own line. The run still cannot read a key,
+        # a .env file, supabase/.temp or anything else on the disk -- which is why it was
+        # widened by a named directory rather than to the parent.
         #
         # --config names create-team's deno.json because the repository root has
         # none and the bare specifiers would not resolve; the three function
@@ -466,7 +547,7 @@ jobs:
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/deno" test --no-lock --allow-env \
-            --allow-read=supabase/migrations \
+            --allow-read=supabase/migrations,supabase/functions \
             --config supabase/functions/create-team/deno.json \
             supabase/functions/_tests | tee "$RUNNER_TEMP/deno-test.log"
 

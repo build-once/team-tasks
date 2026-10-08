@@ -236,12 +236,25 @@ wanting a secret in `web/` client code, the answer is a new server function, not
 ## `usage_counts`, and which functions write it
 
 Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"), when nothing was
-built. **The migration now exists in this repository and has been applied nowhere** — not local, not
-staging, not production: `supabase/migrations/20261008115900_usage_counts.sql`, the table and the one
-counting function, with the proof in `evidence/build-it-22-usage-counts.md`. **Nothing calls it yet**:
-there is no `supabase/functions/_shared/limits.ts`, neither Edge Function counts, and so nothing is
-limited. The rest of this section is the shape, agreed before anything was typed, which is what the top
-of this file says the whole document is for.
+built. **Both halves are now built, and the status line has moved twice in one day** — which is exactly
+what this paragraph exists to keep honest:
+
+- **The migration is applied to staging and to production** (issue #220, PR #224):
+  `supabase/migrations/20261008115900_usage_counts.sql`, the table and the one counting function. The
+  owner applied it to staging on 8 October 2026 and the coach read it back through the staging read-only
+  connector; production followed on the merge. `evidence/build-it-22-usage-counts.md` has both.
+- **The counting is written** (issue #221): `supabase/functions/_shared/limits.ts` holds both numbers and
+  both Edge Functions call `count_daily_use()` through it.
+  `evidence/build-it-22-daily-limits-counting.md` has the tests, including the runs where they failed
+  first.
+- **And neither function is DEPLOYED.** The assistant deploys nothing (rule 19), staging is the owner's
+  step and production follows a merge. **So nothing is limited in any running app**, both projects' tables
+  are empty, and `docs/costs.md` is still right that the vendor ceilings are the only thing in the way of
+  anything running today.
+
+The rest of this section is the shape, agreed before anything was typed, which is what the top
+of this file says the whole document is for — and every line of it is now also a description of code that
+exists.
 
 **The table is called `usage_counts`** — named by the owner on 2026-10-08, and the name to use
 everywhere. One row per person, per feature, per day, holding four values and nothing else:
@@ -324,6 +337,18 @@ only thing between a retry loop and Anthropic's 5-dollar cap is the cap itself
 `Set` of user ids inside one isolate that `suggest-subtasks` uses today is **not** this: it lives in one
 isolate's memory, so two asks that land on two isolates both proceed. It stays, because it catches a
 double click for free, and it stops being the answer to "what stops this spending money".
+
+**What happens to that `Set`, written out because "it stays" is easy to read as "it was forgotten"
+(issue #221).** Nothing is removed and nothing about it is weakened. It still refuses a second
+simultaneous ask from the same person on the same isolate, with the code `busy`, before any database
+write — which is worth having and costs nothing. What changed is that both of the asks it *cannot* catch,
+the two that land on two isolates, now go through the count, where they **are** told apart: the check and
+the increment are one statement in the database, so the second one spends one of that person's twenty
+instead of being free. **So [#186](https://github.com/build-once/team-tasks/issues/186) does not close.**
+Its four conditions are about two *simultaneous* asks being counted, which is a different question from a
+daily limit, and `docs/plan.md` says so in those words. Nor does
+[#184](https://github.com/build-once/team-tasks/issues/184): a reload asks again, and a daily limit does
+not stop the second ask — it stops the twenty-first.
 
 ## Who may read a team
 

@@ -250,6 +250,8 @@ place everything that leaves this project is assembled, and the test that reads 
 | `Not arrived? Ask them to check their junk or spam folder.` | `web/src/app/teams/page.tsx:768-771` | Promises nothing, on purpose: the reasoning at `753-767` says the app cannot tell a filtered email from a delivered one, so no claim is made about where any message went. |
 | The failed-read sentences — `Your tasks could not be loaded, so nothing below is a list of them.`, `Your teams could not be loaded…`, `Pending invitations could not be loaded…`, `The members lists could not be loaded…`, `Your name could not be loaded…`, `This team's members could not be loaded.` | `web/src/app/tasks/page.tsx:533-538`, `552-556`; `web/src/app/teams/page.tsx:89`, `414-419`, `585-598`, `604-610` | `screenState` in `web/src/lib/screen-state.ts` puts `failed` ahead of the row count, so a failed read can never be drawn as an empty list or counted; checked by `scripts/screen-state-check.mjs`. No database message, code or status appears in any of them. |
 | `No tasks yet` / `No tasks in this list yet` / `No teams yet` / `You do not own a team yet.` / `You are not a member of anybody else's team.` / `No invitations waiting.` | `web/src/app/tasks/page.tsx:590-595`; `web/src/app/teams/page.tsx:615`, `621-623`, `784-787`, `688-690` | Each is drawn only on the empty look, never the error look — same function and same check script as the row above. `No invitations waiting.` is additionally suppressed when the invitations read failed (`web/src/app/teams/page.tsx:688`). |
+| `You've reached today's limit. It resets tomorrow.` — **both features, one sentence** | `SUGGESTIONS_DAILY_LIMIT`, `web/src/lib/suggestions.ts:84`, drawn on the Suggest subtasks panel in `web/src/app/tasks/page.tsx`; and `DAILY_LIMIT_SENTENCE`, `web/src/lib/teams.ts:385`, used by `INVITE_SENTENCES.limit` (`:503`) on My teams | **What makes it true** is a row in this project's own database: `public.count_daily_use()` adds one to today's count only if the count is below the limit, in **one statement**, and the two functions refuse on `false` (`supabase/functions/_shared/limits.ts:390`, `withDailyLimit`). The limit is 20 a day per person per feature, in one file (`DAILY_LIMITS`, same file), read by both — no screen names a number, so nothing here can go stale against it. **"Tomorrow" is approximate for anybody not on UTC**, and that is recorded rather than fixed: the count rolls over at 00:00 UTC, which docs/plan.md works through and the owner decided on 2026-10-08 to leave as it is. **Not enforced anywhere yet** — nothing in this change is deployed, so no screen has shown this sentence to anybody; `scripts/screen-state-check.mjs` section 9 holds the three copies to the same characters, and `supabase/functions/_tests/daily_limit_test.ts` holds the function's. |
+| `You've reached today's limit. It resets tomorrow.` — the **function's** version of the same fact | `DAILY_LIMIT_MESSAGE`, `supabase/functions/_shared/limits.ts:167`; sent with HTTP 429 (`:206`) and the code `daily_limit` (`:175`) | What anyone calling either function directly is told, screens aside. **One sentence for both**, which is why it lives in the shared file and not in either function: docs/plan.md asks for exactly that. The test `"the limit refusal is the plan's sentence, character for character"` requires it to carry no digit, no raw code, no company and no feature word, and the body to hold `error` and `code` and nothing else — so it cannot say which feature, how many are left or what the limit is. It is deliberately **not** one of `suggest-subtasks`' thirteen fixed-failure codes, and a separate test asserts that: those thirteen all mean "something in this app's plumbing went wrong, press it again later", and this one is a fact about the person's own day. |
 
 ---
 
@@ -286,6 +288,14 @@ drawn graphics are two inline SVGs written in this repository: the ticked box in
 
 **No number on any screen is an achievement, a benchmark or a count of users.** Every one is either a
 limit from `docs/plan.md` or a count of rows the same request just read.
+
+**And one limit is deliberately on no screen at all: the daily 20.** Added 2026-10-08 with Build it 22
+(issue [#221](https://github.com/build-once/team-tasks/issues/221)). The two daily limits live in
+`supabase/functions/_shared/limits.ts` and appear nowhere a person can see — not as "3 of 20 today", not
+in the refusal, which names no number by `docs/plan.md`'s decision. So there is no copy of it on a screen
+to go stale, which is the reason this row is here rather than in the table above: the absence is the
+claim. `scripts/screen-state-check.mjs` section 9 checks that neither screen's daily-limit sentence
+contains a digit.
 
 ---
 
