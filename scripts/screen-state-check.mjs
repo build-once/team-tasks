@@ -664,6 +664,12 @@ check(
 // error -- and this is the check that says so out loud, and that would notice if the
 // type were ever loosened to a partial one. Each key appears exactly twice in the
 // file: once in each map.
+//
+// NINE SINCE BUILD IT 22 (issue #221), which added "limit" -- today's allowance of
+// the thing that spends money, told apart from every other refusal by its code and
+// not by its status. It has a sentence in BOTH maps even though create-team can never
+// send it: the type requires one, which is the right way round, because a screen that
+// met an outcome it had no words for would draw nothing.
 const OUTCOME_KEYS = [
   "signin",
   "input",
@@ -671,6 +677,7 @@ const OUTCOME_KEYS = [
   "refused",
   "notfound",
   "conflict",
+  "limit",
   "broke",
   "unreachable",
 ];
@@ -696,7 +703,7 @@ check(
 );
 
 check(
-  "every outcome has a sentence in the create-team map: eight outcomes, once each",
+  "every outcome has a sentence in the create-team map: nine outcomes, once each",
   OUTCOME_KEYS.map((key) => count(CREATE_MAP, `${key}:`)),
   OUTCOME_KEYS.map(() => 1),
 );
@@ -1058,6 +1065,260 @@ check(
   "the module that holds the screen's half says the column cannot be read",
   count(CONSENT_SOURCE, "my_ai_suggestions()") > 0,
   true,
+);
+
+// =========================================================================
+// 9. Today's limit, as both screens say it
+// =========================================================================
+//
+// Build it 22 (issue #221). docs/plan.md: "When the limit is reached the person sees:
+// 'You've reached today's limit. It resets tomorrow.' One sentence for both features,
+// saying what happened and when it ends, and naming NO company, model, key, status or
+// number."
+//
+// SO THE THING THIS SECTION IS ABOUT IS THAT THERE IS ONE SENTENCE. It lives in three
+// places that must agree character for character -- the function's
+// supabase/functions/_shared/limits.ts, web/src/lib/suggestions.ts for My tasks, and
+// web/src/lib/teams.ts for My teams -- and each is a deliberate copy, for the reason
+// both lib files give: the deployed function is a different program from the one in
+// this branch until somebody deploys. A copy that drifts has to be a red check,
+// because there is nothing else that would notice.
+//
+// AND THE OTHER THING IT IS ABOUT IS THE ORDER. A screen that read the limit as one of
+// the thirteen plumbing failures would show "Suggestions aren't available right now",
+// which is the one piece of advice that is certainly wrong: pressing the button again
+// cannot help until tomorrow. docs/plan.md decided that against issue #184's
+// condition 3, so it is checked rather than trusted.
+console.log("\n9. today's limit: one sentence, in three places, and never the fixed one");
+
+const {
+  SUGGESTIONS_DAILY_LIMIT,
+  SUGGESTIONS_DAILY_LIMIT_CODE,
+  SUGGESTIONS_UNAVAILABLE,
+  SUGGEST_DATA,
+  SUGGEST_IDLE,
+  SUGGEST_LIMIT,
+  SUGGEST_STATES,
+  SUGGEST_UNAVAILABLE,
+  suggestOutcome,
+} = await load("suggestions.ts");
+
+// THE SENTENCE, written out here as this script's own statement of the contract.
+// Importing it and comparing it with itself could never disagree with anything.
+const DAILY_LIMIT_SENTENCE = "You've reached today's limit. It resets tomorrow.";
+
+check("My tasks says the plan's sentence, character for character", SUGGESTIONS_DAILY_LIMIT, DAILY_LIMIT_SENTENCE);
+
+// AND MY TEAMS SAYS THE SAME ONE. teams.ts is read as TEXT, for the reason at the top
+// of this file -- it imports through an alias only the Next.js build resolves -- so
+// the comparison is that the exact characters appear in it.
+check(
+  "My teams says the same sentence, and it is in that module exactly once",
+  count(TEAMS_SOURCE, DAILY_LIMIT_SENTENCE),
+  1,
+);
+
+// AND THE FUNCTION SAYS IT TOO, which is the copy that actually reaches a person when
+// the screen is an older deploy than the function.
+//
+// IMPORTED, not read as text, which is unusual for a file under supabase/ and is
+// possible for exactly the reason limits.ts has no imports: Node loads it and strips
+// the types as it reads it, the same property web/src/lib/suggestions.ts has. So this
+// compares the REAL exported constant the two Edge Functions send, not a string that
+// happens to appear in a file -- and the comment in that file quoting docs/plan.md
+// cannot satisfy it.
+const LIMITS_PATH = resolve(
+  HERE,
+  "..",
+  "supabase",
+  "functions",
+  "_shared",
+  "limits.ts",
+);
+const LIMITS_SOURCE = readFileSync(LIMITS_PATH, "utf8");
+const {
+  DAILY_LIMIT_CODE: FUNCTION_LIMIT_CODE,
+  DAILY_LIMIT_MESSAGE: FUNCTION_LIMIT_MESSAGE,
+  DAILY_LIMIT_STATUS: FUNCTION_LIMIT_STATUS,
+  DAILY_LIMITS: FUNCTION_LIMITS,
+} = await import(pathToFileURL(LIMITS_PATH).href);
+
+check(
+  "and so does the function, from its own one file",
+  FUNCTION_LIMIT_MESSAGE,
+  DAILY_LIMIT_SENTENCE,
+);
+check(
+  "so all three copies are the same characters -- there is ONE sentence",
+  [SUGGESTIONS_DAILY_LIMIT === FUNCTION_LIMIT_MESSAGE, count(TEAMS_SOURCE, FUNCTION_LIMIT_MESSAGE)],
+  [true, 1],
+);
+// AND THE CODE THE SCREENS MATCH ON IS THE ONE THE FUNCTION SENDS. This is the pair
+// that would otherwise fail silently: a screen reading a code the function never
+// sends draws the fixed sentence and nobody ever sees the limit's words.
+check(
+  "and both screens match on the code the function actually sends",
+  [
+    SUGGESTIONS_DAILY_LIMIT_CODE === FUNCTION_LIMIT_CODE,
+    count(TEAMS_SOURCE, `DAILY_LIMIT_CODE = "${FUNCTION_LIMIT_CODE}"`),
+  ],
+  [true, 1],
+);
+check("the status it refuses with is 429", FUNCTION_LIMIT_STATUS, 429);
+
+// THE TWO NUMBERS ARE IN THAT FILE AND IN NO SCREEN. A screen that named the limit
+// would be a second place to change it, and would go stale the moment limits.ts
+// changed -- which is exactly what docs/plan.md's "one config file" rules out.
+check(
+  "the limits live in the function's one file, and both are 20",
+  [
+    FUNCTION_LIMITS.ai_suggestions,
+    FUNCTION_LIMITS.invitations,
+    Object.keys(FUNCTION_LIMITS).sort().join(","),
+  ],
+  [20, 20, "ai_suggestions,invitations"],
+);
+check(
+  "and NEITHER SCREEN NAMES A NUMBER in its daily-limit sentence",
+  [/\d/.test(SUGGESTIONS_DAILY_LIMIT), /\d/.test(DAILY_LIMIT_SENTENCE)],
+  [false, false],
+);
+
+// NAMES NO COMPANY, MODEL, KEY, STATUS OR CODE -- docs/plan.md's own list.
+check(
+  "it names no company, no model, no key and no code",
+  [
+    /anthropic/i.test(SUGGESTIONS_DAILY_LIMIT),
+    /claude/i.test(SUGGESTIONS_DAILY_LIMIT),
+    /resend|email service/i.test(SUGGESTIONS_DAILY_LIMIT),
+    SUGGESTIONS_DAILY_LIMIT.includes(SUGGESTIONS_DAILY_LIMIT_CODE),
+  ],
+  [false, false, false, false],
+);
+check(
+  "and says both halves: what happened, and when it ends",
+  [/limit/i.test(SUGGESTIONS_DAILY_LIMIT), /tomorrow/i.test(SUGGESTIONS_DAILY_LIMIT)],
+  [true, true],
+);
+
+// FOUR STATES NOW, and the new one is not the fixed-failure one.
+check("the four states My tasks can be in", SUGGEST_STATES.slice(), ["ask", "unavailable", "limit", "data"]);
+check(
+  "the limit state is its own, not the unavailable one",
+  [SUGGEST_LIMIT === SUGGEST_UNAVAILABLE, SUGGESTIONS_DAILY_LIMIT === SUGGESTIONS_UNAVAILABLE],
+  [false, false],
+);
+
+// THE DECISION ITSELF. A failed call carrying the limit's code is the limit; a failed
+// call carrying anything else is the fixed sentence, exactly as before.
+check(
+  "a failed ask carrying the limit's code is the LIMIT",
+  suggestOutcome({ asked: true, failed: true, code: SUGGESTIONS_DAILY_LIMIT_CODE }),
+  { state: SUGGEST_LIMIT },
+);
+check(
+  "a failed ask carrying one of the fixed codes is unavailable, as before",
+  suggestOutcome({ asked: true, failed: true, code: "not_configured" }),
+  { state: SUGGEST_UNAVAILABLE },
+);
+check(
+  "a failed ask carrying the COUNTER'S error code is unavailable: that one is plumbing",
+  suggestOutcome({ asked: true, failed: true, code: "daily_limit_unknown" }),
+  { state: SUGGEST_UNAVAILABLE },
+);
+check(
+  "a failed ask whose body could not be read at all is unavailable",
+  suggestOutcome({ asked: true, failed: true }),
+  { state: SUGGEST_UNAVAILABLE },
+);
+
+// AND THE CODE IS READ ONLY ON A FAILURE. A 200 carrying that code is not something
+// the function sends, and letting a body turn a success into a refusal would mean an
+// answer could hide its own suggestions.
+check(
+  "a SUCCESSFUL ask carrying that code anyway still draws its suggestions",
+  suggestOutcome({
+    asked: true,
+    failed: false,
+    code: SUGGESTIONS_DAILY_LIMIT_CODE,
+    data: { suggestions: ["Book the hall"] },
+  }),
+  { state: SUGGEST_DATA, suggestions: ["Book the hall"] },
+);
+check(
+  "and nobody having asked is still idle, whatever code is lying about",
+  suggestOutcome({ asked: false, code: SUGGESTIONS_DAILY_LIMIT_CODE }),
+  { state: SUGGEST_IDLE },
+);
+
+// THE CODE IS COMPARED AS AN EXACT WORD, never used as a word to print and never
+// matched loosely. A near-miss must not become a refusal with wording nobody wrote.
+check(
+  "the code is matched exactly: a near-miss is not the limit",
+  [
+    suggestOutcome({ asked: true, failed: true, code: "daily_limits" }).state,
+    suggestOutcome({ asked: true, failed: true, code: "DAILY_LIMIT" }).state,
+    suggestOutcome({ asked: true, failed: true, code: " daily_limit" }).state,
+    suggestOutcome({ asked: true, failed: true, code: 429 }).state,
+  ],
+  [SUGGEST_UNAVAILABLE, SUGGEST_UNAVAILABLE, SUGGEST_UNAVAILABLE, SUGGEST_UNAVAILABLE],
+);
+
+// MY TEAMS: the same decision, by the same means. teamActionOutcome is in the module
+// that cannot be imported here, so this is checked over its text -- that it reads the
+// code for the limit the way it reads it for a suspension, and that the sentence maps
+// carry the outcome.
+check(
+  "My teams tells the limit apart by its CODE, not by its status",
+  [
+    count(TEAMS_SOURCE, 'DAILY_LIMIT_CODE = "daily_limit"'),
+    count(TEAMS_SOURCE, 'answer.code === DAILY_LIMIT_CODE) return "limit"'),
+  ],
+  [1, 1],
+);
+// AND THE OUTCOME IS ON THE FIXED LIST, which is what lets the page draw it at all:
+// web/src/app/teams/page.tsx refuses any outcome not in TEAM_ACTION_OUTCOMES and
+// draws nothing, so a sentence in the maps with no entry on the list would never
+// appear.
+//
+// The list is sliced between its own brackets rather than passed to mapBody, which
+// splits on `};` and so would run past the end of an array declaration -- that is
+// what this check caught about itself on its first run.
+const OUTCOME_LIST = TEAMS_SOURCE.split("export const TEAM_ACTION_OUTCOMES = [")[1]
+  ?.split("] as const;")[0] ?? "";
+check(
+  "and the page would not draw a code it does not know: the outcome is on the fixed list",
+  [OUTCOME_LIST !== "", count(OUTCOME_LIST, '"limit",')],
+  [true, 1],
+);
+
+// AND THE PAGE THAT DRAWS IT. The tasks page must pass the code into the decision and
+// must draw the new sentence -- a state nothing rendered would be a blank panel.
+check(
+  "the tasks page reads the code off the failed answer and passes it in",
+  [
+    count(TASKS_PAGE, "suggestionsCode") > 0,
+    count(TASKS_PAGE, "code: suggestionsCode"),
+    count(TASKS_PAGE, "SUGGESTIONS_DAILY_LIMIT"),
+  ],
+  [true, 1, 2],
+);
+check(
+  "and it draws the limit's own panel, not the fixed sentence's",
+  count(TASKS_PAGE, "suggestions.state === SUGGEST_LIMIT"),
+  1,
+);
+
+// AND IT STILL READS NO MESSAGE. The whole argument beside TEAM_ACTION_OUTCOMES --
+// that a function's own words must not reach a screen -- applies to this new read as
+// much as to the teams one, so the same check is made of the tasks page.
+check(
+  "the tasks page reads the CODE and never the message",
+  [
+    count(TASKS_PAGE, "body as { code?: unknown }"),
+    count(TASKS_PAGE, "body as { error?: unknown }"),
+  ],
+  [1, 0],
 );
 
 // ------------------------------------------------------------------- the score

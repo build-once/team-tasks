@@ -36,6 +36,14 @@
 // the whole of Build it 20, and it is the first thing the tests beside this file
 // check.
 //
+// AND SINCE BUILD IT 22 THERE IS A THIRD GATE, AFTER BOTH OF THE OTHERS AND
+// IMMEDIATELY BEFORE THE REQUEST: today's count. Issue #221. One row per person per
+// feature per UTC day, in this project's own database, and a refusal with its own
+// sentence once that row has reached the day's limit. It is the thing that stops one
+// person, or one retry loop, using the whole month's allowance in an afternoon --
+// which neither of the two gates above does, and which the per-isolate lock below
+// only pretends to. The number is in ../_shared/limits.ts and nowhere else.
+//
 // AND SINCE BUILD IT 21 THERE IS A SECOND GATE IN FRONT OF THE KEY, which is the
 // consent setting: this function sends nothing unless the person asking has switched
 // AI suggestions on. See "The consent check" below. The two gates are independent and
@@ -95,6 +103,30 @@ import { withSupabase } from "@supabase/server";
 // the bundler refuses this one. It closes when the owner's staging deploy answers the
 // question either way, not when anything necessarily changes.
 import approvedModels from "./approved-models.json" with { type: "json" };
+
+// THE OTHER FILE THAT HOLDS A NUMBER THIS FUNCTION OBEYS, imported for the same
+// reason approved-models.json is: so there is no second place for it to drift to.
+// docs/plan.md requires the two daily limits to live in ONE file read by both this
+// function and invite-member, and issue #221's first condition is that neither
+// number is spelled at a call site. Search this file for "20" and you will find
+// MAX_OUTPUT_TOKENS' 300 and the control characters, and no limit.
+//
+// WHETHER THE SUPABASE BUNDLER ACCEPTS AN IMPORT FROM OUTSIDE THIS FOLDER IS
+// UNVERIFIED, exactly as the JSON import above is unverified and for the same
+// reason: `deno check` and `deno test` accept it here, and nothing in this session
+// can run `supabase functions deploy` (rule 19 -- the owner deploys). It is
+// Supabase's own documented layout for shared code, the repository already treats
+// `_shared` as not-a-function (scripts/drift-check.mjs), and IF IT IS WRONG THE
+// DEPLOY FAILS AND NOTHING IS DEPLOYED -- which is the safe direction, because
+// staging would keep the function it has, which counts nothing, rather than get one
+// that counts wrongly. The long note at the top of the imported file has the rest.
+import {
+  COUNT_RPC,
+  DAILY_LIMIT_UNKNOWN_CODE,
+  dailyLimit,
+  FEATURE_AI_SUGGESTIONS,
+  withDailyLimit,
+} from "../_shared/limits.ts";
 
 // ---------------------------------------------------------------------------
 // The numbers, and why each one is this number
@@ -233,21 +265,32 @@ const INSTRUCTIONS = [
 // which of twelve things went wrong with a free AI helper would be telling somebody
 // about this app's plumbing instead of about their tasks.
 //
-// TWELVE, counted from the list below in the session that added the twelfth
-// (issue #211). The Deno test beside this file asserts the count, so the number in
-// this sentence cannot drift away from the list on its own.
+// THIRTEEN, counted from the list below in the session that added the thirteenth
+// (issue #221, `daily_limit_unknown`). The Deno test beside this file asserts the
+// count, so the number in this sentence cannot drift away from the list on its own
+// -- and that test says in its own words that raising the number is the only thing
+// a new code may do to it: the two assertions that matter, one sentence and one
+// status across every code in the list, are untouched.
 //
-// 503 for all twelve, including the two that are not breakages. `not_configured` is
+// 503 for all thirteen, including the two that are not breakages. `not_configured` is
 // production's ordinary state until the production key is installed and `busy` is a
 // refusal, and both get 503 because the sentence is the same and a caller must not be
 // able to tell "this environment has no key" from "the service is down" -- the first
 // is a fact about the deployment that nobody outside needs.
 //
-// AND ONE REFUSAL IS DELIBERATELY NOT IN THIS LIST: the consent setting being OFF.
-// It has its own sentence and its own status, for the reason set out beside
-// consentOffRefusal below -- it is the one refusal here the person can act on, and
-// the only one that is not news about this app's plumbing. `account_suspended` is
-// outside the list for the same kind of reason and has been since Build it 20.
+// AND TWO REFUSALS ARE DELIBERATELY NOT IN THIS LIST. The consent setting being
+// OFF, for the reason set out beside consentOffRefusal below -- it is a refusal the
+// person can act on, and not news about this app's plumbing. And, since Build it 22,
+// TODAY'S LIMIT BEING REACHED: `daily_limit`, whose sentence and status live in
+// ../_shared/limits.ts because invite-member sends the same one. docs/plan.md
+// decided that one in those terms: the twelve "all mean 'something in this app's
+// plumbing went wrong, press it again later', and this one is a fact about the
+// person's own day that they can plan around." `account_suspended` is outside the
+// list for the same kind of reason and has been since Build it 20.
+//
+// WHAT *IS* IN THE LIST, FROM THE SAME CHANGE, is `daily_limit_unknown` -- the
+// counting itself failing, which is plumbing and nothing to do with anybody's day.
+// Same shape and same argument as `ai_suggestions_unknown` beside it.
 //
 // THE CODE IS WHERE THE DIFFERENCE LIVES, and it goes to the log line and to the
 // body. It is one of a fixed list of words, never anything the service said and never
@@ -315,6 +358,22 @@ export const SUGGEST_CODES = [
   // This person already has a call in flight. See beginCall for what this does and
   // does not guarantee.
   "busy",
+  // THE DAILY COUNT DID NOT ANSWER (issue #221). Not "you have reached today's
+  // limit" -- that has its own sentence and its own status, in
+  // ../_shared/limits.ts, because it is a fact about this person's day. This one is
+  // the counting breaking: count_daily_use errored, threw, or answered something
+  // that is not a boolean.
+  //
+  // IT IS IN THIS LIST FOR THE SAME REASON `ai_suggestions_unknown` IS, and the
+  // reasoning is docs/plan.md's instruction rather than a choice made here: issue
+  // #221 says "An error from count_daily_use is a refusal. A failed count is not
+  // permission to spend money -- same shape as create-team's 'an unknown is not a
+  // zero'." Being in this list IS the fixed sentence, which is what a person should
+  // be told when something in the plumbing is wrong and nobody is getting anything.
+  //
+  // AND IT IS A DIFFERENT WORD FROM `daily_limit` ON PURPOSE, because the two are
+  // different news to the owner: one is a quiet day and one is a page to open.
+  DAILY_LIMIT_UNKNOWN_CODE,
 ] as const;
 
 export type SuggestCode = (typeof SUGGEST_CODES)[number];
@@ -379,9 +438,11 @@ export function suggestionsAnswer(suggestions: readonly string[]): Response {
 //
 // AND THERE IS A SECOND REASON HERE THAT THE OTHER THREE DO NOT HAVE: this door
 // SPENDS MONEY. A suspended account that could still press the button could run the
-// 5-dollar monthly limit down, and nothing in Build it 20 counts calls (docs/plan.md
-// puts that in Build it 22). So the check sits before the body is read, before the
-// task is read, and a long way before any key is touched.
+// 5-dollar monthly limit down. Since Build it 22 there is also a daily count in the
+// way of that (issue #221) -- but it sits a long way below this check, on purpose,
+// because a suspended caller must not spend one of their twenty either. So this
+// check stays exactly where it is: before the body is read, before the task is read,
+// before the count, and a long way before any key is touched.
 //
 // AND IT MUST NOT CALL public.is_active(). That function answers about auth.uid(),
 // and an admin connection has no signed-in user -- so auth.uid() is null and the
@@ -794,18 +855,38 @@ export async function readTaskTitle(read: TaskTitleRead): Promise<TaskRead> {
 //     them -- but it means the Set is never a record of anything.
 //   * IT IS NOT A SPENDING LIMIT, AND MUST NOT BE READ AS ONE. One at a time is not
 //     one per minute or one per day: somebody pressing the button in sequence, fifty
-//     times, is never blocked by this. docs/plan.md is explicit about what actually
-//     holds the line until Build it 22: "Until they exist, the only thing between a
-//     loop and a bill is the 5-dollar spend limit at Anthropic."
+//     times, is never blocked by this.
+//
+//     SINCE BUILD IT 22 (issue #221) THE DAILY COUNT IS THE THING THAT IS, and this
+//     bullet is the one the plan rewrote: "This replaces the per-instance 'one call
+//     at a time' lock as the real control, and that lock stays exactly where it is."
+//     The count below -- `countOneUse`, a row every isolate reads -- is what stops a
+//     loop now, and the sentence that used to sit here ("the only thing between a
+//     loop and a bill is the 5-dollar spend limit at Anthropic") stopped being true
+//     the day this function started counting.
 //   * THE EXACT WALL-CLOCK LIFETIME OF AN ISOLATE IS UNVERIFIED. It was not read in
 //     the session that wrote this, so no number is written here.
 //     https://supabase.com/docs/guides/functions/limits is the page to read, and
 //     issue #168 already holds that question for invite-member.
 //
-// ISSUE #186 HOLDS ALL OF THAT, with what a real fix would have to show. The short
-// version of it: this lock is a courtesy, not a control, and anybody deciding whether
-// this feature is safe for more than six volunteers should read it as one. Issue #184
-// is the same gap from the other side -- a reload asks again, and nothing counts it.
+// ISSUE #186 HOLDS ALL OF THAT, with what a real fix would have to show, AND IT DOES
+// NOT CLOSE WITH BUILD IT 22. docs/plan.md says why, and says what happens to this
+// lock, in the plainest words available:
+//
+//   "What happens to the lock: NOTHING IS REMOVED. It keeps catching the double click
+//    without a database write, which is worth having and costs nothing, and it stops
+//    being the thing anybody points at when asked what keeps this feature from
+//    spending money. The caveat in the code stays true and stays written down, so
+//    #186 does NOT close when this lands -- its four conditions are about two
+//    SIMULTANEOUS asks being counted, not about a daily limit."
+//
+// So: the lock is still per isolate, still forgets, and still lets two asks from one
+// person on two isolates both proceed. What has changed is that both of those asks now
+// go through the count, where they ARE told apart -- the check and the increment are one
+// statement in the database -- so the hole #186 describes costs one of somebody's twenty
+// instead of being free. That is smaller and it is not nothing, which is why #186 stays
+// open. Issue #184 stays open too: a reload asks again, and a daily limit does not stop
+// the second ask, it stops the twenty-first.
 //
 // Exported, and the test drives THESE functions, so what it asserts about
 // double-entry is what the handler does.
@@ -1368,6 +1449,11 @@ export default {
     // and bodies they have had since Build it 20. Below it, the 400s for a malformed
     // body and a bad id, `busy`, the 404, `not_configured`, and the rest, in their
     // own unchanged order.
+    //
+    // AND BUILD IT 22 ADDED ITS REFUSAL BELOW ALL OF THEM, which is the same promise
+    // kept once more: the daily count is the LAST thing before the request, so every
+    // refusal above it answers exactly as it did yesterday and costs nobody one of
+    // their twenty.
     // THE GATE ITSELF IS ONE EXPORTED FUNCTION, AND EVERYTHING BEHIND IT IS THE
     // SECOND ARGUMENT. That shape is not decoration: it is what makes
     // "with the setting off, the task is never read and nothing is sent"
@@ -1489,53 +1575,133 @@ export default {
             return unavailableAnswer("no_model");
           }
 
-          // ---- The call -----------------------------------------------------
-          const answer = await callAnthropic(
-            buildAnthropicRequest({ model: model.model, title: task.title, apiKey }),
+          // ---- TODAY'S LIMIT: the last thing before any money is spent -------
+          //
+          // Build it 22 part 2, issue #221. docs/plan.md: "suggest-subtasks ...
+          // after the door checks and the consent check, IMMEDIATELY BEFORE the
+          // call to the AI service."
+          //
+          // WHY HERE AND NOWHERE EARLIER, which is the whole of what makes the
+          // plan's table of what counts true. Everything above this line is a
+          // refusal that costs nothing, and the plan lists all of them as NOT
+          // counted: no signed-in caller, `account_suspended`, a suspension read
+          // that did not answer, `ai_suggestions_off`, `ai_suggestions_unknown`, a
+          // malformed body, a bad task id, `busy`, a task that was not found or
+          // whose title is unusable, a task read that did not answer,
+          // `not_configured` and `no_model`. A count written above this line would
+          // spend somebody's twenty on production, where there is no key and nothing
+          // is ever sent.
+          //
+          // AND WHY NOT ONE LINE LOWER, after the answer comes back. Because the
+          // count is written BEFORE the paid call and never given back -- the
+          // owner's decision of 2026-10-08 -- and that ordering is the protection:
+          // "a count written only on success makes a loop of failures free, and a
+          // failing service is exactly when something retries." So every answer
+          // from the service counts, `unreachable` included, which is the one place
+          // this rule gives a wrong-looking answer and is argued for at length in
+          // the plan.
+          //
+          // THE RPC IS WRITTEN OUT HERE, at the call site, for the reason every
+          // other read in this file is: a reviewer sees which function is called
+          // with which arguments, and the `callerId` going in is the verified
+          // token's id -- `ctx.userClaims.id`, read before the body was parsed --
+          // so nothing a caller can put in a body changes whose count is spent.
+          //
+          // ctx.supabaseAdmin, because `service_role` is the only role holding
+          // EXECUTE on it. 20261008115900_usage_counts.sql revokes it from PUBLIC,
+          // `anon` and `authenticated` by name, and its own comment says why that is
+          // the most important revoke in the file: the limit is an argument, so a
+          // caller who could call it would choose the limit.
+          // THE GATE IS ONE EXPORTED FUNCTION AND THE WHOLE OF THE PAID CALL IS ITS
+          // SECOND ARGUMENT, which is the same shape withConsent above uses and for
+          // the same reason: it is what makes "when the count refuses, the AI service
+          // receives NOTHING" a fact a test can establish about this handler rather
+          // than about a copy of its order written out in a test file.
+          return await withDailyLimit(
+            {
+              count: () =>
+                ctx.supabaseAdmin.rpc(COUNT_RPC, {
+                  p_user_id: callerId,
+                  p_feature: FEATURE_AI_SUGGESTIONS,
+                  p_limit: dailyLimit(FEATURE_AI_SUGGESTIONS),
+                }),
+              // THE COUNT DID NOT ANSWER, so whether this person may spend money is
+              // NOT KNOWN -- and an unknown is not a yes. The fixed sentence, because
+              // this is plumbing rather than a fact about their day.
+              //
+              // THIS ONE IS LOGGED, unlike the at-limit refusal the gate sends,
+              // because a count that has stopped working refuses EVERYBODY and
+              // nothing else will notice. The Postgres error code goes no further
+              // than countOneUse's return value: not into the body and not into this
+              // line, for the same reason the consent read's does not. Nor does the
+              // caller's id.
+              unknownAnswer: () => {
+                console.error(
+                  "suggest-subtasks: today's usage count could not be written, so " +
+                    `nothing was sent. Code: ${DAILY_LIMIT_UNKNOWN_CODE}. No user ` +
+                    "id, title or database message is logged.",
+                );
+                return unavailableAnswer(DAILY_LIMIT_UNKNOWN_CODE);
+              },
+            },
+            async () => {
+              // ---- The call -------------------------------------------------
+              //
+              // THE USE IS ALREADY COUNTED by the time this line runs, and nothing
+              // below gives it back. See the note above.
+              const answer = await callAnthropic(
+                buildAnthropicRequest({ model: model.model, title: task.title, apiKey }),
+              );
+
+              if (!answer.ok) {
+                // No status: the request was never answered. The code says which of
+                // the two reasons it was.
+                console.error(
+                  `suggest-subtasks: no suggestions. HTTP status from the AI service: none. ` +
+                    `Code: ${answer.code}. No title, reply or service message is logged.`,
+                );
+                return unavailableAnswer(answer.code);
+              }
+
+              const fields = errorFields(answer.body);
+              const statusCode = judgeAnthropicStatus(
+                answer.status,
+                fields.type,
+                fields.message,
+              );
+
+              if (statusCode !== null) {
+                // THE STATUS AND THE CODE ONLY, which is what issue #183 asks for:
+                // "Log the status and the code only: never the title, the reply, or
+                // the service's words." The status is a number the service set and
+                // the code is one of the fixed words from the list in this file.
+                // Neither can carry anything somebody typed, and the error type and
+                // message that judgeAnthropicStatus just read go no further than
+                // that function.
+                console.error(
+                  `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
+                    `${answer.status}. Code: ${statusCode}. No title, reply or service ` +
+                    `message is logged.`,
+                );
+                return unavailableAnswer(statusCode);
+              }
+
+              const verdict = readSuggestions(answer.body);
+              if (!verdict.ok) {
+                console.error(
+                  `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
+                    `${answer.status}. Code: ${verdict.code}. The reply was not up to five ` +
+                    `short plain-text suggestions, and it is not logged.`,
+                );
+                return unavailableAnswer(verdict.code);
+              }
+
+              // Nothing is logged on success. docs/plan.md decided "Logs: we add
+              // none of our own", and a count of suggestions would be the thin end
+              // of logging what they were.
+              return suggestionsAnswer(verdict.suggestions);
+            },
           );
-
-          if (!answer.ok) {
-            // No status: the request was never answered. The code says which of the two
-            // reasons it was.
-            console.error(
-              `suggest-subtasks: no suggestions. HTTP status from the AI service: none. ` +
-                `Code: ${answer.code}. No title, reply or service message is logged.`,
-            );
-            return unavailableAnswer(answer.code);
-          }
-
-          const fields = errorFields(answer.body);
-          const statusCode = judgeAnthropicStatus(answer.status, fields.type, fields.message);
-
-          if (statusCode !== null) {
-            // THE STATUS AND THE CODE ONLY, which is what issue #183 asks for: "Log the
-            // status and the code only: never the title, the reply, or the service's
-            // words." The status is a number the service set and the code is one of nine
-            // words from the list in this file. Neither can carry anything somebody
-            // typed, and the error type and message that judgeAnthropicStatus just read
-            // go no further than that function.
-            console.error(
-              `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
-                `${answer.status}. Code: ${statusCode}. No title, reply or service ` +
-                `message is logged.`,
-            );
-            return unavailableAnswer(statusCode);
-          }
-
-          const verdict = readSuggestions(answer.body);
-          if (!verdict.ok) {
-            console.error(
-              `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
-                `${answer.status}. Code: ${verdict.code}. The reply was not up to five ` +
-                `short plain-text suggestions, and it is not logged.`,
-            );
-            return unavailableAnswer(verdict.code);
-          }
-
-          // Nothing is logged on success. docs/plan.md decided "Logs: we add none of our
-          // own", and a count of suggestions would be the thin end of logging what they
-          // were.
-          return suggestionsAnswer(verdict.suggestions);
         } finally {
           // IN A FINALLY, so a thrown error, an abort or an early return cannot leave
           // this person unable to ask again until their isolate is recycled.
@@ -1551,11 +1717,18 @@ export default {
 //
 // The console calls above print, between them, exactly three kinds of value: the
 // name of a setting that is not set, an HTTP status the AI service answered with,
-// and one of the twelve fixed codes from SUGGEST_CODES. That is all.
+// and one of the thirteen fixed codes from SUGGEST_CODES. That is all.
 //
-// AND ONE OF THEM PRINTS NOTHING AT ALL: the consent refusal. See withConsent -- a
-// person who has not switched a setting on is not news, so the off case has no log
-// line, while the unreadable case has one carrying its code and nothing else.
+// AND TWO OF THEM PRINT NOTHING AT ALL, both for the same reason. The consent
+// refusal -- see withConsent, a person who has not switched a setting on is not news
+// -- and the daily-limit refusal, because a person having used their twenty is not
+// news either. Their UNREADABLE counterparts are both logged, carrying their code
+// and nothing else, because a consent read or a usage count that has stopped working
+// refuses everybody and nothing else will notice.
+//
+// AND NOTHING FROM THE COUNT REACHES A LOG LINE: not the feature word, not the
+// limit, not the number used, not the date, and not the Postgres error code when
+// there is one. countOneUse's return value is where that stops.
 //
 // THEY NEVER PRINT:
 //   * the task's title, which is free text somebody typed and which docs/plan.md's

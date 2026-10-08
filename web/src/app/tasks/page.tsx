@@ -24,8 +24,10 @@ import {
 } from "@/lib/screen-state";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import {
+  SUGGESTIONS_DAILY_LIMIT,
   SUGGESTIONS_UNAVAILABLE,
   SUGGEST_DATA,
+  SUGGEST_LIMIT,
   SUGGEST_UNAVAILABLE,
   suggestOutcome,
 } from "@/lib/suggestions";
@@ -176,15 +178,25 @@ export default async function MyTasksPage({
   // is a GET, so a reload asks again, and so does opening the same address twice. The
   // link that carries it sets prefetch={false}, which stops Next.js following it on
   // scroll or on hover -- but a person pressing F5 is a person spending another
-  // request. Until Build it 22's usage counts exist, what bounds that is the
-  // 5-dollar monthly limit at Anthropic and nothing else (docs/plan.md says so in
-  // those words). Issue #184 holds it, with what a fix must and must not change.
+  // request.
+  //
+  // WHAT BOUNDS THAT, SINCE BUILD IT 22 (issue #221): a daily count, in this project's
+  // own database, and the function refuses once it is reached. So a reload still spends
+  // one -- a daily limit does not stop the second ask, it stops the twenty-first -- but
+  // it is no longer unbounded, which is what the sentence here used to say. Issue #184
+  // stays open for the second ask, with what a fix must and must not change.
   const suggestTask =
     tasks.find((task) => task.id === String(suggest ?? "").trim().toLowerCase()) ??
     null;
 
   let suggestionsData: unknown = null;
   let suggestionsFailed = false;
+
+  // The `code` off a FAILED answer's body, when it could be read. Build it 22: it is
+  // the only thing that tells today's limit apart from the thirteen plumbing failures,
+  // which all share one sentence. Read as an exact word by suggestOutcome and never
+  // printed.
+  let suggestionsCode: unknown = undefined;
 
   // ---- THE CONSENT SETTING (Build it 21, issue #211) ----------------------
   //
@@ -236,12 +248,39 @@ export default async function MyTasksPage({
     // the request, the function has already reduced every failure to a fixed code,
     // and issue #183 says "Nothing from the title or the reply goes to error
     // reporting."
-    const { data: answer, error: suggestError } = await supabase.functions.invoke(
-      "suggest-subtasks",
-      { body: { task_id: suggestTask.id } },
-    );
+    const {
+      data: answer,
+      error: suggestError,
+      response: suggestResponse,
+    } = await supabase.functions.invoke("suggest-subtasks", {
+      body: { task_id: suggestTask.id },
+    });
     suggestionsData = answer;
     suggestionsFailed = Boolean(suggestError);
+
+    // ---- THE CODE, AND ONLY THE CODE (Build it 22, issue #221) ------------
+    //
+    // On a non-2xx the installed client throws, so `data` is null and the body is
+    // only reachable through the response -- `response` is the Response itself for
+    // an HTTP or relay error, and undefined for a network error, which is the
+    // installed client's own documented shape
+    // (web/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js).
+    //
+    // WHAT IS READ FROM IT, AND WHAT IS NOT. The `code` field, compared by
+    // suggestOutcome with one value this app knows and never printed. NOT the
+    // `error` message: the long note beside TEAM_ACTION_OUTCOMES in
+    // web/src/lib/teams.ts says why a function's own message must not reach a
+    // screen, and every word of it applies here. A body that cannot be read leaves
+    // the code undefined, which falls through to the sentence this page has always
+    // shown -- the safe direction.
+    if (suggestionsFailed && suggestResponse) {
+      try {
+        const body = await suggestResponse.json();
+        suggestionsCode = (body as { code?: unknown } | null)?.code;
+      } catch {
+        // Not JSON, or already read. The fixed sentence, as before.
+      }
+    }
   }
 
   // Three states, never an empty list. suggestOutcome puts `failed` ahead of the data
@@ -255,6 +294,7 @@ export default async function MyTasksPage({
   const suggestions = suggestOutcome({
     asked: suggestTask !== null && mayAsk,
     failed: suggestionsFailed,
+    code: suggestionsCode,
     data: suggestionsData,
   });
 
@@ -1030,6 +1070,30 @@ export default async function MyTasksPage({
                       <Link className="btn btn--quiet" href={CONSENT_PATH}>
                         Open Settings
                       </Link>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
+                    </div>
+                  ) : suggestions.state === SUGGEST_LIMIT ? (
+                    <div className={styles.suggest}>
+                      {/* TODAY'S LIMIT (Build it 22, issue #221), and it is kept APART
+                          from the sentence below for the reason docs/plan.md gives:
+                          the thirteen fixed codes all mean "something in this app's
+                          plumbing went wrong, press it again later", and this one is a
+                          fact about the person's own day that they can plan around.
+                          Telling them suggestions "aren't available right now" would
+                          invite the one action that is certainly useless here.
+
+                          NO LINK TO SETTINGS, unlike the consent branch above: there
+                          is nothing on any screen of this app that changes a limit,
+                          and offering a button that could not help would be worse than
+                          offering none. Just the sentence, and Close. */}
+                      <Banner tone="bad" icon="alert">
+                        {SUGGESTIONS_DAILY_LIMIT}
+                      </Banner>
                       <Link
                         className="btn btn--quiet"
                         href={tasksPath({ filter: carried })}

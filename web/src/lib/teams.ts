@@ -338,6 +338,14 @@ export const TEAM_ACTION_OUTCOMES = [
   "notfound",
   // 409: a limit, or something that already exists.
   "conflict",
+  // 429 carrying the "daily_limit" code: this person has used today's allowance of
+  // the thing that spends money. Build it 22, issue #221.
+  //
+  // IT IS TOLD APART BY ITS CODE, not by its status, for the same reason "suspended"
+  // is: the sentence it earns is specific advice ("it resets tomorrow") and the
+  // default sentence is the opposite advice ("please try again"). A 429 falling
+  // through to `broke` would tell somebody to do the one thing that cannot work.
+  "limit",
   // Anything else the function answered with -- 500, 503, a status nobody here
   // has seen. The app cannot explain it, so it says so and reports it.
   "broke",
@@ -356,6 +364,26 @@ export type TeamActionOutcome = (typeof TEAM_ACTION_OUTCOMES)[number];
 // 403 sentence tells somebody to do something, and telling a suspended person to
 // do it would send them somewhere pointless.
 export const SUSPENDED_CODE = "account_suspended";
+
+// AND THE SECOND, since Build it 22 (issue #221): today's limit on the thing that
+// spends money. supabase/functions/_shared/limits.ts, DAILY_LIMIT_CODE.
+//
+// Read as an exact word and never printed, exactly like the one above. So "the one
+// code the three server functions actually send" is now two -- and both of them are
+// read from the body for the same reason: their status alone would send the person
+// the wrong advice.
+export const DAILY_LIMIT_CODE = "daily_limit";
+
+// THE SENTENCE, which is docs/plan.md's own and is the same one
+// web/src/lib/suggestions.ts shows for the AI helper. "One sentence for both
+// features", so this app says one thing about a daily limit however somebody met it.
+//
+// A COPY, like every other number and word in this file, for the reason beside
+// INVITATION_FAILURE_CODES: the deployed function is a different program from the one
+// in this branch until somebody deploys, and scripts/screen-state-check.mjs compares
+// the two copies so a drift is a red check.
+export const DAILY_LIMIT_SENTENCE =
+  "You've reached today's limit. It resets tomorrow.";
 
 /**
  * Which outcome a failed function call was.
@@ -380,6 +408,10 @@ export function teamActionOutcome(answer: {
   // never used as a word to print.
   if (answer.code === SUSPENDED_CODE) return "suspended";
 
+  // And the same, for the same reason: a 429 whose sentence has to say when the
+  // allowance comes back rather than "please try again".
+  if (answer.code === DAILY_LIMIT_CODE) return "limit";
+
   switch (answer.status) {
     case 401:
       return "signin";
@@ -399,11 +431,19 @@ export function teamActionOutcome(answer: {
 /**
  * Is this an outcome the app cannot explain, and so should report?
  *
- * The refusals are not reported. A person at the limit of three teams, or
- * inviting somebody already in the team, is the app working: filling Sentry with
- * those would bury the reports that matter and spend a free plan's quota on
- * normal use. The two that ARE reported are the two where something is wrong and
- * nobody would otherwise hear about it.
+ * The refusals are not reported. A person at the limit of three teams, inviting
+ * somebody already in the team, or -- since Build it 22 -- having used today's
+ * twenty invitations, is the app working: filling Sentry with those would bury the
+ * reports that matter and spend a free plan's quota on normal use. The two that ARE
+ * reported are the two where something is wrong and nobody would otherwise hear
+ * about it.
+ *
+ * SO "limit" IS NOT REPORTED, which needs no new line here because it is not one of
+ * the two named below -- but it is worth saying, because a daily limit is exactly the
+ * kind of thing somebody would reach for Sentry to count. The place that counts it is
+ * the `usage_counts` table, which the operator reads in the dashboard; the error
+ * reporter is not a metrics service and docs/plan.md's "Analytics: stays at none"
+ * covers the temptation.
  */
 export function worthReporting(outcome: TeamActionOutcome): boolean {
   return outcome === "broke" || outcome === "unreachable";
@@ -427,6 +467,16 @@ export const CREATE_TEAM_SENTENCES: Readonly<
   refused: "You cannot create a team at the moment.",
   notfound: "The team could not be created. Please try again.",
   conflict: `You already own ${MAX_TEAMS_PER_OWNER} teams, the most allowed, so no team was created.`,
+  // CREATE-TEAM IS NOT A LIMITED FEATURE AND CANNOT SEND THIS CODE. Creating a team
+  // spends no money, so docs/plan.md's daily limits are on the other two things only
+  // -- and `count_daily_use` would refuse the word anyway, because
+  // usage_counts_feature_allowed is a fixed list of two.
+  //
+  // The entry exists because the type requires a sentence for every outcome, which is
+  // the right way round: a screen that met an outcome it had no words for would draw
+  // nothing. If it is ever reached, it is true and it is the same sentence the other
+  // map uses.
+  limit: DAILY_LIMIT_SENTENCE,
   broke: "The team could not be created. Please try again.",
   unreachable:
     "Could not reach the server, so no team was created. Please try again.",
@@ -444,6 +494,13 @@ export const INVITE_SENTENCES: Readonly<Record<TeamActionOutcome, string>> = {
   conflict:
     `No invitation was sent. That address may already be in the team, may already have one waiting, ` +
     `or may be your own — and a team may have at most ${MAX_PENDING_INVITATIONS} invitations waiting.`,
+  // TODAY'S LIMIT (Build it 22, issue #221), and it is a DIFFERENT fact from the
+  // `conflict` sentence above, which is about this team. This one is about this
+  // person's day: it is per person, not per team, so somebody who owns three teams
+  // has one allowance between them. The sentence names no number, by the plan's
+  // decision, so it says nothing about which of the two limits was met -- and that is
+  // right, because the `conflict` sentence is the one that names the team's.
+  limit: DAILY_LIMIT_SENTENCE,
   broke: "That invitation could not be sent. Please try again.",
   unreachable:
     "Could not reach the server, so no invitation was sent. Please try again.",

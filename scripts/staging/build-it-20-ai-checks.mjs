@@ -65,17 +65,34 @@
 // his setting off his ask would be refused for consent and section 5's question about
 // task visibility would never be asked. It creates no profile row for anybody.
 //
+// AND SINCE BUILD IT 22 IT ALSO ASKS ABOUT TODAY'S LIMIT (issue #221), which is the
+// one section that only runs when it is asked to. `--ai-limit=<n>` tells it what limit
+// the deployed function is configured with -- which it cannot read, because no role
+// holds SELECT on `usage_counts` and the limit is a constant in the bundle -- and
+// without the flag that whole section reports UNVERIFIED and makes no extra asks.
+//
+// WHY A FLAG RATHER THAN RUNNING IT AT THE REAL LIMIT OF 20: twenty-one asks is
+// twenty-one metered requests, every run, to establish that twenty-one is more than
+// twenty. The note above readAiLimit, further down this file, has the five steps for
+// setting a temporary low limit for a test deploy WITHOUT changing the config on main,
+// and says why an environment-variable override was not the answer.
+//
 // WHAT IT COSTS, IN MONEY, and this is the only script in this repository of which that
 // is true. Once AI_API_KEY is set on staging, an ask is a metered request to Anthropic.
-// AT MOST THREE PER RUN reach the service: Alice's ask about her own task, and the two
-// simultaneous asks in the one-at-a-time check. Every other call in this script is
+// AT MOST THREE PER RUN reach the service WITHOUT --ai-limit: Alice's ask about her own
+// task, and the two simultaneous asks in the one-at-a-time check. WITH --ai-limit=<n>,
+// at most n per run in total -- the limit is the ceiling, because that is the whole
+// point of it, and DRIVE_ASKS_MAX is the second ceiling in case the first is not what
+// this script was told. Every other call in this script is
 // refused before any key is touched -- a 400 for a bad id, a 404 for a task the caller
 // cannot see, two 401s for the two shapes of a signed-out call, and BOTH of the asks
 // made with the setting off, which the function refuses before it reads the task -- so
 // none of those costs anything. Claude Haiku 4.5 is $1 per million input tokens and $5
 // per million output, and the reply is capped at 300 output tokens (docs/costs.md), so
-// three asks is a fraction of a penny. The ceiling behind all of it is the 5-dollar
-// monthly spend limit on the Team Tasks workspace.
+// three asks is a fraction of a penny, and five is still a fraction of a penny. The
+// ceiling behind all of it is the 5-dollar monthly spend limit on the Team Tasks
+// workspace -- and, since Build it 22, the day's count, which is what the new section
+// is about.
 //
 // WHAT IT CANNOT ASK, so that nobody reads a green run as more than it is (rule 8):
 //
@@ -93,6 +110,19 @@
 //     two asks at once and reports whether the lock engaged; when it does not, that is
 //     the documented limit rather than a fault, and the function's own comment says so
 //     at length.
+//   * WHAT THE COUNT ACTUALLY SAYS. It cannot read `usage_counts`: no role holds
+//     SELECT on that table, which is the design -- not `anon`, not `authenticated`,
+//     and not `service_role` either, which the coach read back off staging on 8
+//     October 2026. So the limit checks are judged on what the FUNCTION ANSWERS, and
+//     the only statement about the rows themselves is the owner reading them in the
+//     dashboard, which issue #221's fifth condition asks for separately.
+//   * WHETHER THE COUNT IS WRITTEN FOR A PERSON THIS RUN DID NOT USE. One account's
+//     limit is exercised, Alice's. "Per person, not per team" is the plan's, and the
+//     database's primary key is what makes it true; nothing here asks it.
+//   * ANYTHING ABOUT invite-member's LIMIT. This script is about suggest-subtasks. The
+//     invitation half of the same change is proved by the Deno tests over the bodies
+//     and by nothing deployed; a staging run for it would send real email to the test
+//     inbox and needs its own script.
 //   * ANYTHING ABOUT PRODUCTION. It refuses to run against anything but the staging
 //     host, before it reads a password.
 //
@@ -215,6 +245,10 @@ const NOT_FOUND_MESSAGE = "That task was not found.";
 // `ai_suggestions_unknown` arrived with Build it 21 (issue #211): the consent setting
 // could not be read, which docs/plan.md says must answer with this same fixed sentence
 // rather than be treated as permission.
+// `daily_limit_unknown` arrived with Build it 22 (issue #221): today's usage count
+// could not be WRITTEN, which is plumbing and so gets the fixed sentence. Reaching
+// today's limit is a different thing with its own sentence, and is deliberately NOT on
+// this list -- see DAILY_LIMIT_CODE below.
 const SUGGEST_CODES = [
   "not_configured",
   "no_model",
@@ -228,7 +262,61 @@ const SUGGEST_CODES = [
   "bad_reply",
   "busy",
   "ai_suggestions_unknown",
+  "daily_limit_unknown",
 ];
+
+// ---------------------------------------------------------------------------
+// TODAY'S LIMIT (Build it 22, issue #221)
+// ---------------------------------------------------------------------------
+//
+// supabase/functions/_shared/limits.ts holds the two numbers, this sentence and this
+// code, and `public.count_daily_use()` -- applied to staging on 8 October 2026 with
+// PR #224 -- is what decides. This script's job is to prove it from OUTSIDE: ask until
+// the limit, then ask once more.
+//
+// THE REFUSAL IS NOT ONE OF THE THIRTEEN CODES ABOVE and does not carry their
+// sentence, which is docs/plan.md's decision and the same shape as the consent
+// refusal's: reaching a limit is a fact about the person's own day that they can plan
+// around, not news about this app's plumbing. Both halves are written out here
+// character for character, as this script's statement of the contract -- importing
+// them from the function would make the two agree however the function changed.
+const DAILY_LIMIT_CODE = "daily_limit";
+const DAILY_LIMIT_MESSAGE = "You've reached today's limit. It resets tomorrow.";
+
+// 429, which is the one status in the range that means what this refusal means.
+const DAILY_LIMIT_STATUS = 429;
+
+// WHICH ANSWERS SPEND ONE OF THE DAY'S USES, which this script has to know because it
+// cannot read `usage_counts` -- no role holds SELECT on that table, not even
+// `service_role`, which is the whole design (the coach read the privileges back off
+// staging on 8 October 2026). So the only way to know where the count stands is to
+// keep the tally this script's own asks produced.
+//
+// THE RULE IS docs/plan.md's TABLE, not this script's opinion: "a use is counted the
+// moment this app is about to spend money, and it is never given back". So every
+// answer FROM the AI service counts -- suggestions, and every one of the codes below,
+// `unreachable` included, which is the awkward one the plan argues for at length --
+// and every refusal decided BEFORE the request does not.
+//
+// A code this list does not know is treated as NOT counted, which is the direction
+// that makes this script's own arithmetic conservative rather than the function's
+// behaviour: it would make the drive-to-the-limit ask more times, not fewer.
+const CODES_THAT_REACHED_THE_SERVICE = [
+  "refused",
+  "model_unavailable",
+  "rate_limited",
+  "spend_limit",
+  "unavailable",
+  "unreachable",
+  "timeout",
+  "bad_reply",
+];
+
+// A hard ceiling on how many asks this script will make while driving to the limit, on
+// top of the limit itself. It exists because every allowed ask SPENDS MONEY: a bug
+// here -- a function that answers 200 for ever, a limit the owner set higher than they
+// told this script -- must stop at a number somebody chose rather than loop.
+const DRIVE_ASKS_MAX = 30;
 
 // ---------------------------------------------------------------------------
 // THE CONSENT SETTING (Build it 21, issue #211)
@@ -1050,6 +1138,285 @@ export function judgeOneAtATime(first, second) {
 }
 
 // ---------------------------------------------------------------------------
+// Today's limit, judged from outside (Build it 22, issue #221)
+// ---------------------------------------------------------------------------
+
+// DID THIS ASK SPEND ONE OF THE DAY'S USES? Pure, exported, and selftested, because
+// every piece of arithmetic below rests on it -- and because getting it wrong in the
+// generous direction would make this script ask more times than it meant to, which
+// costs real money.
+//
+// Four answers:
+//
+//   counted      the request reached the AI service, whatever came back
+//   at_limit     refused by today's count. Nothing was sent and nothing was counted:
+//                count_daily_use writes nothing when the row has reached the limit
+//   refused      refused before the request for some other reason -- a 400, a 404, a
+//                401, `busy`, `not_configured`, the consent check. Spent nothing
+//   unknown      the ask never arrived, so nothing can be said
+export function askOutcome(answer) {
+  if (!answer || answer.error) return { kind: "unknown" };
+
+  // readAnswerBody takes the BYTES THAT ARRIVED, never the scrubbed copy: a judgement
+  // decides on `body` and only on `body`, which is the 7 October lesson at the top of
+  // this file.
+  const code = readAnswerBody(answer.body).code;
+
+  if (answer.status === DAILY_LIMIT_STATUS && code === DAILY_LIMIT_CODE) {
+    return { kind: "at_limit" };
+  }
+
+  // A 200 is suggestions, which only happens after the request was made and paid for.
+  if (answer.status === 200) return { kind: "counted" };
+
+  if (answer.status === 503 && CODES_THAT_REACHED_THE_SERVICE.includes(code)) {
+    return { kind: "counted" };
+  }
+
+  return { kind: "refused", code };
+}
+
+/** True when this answer spent one of the day's uses. */
+export function countsAsAUse(answer) {
+  return askOutcome(answer).kind === "counted";
+}
+
+// THE CHECK THIS WHOLE SECTION IS FOR: the ask after the limit is refused, with the
+// function's own sentence and its own code, and nothing was sent.
+//
+// FOUR RESULTS, the same four shapes judgeRefusedWhenOff has and for the same reason
+// -- they are four different pieces of news:
+//
+//   1. it was refused at all, with 429 -- not 200, and not the fixed 503 either;
+//   2. the code is the limit's, so this is the COUNT doing it rather than some other
+//      refusal that happens to land on the same status;
+//   3. the sentence is the function's own, character for character;
+//   4. and the body carries nothing but error and code -- no limit, no count, no
+//      feature word, no date.
+//
+// BEFORE THE DEPLOY ALL FOUR FAIL, which is the point: the version of this function on
+// staging today counts nothing, so the ask after the limit answers 200 with
+// suggestions -- and that FAIL is the evidence the behaviour was not there.
+export function judgeRefusedAtLimit(answer) {
+  const what = "the ask AFTER the limit is REFUSED, and nothing is sent";
+  if (!answer || answer.error) {
+    return [{ what, verdict: UNVERIFIED, detail: answer?.error ?? "no answer at all" }];
+  }
+
+  const { judged: read, show } = readBothWays(answer);
+  const results = [];
+
+  results.push({
+    what,
+    verdict: answer.status === DAILY_LIMIT_STATUS ? PASS : FAIL,
+    detail:
+      answer.status === DAILY_LIMIT_STATUS
+        ? `HTTP ${DAILY_LIMIT_STATUS}`
+        : `HTTP ${answer.status}, expected ${DAILY_LIMIT_STATUS}. A 200 here means the` +
+          ` deployed function spent a metered request for somebody who had already had` +
+          ` the day's allowance, which is the one thing this limit exists to prevent.` +
+          ` A 503 means it refused for some other reason and the count was not what did` +
+          ` it. Body: ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+  });
+
+  results.push({
+    what: `and the code is "${DAILY_LIMIT_CODE}", so it is the COUNT that refused it`,
+    verdict: read.code === DAILY_LIMIT_CODE ? PASS : FAIL,
+    detail:
+      `its code is ${JSON.stringify(show.code)}. ` +
+      (read.code === "daily_limit_unknown"
+        ? "That is the count that could NOT BE WRITTEN, which is a refusal too and the" +
+          " right one -- but it is a broken counter rather than a reached limit, and" +
+          " this check cannot say anything about the limit until it is fixed"
+        : read.code === "busy"
+        ? "That is the per-isolate one-at-a-time lock, not the count. Ask again in a" +
+          " moment"
+        : `Expected ${JSON.stringify(DAILY_LIMIT_CODE)}`),
+  });
+
+  results.push({
+    what: "and the sentence is the one docs/plan.md wrote, character for character",
+    verdict: read.message === DAILY_LIMIT_MESSAGE ? PASS : FAIL,
+    detail:
+      `its sentence is ${JSON.stringify(show.message)}. Expected exactly` +
+      ` ${JSON.stringify(DAILY_LIMIT_MESSAGE)}`,
+  });
+
+  results.push({
+    what: "and the body carries error and code and nothing else -- no number, no feature",
+    verdict:
+      Array.isArray(read.extra) && read.extra.slice().sort().join(",") === "code,error"
+        ? PASS
+        : FAIL,
+    detail: `its fields are ${(show.extra ?? []).join(", ")}`,
+  });
+
+  return results;
+}
+
+// DRIVING TO THE LIMIT: however many asks it took, the number ALLOWED never went past
+// the limit the owner set.
+//
+// `allowed` is how many of this run's asks spent a use; `limit` is what the owner told
+// this script the deployed function is configured with.
+//
+// WHY THIS IS A SEPARATE RESULT FROM THE ONE ABOVE: a function that refused the
+// twenty-first ask having allowed twenty-five earlier ones would pass that check and
+// fail this one, and the two failures mean different things -- one is "the refusal
+// does not work", the other is "the refusal works and the counting does not".
+export function judgeDroveToLimit(allowed, limit, asks) {
+  const what = `no more than the day's ${limit} asks were allowed`;
+
+  if (asks === 0) {
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail: "this run made no asks in this section, so there is nothing to count",
+      },
+    ];
+  }
+
+  return [
+    {
+      what,
+      verdict: allowed <= limit ? PASS : FAIL,
+      detail:
+        allowed <= limit
+          ? `${asks} ask(s), of which ${allowed} spent a use -- at or under the ${limit}` +
+            ` the owner set for this test deploy`
+          : `${asks} ask(s), of which ${allowed} spent a use, which is MORE than the` +
+            ` ${limit} the owner said this deploy is configured with. Either the count` +
+            ` is not being written, or the limit on staging is not the one this run was` +
+            ` told about -- check which before reading anything else here`,
+    },
+  ];
+}
+
+// FIVE AT ONCE WITH TWO USES LEFT: at most two may be allowed.
+//
+// THIS IS THE CHECK THE WHOLE DATABASE DESIGN EXISTS FOR, and docs/plan.md says so:
+// the check and the increment are ONE statement, "so the twentieth caller compares the
+// limit with the count the other nineteen left behind, not with the one it read before
+// they ran. A read followed by a write cannot do this: the gap between the two is where
+// twenty callers all see room for one."
+//
+// WHAT THE OTHER REFUSALS MEAN HERE, because they will happen and they are not faults:
+//
+//   `busy`    the per-isolate one-at-a-time lock (issue #186) caught an ask that
+//             landed on the same isolate as another. It spent nothing, and it is
+//             exactly what that lock is still there for -- docs/plan.md: "It keeps
+//             catching the double click without a database write."
+//   at_limit  the count refused it. That is this section's control working.
+//
+// SO "at most two allowed" IS THE ASSERTION, and the two refusals are reported
+// separately so the owner can see which did the refusing. A run where the lock caught
+// all five would pass the assertion and prove nothing about the count -- so a second
+// result says how many were refused BY THE COUNT, and reports UNVERIFIED when that is
+// nought.
+export function judgeAtMostTwoAllowed(answers, left) {
+  const what = `five asks at once with ${left} use(s) left allow AT MOST ${left}`;
+
+  const unknown = answers.filter((a) => askOutcome(a).kind === "unknown");
+  if (unknown.length > 0) {
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail: `${unknown.length} of the five did not arrive: ${unknown[0].error}`,
+      },
+    ];
+  }
+
+  const kinds = answers.map((a) => askOutcome(a));
+  const allowed = kinds.filter((k) => k.kind === "counted").length;
+  const atLimit = kinds.filter((k) => k.kind === "at_limit").length;
+  const busy = kinds.filter((k) => k.kind === "refused" && k.code === "busy").length;
+  const other = kinds.filter((k) => k.kind === "refused" && k.code !== "busy");
+
+  const results = [];
+
+  results.push({
+    what,
+    verdict: allowed <= left ? PASS : FAIL,
+    detail:
+      `${allowed} allowed, ${atLimit} refused by the count, ${busy} refused by the` +
+      ` per-isolate lock, ${other.length} refused otherwise` +
+      (other.length > 0 ? ` (${other.map((k) => k.code).join(", ")})` : "") +
+      (allowed <= left
+        ? ""
+        : `. More than ${left} were allowed, which means two simultaneous asks both` +
+          ` passed a limit with room for fewer -- the exact fault count_daily_use's` +
+          ` single statement exists to make impossible`),
+  });
+
+  results.push({
+    what: "and at least one of the five was refused BY THE COUNT, not by the lock",
+    verdict: atLimit > 0 ? PASS : UNVERIFIED,
+    detail:
+      atLimit > 0
+        ? `${atLimit} of the five carried the limit's own code`
+        : `none of the five carried the limit's code. ${busy} were refused by the` +
+          ` per-isolate lock, which spends nothing and tells you nothing about the` +
+          ` count. Either the asks all landed on one isolate, or the day's count was` +
+          ` not where this run expected it -- see the note about running this twice in` +
+          ` one UTC day at the bottom of this file`,
+  });
+
+  return results;
+}
+
+// THE SIGNED-OUT CALL IS STILL REFUSED BEFORE ANYTHING IS COUNTED.
+//
+// WHY IT IS ASKED HERE AGAIN, after the limit has been reached, rather than taken from
+// section 5: this is the version of the question that can only be asked now. With
+// Alice at her limit, a call carrying no user token must still be refused by the DOOR
+// -- 401, by the platform or by the library -- and not by the count. Two things follow
+// from that, and they are the two results below:
+//
+//   1. the refusal is a 401, so the handler never ran, so no task was read and no
+//      request was made;
+//   2. and it carries NEITHER the limit's code NOR the limit's sentence, which is what
+//      says the count is not in front of the door checks. There is no user id on a
+//      signed-out call, so there is nothing for a count to be keyed by -- a limit
+//      sentence here would mean the function had invented one.
+export function judgeSignedOutNotCounted(answer, which) {
+  const what = `a signed-out call (${which}) is refused at the DOOR, not by the count`;
+  if (!answer || answer.error) {
+    return [{ what, verdict: UNVERIFIED, detail: answer?.error ?? "no answer at all" }];
+  }
+
+  const { judged: read, show } = readBothWays(answer);
+  const results = [];
+
+  results.push({
+    what,
+    verdict: answer.status === 401 ? PASS : FAIL,
+    detail:
+      answer.status === 401
+        ? "HTTP 401, so the handler never ran: no task was read and no request was made"
+        : `HTTP ${answer.status}, expected 401. Body:` +
+          ` ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+  });
+
+  results.push({
+    what: "and it says nothing about a limit: nothing was counted for a caller with no id",
+    verdict:
+      read.code !== DAILY_LIMIT_CODE && read.message !== DAILY_LIMIT_MESSAGE
+        ? PASS
+        : FAIL,
+    detail:
+      read.code === DAILY_LIMIT_CODE || read.message === DAILY_LIMIT_MESSAGE
+        ? `it answered with the daily-limit refusal (${JSON.stringify(show.code)}), so` +
+          ` the count is being reached before the door checks -- and a signed-out call` +
+          ` has no user id for a count to be keyed by`
+        : `its code is ${JSON.stringify(show.code)}, which is not the limit's`,
+  });
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // The consent setting, judged from outside (Build it 21, issue #211)
 // ---------------------------------------------------------------------------
 
@@ -1638,6 +2005,15 @@ function runSelftest() {
   const consentRefusal = {
     status: 403,
     body: JSON.stringify({ error: CONSENT_OFF_MESSAGE, code: CONSENT_OFF_CODE }),
+  };
+
+  // And the refusal it is supposed to send once the day's count has reached the limit
+  // (Build it 22, issue #221). Built from this file's own constants, so a case that
+  // passes is a case about the contract this script states rather than about a string
+  // somebody typed twice.
+  const atLimit = {
+    status: DAILY_LIMIT_STATUS,
+    body: JSON.stringify({ error: DAILY_LIMIT_MESSAGE, code: DAILY_LIMIT_CODE }),
   };
 
   const goodThree = ["Book the hall", "Print flyers", "Ask for donations"];
@@ -2407,6 +2783,270 @@ function runSelftest() {
         ]),
       expect: [FAIL],
     },
+
+    // ---- TODAY'S LIMIT (Build it 22, issue #221) ----
+    //
+    // THE ONE THAT MATTERS IS THE FIRST: it feeds judgeRefusedAtLimit the answer a
+    // function with NO COUNT gives -- 200 with suggestions, which is exactly what the
+    // version deployed to staging today answers -- and requires all four parts to come
+    // out FAIL. That is what makes the before-the-deploy run's failure evidence rather
+    // than noise.
+    {
+      name:
+        "A FUNCTION THAT COUNTS NOTHING: the ask after the limit answers 200 with" +
+        " suggestions, and all four parts must FAIL. This is the before-the-deploy run",
+      run: () => judgeRefusedAtLimit(ok(goodThree)),
+      expect: [FAIL, FAIL, FAIL, FAIL],
+    },
+    {
+      name: "the limit refusal as the function sends it: all four parts pass",
+      run: () => judgeRefusedAtLimit(atLimit),
+      expect: [PASS, PASS, PASS, PASS],
+    },
+    // THE FOURTH PART PASSES IN THE THREE CASES BELOW, and that is right rather than a
+    // gap: it asks whether the body carries error and code and nothing else, and a
+    // fixed 503 does. It is the status, the code and the sentence that say this is not
+    // the limit refusing -- three of four, which is what a FAIL needs. Expecting four
+    // FAILs here was this file's own arithmetic being wrong, and the selftest said so.
+    {
+      name:
+        "THE FIXED 503 INSTEAD: a function that lumped the limit in with its plumbing" +
+        " failures refuses, which is what docs/plan.md decided against",
+      run: () => judgeRefusedAtLimit(unavailable("rate_limited")),
+      expect: [FAIL, FAIL, FAIL, PASS],
+    },
+    {
+      name:
+        "the BROKEN COUNTER's refusal: a real refusal and the right one, but not a" +
+        " reached limit -- the status and the code and the sentence all differ",
+      run: () => judgeRefusedAtLimit(unavailable("daily_limit_unknown")),
+      expect: [FAIL, FAIL, FAIL, PASS],
+    },
+    {
+      name: "the right status and code with SOMEBODY ELSE'S WORDING",
+      run: () =>
+        judgeRefusedAtLimit({
+          status: DAILY_LIMIT_STATUS,
+          body: JSON.stringify({ error: "Too many requests.", code: DAILY_LIMIT_CODE }),
+        }),
+      expect: [PASS, PASS, FAIL, PASS],
+    },
+    {
+      name: "the right status and sentence with a body that names the limit, which it must not",
+      run: () =>
+        judgeRefusedAtLimit({
+          status: DAILY_LIMIT_STATUS,
+          body: JSON.stringify({
+            error: DAILY_LIMIT_MESSAGE,
+            code: DAILY_LIMIT_CODE,
+            limit: 20,
+            used: 20,
+          }),
+        }),
+      expect: [PASS, PASS, PASS, FAIL],
+    },
+    {
+      name: "a `busy` 503, which is the per-isolate lock and not the count",
+      run: () => judgeRefusedAtLimit(unavailable("busy")),
+      expect: [FAIL, FAIL, FAIL, PASS],
+    },
+    {
+      name: "the ask never arrived at all",
+      run: () => judgeRefusedAtLimit({ error: "could not reach suggest-subtasks" }),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- which answers spend one of the day's uses ----
+    //
+    // Every one of these is docs/plan.md's table, read as this script's own arithmetic.
+    // Getting one wrong in the generous direction would make the drive-to-the-limit ask
+    // more times than it meant to, which costs real money -- so they are checked.
+    {
+      name: "a use is counted: 200 with suggestions",
+      run: () => [{ what: "", verdict: countsAsAUse(ok(goodThree)) ? PASS : FAIL, detail: "" }],
+      expect: [PASS],
+    },
+    {
+      name:
+        "a use is counted: `unreachable`, which is THE AWKWARD ONE -- the request could" +
+        " never be made, so it cost nothing, and docs/plan.md counts it anyway",
+      run: () => [{ what: "", verdict: countsAsAUse(unavailable("unreachable")) ? PASS : FAIL, detail: "" }],
+      expect: [PASS],
+    },
+    {
+      name: "a use is counted: every other answer FROM the service",
+      run: () => [
+        {
+          what: "",
+          verdict: CODES_THAT_REACHED_THE_SERVICE.every((code) =>
+            countsAsAUse(unavailable(code))
+          )
+            ? PASS
+            : FAIL,
+          detail: "",
+        },
+      ],
+      expect: [PASS],
+    },
+    {
+      name:
+        "NOT a use: `not_configured`, `no_model` and `busy`, all decided before the" +
+        " request, and the consent refusal with them",
+      run: () => [
+        {
+          what: "",
+          verdict: [
+            unavailable("not_configured"),
+            unavailable("no_model"),
+            unavailable("busy"),
+            unavailable("ai_suggestions_unknown"),
+            unavailable("daily_limit_unknown"),
+            consentRefusal,
+            notFound,
+            { status: 400, body: JSON.stringify({ error: "That is not a valid task id." }) },
+            { status: 401, body: JSON.stringify({ code: LIBRARY_UNUSABLE_CODE }) },
+          ].some(countsAsAUse)
+            ? FAIL
+            : PASS,
+          detail: "",
+        },
+      ],
+      expect: [PASS],
+    },
+    {
+      name: "NOT a use: the limit refusal itself -- nothing is written when the row is at the limit",
+      run: () => [{ what: "", verdict: countsAsAUse(atLimit) ? FAIL : PASS, detail: "" }],
+      expect: [PASS],
+    },
+    {
+      name: "and an ask that never arrived is an unknown, not a use",
+      run: () => [
+        {
+          what: "",
+          verdict: askOutcome({ error: "no" }).kind === "unknown" ? PASS : FAIL,
+          detail: "",
+        },
+      ],
+      expect: [PASS],
+    },
+
+    // ---- five at once ----
+    {
+      name:
+        "FIVE AT ONCE AND ALL FIVE ALLOWED, with two left: the fault count_daily_use's" +
+        " single statement exists to make impossible",
+      run: () => judgeAtMostTwoAllowed([ok(goodThree), ok(goodThree), ok(goodThree), ok(goodThree), ok(goodThree)], 2),
+      expect: [FAIL, UNVERIFIED],
+    },
+    {
+      name: "five at once, two allowed and three refused by the count: both parts pass",
+      run: () =>
+        judgeAtMostTwoAllowed([ok(goodThree), ok(goodThree), atLimit, atLimit, atLimit], 2),
+      expect: [PASS, PASS],
+    },
+    {
+      name:
+        "five at once, two allowed and three caught by the PER-ISOLATE LOCK: the" +
+        " assertion passes and the second part says the count proved nothing",
+      run: () =>
+        judgeAtMostTwoAllowed(
+          [ok(goodThree), ok(goodThree), unavailable("busy"), unavailable("busy"), unavailable("busy")],
+          2,
+        ),
+      expect: [PASS, UNVERIFIED],
+    },
+    {
+      name: "five at once, THREE allowed with two left: one too many",
+      run: () =>
+        judgeAtMostTwoAllowed([ok(goodThree), ok(goodThree), ok(goodThree), atLimit, atLimit], 2),
+      expect: [FAIL, PASS],
+    },
+    {
+      name: "five at once and one of them never arrived",
+      run: () =>
+        judgeAtMostTwoAllowed([ok(goodThree), atLimit, atLimit, atLimit, { error: "network" }], 2),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- the drive to the limit ----
+    {
+      name: "the drive allowed exactly the limit",
+      run: () => judgeDroveToLimit(4, 4, 3),
+      expect: [PASS],
+    },
+    {
+      name: "it allowed fewer than the limit, which is fine: the limit is a ceiling",
+      run: () => judgeDroveToLimit(2, 4, 1),
+      expect: [PASS],
+    },
+    {
+      name:
+        "IT ALLOWED MORE THAN THE LIMIT, which means the count is not being written --" +
+        " a function that refuses the twenty-first having allowed twenty-five passes" +
+        " the refusal check and fails this one",
+      run: () => judgeDroveToLimit(7, 4, 7),
+      expect: [FAIL],
+    },
+    {
+      name: "the drive made no asks at all, so there is nothing to count",
+      run: () => judgeDroveToLimit(0, 4, 0),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- the signed-out call, after the limit ----
+    {
+      name: "signed out and refused at the door: 401, and nothing about a limit",
+      run: () =>
+        judgeSignedOutNotCounted(
+          { status: 401, body: JSON.stringify({ code: LIBRARY_UNUSABLE_CODE }) },
+          "the apikey and nothing else",
+        ),
+      expect: [PASS, PASS],
+    },
+    {
+      name:
+        "SIGNED OUT AND GIVEN THE LIMIT'S REFUSAL, which would mean the count is in" +
+        " front of the door checks -- and there is no user id to key one by",
+      run: () => judgeSignedOutNotCounted(atLimit, "the apikey and nothing else"),
+      expect: [FAIL, FAIL],
+    },
+    {
+      name: "signed out and given SUGGESTIONS, which is the worst answer available",
+      run: () => judgeSignedOutNotCounted(ok(goodThree), "no credentials at all"),
+      expect: [FAIL, PASS],
+    },
+    {
+      name:
+        "signed out and given a 401 whose SENTENCE is the limit's: refused, because the" +
+        " sentence is checked as well as the code",
+      run: () =>
+        judgeSignedOutNotCounted(
+          { status: 401, body: JSON.stringify({ error: DAILY_LIMIT_MESSAGE }) },
+          "no credentials at all",
+        ),
+      expect: [PASS, FAIL],
+    },
+    {
+      name: "the signed-out call never arrived",
+      run: () => judgeSignedOutNotCounted({ error: "network" }, "no credentials at all"),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- and the code list knows about the thirteenth ----
+    {
+      name:
+        "the fixed-failure code list knows `daily_limit_unknown`: a code added to the" +
+        " function and not here would turn a correct deployed function red",
+      run: () => judgeSuggestions(unavailable("daily_limit_unknown")),
+      expect: [PASS, UNVERIFIED],
+    },
+    {
+      name:
+        "and it still refuses a code it has never heard of, which is what makes keeping" +
+        " it in step worth anything",
+      run: () => judgeSuggestions(unavailable("a_code_this_app_never_sends")),
+      expect: [FAIL, UNVERIFIED],
+    },
   ];
 
   let wrong = 0;
@@ -2442,6 +3082,14 @@ function runSelftest() {
   console.log("shape of signed-out caller getting suggestions, to an apikey-only call that");
   console.log("reached the handler, and to a run that left its own task behind. That is");
   console.log("what would make a green staging run mean something.");
+  console.log("");
+  console.log("AND SINCE BUILD IT 22 (issue #221) it also said FAIL to a function that");
+  console.log("COUNTS NOTHING -- the ask after the limit answering 200 with suggestions,");
+  console.log("which is what staging answers before the deploy -- to a limit lumped in");
+  console.log("with the thirteen plumbing failures, to five simultaneous asks all being");
+  console.log("allowed where two were left, to a drive that allowed more than the limit,");
+  console.log("and to a signed-out call being given the limit's refusal instead of the");
+  console.log("door's 401.");
   console.log("It is NOT itself a staging result: nothing was sent anywhere by this run.");
   return 0;
 }
@@ -2449,6 +3097,72 @@ function runSelftest() {
 if (process.argv.slice(2).includes("--selftest")) {
   process.exit(runSelftest());
 }
+
+// ---------------------------------------------------------------------------
+// --ai-limit=<n> -- the one thing this script needs told rather than discovered
+// ---------------------------------------------------------------------------
+//
+// WHY IT HAS TO BE AN ARGUMENT. This script cannot read `usage_counts` and cannot read
+// limits.ts off the deployed function either. No role holds SELECT on that table --
+// not `anon`, not `authenticated`, and not `service_role`, which is the whole design
+// (the coach read the privileges back off staging on 8 October 2026) -- and the limit
+// is a constant compiled into the deployed bundle. So the only way this script can
+// know where the limit is, is for whoever deployed to say.
+//
+// WHY NOT JUST RUN IT AT 20, which is the real limit. Because every allowed ask is a
+// metered request to Anthropic: twenty-one asks to see the twenty-first refused is
+// twenty-one requests, every run, for a check that twenty-one is more than twenty.
+// With a temporary limit of 4 it is five.
+//
+// HOW THE OWNER SETS A TEMPORARY LIMIT, WITHOUT TOUCHING THE CONFIG ON main. The limit
+// lives in ONE line of supabase/functions/_shared/limits.ts, so:
+//
+//   1. make a throwaway local branch from this one and DO NOT PUSH IT:
+//        git switch -c tmp/low-limit-for-staging
+//   2. change the one line to a small number, and nothing else:
+//        [FEATURE_AI_SUGGESTIONS]: 4,
+//   3. deploy that branch's function to staging:
+//        supabase functions deploy suggest-subtasks --project-ref ghskxrhqlhvrhpnivqbd
+//   4. run this script, telling it the number you set:
+//        node scripts/staging/build-it-20-ai-checks.mjs --ai-limit=4
+//   5. go back and redeploy the real thing, so staging is not left at 4:
+//        git switch -   &&   supabase functions deploy suggest-subtasks ...
+//   6. delete the throwaway branch. Nothing was committed and nothing was pushed, so
+//        the 4 never existed anywhere but on that machine and in that one deploy.
+//
+// THE 4 MUST NEVER REACH main, AND THAT IS WHY IT IS DONE THIS WAY ROUND rather than
+// by adding an environment-variable override to limits.ts. An override would be a
+// second place the limit could come from, settable on PRODUCTION, where the only thing
+// standing between a loop and a bill would then be whatever somebody last typed into a
+// dashboard. docs/plan.md asks for one file; one file is what this keeps.
+//
+// WITHOUT THE FLAG, THIS SECTION DOES NOT RUN and reports UNVERIFIED (rule 8). An
+// ordinary run therefore costs exactly what it costs today -- at most three metered
+// requests -- and nobody discovers the limit checks by accident at twenty-one.
+function readAiLimit(argv) {
+  const flag = argv.find((a) => a.startsWith("--ai-limit="));
+  if (flag === undefined) return null;
+
+  const raw = flag.slice("--ai-limit=".length).trim();
+  const value = Number(raw);
+
+  // A limit of 3 is the smallest this section can use: it drives to two left, fires
+  // five, and asks once more, so it needs at least one ask before the five.
+  if (!Number.isInteger(value) || value < 3 || value > DRIVE_ASKS_MAX) {
+    die(
+      `--ai-limit must be a whole number from 3 to ${DRIVE_ASKS_MAX}, and it was ` +
+        `"${raw}".\n` +
+        `It is the limit the DEPLOYED function is configured with, which this script\n` +
+        `cannot read for itself -- see the note above readAiLimit in this file for how\n` +
+        `to set a temporary one without changing the config on main.\n` +
+        `\n` +
+        `Leave the flag off and the limit checks report UNVERIFIED, which costs nothing.`,
+    );
+  }
+  return value;
+}
+
+const aiLimit = readAiLimit(process.argv.slice(2));
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -2618,6 +3332,33 @@ async function callFunction(accessToken, body, { apikey = true } = {}) {
   return answer;
 }
 
+// ---------------------------------------------------------------------------
+// Alice's asks, and the tally of how many of them spent one of the day's uses
+// ---------------------------------------------------------------------------
+//
+// WHY THERE IS A TALLY AT ALL: this script cannot read `usage_counts`, so the only
+// thing it knows about where the day's count stands is what its OWN asks produced.
+// `askOutcome` is the pure judgement that decides, and it is selftested.
+//
+// EVERY ASK ALICE MAKES GOES THROUGH HERE, including the ones in sections 4, 5 and 6
+// that are made before the limit section runs -- because they count too. Section 5's
+// 400s, 404s and 401s spend nothing, and `askOutcome` says so; section 4's one ask and
+// section 6's two do spend, and the limit section's arithmetic has to start from that.
+//
+// BOB'S ASK IS NOT TALLIED, and does not need to be: the count is per person, and his
+// ask about Alice's task is refused by the task read, so it spends nothing of
+// anybody's.
+let aliceUses = 0;
+const ALICE_ASKS = [];
+
+async function aliceAsks(session, body, options = {}) {
+  const answer = await callFunction(session?.accessToken ?? null, body, options);
+  const outcome = askOutcome(answer);
+  if (outcome.kind === "counted") aliceUses += 1;
+  ALICE_ASKS.push(outcome.kind);
+  return answer;
+}
+
 // One request through PostgREST. Returns { status, rows } or { error }, and never
 // throws, so a judgement about a refusal is made by the judgement rather than by an
 // exception unwinding the run.
@@ -2755,6 +3496,7 @@ async function setConsent(session, userId, wanted) {
 
 console.log("Build it 20 part 1 -- the AI helper in the deployed function");
 console.log("Build it 21 part 2b -- and the consent setting that decides whether it may send");
+console.log("Build it 22 part 2 -- and today's count, which decides how many times");
 console.log(`  staging host:    ${STAGING_HOST} (confirmed by parsing the URL, not by a substring)`);
 console.log(`  function:        ${FUNCTION_NAME}`);
 console.log("  accounts:        Alice (owns the task) and Bob (must be refused it)");
@@ -2770,10 +3512,20 @@ console.log("deployed at all, the platform answers 404 to every call. One green 
 console.log("its own says nothing about the deploy -- the pair is the evidence.");
 console.log("");
 console.log("IT SPENDS MONEY, once AI_API_KEY is set on staging: at most THREE metered");
-console.log("requests to Anthropic per run. Every other call here is refused before any");
-console.log("key is touched -- including both of the asks made with the setting off,");
-console.log("which cost nothing because the function refuses before it reads the task.");
+console.log("requests to Anthropic per run, or at most --ai-limit of them when that");
+console.log("flag is given. Every other call here is refused before any key is touched");
+console.log("-- including both of the asks made with the setting off, which cost");
+console.log("nothing because the function refuses before it reads the task.");
 console.log("See the note at the top of this file for the arithmetic.");
+console.log("");
+if (aiLimit === null) {
+  console.log("TODAY'S LIMIT IS NOT BEING CHECKED. Pass --ai-limit=<n> to check it, after");
+  console.log("deploying a function with a temporary low limit -- see the note above");
+  console.log("readAiLimit in this file. Section 7 reports UNVERIFIED without it.");
+} else {
+  console.log(`TODAY'S LIMIT IS BEING CHECKED, against a reported limit of ${aiLimit}.`);
+  console.log("Run this at most once per UTC day: the count cannot be reset from here.");
+}
 console.log("");
 
 let alice = null;
@@ -2878,7 +3630,7 @@ try {
     // function, so it is the one that answers "is it deployed at all" -- the function's
     // own 403 is an answer from its own code, and the platform's 404 for a name it does
     // not know is not.
-    const askedWhileOff = await callFunction(alice.accessToken, { task_id: taskId });
+    const askedWhileOff = await aliceAsks(alice, { task_id: taskId });
     if (askedWhileOff.printable !== undefined) {
       console.log(`        body: ${askedWhileOff.printable}`);
     }
@@ -2925,7 +3677,7 @@ try {
 
   console.log("4. Alice asks for suggestions on her own task, with the setting ON");
 
-  const aliceAsk = await callFunction(alice.accessToken, { task_id: taskId });
+  const aliceAsk = await aliceAsks(alice, { task_id: taskId });
   if (aliceAsk.printable !== undefined) console.log(`        body: ${aliceAsk.printable}`);
   record(judgeFunctionDeployed(aliceAsk));
   record(judgeSuggestions(aliceAsk));
@@ -2944,7 +3696,7 @@ try {
   // which makes two runs' output comparable.
   const MADE_UP_ID = "00000000-0000-4000-8000-000000000001";
 
-  const nonexistent = await callFunction(alice.accessToken, { task_id: MADE_UP_ID });
+  const nonexistent = await aliceAsks(alice, { task_id: MADE_UP_ID });
   if (nonexistent.printable !== undefined) console.log(`        made-up id:      ${nonexistent.printable}`);
 
   if (bob === null) {
@@ -2964,20 +3716,20 @@ try {
     record(judgeSameAsNotFound(strangerAsk, nonexistent));
   }
 
-  const badId = await callFunction(alice.accessToken, { task_id: "not-a-uuid" });
+  const badId = await aliceAsks(alice, { task_id: "not-a-uuid" });
   if (badId.printable !== undefined) console.log(`        not a uuid:      ${badId.printable}`);
   record(
     judgeBadRequest(badId, "a task id that is not a uuid is refused as a bad request", 400),
   );
 
-  const noId = await callFunction(alice.accessToken, {});
+  const noId = await aliceAsks(alice, {});
   if (noId.printable !== undefined) console.log(`        no task id:      ${noId.printable}`);
   record(judgeBadRequest(noId, "a body with no task id at all is refused as a bad request", 400));
 
   // A TITLE INSTEAD OF AN ID, which is the shape issue #183 forbids: "The caller sends a
   // task ID, never a title." If the function ever grew a title parameter, this would
   // stop being a 400 -- and a signed-in person could send any text they liked.
-  const titleInstead = await callFunction(alice.accessToken, { title: TASK_TITLE });
+  const titleInstead = await aliceAsks(alice, { title: TASK_TITLE });
   if (titleInstead.printable !== undefined) console.log(`        a title:         ${titleInstead.printable}`);
   record(
     judgeBadRequest(
@@ -3009,8 +3761,8 @@ try {
   console.log("6. Two asks at once");
 
   const [firstAsk, secondAsk] = await Promise.all([
-    callFunction(alice.accessToken, { task_id: taskId }),
-    callFunction(alice.accessToken, { task_id: taskId }),
+    aliceAsks(alice, { task_id: taskId }),
+    aliceAsks(alice, { task_id: taskId }),
   ]);
   if (firstAsk.printable !== undefined) console.log(`        first:  ${firstAsk.printable}`);
   if (secondAsk.printable !== undefined) console.log(`        second: ${secondAsk.printable}`);
@@ -3018,7 +3770,168 @@ try {
   console.log("");
 
   // -------------------------------------------------------------------------
-  // 7. She switches it OFF again -- and nobody else can touch it
+  // 7. TODAY'S LIMIT (Build it 22, issue #221)
+  // -------------------------------------------------------------------------
+  //
+  // IT RUNS HERE, BEFORE SECTION 8 SWITCHES THE SETTING OFF, and the order is not a
+  // preference: the consent check comes BEFORE the count in the function, so with
+  // Alice's setting off every ask below would be refused for consent and this whole
+  // section would prove nothing about a limit while appearing to run.
+  //
+  // IT ONLY RUNS WITH --ai-limit=<n>, because every allowed ask is a metered request.
+  // See the long note above readAiLimit for why the number has to be told to this
+  // script rather than discovered, and for how the owner sets a temporary low one for a
+  // test deploy without changing the config on main.
+  //
+  // WHAT IT SPENDS, so nobody is surprised by a bill: the limit, at most. With
+  // --ai-limit=4 that is four allowed asks across the whole run -- the three the
+  // sections above already made plus however many this section needs to reach the
+  // limit -- and then every further ask is refused and costs nothing. That is the
+  // arithmetic the DRIVE_ASKS_MAX ceiling backs up.
+
+  console.log("7. Today's limit: ask until it refuses, then ask once more");
+
+  if (aliceConsentKnown === false) {
+    record([
+      {
+        what: "the daily-limit checks can be made at all",
+        verdict: UNVERIFIED,
+        detail:
+          "Alice's consent setting could not be read, so this run did not switch it on" +
+          " -- and the function refuses for consent before it reaches the count, so" +
+          " nothing here could say anything about a limit",
+      },
+    ]);
+  } else if (aiLimit === null) {
+    // NOT A PASS AND NOT A FAIL (rule 8). The checks were not run, so they are
+    // unverified, and the detail says exactly what would run them.
+    record([
+      {
+        what: "the ask after the limit is refused with the limit's own sentence",
+        verdict: UNVERIFIED,
+        detail:
+          "no --ai-limit=<n> was given, so this section made no asks. Reaching the real" +
+          " limit of 20 would cost 21 metered requests every run; with a temporary low" +
+          " limit on a test deploy it costs a handful. See the note above readAiLimit" +
+          " in this file for the five steps, which do not change the config on main",
+      },
+      {
+        what: "five asks at once with two uses left allow at most two",
+        verdict: UNVERIFIED,
+        detail: "as above: this section did not run",
+      },
+      {
+        what: "and a signed-out call is still refused at the door, not by the count",
+        verdict: UNVERIFIED,
+        detail: "as above: this section did not run",
+      },
+    ]);
+  } else {
+    console.log(`        the limit this deploy was reported to have: ${aiLimit}`);
+    console.log(`        uses this run has already spent: ${aliceUses}`);
+
+    // ---- Drive to two uses left ------------------------------------------
+    //
+    // Sequentially, one at a time, so the per-isolate lock has nothing to catch and
+    // each answer is read before the next ask is made. `aliceUses` is this script's
+    // own tally; it cannot read the table.
+    let driveAsks = 0;
+    let stoppedEarlyAt = null;
+
+    while (aliceUses < aiLimit - 2 && driveAsks < DRIVE_ASKS_MAX) {
+      const ask = await aliceAsks(alice, { task_id: taskId });
+      driveAsks += 1;
+      const outcome = askOutcome(ask);
+      console.log(`        ask ${driveAsks}: HTTP ${ask.status ?? "none"} (${outcome.kind})`);
+
+      if (outcome.kind === "at_limit" || outcome.kind === "unknown") {
+        // ALREADY AT THE LIMIT, which is what a second run in the same UTC day looks
+        // like: the count is per UTC day and this script cannot reset it. Stop asking
+        // -- every further ask is refused and proves nothing new here.
+        stoppedEarlyAt = outcome.kind;
+        break;
+      }
+      if (outcome.kind === "refused") {
+        // `busy`, or a 400, or `not_configured`. Not a use, and not a reason to keep
+        // asking the same thing: report it rather than loop.
+        stoppedEarlyAt = `refused (${outcome.code})`;
+        break;
+      }
+    }
+
+    record(judgeDroveToLimit(aliceUses, aiLimit, driveAsks));
+
+    if (stoppedEarlyAt !== null) {
+      record([
+        {
+          what: "the drive to the limit ran as far as it meant to",
+          verdict: UNVERIFIED,
+          detail:
+            `it stopped early: ${stoppedEarlyAt}. The most likely cause is that this` +
+            ` ran twice in the same UTC day -- the count is keyed by the UTC date and` +
+            ` nothing in this script can reset it, because no role holds DELETE on` +
+            ` usage_counts. The checks below still ran; read them knowing the day's` +
+            ` count was not where this run expected it`,
+        },
+      ]);
+    }
+
+    // ---- FIVE AT ONCE, with two uses left --------------------------------
+    //
+    // THE CHECK THE DATABASE DESIGN EXISTS FOR. count_daily_use does the comparison
+    // inside the statement that does the increment, so five callers arriving together
+    // cannot all see room for one. A read followed by a write would let all five
+    // through -- evidence/build-it-22-usage-counts.md section 5 shows exactly that,
+    // in a sandbox, and this is the same question asked of the deployed function.
+    const left = Math.max(0, aiLimit - aliceUses);
+    console.log(`        firing five at once with ${left} use(s) left`);
+
+    const five = await Promise.all([
+      aliceAsks(alice, { task_id: taskId }),
+      aliceAsks(alice, { task_id: taskId }),
+      aliceAsks(alice, { task_id: taskId }),
+      aliceAsks(alice, { task_id: taskId }),
+      aliceAsks(alice, { task_id: taskId }),
+    ]);
+    for (const [index, answer] of five.entries()) {
+      if (answer.printable !== undefined) {
+        console.log(`        of five, ${index + 1}: ${answer.printable}`);
+      }
+    }
+    record(judgeAtMostTwoAllowed(five, left));
+
+    // ---- AND ONE MORE, which must be refused -----------------------------
+    const afterLimit = await aliceAsks(alice, { task_id: taskId });
+    if (afterLimit.printable !== undefined) {
+      console.log(`        after the limit: ${afterLimit.printable}`);
+    }
+    record(judgeRefusedAtLimit(afterLimit));
+
+    // ---- AND A SIGNED-OUT CALL IS STILL REFUSED AT THE DOOR --------------
+    //
+    // Asked again here rather than taken from section 5, because this is the version
+    // of the question that can only be asked now: with Alice at her limit, a call
+    // carrying no user token must still be refused BY THE DOOR and must say nothing
+    // about a limit -- there is no user id on it for a count to be keyed by.
+    const limitApikeyOnly = await callFunction(null, { task_id: taskId });
+    if (limitApikeyOnly.printable !== undefined) {
+      console.log(`        signed out, apikey only: ${limitApikeyOnly.printable}`);
+    }
+    record(judgeSignedOutNotCounted(limitApikeyOnly, "the apikey and nothing else"));
+
+    const limitNoCredentials = await callFunction(null, { task_id: taskId }, { apikey: false });
+    if (limitNoCredentials.printable !== undefined) {
+      console.log(`        signed out, nothing at all: ${limitNoCredentials.printable}`);
+    }
+    record(judgeSignedOutNotCounted(limitNoCredentials, "no credentials at all"));
+
+    console.log(`        uses this run spent in total: ${aliceUses} of ${aiLimit}`);
+    console.log(`        what each of Alice's asks was: ${ALICE_ASKS.join(", ")}`);
+  }
+  console.log("");
+
+  // -------------------------------------------------------------------------
+  // 8. She switches it OFF again -- and nobody else can touch it
   // -------------------------------------------------------------------------
   //
   // THE SECOND HALF OF WHAT ISSUE #211 ASKS FOR, and it is not the same check as
@@ -3032,15 +3945,21 @@ try {
   // against the same deployed isolate. If the function cached the setting, or read it
   // once per isolate rather than once per request, this is the check that would catch
   // it and section 2's would not.
+  //
+  // AND IT STILL WORKS WITH ALICE AT HER LIMIT, which is worth knowing because section
+  // 7 may have put her there. The consent check comes BEFORE the count in the function,
+  // so a setting that is off answers `ai_suggestions_off` whatever the day's count says
+  // -- and judgeRefusedWhenOff would FAIL on a daily-limit refusal, which is the right
+  // way round: if the two ever swapped order, this is the check that would say so.
 
-  console.log("7. She switches it OFF again, and the ask is refused again");
+  console.log("8. She switches it OFF again, and the ask is refused again");
 
   if (aliceConsentKnown) {
     const backOff = await setConsent(alice, alice.userId, false);
     record(judgeConsentSwitched(backOff, "Alice", false));
     record(judgeConsentReadBack(await readConsent(alice), "Alice", false));
 
-    const askedAfterOff = await callFunction(alice.accessToken, { task_id: taskId });
+    const askedAfterOff = await aliceAsks(alice, { task_id: taskId });
     if (askedAfterOff.printable !== undefined) {
       console.log(`        body: ${askedAfterOff.printable}`);
     }
@@ -3089,10 +4008,10 @@ try {
   console.log("");
 } finally {
   // -------------------------------------------------------------------------
-  // 8. Put staging back as it was found
+  // 9. Put staging back as it was found
   // -------------------------------------------------------------------------
 
-  console.log("8. Clearing up, and what this run touched");
+  console.log("9. Clearing up, and what this run touched");
 
   // THE SETTINGS FIRST, before the task and before the sign-outs, because this is the
   // part that would otherwise leave somebody opted in to sending their task titles to
@@ -3161,6 +4080,12 @@ try {
   console.log("    lock is a Set in one isolate's memory and the platform may run");
   console.log("    several. Section 4 reports whether it engaged, not that it must.");
   console.log("  * anything about production. This script refuses to run against it.");
+  console.log("  * WHAT THE COUNT ACTUALLY SAYS. No role may read usage_counts, not");
+  console.log("    even service_role, so the limit checks are judged on what the");
+  console.log("    function answers. Reading the rows back is the owner's step, in the");
+  console.log("    Supabase dashboard -- issue #221 asks for it separately.");
+  console.log("  * anything about invite-member's limit. This script is about");
+  console.log("    suggest-subtasks; the invitation half is proved by the Deno tests.");
   console.log("  * WHICH LAYER refuses a call with no credentials at ALL, until this run");
   console.log("    has actually made one. Section 3 check (a) is the first time anybody");
   console.log("    has asked suggest-subtasks that; the expectation is the platform's own");
@@ -3223,6 +4148,38 @@ try {
 //      The assistant runs none of these. Rule 19 permits `functions deploy` and
 //      `secrets set` against staging, and no such command has been run from this
 //      session: the pull request says so.
+//
+// AND SINCE BUILD IT 22, A FOURTH RUN FOR THE DAILY LIMIT (issue #221), which is the
+// one that needs a temporary limit and which the section above readAiLimit sets out in
+// full. The short version:
+//
+//   4a. BEFORE the deploy of the Build it 22 version, with the flag. The limit checks
+//       MUST FAIL: the function on staging counts nothing, so the ask after the limit
+//       answers 200 with suggestions and judgeRefusedAtLimit fails all four parts.
+//       Keep that output -- it is the evidence that the behaviour was not there.
+//   4b. On a throwaway local branch, change the one line in
+//       supabase/functions/_shared/limits.ts to a small number, deploy that to
+//       staging, and run:
+//
+//         node scripts/staging/build-it-20-ai-checks.mjs --ai-limit=4
+//
+//   4c. Go back to the real branch and redeploy, so staging is not left at 4. Delete
+//       the throwaway branch. The small number is never committed and never pushed.
+//
+// RUN 4b ONCE PER UTC DAY. The count is keyed by the UTC date and nothing in this
+// script can reset it -- no role holds DELETE on `usage_counts`, which is the design --
+// so a second run the same day starts at the limit and reports UNVERIFIED for the
+// drive. To run it again sooner, the operator deletes that person's rows in the
+// Supabase dashboard, or waits for 00:00 UTC.
+//
+// AND READ THE ROWS BACK, which is issue #221's fifth condition and the one thing this
+// script cannot do. In the Supabase dashboard, after a run:
+//
+//   select feature, day, used from public.usage_counts order by day desc, feature;
+//
+// That query is the operator's, in the dashboard, because no role the app uses may run
+// it. Paste the result into the evidence file: it is what turns "the function refused"
+// into "the function refused because the count said so".
 //
 // KEEP THE PASSWORDS OFF THE COMMAND LINE: both shells on this machine save command
 // lines to a file -- Git Bash writes ~/.bash_history with HISTCONTROL unset, and
