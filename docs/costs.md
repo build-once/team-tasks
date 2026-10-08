@@ -52,6 +52,10 @@ said £0/month while building until 2026-10-07, when the Claude API — which ha
   intent is production on Pro at about $25/month, so compute is the line item to watch.
 - The plan's split (production in a Pro organisation, staging in a separate free
   organisation) means the Spend Cap only ever applies to the production organisation.
+- **Two of this row's allowances stop being theoretical in Build it 23**, added 2026-10-08: **storage
+  size** and **egress**, which attachments are the first feature to spend. Neither can bill on the Free
+  plan. "Attachments: the storage and egress allowance" below has both quotas, cited, and the arithmetic
+  — including the part the limits do **not** keep inside the allowance.
 
 ### Vercel
 
@@ -326,6 +330,151 @@ The cost today is **£0**: it is Supabase's own sending on the free plan, not Re
 also why this is Build it 25 rather than urgent** — nothing here can produce a bill, so what is at risk
 is a volunteer not getting a reset email, not money.
 
+## Attachments: the storage and egress allowance, and what the limits mean against it
+
+Added 2026-10-08 for Build it 23 (`docs/plan.md` → "Files attached to a task"). **Documents only: there
+is no bucket, no rule and no code, and no file has ever been uploaded to any project.** Unlike the Sentry
+row, the figures here were read from Supabase's own pages on that date and are cited.
+
+**Attachments add no service and no new bill.** They use Supabase Storage in the two projects this app
+already has, so there is nothing to sign up for and no fifth vendor row in the table above. What they do
+is use **two of Supabase's metered allowances for the first time** — the amount stored, and the amount
+served — and the Supabase row above already covers the only thing that matters about both: **the Free
+plan cannot generate overage charges at all.**
+
+### The two allowances, cited
+
+| Allowance | Free plan | Pro plan | Price past it | Page, read 2026-10-08 |
+|---|---|---|---|---|
+| **Storage size** — how much is kept | **1 GB** included | 100 GB included | **$0.0213 per GB** per month | [Manage your usage → Storage size](https://supabase.com/docs/guides/platform/manage-your-usage/storage-size) |
+| **Egress** — how much is served out | **5 GB** a month | 250 GB a month | **$0.09 per GB** uncached, $0.03 cached | [Manage your usage → Egress](https://supabase.com/docs/guides/platform/manage-your-usage/egress) |
+
+**Two things about those rows that decide how to read everything below.**
+
+- **Egress is one shared figure, not a storage one.** The page's quota covers egress across the services,
+  so opening an attachment spends from the same 5 GB that every page load and every database read spends
+  from. There is no separate attachment budget to watch.
+- **What the Free plan does at quota is not a bill and not nothing.** Both pages say the same thing: a
+  project past quota on the Free plan gets "a notification to your billing email address and put under a
+  grace period", pointing at the Fair Use Policy. **So the failure mode is the project's standing, not a
+  charge** — which is a different shape from Vercel Hobby's "wait 30 days" and from Anthropic's HTTP 400,
+  and it is the one of the three that is least precise about what happens next. **The Fair Use Policy was
+  not read on 2026-10-08**, so what a grace period ends in is not written here.
+
+**Storage also has a size limit of its own, which 5 MB sits well under:** "For Free projects, the limit
+can't exceed 50 MB" globally, and a bucket's own limit "can't be higher than this global limit"
+([Storage file limits](https://supabase.com/docs/guides/storage/uploads/file-limits), read 2026-10-08).
+
+### The arithmetic, shown
+
+Three inputs, and **all three are now decided** — which is a change from what this section said when it
+was written earlier on 2026-10-08, where two of them were proposals in front of the owner.
+
+- **5 MB per file.**
+- **3 files per task** and **100 MB per person in total**, both **confirmed by the owner on 2026-10-08**,
+  after this arithmetic and with it kept as written. The 100 MB is **enforced on the server at upload**,
+  which is what makes it a ceiling rather than a hope — a total has to be summed across rows the person
+  cannot be trusted to count, so it lives in server code the way every other counted limit in this app
+  does.
+- **Six people**, the plan's group size, and **31 days**, the longest month.
+- **A GB read as 1,000 MB**, because neither Supabase page says which it means. That is the conservative
+  reading: 1,024 would give more room, not less.
+
+**Storage size — the proposal fits, with room:**
+
+| Line | Calculation | Result |
+|---|---|---|
+| One task, full | 3 × 5 MB | **15 MB** |
+| One person, at their total | — | **100 MB**, about 6 full tasks or 20 single 5 MB files |
+| Six people, all at their total | 6 × 100 MB | **600 MB** |
+| Against the Free plan's 1 GB | 600 vs 1,000 | **60% of it** |
+| People the 1 GB allows at 100 MB each | 1,000 ÷ 100 | **10 exactly** |
+| **Cost of any of it** | Free plan has no overage | **$0** |
+
+**So storage is not where this bites, and the number to remember is ten.** At the plan's six people the
+design uses 60% of the free allowance; at **ten** people it uses all of it. That is the first limit in
+this project whose binding constraint is **the size of the group** rather than the behaviour of one
+person, which is worth saying because every other ceiling on this page scales with use and this one
+scales with headcount.
+
+**And one thing about whose 100 MB it is, which the deletion decision of 2026-10-08 made worth writing
+down.** The total is per **uploader** — so a file Bob attaches to Alice's team task counts against
+**Bob's** 100 MB, not Alice's, even though it lives on her task and she is the one who may delete the
+task. Two consequences, neither of them a problem and both of them surprising the first time:
+
+- **Somebody else can free your allowance.** A file may be deleted by whoever uploaded it **or by
+  whoever created its task** (`docs/plan.md`), so Alice deleting Bob's photo — or deleting the task it is
+  on, which removes every file — gives Bob his space back without Bob doing anything.
+- **Nobody else can spend it.** The reverse does not hold: no action of Alice's can push Bob closer to his
+  100 MB, because only Bob's own uploads count against it. So the limit still bounds exactly one person's
+  behaviour, which is what makes it a limit rather than a shared pool.
+
+Both follow from keying the total to the uploader, which is also the only thing it *can* be keyed to —
+`storage.objects.owner_id` is the one field that says who put the file there.
+
+**Egress — this is where it bites, and the finding is the opposite way round:**
+
+| Line | Calculation | Result |
+|---|---|---|
+| Opening one 5 MB file | — | **5 MB served** |
+| Opens the Free plan's 5 GB a month allows | 5,000 ÷ 5 | **1,000 opens a month** |
+| Shared across six people | 1,000 ÷ 6 | **167 each a month** |
+| Per person per day | 167 ÷ 31 | **5.4 opens a day** |
+| **Cost of going past it** | Free plan has no overage | **$0**, and a grace-period notification instead |
+
+**So the attachment limits do not keep this inside the egress allowance either, and it is the same
+finding as Build it 22's** — stated here rather than buried, for the same reason that section's
+arithmetic was kept as written. **Five and a bit opens of a worst-case file per person per day is not a
+generous allowance**, and it is *shared with everything else the app serves*: every page, every task
+list, every sign-in. Three things soften it and none of them removes it:
+
+- **5 MB is the worst case, not the normal one.** A photograph off a phone is commonly a fraction of
+  that, and a PDF of a form usually far less. The table divides by the maximum.
+- **A file is opened far less often than it is attached.** The realistic pattern is "look once, when
+  it arrives".
+- **Nothing is billed.** The Free plan has no overage, so what is at risk is the project's standing under
+  the Fair Use Policy, not money.
+
+**And one thing that makes it tighter than it looks, which is the five-minute link.** A signed link
+expires after 5 minutes and **cannot be cached between people**, so two volunteers looking at the same
+photo is two downloads, and somebody who comes back to it tomorrow is a third. **Whether Supabase's CDN
+caches a private object's bytes at all — the difference between $0.09 and $0.03 a GB above — was not
+established on 2026-10-08**, so the table uses the uncached figure, which is the right direction for an
+unknown to fail in.
+
+**No change to the £30 ceiling, and no new per-person daily limit.** Attachments spend a **stock**, not a
+flow: a file sits there costing storage whether anybody presses anything, which is why the plan bounds
+them with a total rather than with a count per day, and why they are **not** in the `usage_counts` table
+or in either number in `supabase/functions/_shared/limits.ts`.
+
+> **The owner read this section on 2026-10-08 and recorded the egress finding as written, with no egress
+> limit built now.** That is a decision rather than a silence, and it is recorded here for the same reason
+> the Build it 22 limits were: **the arithmetic above says the limits do not keep this inside the free
+> egress allowance at six people**, and the decision was taken with that in front of them. Nothing on this
+> page is softened to make the numbers look better.
+
+**So the honest position, stated plainly: nothing limits egress.** There is no per-person cap on opening
+files anywhere in this design, and the free plan's **5 GB a month is the only ceiling**. What makes that
+acceptable rather than reckless is the shape of the failure, and it is worth being precise about it:
+**the Free plan cannot bill**, so going past the allowance is a notification and a grace period under the
+Fair Use Policy — which this page has **not read** — and not a charge. The thing at risk is the project's
+standing, not money.
+
+**What would change that**, and the three things to watch for, so this is a decision with a trigger rather
+than one nobody revisits:
+
+- **Moving production to Pro**, which the Budget section already plans. Egress past 250 GB then costs
+  **$0.09 a GB**, and the failure mode stops being a notification.
+- **The group growing.** The 5.4-opens-a-day figure divides by six. At ten people it is 3.2, and ten is
+  also the headcount at which the 100 MB each fills the whole 1 GB — so both halves of this section run
+  out at the same size of group, which is the one coincidence here worth remembering.
+- **Anything that opens files on a person's behalf.** A screen that fetched every attachment to draw a
+  thumbnail would spend the allowance without anybody pressing anything, and that is the shape of problem
+  `docs/plan.md` calls a loop rather than growth.
+
+If any of those arrives, this paragraph is the one to come back to, and the gap to design against is a
+per-person cap on opening files — which does not exist today and is not being built.
+
 ## Unverified
 
 These are gaps in this page, not findings. Resolved items are listed at the end so the same
@@ -389,6 +538,37 @@ question does not get re-asked from scratch.
   sends.** They are the one email path no daily limit here covers, by the owner's decision of
   2026-10-08, and no figure for them is written on this page. **Reading them is Build it 25**:
   [#219](https://github.com/build-once/team-tasks/issues/219).
+- **Unverified — nothing in the attachments section exists, and none of it has been measured.** Added
+  2026-10-08 for Build it 23 part 0. There is **no bucket, no storage rule, no code and no uploaded
+  file**, so nothing has been stored or served and no allowance has been touched. **Rewritten later the
+  same day**, when the owner settled the numbers: the sentence this replaces said two of the three inputs
+  were "proposals the owner has not decided", and 3 files per task and 100 MB per person are now decided,
+  with the 100 MB enforced on the server at upload. So this is arithmetic on a **design** rather than on a
+  proposal — which is the same standing as the Build it 22 section above, and still not a measurement of
+  anything that has run. The quotas and prices themselves are cited from Supabase's own pages, read
+  on that date with no connector and no browser, which is how Supabase describes the plan rather than what
+  this account is set to.
+- **Decided and accepted — a 20-a-day-style limit is not what bounds attachments, and nothing bounds
+  egress at all.** The owner recorded the egress arithmetic as written on 2026-10-08 and built no limit
+  against it. This is now a known fact rather than a gap: the free plan's 5 GB a month is the only
+  ceiling, the Free plan cannot bill, and the three things that would change that are listed in the
+  section above.
+- **Not read — the Supabase Fair Use Policy**, which is what both usage pages point at for what a Free
+  project's "grace period" actually ends in. The section above quotes the notification and the grace
+  period and stops there, because that is as far as the pages read go. This is the one gap on this page
+  where the consequence is the project's standing rather than a bill, and it is therefore the one where
+  "nothing is billed" is the least reassuring sentence.
+- **Not established — whether Supabase's CDN caches a private object, and so whether attachment egress is
+  billed at $0.09 or $0.03 a GB.** The section above uses the uncached figure throughout, which is the
+  conservative direction. It makes no difference at £0 on the Free plan and would make a real one on Pro.
+- **Not established — whether an upload is metered at all.** The egress quota covers what is served out;
+  nothing read on 2026-10-08 says what, if anything, bringing a file in counts against. No figure for it
+  is written anywhere.
+- **Not confirmed — whether a GB in those two Supabase quotas is 1,000 MB or 1,024 MB.** Neither page
+  says. The arithmetic uses 1,000, which understates the room rather than overstating it.
+- **All five attachment gaps above are gathered in
+  [#231](https://github.com/build-once/team-tasks/issues/231)**, with what to read or try for each and
+  how somebody else can tell it is settled, alongside the ones that live in `docs/plan.md`.
 
 Resolved on 2026-09-27, both confirmed against vendor documentation:
 
@@ -405,7 +585,9 @@ Documentation describes the default; only the dashboard shows your setting. For 
 service, the authoritative place is the billing settings page of the real account:
 
 1. **Supabase** → Organisation → Billing → confirm Spend Cap is **on** for the production
-   organisation once it is on Pro.
+   organisation once it is on Pro. **And, from Build it 23, the two usage figures attachments spend**:
+   Organisation → Usage → storage size against the 1 GB, and egress against the 5 GB a month. Those are
+   the only place either is visible; this page has the published quotas and not this project's numbers.
 2. **Vercel** → Team → Settings → Billing → Spend Management → confirm both the On-Demand
    Budget **and** the Pause Production Deployments switch.
 3. **GitHub** → Settings → Billing → Budgets and alerts → confirm a budget exists **and**

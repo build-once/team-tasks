@@ -436,15 +436,449 @@ half of its condition 4; its condition 1, "the second ask did not reach the AI s
 needs something this section does not design. **And its condition 3 is departed from on purpose** — see
 the sentence above, and the owner's decision of 2026-10-08 that #184 is what updates.
 
+## Files attached to a task
+
+Added 2026-10-08. Like "Suggest subtasks" and unlike the two sections between them — the consent setting
+and the daily limits, counted here rather than remembered — this one **is** a
+new thing people can press: a task can carry files, and somebody has to choose them and open them. "File
+attachments" sat on the not-in-the-first-version list below until today; the line moved before any code
+was written, which is the order rule 9 asks for. Build it 23 is where it is built, and **nothing exists
+on the day this was written** — no bucket, no storage rule, no migration, no screen and no code.
+
+It is in the plan for a second reason as well, and it is the bigger one: a file is the first thing this
+app will hold that **nobody has read before it is stored**. Task text is typed into a box with a request
+above it. A photograph arrives whole, with whatever is inside it.
+
+**What it is.** On a task the person can already see, they can attach a file and open a file that is
+already there. **Images and PDFs only, 5 MB each.** The files live in Supabase Storage, inside this
+project, and they are opened through a link that **expires after 5 minutes**.
+
+**Decided 2026-10-08, and this section was written before those decisions rather than after them.** It
+went to the owner with **five** open decisions and two things to accept or reject, all seven came back
+settled the same day, and **writing them down produced an eighth question that the owner then settled
+too** — the one in the "who may delete" row. Each is recorded in its place below; they are gathered here
+so the whole set is in one view, the way "Daily limits on what costs money" above gathers its nine.
+
+| | Decided |
+|---|---|
+| How many files per task | **3** |
+| How much per person in total | **100 MB**, and **enforced on the server at upload** — which is the half that decides where the check lives |
+| Who may delete a file | **The person who uploaded it, or the person who created its task. Nobody else.** Settled in two steps on the same day: "only the uploader" first, then the question that exposed ([#234](https://github.com/build-once/team-tasks/issues/234)) — and the owner's answer to that was a third option neither this section nor the issue had proposed |
+| Whether the upload box warns about what is inside a photograph | **Yes — one line beside the box**, saying a photo can carry where and when it was taken and that the app does not remove it |
+| Whether files may be left behind | **No. Not acceptable.** Deleting a task **deletes its files first** and is **refused if they cannot be removed**; and **the database refuses to delete a task that still has files**. Removing a person's files when an account is deleted is **a requirement of Build it 26** |
+| That a renamed file can get through | **Accepted as written.** The app promises the refusal and promises nothing about contents |
+| That the limits do not keep this inside the egress allowance | **Recorded as written, and no egress limit is built now** |
+
+**The fifth row is the one that changed this section most**, and it is worth saying why before the detail:
+this plan's habit is to write a gap down and leave it ([#204](https://github.com/build-once/team-tasks/issues/204),
+the privacy page, is one; the account-deletion gap is another). Here the owner did the opposite. "Files
+are left behind" was written as a known cost of the design, and the answer that came back was that it is
+not a cost worth paying — so the deletion of a task is now **two things that must both happen**, with the
+database as the thing that refuses if only one of them does.
+
+### What is stored
+
+Two things, and the second is the one that is easy to forget.
+
+**The file itself**, in a **private** Supabase Storage bucket named **`attachments`**, in a folder named
+after its task's ID — so a file sits at `attachments/<task id>/<file name>`. "Folder" here is part of the
+object's path rather than a thing of its own: `storage.foldername()` "Returns an array path, with all of
+the subfolders that a file belongs to" ([Storage helper
+functions](https://supabase.com/docs/guides/storage/schema/helper-functions), read 2026-10-08), which is
+what lets a rule ask which task a file belongs to by reading the first segment of its path.
+
+**And a row Storage writes about it**, in `storage.objects`, which the app does not choose the shape of.
+Its columns are `id`, `bucket_id`, `name`, `created_at`, `updated_at`, `metadata` (a JSON blob),
+`path_tokens`, `version` and `owner_id` ([The Storage
+Schema](https://supabase.com/docs/guides/storage/schema/design), read 2026-10-08). Taking the five things
+the owner's issue names one at a time — **and a sixth it does not** — because they are not all equally
+confirmed:
+
+| | Where it is | Confirmed? |
+|---|---|---|
+| **Its name** | `name`, which is the whole path — so it carries **the task's ID and the file name the person's device gave it** | Cited: the schema page above |
+| **Its size** | inside `metadata`, as `"metadata": {"size": 1234}` | Cited: the example object in [Self-Hosting Storage → objects](https://supabase.com/docs/reference/self-hosting-storage/get-object-info), read 2026-10-08 |
+| **Its type** | **not confirmed.** Presumably in `metadata` beside the size, and presumably is not a citation. No page read on 2026-10-08 says the declared type is stored, or where | **Not confirmed** |
+| **Who uploaded it** | `owner_id`. The schema page lists the column; the helper-functions page compares `owner_id` with `auth.uid()` in a policy example, which is how it is meant to be used | **Column cited; its meaning is read off those two pages, not stated by either.** No page read gives `owner_id` a formal definition |
+| **When** | `created_at` and `updated_at` | Cited: the schema page above |
+| **When it was last opened** | **not confirmed, and worth more than a shrug.** The schema page does **not** list a `last_accessed_at` column; the self-hosting example response **does** show one. So either the schema page is incomplete or the API adds it, and nobody writing this knows which | **Not confirmed.** If it exists, it is a record of **when somebody last looked at a file**, which is a fact about a person this plan has not decided to hold |
+
+That table is the reason this section says "and a row Storage writes about it" rather than naming the
+fields and stopping: **the app does not get to choose what Storage records.** Every other table in this
+project was designed here, column by column, and `usage_counts` was deliberately given four values so it
+could not say more. This one arrives already shaped — and the last row of that table is what the
+difference costs.
+
+**One thing it means, stated because it is easy to miss:** `owner_id` is **another** place this project
+holds a user ID — no count of the others is given here, because none was made — and on a team task it
+need not be the same person as the task's creator. The task's row knows who wrote the task; the file's row
+knows who attached the file.
+
+### Limits
+
+**Images and PDFs only, 5 MB each.** 5 MB sits well under what Supabase would allow: "For Free projects,
+the limit can't exceed 50 MB" globally, and a bucket's own limit "can't be higher than this global
+limit" ([Storage file limits](https://supabase.com/docs/guides/storage/uploads/file-limits), read
+2026-10-08).
+
+**Three files per task, and 100 MB per person in total. Both confirmed by the owner on 2026-10-08**, after
+the arithmetic, and the arithmetic is kept as written:
+
+| Decided | Figure | Why |
+|---|---|---|
+| **Per task** | **3 files** | Three is enough for the job this app exists for — a photo of the thing, a photo of the receipt, the form as a PDF — and it keeps a single task's worst case at **15 MB**, which is a number a person can be told. It is also small enough that the screen can draw them all without a "show more" |
+| **In total, per person** | **100 MB** across all their attachments | The ceiling that matters is Supabase's, not a design preference. The Free plan includes **1 GB** of storage ([Manage your usage → Storage size](https://supabase.com/docs/guides/platform/manage-your-usage/storage-size), read 2026-10-08). Six people at 100 MB each is **600 MB**, which is **60%** of that 1 GB — reading a GB as the conservative 1,000 MB, because the page does not say which it means. 100 MB is about **6 fully-loaded tasks**, or **20** single 5 MB files, or a great many small ones |
+
+**There is no total-per-app limit, and that is deliberate**: six people at 100 MB each cannot
+reach 1 GB, so a second ceiling would be a number nobody could hit sitting in front of a reviewer looking
+like protection. If the group ever grows past ten people, this paragraph is the one to come back to —
+**ten** people at 100 MB is 1,000 MB, which is the whole free allowance.
+
+**And the 100 MB is enforced on the server, at upload. Decided by the owner on 2026-10-08, and this is
+the half that decides what gets built rather than what the number is.** A per-person total needs a sum
+across rows the caller may not be able to see, exactly like "at most 3 teams per person" and "at most 20
+pending invitations per team" — which a row-level policy cannot do, and which a screen must not be trusted
+with. So the check happens in server code holding the secret key, before the file is accepted, for the
+same reason `create-team` counts teams: *the only place a count can honestly happen is somewhere that can
+see all the rows and that the person cannot edit.* The per-task three is the same shape and goes to the
+same place.
+
+**What that rules out, which is worth stating because it was the obvious design an hour earlier:** an
+upload straight from the browser with nothing but a storage rule in front of it. That shape is the mirror
+of how a file is *read*, it needs no key, and it cannot enforce either number. **So something of ours now
+stands in front of every upload** — and `docs/architecture.md` says what is settled about that and what is
+still a choice, because "on the server" names where the decision is made and not how the bytes travel.
+
+**It is still not the daily limits of Build it 22, and still not counted in `usage_counts`.** Uploading
+a file spends nobody's money per press — it spends storage, which is a stock rather than a flow, and a
+stock is bounded by a total rather than by a rate. A count per day would be the wrong instrument: somebody
+who uploads nothing for a month and then fills their 100 MB in an afternoon has not done anything the app
+needs to stop. Nothing in "Daily limits on what costs money" above changes, and no new feature name is
+added to that table.
+
+**These are not the daily limits of Build it 22, and they are not counted in `usage_counts`.** Uploading
+a file spends nobody's money per press — it spends storage, which is a stock rather than a flow, and a
+stock is bounded by a total rather than by a rate. Nothing in "Daily limits on what costs money" above
+changes, and no new feature name is added to that table.
+
+### What the type limit does and does not guarantee
+
+**What Storage checks is the type the upload declares, and the app does not get to see inside the file.**
+A bucket can be given `allowedMimeTypes` and `maxFileSize`, and "If an upload request doesn't meet the
+above restrictions it will be rejected" ([Creating
+buckets](https://supabase.com/docs/guides/storage/buckets/creating-buckets), read 2026-10-08) — a
+rejection the error list gives as `InvalidMimeType`, "The specified MIME type is not valid.", 400
+([Storage error codes](https://supabase.com/docs/guides/storage/debugging/error-codes), read
+2026-10-08).
+
+**And where that declared type comes from is the whole answer: "By default, Supabase Storage determines
+content type from the file extension. You can override this with the `contentType` option"** ([Standard
+uploads](https://supabase.com/docs/guides/storage/uploads/standard-uploads), read 2026-10-08).
+
+So, plainly: **a renamed file can get through.** Both halves of the check are chosen by whoever is
+uploading — the extension is part of the name they send, and `contentType` is a value they can set
+outright. Anything at all, renamed to `.png`, is a file Storage has been told is a PNG.
+
+**Not confirmed: whether Supabase inspects the bytes at all.** Four Storage pages were read on
+2026-10-08 — fundamentals, file limits, creating buckets and standard uploads — and **none of them says
+the contents are examined**, which is not the same as a page saying they are not. Nobody has tried it.
+Settling it needs either a Supabase page that describes content sniffing or an actual upload of a
+deliberately misnamed file to staging.
+
+**This was put to the owner and accepted as written, on 2026-10-08.** Not waved through: the decision was
+to keep the limit, keep the sentence that says what it does not cover, and **not** go looking for a way to
+check the contents. The reason that is the right trade here is in the third bullet below — the people who
+can open a file are a handful of volunteers who can already see the task, so the realistic risk is
+somebody's odd file in their own team rather than anything arriving from outside. **What was explicitly
+not accepted is a vaguer promise**: "images and PDFs only" stays in the plan *because* the paragraph
+underneath it says what it means.
+
+**So what the app will and will not promise:**
+
+- **It will promise** that an upload declaring anything other than an image or a PDF is refused, and that
+  one over 5 MB is refused — both by Storage, not by a screen.
+- **It will not promise** that what is in the bucket is really an image or really a PDF. It cannot, and
+  saying so here is cheaper than somebody inferring it later from the words "images and PDFs only".
+- **It will not promise that opening a file is safe**, which is the consequence that actually matters. A
+  file comes back to a browser with the type it was stored under, so a browser can be asked to render a
+  stranger's bytes as a picture or a PDF. The people who can open a file are the small set in the next
+  section, so the realistic shape of this is a volunteer uploading something odd to their own team, not
+  the internet — but it is the reason the bucket is private and the reason this paragraph is here rather
+  than absent.
+
+### Who can read, upload and delete a file
+
+**Exactly the people who can see its task, by the same rules as tasks, and nobody else.** Not a wider
+set, not a narrower one: the file inherits its task's audience, because the file is part of the task.
+Which, read off the "Who may touch a task" table in `docs/architecture.md`, means:
+
+| | Personal task of theirs | Team task in a team they are in | Anybody else's task |
+|---|---|---|---|
+| **See that a file is there, and open it** | yes | yes | **no** |
+| **Attach a file** | yes | yes | **no** |
+| **Delete a file** | yes | **only if they attached it, or they created the task** | **no** |
+
+**And a suspended person is refused all three**, the same way "Suspending an account" above refuses them
+everything else. The database rule on the bucket has to ask `is_active()` the way the existing table rules
+do; a storage rule that forgot it would be a new way round a control the plan says is total. **A
+suspended person cannot delete their own attachments either**, which is the same sharpening of the
+account-deletion gap that suspension already causes for tasks, and the "Two gaps" section below now says
+so about files too.
+
+**Who may delete a file: the person who uploaded it, or the person who created its task. Nobody else.
+Decided by the owner on 2026-10-08**, and it is **the owner's third answer rather than either of the two
+this section originally offered** — which is worth recording, because the question it settles was one the
+plan found rather than one it was asked.
+
+**What the question was.** This section was first written proposing "only the uploader", chosen against
+"anyone who can see the task". The owner took "only the uploader" on 2026-10-08 — and writing it down
+beside the deletion decision below exposed a case neither answer covered. Alice creates a task in a team;
+Bob attaches a photo. Only Alice may delete the task (feature 4); only Bob may delete his file; and **the
+database refuses to delete a task that still has files**. So **Alice could not delete her own task**, and
+no screen could offer her a way through, because the only person who could clear the obstacle was Bob. It
+could not happen on a personal task — nobody else can see one, so its creator is its only possible
+uploader — and on a team task it was not rare but normal. It went back to the owner as
+[#234](https://github.com/build-once/team-tasks/issues/234) with the two answers the plan could see, and
+the answer that came back was neither.
+
+**The rule now, in one line: a file may be deleted by its uploader, or by the creator of the task it is
+on.** Which is to say the task's creator is the custodian of the task *and everything hanging off it*,
+and that is the same person feature 4 already trusts with destroying the task outright.
+
+**Three things it gets right, and they are the reason it beats both of the originals.**
+
+- **The deadlock is gone, without an exception.** Alice may delete Bob's file because she created the
+  task, so deleting her own task is something she can simply do. No code path needs permission the person
+  does not have, and no screen has to explain a thing a person cannot fix.
+- **It gives the task's creator almost nothing new.** She could already destroy Bob's photo by deleting
+  the whole task — feature 4 has always let her, and the deletion decision below means the files go with
+  it. What she gains is the *finer* version of a power she had: removing one file and keeping the task.
+  That is a real addition and a small one, and it is the right size.
+- **It keeps the reason "only the uploader" was proposed in the first place.** That reason was feature
+  4's: "only the person who created a task can delete it, so nobody loses an entry because somebody else
+  tidied up." **The person it protects against is a team mate at large** — Carol, who is in the team,
+  can see the task, and did not create it or upload the file. **Carol still cannot delete anything**, and
+  "anyone who can see the task" would have let her. So the protection survives; what changed is that it
+  is not also aimed at the one person who owns the thing the file is attached to.
+
+**What it costs, stated rather than left to be discovered.** Bob's photo can be removed by somebody
+other than Bob, and he is not asked and not told. That is a genuine loss against "only the uploader" and
+the plan does not pretend otherwise — it is bounded by the fact that the person who can do it is the one
+person who could already have taken the whole task away, and by Bob being able to delete his own file
+whenever he likes.
+
+**And one case is now narrower but not gone: a file nobody wants, on a task nobody will delete.** If Bob
+attaches something unwanted to Alice's task, Alice can remove it. If Bob attaches it to **his own** task
+in the team, only Bob can — he is both uploader and creator. So the operator in the dashboard is still
+the last resort, for a smaller set of cases than before.
+
+### Links, and what an unexpired one allows
+
+**A file is opened through a signed link that expires after 5 minutes.** The bucket is private, so there
+is no URL that works without one: a signed URL is how Supabase shares a file from a private bucket — "Use
+a signed URL to share a file for a fixed amount of time", with `expiresIn` being "The number of seconds
+until the signed URL expires" ([`createSignedUrl`](https://supabase.com/docs/reference/javascript/storage-from-createsignedurl),
+read 2026-10-08). Five minutes is **300** seconds, and it is chosen to be long enough to open a photo on
+a slow phone connection and short enough that a link pasted into a chat has usually stopped working
+before anybody clicks it.
+
+**What an unexpired link allows, said plainly: anyone holding it can open that file, until it expires.**
+Not the person who asked for it — **whoever has the link.** It carries no sign-in, it is not tied to a
+session, and nothing about it checks who is using it. For those five minutes the link **is** the
+permission, which puts it in the same class as an invitation token: "until it expires or is used, the
+token in the email *is* a credential" is how `docs/architecture.md` already puts it about invitations,
+and the same sentence applies here with "used" removed, because a signed link does not get used up. It
+can be opened any number of times inside its five minutes.
+
+**Three consequences, all of them the price of the design rather than faults in it:**
+
+- **A link outlives the permission that created it.** Suspend the account, remove the person from the
+  team, or move the task out of the team, and a link already in their hands keeps working until it
+  expires. The check happens when the link is **made**, not when it is used.
+- **It also outlives the screen.** A link sitting in a browser's history or a phone's share sheet is live
+  for the rest of its five minutes.
+- **Whether deleting the file kills an outstanding link is not confirmed.** It is reasonable to expect a
+  deleted object to answer with nothing, and no page read on 2026-10-08 says so. Do not write it down as
+  a promise until somebody has deleted a file and then opened an unexpired link to it.
+
+**Five minutes is the control, and it is the only one.** There is no revoking a signed link in this
+design, so the number is doing all of the work — which is the argument for keeping it small and for not
+quietly raising it later to make something convenient.
+
+### What happens to a task's files when things change
+
+Three cases. **This section was written saying two of them leave files behind, and that was put to the
+owner as a thing to accept. It was not accepted.** The decision of 2026-10-08, in the owner's terms:
+**leftover files are not acceptable.** Deleting a task **deletes its files first** and **is refused if
+they cannot be removed**; **the database refuses to delete a task that still has files**; and removing a
+person's files when an account is deleted is **a requirement of Build it 26**.
+
+**Why the start of this paragraph is kept.** The gap is written out below as well as its answer, because
+"nothing is left behind" is a promise, and a promise is only worth what the reader can see it was weighed
+against. This plan keeps its declined options for the same reason.
+
+**When the task is deleted: the files go first, and the task does not go without them.**
+
+The problem it answers is that **nothing in Supabase connects `storage.objects` to this project's `tasks`
+table** — the columns above are `bucket_id`, `name`, `owner_id` and the rest, and not one of them is a
+reference to a task. So there is no cascade to lean on: deleting a task's row would delete nothing in the
+bucket, and the files would be left **unreachable and undeleteable through the app at the same time**,
+because the storage rule asks "may you see the task this file belongs to?" and once the task is gone that
+question has no yes for anybody. Only the operator, in the dashboard, could see or remove them.
+
+**Two things now stop that, and the second is the one that makes it true rather than intended:**
+
+1. **The app deletes all the files, then the task — under the creator's own rights — and refuses the
+   whole thing if any of them cannot be removed.** Not "tries and carries on": a file that would not
+   delete means the task stays, and the person is told.
+
+   **"Under the creator's own rights" is the clause that matters, and it is the owner's decision of
+   2026-10-08.** The deletion runs **as the person asking**, with no more authority than they have
+   sitting at the screen — and it works because the rule above gives a task's creator the right to delete
+   the files on it. So **nothing in this app needs a privileged delete path**: the thing that permits it
+   is a database rule a reviewer can read, not code that acts on somebody's behalf with more power than
+   they have. That is the same preference this plan shows everywhere else — "the database is what
+   actually stops Bob" — applied to a destructive action rather than a read.
+
+   **And the order has two reasons now, not one.** The first is failure: files-then-task can fail halfway
+   and leave a task with fewer files than it had, which is visible and recoverable, where task-then-files
+   fails halfway and leaves exactly the orphan this decision exists to prevent. The second arrived with
+   the rights decision and is sharper — **the creator's right to delete the files comes *from* the task**.
+   Delete the task first and that right vanishes with it, along with any way of asking who created the
+   task the file hangs on. So the order is not a preference; it is the only order in which the permission
+   exists.
+2. **And the database refuses to delete a task that still has files**, whatever asked it to. This is the
+   half that counts, for the same reason row-level security rather than a screen is what enforces feature
+   5: *a rule that lives only in the app is a rule that holds until something else deletes the row.* A
+   row deleted in the SQL editor, by a server function, or by a cascade from somewhere else all meet this
+   one. It makes "no orphaned files" a property of the database rather than a property of one code path
+   being correct.
+
+**Two consequences of the second half, both stated rather than discovered later.**
+
+**It makes the Build it 26 requirement unavoidable rather than aspirational**, and that is the neatest
+thing about the decision. Deleting an account cascades to that person's `tasks` rows — so if the database
+refuses to delete a task that still has files, **deleting an account is refused too** while any of those
+tasks has one. The intention "we should remove their files as well" stops being something anybody has to
+remember and becomes something they cannot get past. **Not confirmed**: nobody has built or tried this,
+and whether a refusal fires on a cascade the way it fires on a direct delete is a question about Postgres
+that this plan has not answered by reading or by trying. If it turns out not to, the Build it 26
+requirement is still a requirement and is simply no longer self-enforcing.
+
+**And what "refused" can now mean has narrowed, which is the second thing the rights decision bought.**
+Before it, the most likely reason a file could not be removed was **permission** — somebody else's file
+on your task, with no way through. That reason is gone: a task's creator may delete every file on their
+own task. So a refusal now means something went **wrong** rather than something is **not allowed** — a
+storage error, a request that did not arrive — which is a failure a person can reasonably retry, and a
+different conversation from being told they are powerless.
+
+It still has to mean something a person can act on. A delete that fails with nothing useful behind it is
+worse than one that leaves an orphan, because the person tries again blindly. What the screen says is not
+written here, beyond the one thing that must be true of it: **it says the task was not deleted**, plainly,
+rather than failing quietly and leaving somebody to find the task still there.
+
+**When the task moves between personal and a team: nothing is left behind, and nothing has to move.**
+The path is `attachments/<task id>/…` and the task's ID does not change when its `team_id` does, so
+nothing has to be copied or renamed — the rule simply starts answering differently. Which is convenient
+and has one edge the screens will have to say out loud: **moving a personal task into a team shows that
+team every file already attached to it**, including files attached while the task was private, with no
+step in between that asks "are you sure about these three photos?". Moving it back out hides them again.
+**This case was never a leftover-files case** and is unchanged by the decision.
+
+**When an account is deleted: a requirement of Build it 26, written down rather than built now. Decided
+by the owner on 2026-10-08.** There is still no way to delete an account in this app, so this is about the
+owner doing it by hand, and it is the one of the three the app cannot currently reach. What the
+requirement says: **deleting a person's account removes that person's files**, and it is not finished
+until it does. Two things make it more than a note:
+
+- **The database refusal above means the deletion cannot quietly half-happen.** It fails instead, which
+  is the loud failure that gets fixed.
+- **It is now a condition on Build it 26 rather than a wish about it**, with its own issue, so it is
+  checkable by somebody who was not in this conversation.
+
+What it deliberately does **not** do is design the removal. Whose job it is to walk a person's tasks and
+clear their files — a server function, a database routine, the operator with a list — is Build it 26's
+question, and guessing at it here would put a design in a plan that nobody has reviewed.
+
+**So: one of the three cases was never a problem, one is solved in this build, and one is a named
+requirement of a later one.** The thing that changed between the morning and the evening of 2026-10-08 is
+that none of them is now a cost somebody is being asked to accept.
+
+### What is inside a photograph, which the app does not look at
+
+**A photograph can carry the place it was taken and the device that took it, inside the file**, along with
+the exact moment. **The app does not remove any of it**, and will not in this version: the file is stored
+as it arrives. So a volunteer attaching a photo of a job may be attaching the coordinates of where they
+were standing, to a file their whole team can open.
+
+That is worth putting beside what this plan already refuses to collect. The appendix says "no phone
+numbers, addresses, birthdays or photos" about what the app asks for, and "Collecting less" trimmed a
+display name to a nickname so the app would never hold a legal name. **A photo's own metadata walks
+straight past all of that** — it is not asked for, not typed, not visible on the screen that uploads it,
+and more precise than anything a person would have volunteered.
+
+**Stripping it was not proposed and was not chosen, for two reasons and one of them is a rule.** The
+first: removing metadata
+means a library that rewrites image files, which is a dependency, and rule 17 makes that the owner's
+decision rather than a thing a plan quietly assumes. The second: a rewrite that goes wrong damages the
+file somebody attached, and an attachment feature whose first act is to re-encode the attachment is a
+worse trade than it sounds.
+
+**So the decision was not "strip or do not strip". It was whether "the app does not remove them" is said
+to the person uploading, in the place they are uploading — and the answer, from the owner on 2026-10-08,
+is yes: one line beside the upload box.** It says that a photo can carry where and when it was taken, and
+that the app does not remove it. One sentence, in the place it matters, costing nothing and adding no
+dependency.
+
+**That is the same decision this plan took once before, for the same reason**, which is why it is the
+consistent answer rather than merely the cautious one: "Task text: a length limit, and the request shown
+in the input box itself — 'No personal details' belongs where people are typing, not only in this plan —
+nobody using the app will ever read this document." A photo is the harder case of exactly that, because
+what it carries is **not something the person typed and cannot be seen on the screen they are uploading
+from**. Somebody who reads the line and attaches the photo anyway has made a choice. Somebody who was
+never told has not.
+
+**The two it was chosen over**, kept so the question is not re-argued later:
+
+| Not chosen | Why not |
+|---|---|
+| **Nothing on the screen** | This section would have been the only record, which is a record nobody using the app will ever read — the exact thing the task-text decision above rejected in those words |
+| **Strip the metadata** | Needs a package that rewrites image files, so rule 17 applies: registry page, weekly downloads, maintainer, and a yes, before anything is installed. And a rewrite that goes wrong damages the file somebody attached. **Still available later**, and this line is the one to come back to if it is ever wanted |
+
+**What the line actually says is written when the screen is**, not here — the substance is decided and the
+wording belongs with the box it sits beside. Two things have to be true of it: it is **short**, because a
+paragraph beside an upload button is a paragraph nobody reads, and it says **the app does not remove it**
+rather than implying anybody has checked.
+
+### What files are never part of
+
+**A file is never sent to the AI helper.** "Suggest subtasks" sends "the **title of the one task the
+person asked about**, and **fixed instructions written by this app**. That is the whole request" — and an
+attachment is not a title. No file, no file name, no part of a file's contents, and no count of how many
+files a task has. The helper does not read the bucket and has no privilege on it.
+
+**A file is never sent to error reporting, and neither is its name.** The Sentry section above lists what
+may be sent and adds "What must never be sent"; **a file name joins that list**, for the reason that
+section already gives about its own limit: "A pattern scrub cannot recognise free text that no known
+phrase introduces, so error messages written by this app must never include task text, names or
+addresses." A file name is exactly that kind of free text — somebody's phone chose it, or somebody typed
+it, and `scan-of-the-letter-from-my-doctor.pdf` is a sentence about a person. **So the rule is on this
+app's own code, not on the scrub**: a storage error is reported with its code and the operation, never
+with the path or the name. Nor is the file's contents, its size or its type attached to a report.
+
 ## Deliberately not in the first version
 
-Comments. Reminder emails. File attachments. Payments. A phone app.
+Comments. Reminder emails. Payments. A phone app.
 
 Some of these come later, on purpose. When one does, this plan gets updated first.
 
 **An AI helper left this list on 2026-10-07.** It is "Suggest subtasks" above. That is what "updated
 first" looks like in practice: the line moved out of this list, and the section above was written,
 before any code existed.
+
+**File attachments left it on 2026-10-08**, the same way. It is "Files attached to a task" above, written
+for Build it 23 with no bucket, no rule and no code in existence — so the list is now four things rather
+than five, counted here rather than remembered.
 
 ## Personal data it will hold
 
@@ -463,8 +897,16 @@ before any code existed.
 - Whether somebody has switched AI suggestions on, and when they last changed it
 - How many times each person used each limited feature on each day — a count, and nothing about which
   task or which address
+- Files attached to a task — images and PDFs, in this project's own storage; plus what Storage records
+  about each one: its path, which carries its task's ID and the file name the person's device gave it,
+  its size, who uploaded it and when
+- **Whatever is inside those files**, which is the one line in this list the app does not choose the
+  contents of — including the place and the moment a photograph was taken, which the app does not remove
 
-Nothing else: no phone numbers, addresses, birthdays or photos. We ask people not to put
+Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
+2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is
+a box a person can put a file in, so a photo can arrive because somebody attached one to a task. "Files
+attached to a task" above is where that is set out. We ask people not to put
 sensitive information in task text, and the app does not need it.
 
 Supabase and Vercel also record IP addresses, and Sentry would record one with every error report
@@ -495,6 +937,14 @@ token. Its ceiling is the **5-dollar monthly spend limit** on the Team Tasks wor
 inside the £30-a-month ceiling above but is **not £0** — so the first sentence of this section is no
 longer true of every service while building. `docs/costs.md` carries the published per-token prices,
 the arithmetic, and what Anthropic does when a spend limit is reached.
+
+Attachments, added 2026-10-08, add **no new service and no new bill**: they use Supabase Storage in the
+projects this app already has. They do use two of its metered allowances for the first time — **storage
+size** and **egress** — and on the Free plan neither can produce a charge. `docs/costs.md` carries the
+published quotas (**1 GB** of storage, **5 GB** of egress a month), what the limits come to
+against them, and what the page says happens when a Free project goes past one. **The storage half fits
+and the egress half does not**, and the owner recorded that on 2026-10-08 rather than building a limit
+against it — which is on that page, with the three things that would change it.
 
 ---
 
@@ -538,6 +988,8 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
+| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Nothing exists**: no bucket, no rule, no code. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
+| What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
 ## Collecting less — decided
@@ -642,6 +1094,46 @@ time that has been true of anything in this plan except a suspension.
 - **One file holds the numbers.** Two limits, in one place, so the thing a reviewer has to find is in one
   place.
 
+### Added 2026-10-08 — collecting less in an attachment
+
+Kept apart again, and this one is the hardest of the five, because **the usual move does not work here.**
+Every list above reduces by choosing what to leave out of something this app composes: one title and not
+the list, a code and not the reply, a count and not a log. **A file is not composed by this app.** It
+arrives whole, and "collecting less" can only be about how many, how big, how long a link lives, and who
+can open it — never about what is inside.
+
+- **Private bucket, and no public URL at all.** Nothing in `attachments` is reachable by address. The
+  only way in is a signed link this app makes for somebody it has already checked.
+- **Five minutes, not an hour.** The shortest link that still works on a slow phone. A link is a
+  credential while it lives, so its life is the thing to keep small — and it is the only control there
+  is, because a signed link cannot be called back.
+- **Two types and 5 MB**, so the bucket cannot quietly become a file share. And the limit is **stated for
+  what it is**: Storage checks the type the upload *declares*, so a renamed file gets through, and the
+  app promises the refusal rather than the contents.
+- **The audience is the task's, not a new one.** No sharing, no link to send somebody, no "anyone with
+  the link" setting. A file is visible to exactly the people the task is visible to, and a suspended
+  person is refused — so attachments add **no new answer** to "who can see what", which is feature 5's
+  whole point.
+- **No file name in an error report, ever**, and nothing of the file's contents, size or type either. A
+  name is free text somebody's phone chose; the Sentry section's own caveat says a scrub cannot catch
+  that, so this app's code is what has to not say it.
+- **Nothing goes to the AI helper.** Not the file, not its name, not how many there are.
+- **Nothing is left behind, and the database is what makes that true. Decided 2026-10-08.** Deleting a
+  task deletes its files first and is refused if they cannot be removed, **and the database refuses to
+  delete a task that still has files** — so there is no state in which a file outlives the thing it was
+  attached to. This is the same move as the usage count's 7-day window being part of the statement that
+  counts: a retention rule that depends on somebody remembering is not a retention rule. Removing a
+  person's files when an **account** is deleted is a requirement of **Build it 26**, which this does not
+  do and does not pretend to.
+- **And one reduction that is NOT taken, written here so it is a decision rather than an oversight:**
+  the app does **not** strip the location and device details inside a photograph. That is the one place
+  this list collects more than it has to; it needs a package to change (rule 17), and it stays available
+  for later. **What was decided on 2026-10-08 instead is that the person is told**: one line beside the
+  upload box, saying a photo can carry where and when it was taken and that the app does not remove it.
+  Which is what "Task text: a length limit, and the request shown in the input box itself" already chose
+  for the same problem in words — and the harder case, because what a photo carries is not something the
+  person typed and cannot be seen on the screen they are uploading from.
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -659,12 +1151,30 @@ why **eighteen** rows above say the owner must delete by hand, or that nobody ca
 the first version, the two suspension rows added on 2026-10-04, four added on 2026-10-05 — an
 invitation's status and the three error-report rows — two added on 2026-10-07, the task title sent
 to Anthropic and the AI-suggestions setting, and **one added on 2026-10-08**, the daily usage count.
-(Fifteen before 2026-10-07, seventeen after it; the count was made again on **2026-10-08** by reading
-the table's "How a user deletes it" column for all **27** data rows after the usage-count row was added,
-and it came to eighteen. Both numbers were counted in that session, not carried forward.) That is a
+(Fifteen before 2026-10-07, seventeen after it; the count was made again on **2026-10-08** by reading the
+table's "How a user deletes it" column for all **29** data rows, after the two attachment rows were added
+and after the owner's deletion decision was recorded in them, and it came to eighteen. Every one of those
+numbers was counted in the session that wrote it, not carried forward.) That is a
 report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
 volunteers, or whether the plan changes.
+
+**Attachments added two rows to that table and nothing to this gap, which nothing else added to this plan
+has managed.** Error reports added four rows that nobody can delete; the AI sections added two; the usage
+count added one. The two attachment rows add **none** — a person can delete a file, and deleting the task
+removes the files with it, because the owner's decision of 2026-10-08 made that the database's rule rather
+than an intention. **An earlier version of this paragraph, written the same morning, said the opposite**:
+that the attached file was the first row in the table whose answer was neither yes nor no, because
+deleting a task would strand its own files beyond anybody's reach. That is what changed, and it is the
+clearest thing this decision bought. The sentence is kept here, struck through in effect, because a gap
+that closes is worth as much on the record as one that opens.
+
+**With one condition on it, which is the account half.** "Deleting the task removes the files" covers the
+route a person can actually take. **Deleting an account still has no route at all**, and the files
+belonging to somebody whose account is deleted are a **requirement of Build it 26** rather than something
+this build does. So attachments do not widen this gap, and they do not narrow it either: they are the
+first thing added to this plan that lands exactly on it, with the per-task half solved and the per-account
+half named.
 
 Suspension makes that gap sharper rather than softer, and this is the place to say so: a suspended
 person can no longer reach anything in the app, so they cannot delete their own tasks either, and
@@ -690,6 +1200,19 @@ including the person it is about**. So a person cannot find out from the app how
 times it thinks they have done something, which is a reasonable price for a count that holds nothing but
 a number, and is still a thing to have said rather than to have passed over.
 
+Attachments are the first addition to this plan that **does not** widen it, and the reason is worth
+keeping. A file is the largest kind of thing in this table — whatever somebody attached, possibly a
+photograph carrying where its taker was standing, held in our own bucket where the operator can open it —
+so on the face of it, it should have widened this gap further than any of the three above. It does not,
+because the question "what happens when somebody deletes it" was asked before the bucket existed rather
+than after, and the answer came back that leftovers are not acceptable. **Deleting a task deletes its
+files, and the database refuses to delete a task that still has them.**
+
+**That leaves one half, and it is the half this whole section is about.** Deleting an *account* removes a
+person's files only once Build it 26 does it, and there is still no way for anybody to delete an account
+at all. So attachments do not make this gap worse, and the thing that would make it better is the same
+thing that would make it better for the other eighteen rows.
+
 **Four rows are things you never chose to collect.** The sign-in audit records, both log stores and
 the session tokens are created by Supabase and Vercel whether you want them or not, and they
 include IP addresses. They are not in your tables and you cannot turn most of them off. The
@@ -703,9 +1226,16 @@ stops it. The four above cannot be switched off at all.
 Still four on 2026-10-07 as well. Everything Anthropic receives, it receives because this app chose to
 send it, and not sending it is always available.
 
-Still four on 2026-10-08. The daily usage count is the most chosen row in this table: it exists only
-because we decided to write it, in our own database, and the whole of it is one number we picked the
-shape of.
+Still four on 2026-10-08, and the day added two rows that pull in opposite directions. The daily usage
+count is the most chosen row in this table: it exists only because we decided to write it, in our own
+database, and the whole of it is one number we picked the shape of. **What Storage records about a file
+is the nearest thing to a fifth that this table has ever held** — Supabase writes that row whether we
+want it or not, and it is not the row's existence we chose but the file's. It is still not a fifth, and
+the line is worth drawing precisely: the four above are written **about people using the app at all**,
+and they cannot be switched off. This one is written only when somebody attaches a file, and not
+attaching one is always available — the same test the Anthropic paragraph above uses. What is new is
+that the thing we did not choose is now **inside our own project**, which is a reason to know what is in
+it rather than a reason to recount.
 
 ## Unverified
 
@@ -857,3 +1387,82 @@ shape of.
   **reading those is Build it 25** — the owner's decision of 2026-10-08.
   [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
   know it is done. No figure is written here until somebody has read the page.
+- **Unverified — "Files attached to a task" describes nothing that exists.** Added 2026-10-08 for Build
+  it 23 part 0, documents only. **There is no bucket**, no storage rule, no migration, no screen, no code
+  and no package; **no file has ever been uploaded to any project**, and Supabase Storage is still the
+  empty, unused thing `docs/architecture.md` has called it since the start. Every sentence in that section
+  is a decision about what will be built, and the facts about Supabase Storage in it come from the pages
+  cited there — read on 2026-10-08, with no connector and no browser used — which is how Supabase
+  describes the service, not something observed in this project.
+- **Decided, so no longer open — the five decisions and two acceptances this section carried when it was
+  written on 2026-10-08, and the eighth question that writing them down produced.** Three files per task;
+  100 MB per person, **enforced on the server at upload**; one line beside the upload box about what is
+  inside a photograph; and **leftover files are not acceptable**, so deleting a task deletes its files and
+  the database refuses to delete a task that still has them, with the account half a requirement of Build
+  it 26. Plus the two that were put up to accept or reject: that a renamed file can get through
+  (**accepted as written**), and that the limits do not keep this inside the egress allowance (**recorded
+  as written, with no egress limit built now**).
+
+  **And the eighth, which was the one this list carried as open for part of that day:** who may delete a
+  file. "Only the uploader" was taken first, and writing it beside the deletion decision exposed a
+  deadlock — a team task whose creator could not delete it, because another member's file was on it and
+  only that member could remove it
+  ([#234](https://github.com/build-once/team-tasks/issues/234)). **The owner's answer was a third option
+  neither the plan nor the issue had proposed: a file may be deleted by whoever uploaded it, or by
+  whoever created its task, and by nobody else** — and **deleting a task removes all its files under the
+  creator's own rights**, so no part of this app deletes anything with more authority than the person
+  asking. All of it is recorded in the section itself and gathered in its table. They are named
+  here so that somebody reading this list for open questions does not go looking for answers that are
+  already above.
+- **And one thing that followed from it rather than being decided — a privileged delete path is not
+  needed and is not designed.** Because the task's creator holds the right to delete the files on their
+  own task, the deletion runs as the person asking, permitted by a database rule rather than by code
+  acting on somebody's behalf. Nothing in the plan now asks for a delete that carries the service-role
+  key. **Nothing is built**, so this is a property of the design rather than of anything observed.
+- **Not confirmed — whether a refusal to delete a task that still has files also fires on a cascade.**
+  The Build it 26 requirement is made self-enforcing by the expectation that deleting an account, which
+  cascades to that person's tasks, would be refused the same way a direct delete is. That is a question
+  about Postgres this plan has answered neither by reading nor by trying, and nothing of it is built. If
+  it turns out not to fire, the Build it 26 requirement stands and is simply no longer enforced by the
+  database.
+- **A requirement of Build it 26, not of this one — removing a person's files when their account is
+  deleted.** The owner's decision of 2026-10-08. Nothing about it is designed here, deliberately: whose
+  job it is to walk a person's tasks and clear their files is Build it 26's question.
+  [#235](https://github.com/build-once/team-tasks/issues/235) holds it.
+- **The six Supabase Storage facts below are gathered in
+  [#231](https://github.com/build-once/team-tasks/issues/231)**, with what to read or try for each and
+  how somebody else can tell it is settled. Three of them decide what the code must do and one decides
+  what the app may promise, so they belong before the bucket exists rather than after. The seventh —
+  whether a last-opened time is recorded — is [#232](https://github.com/build-once/team-tasks/issues/232)
+  and is kept apart because it is a question about personal data rather than about Supabase.
+- **Not confirmed — whether Supabase Storage looks inside a file at all.** Four Storage pages were read
+  on 2026-10-08 — fundamentals, file limits, creating buckets and standard uploads — and none of them says
+  the contents are examined, which is **not** a page saying they are not. What is confirmed is where the
+  declared type comes from: "By default, Supabase Storage determines content type from the file extension.
+  You can override this with the `contentType` option". So the plan says a renamed file gets through and
+  promises nothing about contents. Settling it properly needs either a Supabase page that describes
+  content sniffing or an actual upload of a deliberately misnamed file to staging.
+- **Not confirmed — whether `storage.objects` records the file's declared type, and where.** Presumably in
+  `metadata` beside the size; no page read on 2026-10-08 says so, and presumably is not a citation.
+- **Not confirmed — whether `storage.objects` has a `last_accessed_at` column.** [The Storage
+  Schema](https://supabase.com/docs/guides/storage/schema/design) does not list one; the [self-hosting
+  object reference](https://supabase.com/docs/reference/self-hosting-storage/get-object-info) shows one in
+  an example response. The two Supabase pages disagree and nobody writing this has looked at a real table.
+  **It matters rather than being a curiosity**: if the column exists and is maintained, this project will
+  be holding **when each person last opened each file**, which is a fact about people that nothing in this
+  plan has decided to collect. Settle it by reading the column list of `storage.objects` in a real
+  project, and if it is there, decide about it the way the other rows were decided.
+  [#232](https://github.com/build-once/team-tasks/issues/232) holds it, in three steps, and the last of
+  them is the owner's decision rather than a reading.
+- **Not confirmed — what `owner_id` on a stored object is filled with.** The column is listed on the
+  schema page and compared with `auth.uid()` in the helper-functions page's policy example, which is how
+  it is meant to be used; **no page read gives it a formal definition**, so "the uploader's user ID" is
+  read off two pages rather than stated by one.
+- **Not confirmed — whether deleting a file invalidates a signed link that has not yet expired.** It is
+  reasonable to expect a deleted object to answer with nothing; no page read on 2026-10-08 says so. Until
+  somebody deletes a file and then opens an unexpired link to it, the plan treats the five minutes as the
+  only control there is.
+- **Not read — whether Supabase meters the upload as well as the download.** `docs/costs.md` works the
+  attachment arithmetic against the egress quota, which is what serving a file spends. Whether bringing
+  one in counts against anything was not established on 2026-10-08, and no figure for it is written
+  anywhere.
