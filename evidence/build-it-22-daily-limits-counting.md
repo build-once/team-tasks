@@ -21,6 +21,16 @@ Issue [#221](https://github.com/build-once/team-tasks/issues/221). Part 1 was
 Everything below is a local run on the owner's machine, with its exact command, its output and its exit
 code.
 
+> **That banner was true of the session that wrote this file, and it stopped being true later the same
+> day.** After PR #228 merged, the owner deployed both functions to **staging** and ran the checks there,
+> and the coach read the counts back off the table. **Section 12 is that record, copied in from the
+> coach's comment on PR #228**, added by the Build it 23 part 0 pull request because a record that lives
+> only in a comment thread is not saved (rule 13). The banner above is **not** rewritten: it says what was
+> true when the work was done, and section 12 says what happened next. **Read them in that order.**
+>
+> Nothing in section 12 was run or seen by the assistant, then or now. It is the coach's account of the
+> owner's runs and the coach's own connector reads, copied without alteration.
+
 ---
 
 ## 1. What was built
@@ -536,3 +546,72 @@ So, on merge:
 **If the owner would rather production did not get this before staging has tried it**, the merge is the
 thing to hold, not this pull request's contents — there is nothing in the code that could be made to
 deploy to one and not the other.
+
+---
+
+## 12. The coach's review, and the staging runs after the merge
+
+**Added by the Build it 23 part 0 pull request, 2026-10-08.** This is the coach's comment on PR #228,
+posted at 16:32 UTC on 8 October 2026 — after the merge at 14:09 — copied here **verbatim** because its
+own first line asks for that and because rule 13 says a record that exists only in a chat or a comment
+thread is not saved. It is the first and only account of any of this running anywhere.
+
+**What it is and is not.** It is the **coach's** record of the **owner's** runs, plus the coach's own
+reads through the staging read-only connector. **Nothing in it was run, seen or verified by the
+assistant**, in that session or in the one that copied it: no `supabase` command, no connector, no
+browser, no staging terminal. It is reproduced because it is the evidence, not because it was checked
+here — and the one thing the assistant did do is read it against this file's section 10, which it changes
+in four places. That comparison is after the quote.
+
+**Nothing in it was redacted, and the list of replaced values is empty.** It names the staging test
+accounts the repository already names (`docs/environments.md`), a script's own invitation address suffix,
+and no address, token, key, link or user ID. Rule 18 asks for the list rather than a reassurance, and an
+empty list is the complete answer here.
+
+> **Coach review and record of the staging runs (comment only), 8 Oct 2026.** To be copied into the evidence file by the next pull request.
+>
+> Read myself: `supabase/functions/_shared/limits.ts` and the gate in `invite-member`. `countOneUse` allows only on `data === true`; `false` is "at limit"; a thrown call, an error, or any other answer is "unknown" and nothing is sent. The limits (20 and 20) are in the one file. Production already had migration `20261008115900` before this review (read-only connector: table with row-level security, function present, `service_role` execute only).
+>
+> Staging, run by the owner with `scripts/staging/build-it-20-ai-checks.mjs --ai-limit=4`:
+>
+> - **Before any deploy** (function from PR #214, no counting): 49 PASS, 5 FAIL, 2 UNVERIFIED. All five FAILs in section 7: five simultaneous asks all allowed; the ask after the limit answered 200; "uses this run spent in total: 9 of 4".
+> - **Temporary limit:** on an unpushed local branch the owner changed the one line to 4 and deployed `suggest-subtasks` to staging.
+> - **After that deploy:** 55 PASS, 0 FAIL, 1 UNVERIFIED (the section had no asks left to make, having spent 3 of 4 earlier). Five simultaneous asks with 1 use left: 1 allowed, 4 refused by the count. The ask after the limit: 429, code `daily_limit`, "You've reached today's limit. It resets tomorrow." Both signed-out shapes refused at the door, not by the count. "uses this run spent in total: 4 of 4".
+> - **Coach, staging read-only connector:** `usage_counts` held one row: `ai_suggestions`, 2026-10-08, used 4.
+> - **Restored:** the owner restored the file (grep showed 20), deleted the local branch, and deployed `suggest-subtasks` and `invite-member` from this branch. Both deploys listed `_shared/limits.ts` among the uploaded assets, which answers #226.
+> - **invite-member with the counter** (`build-it-18-invitation-status-checks.mjs`): 8 PASS, 0 FAIL, 2 UNVERIFIED; 201 with status `sent`; the second call 409 with 23505 and the row unchanged. Coach's read afterwards: a second row, `invitations`, 2026-10-08, used 1. The refused duplicate was not counted. This is the first staging observation for #227; the limit itself was not reached for invitations.
+>
+> Not seen: the limit sentence on either screen; a counter error against the real database; the invitation limit being reached; #225 (a refused invitation left showing "sending").
+>
+> Staging's count for the Alice test account today is 4 of 20 AI suggestions and 1 of 20 invitations. The script's `+bi18-status` invitation row is still to be deleted by the owner in the SQL editor.
+>
+> No blocking findings. Merge is the owner's decision; it puts counting live on production for invitations.
+
+### What that changes about section 10, read item by item
+
+Four of the ten are answered and six are not. **This is a reading of the comment above, not a new
+check** — no command was run to confirm any of it.
+
+| Section 10 item | Now |
+|---|---|
+| **1.** Nothing is deployed, so nothing is limited in a running app | **Changed for staging.** Both functions are deployed there, and the before-and-after pair of runs is what makes the refusal the deploy's doing rather than a coincidence. **Production is a separate question** — it got both functions on the merge, and nothing in the comment above reads production back |
+| **2.** No deployed function has ever answered the limit's refusal | **Answered, on staging.** 429, code `daily_limit`, and the plan's sentence character for character. **At a temporary limit of 4**, on a local branch that was then restored and deleted — so the twentieth has still never been reached anywhere |
+| **3.** The count has never been read back off a table | **Answered, on staging.** Two rows, read by the coach through the read-only connector: `ai_suggestions` used 4, and `invitations` used 1. That is issue #221's fifth condition, done for staging |
+| **4.** `invite-member`'s half has no deployed check at all | **Changed.** It is deployed to staging and counted one real send; the refused duplicate was **not** counted, which is the ordering the plan asks for. [#227](https://github.com/build-once/team-tasks/issues/227)'s first staging observation. **The invitation limit itself was not reached**, so the refusal path for that half is still unseen |
+| **5.** Whether the Supabase bundler accepts an import from `_shared` | **Answered.** Both deploys listed `_shared/limits.ts` among the uploaded assets — [#226](https://github.com/build-once/team-tasks/issues/226) |
+| **6.** Production's privileges on `usage_counts` have never been read back | **Still open** for the table, and narrowed: the coach reports reading production's migration, table, function and `service_role` execute-only before the review. Whether that is the same read [#222](https://github.com/build-once/team-tasks/issues/222) asks for is not for this file to decide |
+| **7.** Nobody has seen either screen | **Still open.** The comment's own "Not seen" list says the limit sentence has not been seen on either screen — [#212](https://github.com/build-once/team-tasks/issues/212) |
+| **8.** A refused invitation leaves a row saying `sending` | **Still open**, and named in the "Not seen" list — [#225](https://github.com/build-once/team-tasks/issues/225) |
+| **9.** One command was blocked by a guard and the block stands | **Unchanged.** Nothing in the comment touches it, and rule 5 means it stays |
+| **10.** The per-call cost is arithmetic on an assumed input token count | **Unchanged.** Real calls were made to Anthropic on staging; no `usage` figures are in the comment, so `docs/costs.md`'s assumption stands |
+
+**And one thing the comment leaves for the owner**, carried here so it is not lost with the thread: "The
+script's `+bi18-status` invitation row is still to be deleted by the owner in the SQL editor."
+
+**What this does NOT do: update `docs/plan.md`, `docs/costs.md` or `docs/architecture.md`.** All three
+still say Build it 22 is "deployed nowhere", which the record above makes stale for staging. Changing them
+is not this pull request's job — it is documents-only for Build it 23 (issue #229), and the three files it
+may touch, it touches for attachments. The staleness is listed at the top of that pull request and filed
+as [#230](https://github.com/build-once/team-tasks/issues/230), which names all eight sentences with their
+file and line, and sets out what a fix must be careful about: **staging and production are different
+answers**, and "deployed" collapses them.

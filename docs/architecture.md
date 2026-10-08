@@ -122,6 +122,23 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  consent setting lands in Build it 21 - until then production answers |
    |  that suggestions are not available.                                  |
    +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  FILES  -  SUPABASE STORAGE.  Build it 23, NOTHING EXISTS YET.        |
+   |  A PRIVATE bucket named "attachments". Images and PDFs, 5 MB each.    |
+   |  Path: attachments/<task id>/<file name>.                             |
+   |  INSIDE this project - not an outside service, and no new vendor.     |
+   |                                                                       |
+   |  (13) the BROWSER asks for a SIGNED LINK and then fetches the file    |
+   |       publishable key -- PUBLIC -- plus the person's session          |
+   |       RULES ON storage.objects decide, the same way RLS decides       |
+   |       about tasks: may you see the task this file belongs to?         |
+   |       A suspended person is refused, as everywhere else.              |
+   |  The link EXPIRES AFTER 5 MINUTES, and while it lives ANYONE          |
+   |  HOLDING IT can open the file - signed in or not.                     |
+   |  NO SECRET KEY on this arrow. Never sent to Sentry or to Anthropic,   |
+   |  and a FILE NAME never appears in an error report.                    |
+   +-----------------------------------------------------------------------+
 ```
 
 ## The arrows that carry a secret key
@@ -212,7 +229,7 @@ volunteer's browser, which is why it is not an arrow on the map above. It is dra
 instead.
 
 Every other arrow carries no key, or carries only the **publishable key**, which is meant to be
-public. Arrows (1), (2), (3), (4), (6), (8), (9), (10) and (11) carry no secret.
+public. Arrows (1), (2), (3), (4), (6), (8), (9), (10), (11) and (13) carry no secret.
 
 **Arrow (11), the error report, adds no secret — and that is a decision, not luck.** Sentry's project
 key, the DSN, identifies a project and is meant to travel in a browser, exactly like the Supabase
@@ -350,6 +367,113 @@ daily limit, and `docs/plan.md` says so in those words. Nor does
 [#184](https://github.com/build-once/team-tasks/issues/184): a reload asks again, and a daily limit does
 not stop the second ask — it stops the twenty-first.
 
+## `attachments`, its rules, and how a browser gets a signed link
+
+Added 2026-10-08 for Build it 23 (`docs/plan.md` → "Files attached to a task"), **when nothing is built**:
+no bucket, no rule, no migration, no screen, no code, and no file ever uploaded to either project. This
+is the shape, agreed before anything is typed, which is what the top of this file says the whole document
+is for. The Supabase facts in it are cited from the pages named in `docs/plan.md`, read on 2026-10-08.
+
+### The bucket
+
+**One bucket, named `attachments`, and it is private.** A file sits at
+`attachments/<task id>/<file name>`, so **the first segment of the path is the task's ID** — and that is
+not cosmetic, it is the whole mechanism: `storage.foldername()` returns an object's path segments, which
+is what lets a rule ask which task a file belongs to without a column that says so.
+
+**Private means there is no address that works.** Nothing in this bucket can be fetched by URL. The only
+way to a file's bytes is a **signed link** the app asks Supabase for, on behalf of somebody it has
+already checked. A public bucket would make every rule below decoration, which is the storage version of
+the point this file makes about the publishable key: the key is safe only because RLS is on.
+
+**Two restrictions live on the bucket itself**, so they hold whoever is uploading and whatever screen they
+came from: **images and PDFs only**, and **5 MB**.
+
+**And here is the honest limit of that, because it decides what the app may claim.** Supabase checks the
+type the upload *declares*, and the declared type comes from the file's extension or from a `contentType`
+the caller sets — both of which the uploader chooses. **So a renamed file gets through.** The bucket
+enforces the refusal, not the contents. `docs/plan.md` says what the app will and will not promise as a
+result, and carries the "not confirmed" that no Supabase page read says whether the bytes are inspected
+at all.
+
+### The rules: `storage.objects`, not a new table
+
+**The rules are row-level security policies on `storage.objects`**, which is where Supabase keeps one row
+per stored file. "By default Storage does not allow any uploads to buckets without RLS policies. You
+selectively allow certain operations by creating RLS policies on the `storage.objects` table"
+([Storage access control](https://supabase.com/docs/guides/storage/security/access-control), read
+2026-10-08). So a bucket with no policy is a bucket nothing can be put in or taken out of — the same
+default-deny `teams` relies on, and the reason that page's own warning about the service key matters here
+too: "Service keys entirely bypass RLS policies".
+
+**This project's own table of who may touch a file is one sentence: the same people who may touch its
+task.** Which is not a new rule to write down — it is a rule to *delegate*, and the delegation is the
+interesting part:
+
+| Operation | The policy, in words | Why it is shaped that way |
+|---|---|---|
+| **`SELECT`** — see that a file is there, and get a signed link for it | the caller may see the task whose ID is the first segment of the path, **and** `is_active()` | A subquery on `public.tasks` inside the policy runs **as the caller**, so `tasks`' own policies apply to it. The storage rule therefore does not restate feature 5 — it **asks** it, and cannot drift from it |
+| **`INSERT`** — attach a file | the same question, plus `is_active()` | "the only RLS policy required for uploading objects is to grant the `INSERT` permission", from the page above |
+| **`DELETE`** — remove a file | the same question, plus `is_active()`, **plus whichever answer the owner gives** — only the uploader (`owner_id = auth.uid()`), which is proposed, or anyone who can see the task | `docs/plan.md` puts the two options in front of the owner. Only the first needs `owner_id` in the policy |
+| **`UPDATE`** | **none, on purpose** | Nothing in this design overwrites a file. Upsert is what would need `SELECT` and `UPDATE` together, and not offering it means a file's bytes never change under a link somebody already holds |
+
+**That `exists (select 1 from public.tasks where id = …)` shape is the thing to get right**, and it is the
+same trick `team_roster` uses with `security_invoker = true`: a rule that reads its tables **as the person
+asking** inherits every decision already made about them, where a rule that re-implements the question
+has two places to keep in step. There is exactly one definition of "may this person see this task" in
+this project, and attachments must not become a second.
+
+**`is_active()` has to be named explicitly, though — it is not inherited.** `tasks`' policies refuse a
+suspended person, so a subquery on `tasks` already answers no for one; writing the call anyway costs
+nothing and means the storage rule still refuses if anything about that chain ever changes. The plan says
+a suspended person reaches nothing, and a bucket is one more door that has to agree.
+
+### How the browser gets a signed link
+
+**Arrow (13), and it carries no secret key** — the only arrow added since Build it 20 that does not.
+
+1. The browser is on My tasks, signed in, holding the **publishable key** and the person's session.
+2. It asks Supabase Storage for a signed URL for one object. Creating one is a read of that object, so
+   **the `SELECT` policy above is what decides** — and it decides by asking whether this person may see
+   the task. A person who may not gets no link, from the database rather than from a screen.
+3. Supabase answers with a URL that works "for a fixed amount of time", the time being `expiresIn` —
+   "The number of seconds until the signed URL expires"
+   ([`createSignedUrl`](https://supabase.com/docs/reference/javascript/storage-from-createsignedurl),
+   read 2026-10-08). **This app uses 300 seconds.**
+4. The browser fetches the file from that URL. **That fetch carries no key and no session** — the
+   signature in the URL is the whole of its authority.
+
+**So the check happens when the link is made, and never again.** Which is the design's one sharp edge and
+is written up in `docs/plan.md` rather than here: for those five minutes **anyone holding the link** can
+open the file, signed in or not, and suspending the account, removing the person from the team or moving
+the task out of it does not call the link back. The five minutes is the only control, which is why it is
+short and why raising it is not a free convenience.
+
+**No server function is involved in reading a file, and that is deliberate.** Every other thing this app
+does that needed a rule a browser could not be trusted with ended up inside a function holding the
+service-role key, because it needed to **count** something. Reading a file needs no count: the question is
+a single fact about one row — may you see its task — which is precisely the line this file draws
+elsewhere between what a policy does well and what needs a function. So the bucket adds **no key, no new
+secret store, and no fourth place a secret lives**.
+
+### What this section does NOT decide
+
+Three things, named so they are open questions rather than gaps somebody discovers while building:
+
+- **How the bytes get in.** Reading is settled above; uploading is not. A direct upload from the browser
+  is the same shape as the read and needs no key — but **the per-task and per-person totals in
+  `docs/plan.md` are counts**, and a count across rows the caller may not see is exactly what a policy
+  cannot do and what every other limit in this app uses a function for. So either the totals are enforced
+  somewhere a policy cannot reach, or the upload goes through a function and a 5 MB body goes with it.
+  **Which, and what an Edge Function will accept as a body, is not established here** and no figure for it
+  is written.
+- **What removes a file when its task goes.** Nothing links `storage.objects` to `tasks`, so nothing does
+  today. `docs/plan.md` writes up all three cases — task deleted, task moved, account deleted — and
+  deliberately does not design the fix.
+- **Whether `storage.objects` records a last-opened time.** Two Supabase pages disagree, and if it does,
+  this project will be holding when each person last opened each file. `docs/plan.md`'s "Unverified" list
+  carries it, because it is a question about personal data before it is a question about architecture.
+
 ## Who may read a team
 
 `supabase/migrations/20261002122203_team_rules.sql` (Build it 14 part A) is the first migration whose
@@ -472,6 +596,13 @@ members of that team stop seeing each other's tasks, and which team a task used 
   or a server function reading a webhook, never in the browser.
 - **"May this person invite someone?"** — in a **server function**, which checks membership before
   writing the invitation, because that step uses the service-role key and bypasses RLS.
+- **"May this person open this file?"** — in the **database**, as Row Level Security on
+  `storage.objects`, and **by asking the task question rather than answering it again**: the policy
+  checks whether the caller may see the task whose ID is the first segment of the file's path. Added
+  2026-10-08, built nowhere. Two things follow and both are the point. A locked database does not lock a
+  bucket — buckets have their own rules, and a bucket with none refuses everything. And the check happens
+  when the **signed link is made**, not when it is used, so a link already handed out keeps working for
+  its five minutes whatever changes behind it.
 
 ## The parts
 
@@ -487,6 +618,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
 | Monitoring | Will tell you the app is broken before a volunteer does, by sending an error report when a screen or a server route throws | **Sentry**, free plan, data region United States — chosen 5 Oct 2026, **not installed yet** | **Public** — the DSN is meant to be in the browser. No secret, because the setup wizard and its source-map auth token are not used |
+| Files on a task | Holds the images and PDFs people attach to a task, in a private bucket named `attachments`, and hands them back through links that expire after 5 minutes | **Supabase Storage**, in the projects this app already has — chosen 8 Oct 2026, **nothing built yet** | **Public** key only. The browser asks for a signed link with the publishable key and its session; rules on `storage.objects` decide. **No secret key on this path at all** |
 | AI helper | "Suggest subtasks" on one task: sends that task's title and fixed instructions, offers back up to five short suggestions | **Anthropic Claude API**, Claude Haiku 4.5, in a Console workspace named Team Tasks with a 5 USD monthly spend limit — chosen 7 Oct 2026, **not installed yet** | **Secret** API key (`AI_API_KEY`), held per project in Supabase Edge Functions secrets. There is no public key here, so the browser never calls Anthropic at all |
 
 ## What I left out, and why
@@ -496,7 +628,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | **Mobile app** | `docs/plan.md` says a web app that works well in a phone browser, and "no app store, no native app". A phone browser is not a mobile app; nothing to draw. |
 | **Payments** | On the plan's not-yet list. The app is free for six volunteers. No payments means no webhook, no entitlement check, and no card data anywhere — a large amount of risk simply absent. |
 | **Webhooks** | A webhook is a message *in* from an outside service. Nothing sends you one: no payments, and the app does not need Resend's delivery reports. Adding one would mean signature checking, which is a real job. |
-| **File storage** | File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes. |
+| **File storage** | **No longer left out, as of 8 Oct 2026.** This row used to read: "File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes." This is what "for when this changes" looks like: the plan was changed first (`docs/plan.md` → "Files attached to a task"), and the bucket, its rules and arrow (13) are above. **Still nothing built** — no bucket, no rule, no file. And the warning in the old sentence is the reason the section above exists: buckets *do* have their own rules, so the rules on `storage.objects` are written to **ask** the task rules rather than restate them. What is left out *inside* it is deliberate: the bucket is private, there is no sharing and no "anyone with the link" setting, nothing goes to Sentry or to Anthropic, and no file name may appear in an error report. |
 | **AI or other outside services** | **No longer left out, as of 7 Oct 2026.** This row used to read: "'An AI helper' is on the not-yet list. No model is called, so no prompt, no token bill, and no third party receiving task text." All three halves of that sentence stop being true when Build it 20's code lands — a model *is* called, there *is* a token bill, and a third party *does* receive one task's text. The plan was changed first (`docs/plan.md` → "Suggest subtasks"), and the box and arrow (12) are on the map above. Still nothing installed. What is left out *inside* it is deliberate: no name, no user ID, no team name, no second task, and no production key until the consent setting lands in Build it 21. |
 | **Monitoring** | No longer empty: **Sentry** was chosen on 5 Oct 2026 and is drawn on the map, still with nothing installed. What is left out *inside* it is deliberate: no session replay, no performance tracing, and no request or response bodies — the three Sentry features that would carry task text, addresses and tokens out of this project. |
 
@@ -562,5 +694,15 @@ Before any real volunteer signs up:
 - Some way to delete an account, or a written decision that there is none (`docs/plan.md` appendix).
 - `npm run launch:check` completed with evidence.
 
-Can wait: file storage rules (no files yet), webhook signatures (no webhooks), payment testing (no
+- **The rules on the `attachments` bucket, tested as Alice, Bob and Carol** — added 2026-10-08, and it
+  moved up from the "can wait" line below on the day the plan changed. A private bucket with no policy
+  refuses everything, so the danger is not the default: it is a policy written slightly too wide, which
+  would hand a file to somebody who cannot see its task. There is nothing to test yet, and when there is,
+  it is the same three accounts and the same shape as `scripts/staging/build-it-14-checks.mjs`.
+
+Can wait: webhook signatures (no webhooks), payment testing (no
 payments), caching and speed tuning, bigger database plans.
+
+**"File storage rules (no files yet)" left that line on 2026-10-08** and is now the bullet above it. The
+parenthesis was the reason it could wait, and `docs/plan.md` → "Files attached to a task" is what stopped
+it being true.
