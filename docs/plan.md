@@ -527,10 +527,15 @@ send it, and not sending it is always available.
     and `security definer`. **Production has it too**, applied by
     `.github/workflows/migrate-production.yml` when PR #210 merged — run
     [37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469), whose "Apply
-    migrations to production" step succeeded. **Neither of those was done or seen by the assistant**: the
-    staging apply and the connector reads are the owner's and the coach's, recorded in
-    `evidence/build-it-21-ai-consent-migration.md`, and the production run's step conclusions were read
-    with `gh run view --json`. Nobody writing this opened a dashboard.
+    migrations to production" step succeeded — **and read back the same day** through the production
+    read-only connector: both columns present and off, the function present, `anon` and `authenticated`
+    holding **no** table-level SELECT or UPDATE on `profiles`, `service_role` holding SELECT and **not**
+    UPDATE, and **no profile rows at all**, because nobody has signed up. That read is the one that says
+    what the statements left behind, which a green workflow run cannot — and the privilege half of it is
+    the fact this whole feature's privacy rests on. **None of it was done or seen by the assistant**: the
+    staging apply and both sets of connector reads are the owner's and the coach's, recorded in
+    `evidence/build-it-21-ai-consent-migration.md` and `evidence/production-log.md`, and the production
+    run's step conclusions were read with `gh run view --json`. Nobody writing this opened a dashboard.
   - **The check in `suggest-subtasks` exists in this repository and is deployed to production, not to
     staging.** Build it 21 part 2b added it: `withConsent` refuses a caller whose setting is off with its
     own sentence and the code `ai_suggestions_off`, and refuses an unreadable setting with the fixed

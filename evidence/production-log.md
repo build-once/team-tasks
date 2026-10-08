@@ -295,8 +295,54 @@ in its section 4 would have been handing it rights it did not have.
 **Two things this is not.** It is a reading of **production's privileges**, which is a different project
 from the sandbox that same comment describes — the sandbox reads are in
 `evidence/build-it-21-ai-consent-migration.md` and are not production. And it was taken **before** the
-migration was applied anywhere, so it says nothing about what production's privileges are now; the
-record of the apply itself is in that evidence file and in `docs/environments.md`.
+migration was applied anywhere, so it says nothing about what production's privileges are now — **the
+entry for 8 Oct below is the reading that does.**
+
+---
+
+## 2026-10-08
+
+**Where this line comes from.** Written on 8 Oct 2026 by the assistant (Claude Code) from **the owner's
+own words, given in the session that built Build it 21 part 2b** (issue #211). As with every entry above
+it: the assistant has no production access of any kind, did not watch this call happen, and **did not use
+the production read-only connector to check it** — rules 1 and 10 forbid that, and rule 19's exception
+covers production function secrets and nothing else. Issue #211 also says in so many words, "Do not use
+any MCP connector or the browser tool." The entry below is the owner's words, repeated verbatim, and the
+assistant has verified **nothing** in it.
+
+**On the time.** No clock time was given beyond "after PR #210 merged". `gh pr view 210 --json mergedAt`
+reports that merge at **2026-10-08T07:27:56Z**, read in this session, so the read is after that and the
+ordering is at least consistent. No more precise time is invented here.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| After 07:27:56 UTC — no more precise time given | The coach (claude.ai), via the production read-only connector | One read of **settings and counts, no row contents** | Check what the merge of PR #210 actually left in production, rather than reading the migration and the green workflow run and assuming | > 8 Oct 2026, after PR #210 merged. Coach, read-only connector. One read of settings and counts: 9 migrations, newest 20261007204900; both ai_suggestions columns present, default off; my_ai_suggestions() present; anon and authenticated hold no table-level SELECT or UPDATE on profiles; service_role holds SELECT, not UPDATE; no profile rows counted. No row contents. |
+
+**What it settles, and it is the thing the workflow run could not say.** `.github/workflows/migrate-production.yml`
+run [37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469) reported "Apply
+migrations to production: success", which proves the statements ran. It does not prove what they left
+behind. This read is the other question, and the answers match the migration's sections 1, 3, 4 and 4b:
+
+- **the columns are there and the default is off** — section 1, which is what "off for everyone, including
+  every account that already exists" rests on;
+- **`my_ai_suggestions()` is there** — section 3, and it is what the two screens read the setting through;
+- **`anon` and `authenticated` hold no table-level SELECT or UPDATE** — section 4's `revoke`, which is the
+  line that closes the team-mate read. That it took effect in production is the one privilege fact this
+  whole feature's privacy rests on, and it is now read rather than reasoned;
+- **`service_role` holds SELECT and not UPDATE** — sections 4 and 4b. The SELECT is the grant
+  `suggest-subtasks`'s consent check uses; the absent UPDATE is what stops any server function switching
+  the setting for anybody, which is `docs/plan.md`'s "not the owner of the app on their behalf".
+
+**And "no profile rows counted" is worth a sentence, because it is easy to misread as a fault.** Production
+has no profile rows because **nobody has signed up** — rule 19 is still in force precisely because the
+first real user has not arrived. So the default being off has had nothing to apply to yet. It also means
+nothing in production can exercise the consent setting at all, which is a further reason "seen to refuse
+with it off" on production is still open.
+
+**What it says nothing about: the function.** This read is of the database. The Build it 21 version of
+`suggest-subtasks` arrives in production on the merge of **this** pull request, not PR #210's — and
+production has no `AI_API_KEY`, so every ask there answers the fixed failure with `not_configured`
+whatever the setting says.
 
 ---
 
