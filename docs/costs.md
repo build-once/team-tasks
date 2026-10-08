@@ -175,7 +175,10 @@ Unlike the Sentry row, the figures here were read from the vendor's own pages on
 - **The spending risk here is shaped differently again.** Sentry's risk is a looping bug; this one is a
   person pressing a button, or a loop in our own code pressing it for them. 2,500 calls is a lot for six
   volunteers and nothing at all for a retry loop, which is why **usage counts and daily limits are
-  Build it 22** (`docs/plan.md`) and why until then the 5-dollar limit is the only thing in the way.
+  Build it 22** (`docs/plan.md`). **Those now exist in this repository** (issue
+  [#221](https://github.com/build-once/team-tasks/issues/221)) and are **deployed nowhere**, so for
+  anything actually running the 5-dollar limit is still the only thing in the way. The section "Daily
+  limits per person" below says where each half stands.
 - **Whether a payment method is on the Anthropic account has not been checked**, and a spend limit
   implies one. Check it in the Console before trusting the banner at the top of this page for this
   service.
@@ -189,11 +192,27 @@ spending cap does not really apply. The plan's £30/month ceiling includes the d
 
 ## Daily limits per person, and the worst case they allow
 
-Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
-limited yet**: the `usage_counts` migration now exists in this repository
-(`supabase/migrations/20261008115900_usage_counts.sql`) and **has been applied nowhere**, there is no
-config file, and neither Edge Function counts — so every figure below is still arithmetic on a design,
-not a measurement of anything that has run.
+Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Rewritten the
+same day**, when the counting arrived (issue
+[#221](https://github.com/build-once/team-tasks/issues/221)), because the sentence this replaces said
+"there is no config file, and neither Edge Function counts" and that stopped being true.
+
+**Where it stands now, in one line each:**
+
+- **The migration is applied to staging**, by the owner on 8 October 2026 when PR #224 merged, and read
+  back by the coach through the staging read-only connector. **Production has it too**, through
+  `.github/workflows/migrate-production.yml` on that merge.
+- **`supabase/functions/_shared/limits.ts` exists** and holds both numbers, 20 and 20, read by both
+  Edge Functions. Neither spells a limit at a call site, and a Deno test holds them to it.
+- **Both functions count** — `suggest-subtasks` immediately before the request to Anthropic,
+  `invite-member` immediately before each send including a retry — and refuse with the plan's sentence
+  once the day's count is reached.
+- **And none of that is deployed to either project.** The assistant deploys nothing (rule 19); staging is
+  the owner's step and production follows a merge. **So nothing is limited in any running app today**, and
+  the figures below are still arithmetic on a design rather than a measurement of anything that has run.
+
+That last line is the one that matters for this page: until the deploy, the vendor ceilings below are
+still the only thing in the way, exactly as they were yesterday.
 
 > **The owner read this section on 2026-10-08 and kept both limits at 20, and kept this arithmetic as
 > written.** That is worth recording here rather than only in the plan, because the arithmetic says the
@@ -339,14 +358,28 @@ question does not get re-asked from scratch.
   prices and the spend-limit behaviour are read from Anthropic's pages, which is how Anthropic describes
   the service, not what this account is set to.
 - **UNSURE — the registrar row in full; no registrar chosen.**
-- **Unverified — the "Daily limits per person" section is arithmetic on a design, even though the design
-  is now decided.** Added 2026-10-08; the owner settled the limits, the retention and the counting rule
-  the same day. **The code arrived in halves**: the `usage_counts` migration exists and is **applied
-  nowhere** (`supabase/migrations/20261008115900_usage_counts.sql`, proved only on a throwaway local
-  PostgreSQL sandbox — `evidence/build-it-22-usage-counts.md`), and there is still no config file, no
-  check in either function, and **nothing has ever been counted outside that sandbox**. Everything in
-  that section except the two limits and the cited prices is multiplication done by hand in the session
-  that wrote it.
+- **Unverified — the "Daily limits per person" section is arithmetic on a design, and nothing in it has
+  been measured.** Added 2026-10-08; the owner settled the limits, the retention and the counting rule
+  the same day. **Rewritten later the same day** (issue
+  [#221](https://github.com/build-once/team-tasks/issues/221)), because the sentence this replaces said
+  "there is still no config file, no check in either function, and nothing has ever been counted outside
+  that sandbox", and the first two clauses stopped being true. What is true now:
+
+  - **The code is complete in this repository**: `supabase/functions/_shared/limits.ts` holds both
+    numbers, both Edge Functions count immediately before the thing that spends money, and 37 Deno tests
+    over the bodies they actually build say what each refusal is. Those tests were **seen to fail first**
+    — `evidence/build-it-22-daily-limits-counting.md` has the red runs.
+  - **The migration is applied to staging and to production.** The owner applied it to staging on 8
+    October 2026 and the production workflow applied it on the same merge; the coach read both back.
+  - **NOTHING IS DEPLOYED.** Neither Edge Function with the counting in it is on staging or on
+    production: the assistant deploys nothing (rule 19). **So no number has ever been counted in a
+    running app, and nothing is limited in one.**
+  - **And no figure in that section is a measurement even after it is deployed.** The per-call cost rests
+    on an assumed input token count (the entry below), and the worst case rests on the limit rather than
+    on observed use. What a deploy would settle is whether the refusal happens, not what it costs.
+
+  This entry stays until a staging run shows the limit refusing and the count read back off the table —
+  which is issue #221's fifth condition, is the owner's step, and has not happened.
 - **Still not confirmed — the input token count the Anthropic worst case rests on.** 1,000 is the same
   assumption carried since 2026-10-07, and the fixed instructions that would let somebody count it now
   exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an

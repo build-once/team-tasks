@@ -1296,8 +1296,54 @@ migrations in this repository is the way to check any line of this file.
 
 ## Appendix B. Record of the staging apply
 
-**Empty. Nothing has been applied to staging.** When the owner applies this migration, this appendix is
-where the record goes: who ran it, when, and what was read back afterwards — the four columns, the
-constraints, RLS on with no policies, and `has_table_privilege` / `has_function_privilege` for `anon`,
-`authenticated` and `service_role`. The privilege half is the part a green apply cannot show, and it is
-the half this whole feature's privacy rests on.
+**Filled in on 2026-10-08**, which is what this appendix was left empty for. The sentence it replaces
+said "Empty. Nothing has been applied to staging." and stopped being true the same day.
+
+**It is copied, not written.** What follows is the coach's comment on
+[PR #224](https://github.com/build-once/team-tasks/pull/224), posted 2026-10-08 at 12:53:57Z, reproduced
+in full. Its own first line asks for this: *"To be copied into the evidence file by the next pull
+request."* This is that pull request
+([#221](https://github.com/build-once/team-tasks/issues/221)'s), and the copy was made with
+`gh pr view 224 --json comments`.
+
+**NONE OF IT WAS DONE OR SEEN BY THE ASSISTANT.** The `db push` is the owner's, from their own terminal
+(rule 19: `db push` is refused by the guard for the assistant, everywhere but `--local`). The read-back is
+the coach's, through the staging read-only connector. Nobody writing this file opened a dashboard or a
+terminal on staging, and the only thing the assistant did was read the comment off the pull request and
+paste it here.
+
+**Nothing in it is redacted, and that is a statement rather than an omission (rule 18).** It names a
+project by role ("staging"), a CLI version, a migration file name, three Postgres role names and a count
+of policies. No project reference, no key, no token, no address, no user id and no person's name appear in
+it. There was nothing to replace, so the list of replacements is empty.
+
+> **Record of the staging apply (coach, comment only), 8 Oct 2026.** To be copied into the evidence file
+> by the next pull request. This also answers #222 for staging.
+>
+> - Owner agreed to the 7-day boundary as built (a row exactly seven days old is removed) by applying the
+>   migration, 8 Oct.
+> - Owner: `supabase db push` on staging from this branch, CLI 2.75.0. It listed one migration,
+>   `20261008115900_usage_counts.sql`, and printed "Finished supabase db push."
+> - Coach, staging read-only connector, afterwards: 10 migrations recorded, newest `20261008115900`;
+>   `usage_counts` has row-level security on and 0 policies; `count_daily_use(uuid, text, integer)` is
+>   security definer with an empty search path; 16 policies in `public`, unchanged.
+> - Rights, by `has_table_privilege` and `has_function_privilege`:
+>   - `anon`: no SELECT, INSERT, UPDATE or DELETE on the table; cannot run the function.
+>   - `authenticated`: the same.
+>   - `service_role`: no SELECT, INSERT, UPDATE or DELETE on the table; can run the function.
+> - Not done on staging: any call to the function. Nothing uses it until part 2.
+>
+> Production: not applied; it follows through the pipeline after merge.
+
+**What that record settles, and what it does not.** It settles the thing a green `db push` cannot: the
+**privileges**, which are the half this feature's privacy rests on — `service_role` holding EXECUTE on
+the function and **no** privilege on the table, so a server function can ask for one use and can neither
+read which days somebody used this app nor reset a count. It does not settle any behaviour of the
+counting on staging, because its own last bullet says so: **no call to the function has been made there.**
+
+**And production.** The record's closing line was true when it was written and stopped being true minutes
+later: PR #224 merged at 12:54:48Z and `.github/workflows/migrate-production.yml` applies migrations on a
+merge to `main`. So production has the table too, by the pipeline rather than by anybody's hand. **What
+nobody has read back off production is the privileges**, which on staging needed a connector read to
+establish — so for production that half is **unverified**, and the way to settle it is the production
+read-only connector, which is the coach's or the owner's and not the assistant's.

@@ -184,8 +184,11 @@ are not available, which is a real answer rather than a broken screen. **Staging
 Nobody's task title leaves production before there is a setting that lets them say no.
 
 **Usage counts and daily limits arrive in Build it 22.** They are not designed here and no number for
-them is written here. Until they exist, the only thing between a loop and a bill is the 5-dollar spend
-limit at Anthropic — see `docs/costs.md`.
+them is written here. **They have now arrived** — "Daily limits on what costs money" below is where they
+are designed, and the code for them was written on 2026-10-08 — but they are **deployed nowhere**, so for
+anything actually running the only thing between a loop and a bill is still the 5-dollar spend limit at
+Anthropic. See `docs/costs.md`, and the "Unverified" entry for that section, which says which half stands
+where.
 
 **A suspended person gets no suggestions.** The helper is a server function holding a secret key, so
 it belongs with the other three: it reads `account_status` by user id and refuses a suspended caller,
@@ -535,7 +538,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **the migration exists and has been applied nowhere**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
+| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
 ## Collecting less — decided
 
@@ -792,27 +795,43 @@ shape of.
   nothing; what settles a **deployed** refusal is a run of
   `scripts/staging/build-it-20-ai-checks.mjs`, and the production equivalent of that run does not exist,
   because rule 19 does not permit one.
-- **Unverified — "Daily limits on what costs money" is half built, and the half that is built is applied
-  nowhere.** The nine decisions in that section's table are the owner's, taken on 2026-10-08. Rewritten
-  the same day, when the migration was written, because the sentence this replaces — "there is no
-  `usage_counts` table, no migration, no config file, no check in either function" — stopped being true
-  of its first two clauses. Taken one at a time:
+- **Unverified — "Daily limits on what costs money" is now written in full and DEPLOYED NOWHERE.** The
+  nine decisions in that section's table are the owner's, taken on 2026-10-08. **Rewritten twice that
+  day**: once when the migration was written, and again when the counting arrived
+  ([#221](https://github.com/build-once/team-tasks/issues/221)). The sentence this replaces said "there
+  is no `supabase/functions/_shared/limits.ts`, `suggest-subtasks` and `invite-member` are untouched, and
+  no number has ever been counted anywhere but in that sandbox", and the first two clauses stopped being
+  true. Issue #221's sixth condition says this entry "can be removed"; **it cannot yet, and the reason is
+  the last bullet.** Taken one at a time:
 
-  - **The migration exists**: `supabase/migrations/20261008115900_usage_counts.sql`, the table and
-    `count_daily_use()`. **It has been applied nowhere** — not local, not staging, not production. Every
-    column, constraint and privilege in it was read back from a **throwaway PostgreSQL sandbox on the
-    owner's machine**, twice over, with the counting raced 20 ways at a limit of 2 and the read-then-write
-    version shown failing: `evidence/build-it-22-usage-counts.md`. A sandbox is not staging and is not
-    production, and nothing in that evidence file is otherwise.
-  - **Nothing counts yet.** There is no `supabase/functions/_shared/limits.ts`, `suggest-subtasks` and
-    `invite-member` are untouched, and **no number has ever been counted anywhere but in that sandbox**.
-    So nothing is limited today, and `docs/costs.md` is right that the vendor ceilings are the only thing
-    in the way.
-  - **The refusal sentence does not exist in any code.** "You've reached today's limit. It resets
-    tomorrow." is in this plan and nowhere else.
+  - **The migration is applied to staging and to production.** The owner ran `supabase db push` against
+    staging from PR #224's branch on **8 October 2026** (CLI 2.75.0, one migration listed) and the coach
+    read the result back through the staging read-only connector: 10 migrations recorded, newest
+    `20261008115900`; `usage_counts` with row-level security on and 0 policies; `count_daily_use` present,
+    `security definer`, empty search path; and the privileges read off `has_table_privilege` and
+    `has_function_privilege` — `anon`, `authenticated` and `service_role` all holding **no** SELECT,
+    INSERT, UPDATE or DELETE on the table, and `service_role` alone able to run the function. **Production
+    followed on the merge**, through `.github/workflows/migrate-production.yml`. **None of that was done or
+    seen by the assistant**: it is the owner's apply and the coach's reads, copied into
+    `evidence/build-it-22-usage-counts.md`. **No call to the function has been made on staging.**
+  - **Both functions now count, in this repository.** `supabase/functions/_shared/limits.ts` holds 20 and
+    20 and is read by both; `suggest-subtasks` counts immediately before the request to Anthropic and
+    `invite-member` immediately before each send, a retry included; an error from `count_daily_use`
+    refuses with its own code and sends nothing. 37 Deno tests over the bodies those functions actually
+    build say so, and they were **seen to fail first** —
+    `evidence/build-it-22-daily-limits-counting.md` has the red runs, the green run and the exit codes.
+  - **The refusal sentence exists in three places and they agree character for character**: the function's
+    `DAILY_LIMIT_MESSAGE`, `web/src/lib/suggestions.ts` for My tasks, and `web/src/lib/teams.ts` for My
+    teams. `scripts/screen-state-check.mjs` section 9 compares all three.
+  - **AND NOTHING IS DEPLOYED, which is why this entry stays.** Neither Edge Function with the counting in
+    it is on staging or on production — the assistant deploys nothing (rule 19), staging is the owner's
+    step, production follows a merge. So **no number has ever been counted in a running app**, nobody has
+    ever seen the refusal on a screen, and `docs/costs.md` is still right that the vendor ceilings are the
+    only thing in the way of anything actually running.
 
-  **Decided is not the same as true, and written is not the same as applied.** This entry stays until the
-  two functions count and a run shows the limit refusing.
+  **Decided is not the same as true, written is not the same as applied, and applied is not the same as
+  deployed.** This entry stays until a staging run shows the limit refusing and the count read back off
+  the table — issue #221's fifth condition, which is the owner's step and has not happened.
 - **Decided, so no longer open — the four questions this list carried on the morning of 2026-10-08.** How
   long a count is kept (7 days, removed by the counting statement), whether the limits stay at 20 (they
   do), whether a retry counts (it does), and when the count is written (before the paid call, never given
