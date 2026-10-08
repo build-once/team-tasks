@@ -367,12 +367,15 @@ can't exceed 50 MB" globally, and a bucket's own limit "can't be higher than thi
 
 ### The arithmetic, shown
 
-Three inputs, and two of them are **proposals the owner has not decided yet** — so this is arithmetic on
-a proposal, which is weaker than the Build it 22 arithmetic above and is marked rather than dressed up.
+Three inputs, and **all three are now decided** — which is a change from what this section said when it
+was written earlier on 2026-10-08, where two of them were proposals in front of the owner.
 
-- **5 MB per file**, which is decided in the plan.
-- **3 files per task** and **100 MB per person in total** — **PROPOSED, not decided.** `docs/plan.md`
-  puts both in front of the owner.
+- **5 MB per file.**
+- **3 files per task** and **100 MB per person in total**, both **confirmed by the owner on 2026-10-08**,
+  after this arithmetic and with it kept as written. The 100 MB is **enforced on the server at upload**,
+  which is what makes it a ceiling rather than a hope — a total has to be summed across rows the person
+  cannot be trusted to count, so it lives in server code the way every other counted limit in this app
+  does.
 - **Six people**, the plan's group size, and **31 days**, the longest month.
 - **A GB read as 1,000 MB**, because neither Supabase page says which it means. That is the conservative
   reading: 1,024 would give more room, not less.
@@ -427,10 +430,35 @@ unknown to fail in.
 **No change to the £30 ceiling, and no new per-person daily limit.** Attachments spend a **stock**, not a
 flow: a file sits there costing storage whether anybody presses anything, which is why the plan bounds
 them with a total rather than with a count per day, and why they are **not** in the `usage_counts` table
-or in either number in `supabase/functions/_shared/limits.ts`. Egress is the one half of this that *is* a
-flow — and the honest position is that **nothing limits it**: there is no per-person cap on opening files
-proposed anywhere, and the 5 GB is the only ceiling. If the 5.4-a-day figure above ever starts to matter,
-that is the gap to design against.
+or in either number in `supabase/functions/_shared/limits.ts`.
+
+> **The owner read this section on 2026-10-08 and recorded the egress finding as written, with no egress
+> limit built now.** That is a decision rather than a silence, and it is recorded here for the same reason
+> the Build it 22 limits were: **the arithmetic above says the limits do not keep this inside the free
+> egress allowance at six people**, and the decision was taken with that in front of them. Nothing on this
+> page is softened to make the numbers look better.
+
+**So the honest position, stated plainly: nothing limits egress.** There is no per-person cap on opening
+files anywhere in this design, and the free plan's **5 GB a month is the only ceiling**. What makes that
+acceptable rather than reckless is the shape of the failure, and it is worth being precise about it:
+**the Free plan cannot bill**, so going past the allowance is a notification and a grace period under the
+Fair Use Policy — which this page has **not read** — and not a charge. The thing at risk is the project's
+standing, not money.
+
+**What would change that**, and the three things to watch for, so this is a decision with a trigger rather
+than one nobody revisits:
+
+- **Moving production to Pro**, which the Budget section already plans. Egress past 250 GB then costs
+  **$0.09 a GB**, and the failure mode stops being a notification.
+- **The group growing.** The 5.4-opens-a-day figure divides by six. At ten people it is 3.2, and ten is
+  also the headcount at which the 100 MB each fills the whole 1 GB — so both halves of this section run
+  out at the same size of group, which is the one coincidence here worth remembering.
+- **Anything that opens files on a person's behalf.** A screen that fetched every attachment to draw a
+  thumbnail would spend the allowance without anybody pressing anything, and that is the shape of problem
+  `docs/plan.md` calls a loop rather than growth.
+
+If any of those arrives, this paragraph is the one to come back to, and the gap to design against is a
+per-person cap on opening files — which does not exist today and is not being built.
 
 ## Unverified
 
@@ -495,13 +523,21 @@ question does not get re-asked from scratch.
   sends.** They are the one email path no daily limit here covers, by the owner's decision of
   2026-10-08, and no figure for them is written on this page. **Reading them is Build it 25**:
   [#219](https://github.com/build-once/team-tasks/issues/219).
-- **Unverified — the whole attachments section is arithmetic on a proposal, and nothing in it exists.**
-  Added 2026-10-08 for Build it 23 part 0. There is **no bucket, no storage rule, no code and no uploaded
-  file**, so nothing has been stored or served and no allowance has been touched. Two of the three inputs
-  — 3 files per task and 100 MB per person — are **proposals the owner has not decided**, so both tables
-  move if either number moves. The quotas and prices themselves are cited from Supabase's own pages, read
+- **Unverified — nothing in the attachments section exists, and none of it has been measured.** Added
+  2026-10-08 for Build it 23 part 0. There is **no bucket, no storage rule, no code and no uploaded
+  file**, so nothing has been stored or served and no allowance has been touched. **Rewritten later the
+  same day**, when the owner settled the numbers: the sentence this replaces said two of the three inputs
+  were "proposals the owner has not decided", and 3 files per task and 100 MB per person are now decided,
+  with the 100 MB enforced on the server at upload. So this is arithmetic on a **design** rather than on a
+  proposal — which is the same standing as the Build it 22 section above, and still not a measurement of
+  anything that has run. The quotas and prices themselves are cited from Supabase's own pages, read
   on that date with no connector and no browser, which is how Supabase describes the plan rather than what
   this account is set to.
+- **Decided and accepted — a 20-a-day-style limit is not what bounds attachments, and nothing bounds
+  egress at all.** The owner recorded the egress arithmetic as written on 2026-10-08 and built no limit
+  against it. This is now a known fact rather than a gap: the free plan's 5 GB a month is the only
+  ceiling, the Free plan cannot bill, and the three things that would change that are listed in the
+  section above.
 - **Not read — the Supabase Fair Use Policy**, which is what both usage pages point at for what a Free
   project's "grace period" actually ends in. The section above quotes the notification and the grace
   period and stops there, because that is as far as the pages read go. This is the one gap on this page

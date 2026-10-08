@@ -125,27 +125,37 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
    +-----------------------------------------------------------------------+
    |  FILES  -  SUPABASE STORAGE.  Build it 23, NOTHING EXISTS YET.        |
-   |  A PRIVATE bucket named "attachments". Images and PDFs, 5 MB each.    |
-   |  Path: attachments/<task id>/<file name>.                             |
+   |  A PRIVATE bucket named "attachments". Images and PDFs, 5 MB each,    |
+   |  3 per task, 100 MB per person. Path: attachments/<task id>/<file>.   |
    |  INSIDE this project - not an outside service, and no new vendor.     |
    |                                                                       |
-   |  (13) the BROWSER asks for a SIGNED LINK and then fetches the file    |
+   |  (13) READING: the BROWSER asks for a SIGNED LINK, then fetches       |
    |       publishable key -- PUBLIC -- plus the person's session          |
    |       RULES ON storage.objects decide, the same way RLS decides       |
    |       about tasks: may you see the task this file belongs to?         |
    |       A suspended person is refused, as everywhere else.              |
+   |       NO SECRET KEY on this arrow.                                    |
    |  The link EXPIRES AFTER 5 MINUTES, and while it lives ANYONE          |
    |  HOLDING IT can open the file - signed in or not.                     |
-   |  NO SECRET KEY on this arrow. Never sent to Sentry or to Anthropic,   |
-   |  and a FILE NAME never appears in an error report.                    |
+   |                                                                       |
+   |  (14) UPLOADING: through SERVER CODE, because the 100 MB per person   |
+   |       is a SUM the browser cannot be trusted to make. Same reason     |
+   |       as "at most 3 teams per person". Owner's decision, 8 Oct 2026.  |
+   |       SERVICE-ROLE KEY -- *** SECRET ***, one that already exists.    |
+   |                                                                       |
+   |  DELETING A TASK DELETES ITS FILES FIRST, and the DATABASE REFUSES    |
+   |  to delete a task that still has files. Nothing is left behind.       |
+   |  Never sent to Sentry or to Anthropic, and a FILE NAME never          |
+   |  appears in an error report.                                          |
    +-----------------------------------------------------------------------+
 ```
 
 ## The arrows that carry a secret key
 
-Five, and all five start at the server functions. (This sentence already said five on 2026-10-06 while
-the table listed four rows. The AI call added on 2026-10-07 is the fifth row, so the word and the
-number of rows now agree — counted here, not remembered.)
+**Six**, and all six start at the server functions. (This sentence said five on 2026-10-06 while the table
+listed four rows; the AI call added on 2026-10-07 was the fifth and made the word and the rows agree.
+**The upload path added on 2026-10-08 is the sixth** — the word and the rows are counted here again, not
+remembered.)
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
@@ -153,6 +163,7 @@ number of rows now agree — counted here, not remembered.)
 | **(5)** write the invitation row | Supabase **service-role key** | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets | Bob has no account yet, so no RLS rule can let "Bob" write his own invitation. Only trusted server code may create that row — and the 20-pending limit below needs to count the team's other invitations, which a policy cannot do. |
 | **(7)** send the invitation email | **Resend API key** (`EMAIL_API_KEY`) | Supabase Edge Function (`invite-member`) | Supabase Edge Functions secrets, **per project** | Anyone holding this key could send email as your app. It must never reach a browser. |
 | **accept an invitation** — not drawn on the map yet | Supabase **service-role key** | Supabase Edge Function (`accept-invite`) | Supabase Edge Functions secrets | Marking an invitation accepted and writing the `team_members` row both have to happen for somebody who is not yet in the team, so no policy on either table can allow it. The claim also has to be atomic, or two clicks both succeed. |
+| **(14)** accept a file onto a task — **nothing is built yet** | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | The owner decided on 2026-10-08 that **100 MB per person is enforced on the server at upload**, and a total is a sum across rows the caller may not be able to see — the same reason "at most 3 teams per person" needs a function and cannot be a policy. The three-per-task count is the same shape. A row-level rule on `storage.objects` can say "this file belongs to a task you may see"; it cannot say "and you are under your 100 MB". **This arrow adds a key to an existing store rather than a new store**, and it is the only arrow on this map whose *reason* is arithmetic rather than authority. **How the bytes travel is not decided** — through the function, or a signed upload URL the function hands back — and the section below sets out both |
 | **(12)** ask for subtask suggestions — **nothing is installed yet** | **Anthropic Claude API key** (`AI_API_KEY`) | Supabase Edge Function | Supabase Edge Functions secrets, **per project** | Anyone holding this key can spend the owner's money at Anthropic, so it must never reach a browser — which is the whole reason this is a server function and not a `fetch` from a screen. The function is also where the three limits live that a browser could not be trusted with: only the one task's title goes out, nothing identifying the asker goes with it, and a suspended caller is refused. **Staging holds a key from Build it 20; production holds none until the consent setting lands in Build it 21**, so on production the function answers that suggestions are not available. See `docs/plan.md` → "Suggest subtasks — an outside AI service". |
 
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
@@ -413,8 +424,8 @@ interesting part:
 | Operation | The policy, in words | Why it is shaped that way |
 |---|---|---|
 | **`SELECT`** — see that a file is there, and get a signed link for it | the caller may see the task whose ID is the first segment of the path, **and** `is_active()` | A subquery on `public.tasks` inside the policy runs **as the caller**, so `tasks`' own policies apply to it. The storage rule therefore does not restate feature 5 — it **asks** it, and cannot drift from it |
-| **`INSERT`** — attach a file | the same question, plus `is_active()` | "the only RLS policy required for uploading objects is to grant the `INSERT` permission", from the page above |
-| **`DELETE`** — remove a file | the same question, plus `is_active()`, **plus whichever answer the owner gives** — only the uploader (`owner_id = auth.uid()`), which is proposed, or anyone who can see the task | `docs/plan.md` puts the two options in front of the owner. Only the first needs `owner_id` in the policy |
+| **`INSERT`** — attach a file | the same question, plus `is_active()` — **and it is no longer the only thing in the way** | "the only RLS policy required for uploading objects is to grant the `INSERT` permission", from the page above. But the owner's decision of 2026-10-08 puts **the 100 MB per person on the server at upload**, and a policy cannot sum a person's other files. So this policy is now the **floor** rather than the control: it still refuses an upload onto somebody else's task, and something of ours stands in front of it to count — see below |
+| **`DELETE`** — remove a file | the same question, plus `is_active()`, **plus `owner_id = auth.uid()`** | **Only the uploader may delete a file**, decided by the owner on 2026-10-08. This is the one of the four policies that asks something about the file itself rather than only about its task, and it is why `owner_id` has to mean what `docs/plan.md` marks as not confirmed about it |
 | **`UPDATE`** | **none, on purpose** | Nothing in this design overwrites a file. Upsert is what would need `SELECT` and `UPDATE` together, and not offering it means a file's bytes never change under a link somebody already holds |
 
 **That `exists (select 1 from public.tasks where id = …)` shape is the thing to get right**, and it is the
@@ -449,27 +460,98 @@ open the file, signed in or not, and suspending the account, removing the person
 the task out of it does not call the link back. The five minutes is the only control, which is why it is
 short and why raising it is not a free convenience.
 
-**No server function is involved in reading a file, and that is deliberate.** Every other thing this app
-does that needed a rule a browser could not be trusted with ended up inside a function holding the
-service-role key, because it needed to **count** something. Reading a file needs no count: the question is
-a single fact about one row — may you see its task — which is precisely the line this file draws
-elsewhere between what a policy does well and what needs a function. So the bucket adds **no key, no new
-secret store, and no fourth place a secret lives**.
+**No server function is involved in reading a file, and that is deliberate.** Reading needs no **count**:
+the question is a single fact about one row — may you see its task — which is precisely the line this file
+draws elsewhere between what a policy does well and what needs a function. So **reading** adds no key and
+no new secret store.
+
+### Uploading goes through server code, and that is now decided
+
+**The owner decided on 2026-10-08 that the 100 MB per person is enforced on the server, at upload.** That
+is one sentence and it settles the thing this section could not settle when it was written that morning:
+**a direct browser upload with nothing but a storage policy in front of it is ruled out.**
+
+The reason is the one this file gives about every counted limit in this app. A per-person total is a **sum
+across rows the caller may not be able to see**, and so is the three-per-task — the same shape as "at most
+3 teams per person" and "at most 20 pending invitations per team", neither of which a row-level policy can
+express, because the rule would have to count the caller's other rows. A limit checked only in a form is
+not a limit, because a form can be bypassed.
+
+**So uploading is now the mirror image of reading, which is worth stating because the two look alike and
+are not:**
+
+| | Reading a file | Uploading a file |
+|---|---|---|
+| What has to be decided | a single fact about one row | a fact about one row **and a sum over others** |
+| Where it is decided | the `SELECT` policy, in the database | **server code**, before the file is accepted |
+| Does it need a key | **no** | yes — the counting runs where the secret key already lives |
+
+**What is still a choice is how the bytes travel, and there are two shapes.** This section names both and
+picks neither, because that is a design question for Build it 23 rather than a decision the owner has
+taken:
+
+- **Through a function.** The browser posts the file to a server function, which counts, then writes it to
+  Storage with the service-role key — which "entirely bypass[es] RLS policies", so in this shape the
+  `INSERT` policy is not what admits the file and the function is solely responsible. **What an Edge
+  Function will accept as a body is not established here**, and no figure for it is written.
+- **A signed upload URL.** The browser asks a server function, which counts and then hands back a URL the
+  browser uploads to directly: "Signed upload URLs can be used to upload files to the bucket without
+  further authentication"
+  ([`createSignedUploadUrl`](https://supabase.com/docs/reference/javascript/storage-from-createsigneduploadurl),
+  read 2026-10-08). The 5 MB never passes through our code. **And one thing to weigh before choosing it,
+  from that same page: those URLs "remain valid for 2 hours"** — which is twenty-four times the life of
+  the read link this app issues, and a credential of exactly the kind "Links, and what an unexpired one
+  allows" in `docs/plan.md` is careful about. Whether that duration can be shortened was not established.
+
+**Either way the count happens in server code and the key stays out of the browser**, which is the part
+that was decided. And either way this adds **no new secret store**: the counting runs where the
+service-role key already lives.
+
+### Deleting a task deletes its files, and the database is what enforces it
+
+**The owner decided on 2026-10-08 that leftover files are not acceptable.** Two mechanisms, and the second
+is the one that makes it a property of the system rather than of one code path:
+
+1. **The app deletes the files first, then the task, and refuses the whole thing if the files cannot be
+   removed.** The order is the right way round: files-then-task can fail halfway and leave a task with
+   fewer files, which is visible and recoverable; task-then-files fails halfway and leaves exactly the
+   orphan this exists to prevent.
+2. **And the database refuses to delete a `tasks` row while files remain under `attachments/<task id>/`.**
+   Whatever asked — a screen, a server function, the SQL editor, a cascade from somewhere else.
+
+**Why the second is not belt-and-braces but the actual rule**, and it is the same argument this file makes
+about feature 5: *a rule that lives only in the app holds until something else deletes the row.* There is
+no foreign key available to do this job — nothing in Supabase connects `storage.objects` to `tasks`, which
+is the whole problem — so the link has to be made rather than inherited, and it has to be made where
+every path goes through it.
+
+**The consequence worth drawing out: it makes a Build it 26 requirement self-enforcing.** Deleting an
+account cascades to that person's `tasks`, so a refusal on `tasks` would refuse the account deletion too
+while any of those tasks still has a file. The intention "remove their files as well" stops being
+something anybody has to remember. **Not confirmed** — whether such a refusal fires on a cascade the way
+it fires on a direct delete has been neither read nor tried, and nothing of this is built. If it does not,
+the requirement stands and is simply no longer enforced here.
+
+**And one case this creates that nothing here resolves.** Only the uploader may delete a file; the
+database refuses to delete a task that still has files. So on a **team** task, its creator cannot delete
+it while another member's file is on it. `docs/plan.md` sets out the two plausible answers and chooses
+neither; [#234](https://github.com/build-once/team-tasks/issues/234) holds it. It is named here because
+whichever answer is taken changes the `DELETE` policy in the table above, or the authority of whatever
+performs the delete.
 
 ### What this section does NOT decide
 
-Three things, named so they are open questions rather than gaps somebody discovers while building:
+Four things, named so they are open questions rather than gaps somebody discovers while building:
 
-- **How the bytes get in.** Reading is settled above; uploading is not. A direct upload from the browser
-  is the same shape as the read and needs no key — but **the per-task and per-person totals in
-  `docs/plan.md` are counts**, and a count across rows the caller may not see is exactly what a policy
-  cannot do and what every other limit in this app uses a function for. So either the totals are enforced
-  somewhere a policy cannot reach, or the upload goes through a function and a 5 MB body goes with it.
-  **Which, and what an Edge Function will accept as a body, is not established here** and no figure for it
-  is written.
-- **What removes a file when its task goes.** Nothing links `storage.objects` to `tasks`, so nothing does
-  today. `docs/plan.md` writes up all three cases — task deleted, task moved, account deleted — and
-  deliberately does not design the fix.
+- **Which of the two upload shapes above is used**, and what an Edge Function will accept as a body. The
+  **where** is decided — server code, before the file is accepted — and the **how** is not.
+- **What removes a person's files when their account is deleted.** The task half is settled above, and
+  this half is **a requirement of Build it 26** rather than of this one — the owner's decision of
+  2026-10-08, held by [#235](https://github.com/build-once/team-tasks/issues/235). Whose job it is to walk
+  a person's tasks and clear their files is that build's question, and guessing at it here would put an
+  unreviewed design in this file.
+- **Who clears a file somebody else attached, when the task has to go** — the case two paragraphs above,
+  [#234](https://github.com/build-once/team-tasks/issues/234).
 - **Whether `storage.objects` records a last-opened time.** Two Supabase pages disagree, and if it does,
   this project will be holding when each person last opened each file. `docs/plan.md`'s "Unverified" list
   carries it, because it is a question about personal data before it is a question about architecture.
@@ -603,6 +685,12 @@ members of that team stop seeing each other's tasks, and which team a task used 
   bucket — buckets have their own rules, and a bucket with none refuses everything. And the check happens
   when the **signed link is made**, not when it is used, so a link already handed out keeps working for
   its five minutes whatever changes behind it.
+- **"May this person attach another file?"** — in a **server function**, and this is the pair to the
+  bullet above rather than a repeat of it. Opening a file is a fact about one row, so the database
+  answers it. Attaching one is a question about **how much this person already has** — 3 on this task,
+  100 MB in total — which no row-level rule can answer, because the rule would have to count rows the
+  caller may not be able to see. The owner decided on 2026-10-08 that it is enforced on the server, which
+  is the same answer "at most 3 teams per person" got and for the same reason.
 
 ## The parts
 
@@ -618,7 +706,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
 | Monitoring | Will tell you the app is broken before a volunteer does, by sending an error report when a screen or a server route throws | **Sentry**, free plan, data region United States — chosen 5 Oct 2026, **not installed yet** | **Public** — the DSN is meant to be in the browser. No secret, because the setup wizard and its source-map auth token are not used |
-| Files on a task | Holds the images and PDFs people attach to a task, in a private bucket named `attachments`, and hands them back through links that expire after 5 minutes | **Supabase Storage**, in the projects this app already has — chosen 8 Oct 2026, **nothing built yet** | **Public** key only. The browser asks for a signed link with the publishable key and its session; rules on `storage.objects` decide. **No secret key on this path at all** |
+| Files on a task | Holds the images and PDFs people attach to a task, in a private bucket named `attachments`, and hands them back through links that expire after 5 minutes | **Supabase Storage**, in the projects this app already has — chosen 8 Oct 2026, **nothing built yet** | **Both, and the split is the point.** *Reading*: **public** key only — the browser asks for a signed link with the publishable key and its session, and rules on `storage.objects` decide. *Uploading*: **secret** — the service-role key, in a server function, because the 100 MB per person is a sum a browser cannot be trusted to make |
 | AI helper | "Suggest subtasks" on one task: sends that task's title and fixed instructions, offers back up to five short suggestions | **Anthropic Claude API**, Claude Haiku 4.5, in a Console workspace named Team Tasks with a 5 USD monthly spend limit — chosen 7 Oct 2026, **not installed yet** | **Secret** API key (`AI_API_KEY`), held per project in Supabase Edge Functions secrets. There is no public key here, so the browser never calls Anthropic at all |
 
 ## What I left out, and why
