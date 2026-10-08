@@ -27,8 +27,10 @@
 //   callAnthropic          takes the FETCH as a function, and the timeout as a number
 //   readTaskTitle          takes the database read as a function
 //   checkSuspension        takes the database read as a function
+//   checkAiConsent         takes the database read as a function
+//   withConsent            takes that read AND the rest of the handler, as functions
 //   beginCall / endCall    operate on a Set in the module's own memory
-//   the five answer builders  take what was decided and return the Response
+//   the answer builders    take what was decided and return the Response
 //
 // So nothing here sends a request, spends a penny, reads a file other than the
 // approved-models.json the function itself imports, or touches a Supabase project.
@@ -64,6 +66,14 @@
 // title and the fixed instructions and NONE of a user id, an email address, a
 // display name or a team name.
 //
+// SECTION 8b ARRIVED WITH BUILD IT 21 (issue #211) and is the consent setting: what
+// the check decides for on, off, no profile row and every way a read can fail; what
+// the OFF refusal says; and -- the one the feature rests on -- that with the setting
+// off the task is NEVER READ and the stubbed AI service receives NOTHING. That last
+// one is asked of withConsent, the gate the handler itself calls, with the rest of the
+// handler handed to it as `proceed`, so what is established is a fact about this
+// function and not about an order copied into this file.
+//
 // AND IT CHECKS THAT IT CAN FAIL. Section 10 writes out the mistakes this file
 // exists to catch -- a reply reader that passes a claim straight through, a request
 // builder that helpfully attaches who asked, a status judge that calls a spend limit
@@ -72,12 +82,16 @@
 // copies that could drift.
 
 import {
+  AI_SUGGESTIONS_OFF_CODE,
+  AI_SUGGESTIONS_OFF_MESSAGE,
   beginCall,
   buildAnthropicRequest,
   callAnthropic,
+  checkAiConsent,
   checkSuspension,
   chooseModel,
   CLAIM_MARKERS,
+  consentOffRefusal,
   endCall,
   errorFields,
   IN_FLIGHT,
@@ -95,6 +109,7 @@ import {
   UNAVAILABLE_MESSAGE,
   unavailableAnswer,
   usableSuggestion,
+  withConsent,
 } from "../suggest-subtasks/index.ts";
 
 // create-team's copies, so "the four doors agree" is asserted here rather than
@@ -1478,6 +1493,384 @@ Deno.test("the suspended refusal is the same 403 the other doors send", async ()
 });
 
 // ---------------------------------------------------------------------------
+// 8b. THE CONSENT SETTING -- the thing that decides whether a title leaves at all
+// ---------------------------------------------------------------------------
+//
+// Build it 21, issue #211. docs/plan.md, "AI suggestions -- the consent setting":
+// "suggest-subtasks sends nothing to the AI service unless the setting is on, and that
+// is checked in the function."
+//
+// FOUR QUESTIONS, and they are not the same question:
+//
+//   1. what checkAiConsent decides, for every shape of answer the read can give --
+//      on, off, no profile row, and the four ways a read can fail to answer;
+//   2. what the OFF refusal actually says, and what it must not say;
+//   3. THAT NOTHING RUNS BEHIND IT. With the setting off, the task is never read and
+//      the stubbed AI service receives no request. This is the one the feature rests
+//      on, and it is asked of withConsent -- the function the handler itself calls --
+//      rather than of a copy of the handler's order written out here;
+//   4. and the other way round, so a gate that refused everybody does not pass: with
+//      the setting ON, the rest of the handler runs exactly once and its answer comes
+//      back untouched.
+
+const CONSENT_CASES: Array<{
+  name: string;
+  answer: () => { data: unknown; error: { code?: string } | null };
+  throws?: boolean;
+  rejects?: boolean;
+  expect: { consented: boolean; why?: string };
+}> = [
+  {
+    name: "SWITCHED ON: the one case in which anything may be sent",
+    answer: () => ({ data: [{ ai_suggestions_enabled: true }], error: null }),
+    expect: { consented: true },
+  },
+  {
+    name: "SWITCHED OFF, explicitly -- which is every account's starting state",
+    answer: () => ({ data: [{ ai_suggestions_enabled: false }], error: null }),
+    expect: { consented: false, why: "off" },
+  },
+  {
+    name:
+      "NO PROFILE ROW: the ordinary state of a new account, and 'off for everyone' " +
+      "includes everyone with no row to switch it in",
+    answer: () => ({ data: [], error: null }),
+    expect: { consented: false, why: "off" },
+  },
+  {
+    name: "THE READ FAILED: an unknown, and an unknown is not a yes",
+    answer: () => ({ data: null, error: { code: "42501" } }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "the read failed with no code",
+    answer: () => ({ data: null, error: {} }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "the read threw: still not a yes",
+    answer: () => ({ data: null, error: null }),
+    throws: true,
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "the read's promise rejected: still not a yes",
+    answer: () => ({ data: null, error: null }),
+    rejects: true,
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "no error and no list either: an unanswered question, not an empty one",
+    answer: () => ({ data: null, error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "a row with no such column: the setting could not be read",
+    answer: () => ({ data: [{}], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "a row whose setting is null",
+    answer: () => ({ data: [{ ai_suggestions_enabled: null }], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  // THE FOUR BELOW ARE THE SAME MISTAKE FROM FOUR ANGLES, and the mistake is
+  // `if (row.ai_suggestions_enabled)`. Every one of these values is TRUTHY in
+  // JavaScript, and three of them are the shapes a column read back as text arrives
+  // in. A truthy test would send somebody's task title to Anthropic on the strength
+  // of the four-character string "false".
+  {
+    name: 'the STRING "true" rather than the boolean: not a yes',
+    answer: () => ({ data: [{ ai_suggestions_enabled: "true" }], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: 'THE STRING "false", WHICH IS TRUTHY: emphatically not a yes',
+    answer: () => ({ data: [{ ai_suggestions_enabled: "false" }], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: "the number 1",
+    answer: () => ({ data: [{ ai_suggestions_enabled: 1 }], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+  {
+    name: 'the single character "t", which is how Postgres prints a true to a terminal',
+    answer: () => ({ data: [{ ai_suggestions_enabled: "t" }], error: null }),
+    expect: { consented: false, why: "unknown" },
+  },
+];
+
+for (const testCase of CONSENT_CASES) {
+  Deno.test(`checkAiConsent: ${testCase.name}`, async () => {
+    const read = () => {
+      if (testCase.throws) throw new Error("the client itself fell over");
+      if (testCase.rejects) return Promise.reject(new Error("the network went away"));
+      return Promise.resolve(testCase.answer());
+    };
+
+    const got = await checkAiConsent(read);
+
+    if (got.consented !== testCase.expect.consented) {
+      throw new Error(
+        `consented is ${got.consented} -- it answered ${JSON.stringify(got)}`,
+      );
+    }
+    if (!got.consented && got.why !== testCase.expect.why) {
+      throw new Error(`why is ${got.why}, expected ${testCase.expect.why}`);
+    }
+  });
+}
+
+Deno.test("the OFF refusal says what happened, and nothing about the plumbing", async () => {
+  const answer = consentOffRefusal();
+  const problems: string[] = [];
+
+  // 403, like the suspended refusal and for the same reason: the request was
+  // understood and refused, and it is a refusal the caller could have predicted.
+  // NOT 503 -- "suggestions aren't available right now" would be a different claim,
+  // because they are available to this person the moment they switch the setting on.
+  if (answer.status !== 403) problems.push(`the status is ${answer.status}, expected 403`);
+
+  const { text, body } = await readBody(answer);
+  if (!body) {
+    problems.push(`the body is not a JSON object: ${text}`);
+  } else {
+    if (body.error !== AI_SUGGESTIONS_OFF_MESSAGE) {
+      problems.push(`the sentence is ${JSON.stringify(body.error)}`);
+    }
+    if (body.code !== AI_SUGGESTIONS_OFF_CODE) {
+      problems.push(`the code is ${JSON.stringify(body.code)}`);
+    }
+    const extra = Object.keys(body).filter((key) => !["error", "code"].includes(key));
+    if (extra.length > 0) problems.push(`it carries fields it should not: ${extra.join(", ")}`);
+
+    const sentence = String(body.error);
+
+    // IT MUST SAY THE TWO THINGS A PERSON NEEDS: that the setting is off, and that
+    // nothing was sent. The second is the one that matters -- they pressed a button
+    // whose whole purpose is to send their task's title somewhere.
+    const lower = sentence.toLowerCase();
+    if (!lower.includes("off")) {
+      problems.push("the sentence does not say the setting is off");
+    }
+    if (!lower.includes("nothing was sent")) {
+      problems.push("the sentence does not say that nothing was sent");
+    }
+
+    // AND IT MUST NOT NAME THE PLUMBING, the same list the fixed failure is held to:
+    // no company, no model, no key, no status number, no raw code.
+    if (sentence.includes(AI_SUGGESTIONS_OFF_CODE)) {
+      problems.push("the sentence contains the raw code, which is not for a person to read");
+    }
+    if (/\d/.test(sentence)) problems.push("the sentence contains a digit, so possibly a status");
+    for (const word of ["anthropic", "claude", "model", "token", "api", "key", "column", "profile"]) {
+      if (lower.includes(word)) problems.push(`the sentence contains "${word}"`);
+    }
+  }
+  problems.push(...disclosureProblems(text));
+
+  // TWO REFUSALS THAT MUST NOT BE CONFUSABLE. The suspended refusal is also a 403,
+  // and the screen branches on the code -- so if the codes or the sentences were the
+  // same, a suspended person would be told to go and switch a setting on, and a
+  // person who simply has not consented would be told they cannot do that at all.
+  const suspended = suspendedRefusal();
+  const suspendedBody = await suspended.json();
+  if (body && body.code === suspendedBody.code) {
+    problems.push("it carries the SAME code as the suspended refusal");
+  }
+  if (body && body.error === suspendedBody.error) {
+    problems.push("it carries the SAME sentence as the suspended refusal");
+  }
+  // And it is not the fixed failure's sentence either: that one says suggestions are
+  // not available, which is not true of somebody who can switch them on.
+  if (body && body.error === UNAVAILABLE_MESSAGE) {
+    problems.push("it carries the fixed failure's sentence, which claims something else");
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`the consent refusal is wrong: ${problems.join("; ")}`);
+  }
+});
+
+Deno.test("the OFF code is NOT one of the fixed-failure codes, and the unreadable one IS", () => {
+  const problems: string[] = [];
+
+  // If `ai_suggestions_off` were in SUGGEST_CODES, the "every code produces the SAME
+  // sentence" test in section 9 would require it to carry UNAVAILABLE_MESSAGE at 503,
+  // which is the opposite of what the test above asserts. The two cannot both hold,
+  // and this check is what says which one this file means.
+  if ((SUGGEST_CODES as readonly string[]).includes(AI_SUGGESTIONS_OFF_CODE)) {
+    problems.push(
+      `${AI_SUGGESTIONS_OFF_CODE} is in SUGGEST_CODES, so it would be required to carry ` +
+        `the fixed sentence at 503`,
+    );
+  }
+
+  // The unreadable case DOES belong there, and that is docs/plan.md's instruction
+  // rather than a preference: "If the setting cannot be read, it is off. A failed read
+  // is not a yes. The function answers that suggestions are not available -- the one
+  // sentence it already has for every other refusal."
+  if (!(SUGGEST_CODES as readonly string[]).includes("ai_suggestions_unknown")) {
+    problems.push(
+      "ai_suggestions_unknown is not in SUGGEST_CODES, so a setting that cannot be read " +
+        "does not get the fixed sentence docs/plan.md names for it",
+    );
+  }
+
+  if (problems.length > 0) throw new Error(problems.join("; "));
+});
+
+// ---------------------------------------------------------------------------
+// WITH THE SETTING OFF, NOTHING BEHIND THE GATE RUNS
+// ---------------------------------------------------------------------------
+//
+// The test issue #211 asks for in those words: "with the setting off the stubbed AI
+// service receives no request and the task is never read".
+//
+// WHAT MAKES THIS WORTH ANYTHING: withConsent is the function the handler calls, and
+// `proceed` is the rest of the handler. So the spies below are not standing in for the
+// handler's order -- they are standing in for the task read and the fetch, inside the
+// real gate. A gate that checked the setting and then carried on regardless would fail
+// this; so would one that read the task first and checked afterwards.
+//
+// `proceed` here does what the handler does, in the handler's order: it reads a task
+// through readTaskTitle and then calls callAnthropic with a stubbed fetch. Both are the
+// real functions from the function under test.
+function gateSpies() {
+  const log: string[] = [];
+
+  const taskRead = () => {
+    log.push("the task was read");
+    return Promise.resolve({ data: [{ title: MADE_UP_TITLE }], error: null });
+  };
+
+  const stubbedService = (
+    _url: string,
+    init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+  ) => {
+    log.push(`the AI service received a request of ${init.body.length} bytes`);
+    return Promise.resolve(
+      Response.json({ content: [{ type: "text", text: "Book the hall" }] }, { status: 200 }),
+    );
+  };
+
+  let calls = 0;
+  const proceed = async (): Promise<Response> => {
+    calls += 1;
+    const task = await readTaskTitle(taskRead);
+    if (!task.ok) return taskNotFoundAnswer();
+    const result = await callAnthropic(
+      buildAnthropicRequest({ model: NOT_A_MODEL, title: task.title, apiKey: KEY_SHAPED }),
+      { fetchImpl: stubbedService },
+    );
+    if (!result.ok) return unavailableAnswer(result.code);
+    const verdict = readSuggestions(result.body);
+    if (!verdict.ok) return unavailableAnswer(verdict.code);
+    return suggestionsAnswer(verdict.suggestions);
+  };
+
+  return { log, proceed, calls: () => calls };
+}
+
+for (
+  const testCase of [
+    {
+      name: "the setting is OFF",
+      answer: { data: [{ ai_suggestions_enabled: false }], error: null },
+      expectStatus: 403,
+      expectCode: AI_SUGGESTIONS_OFF_CODE,
+    },
+    {
+      name: "there is NO PROFILE ROW",
+      answer: { data: [], error: null },
+      expectStatus: 403,
+      expectCode: AI_SUGGESTIONS_OFF_CODE,
+    },
+    {
+      name: "the setting CANNOT BE READ",
+      answer: { data: null, error: { code: "42501" } },
+      expectStatus: 503,
+      expectCode: "ai_suggestions_unknown",
+    },
+  ]
+) {
+  Deno.test(
+    `withConsent: ${testCase.name} -- the task is NEVER read and the AI service gets NOTHING`,
+    async () => {
+      const spies = gateSpies();
+      const answer = await withConsent(
+        () => Promise.resolve(testCase.answer),
+        spies.proceed,
+      );
+
+      const problems: string[] = [];
+
+      // THE WHOLE POINT, first.
+      if (spies.calls() !== 0) {
+        problems.push(
+          `the rest of the handler ran ${spies.calls()} time(s). What it did: ` +
+            `${spies.log.join("; ")}`,
+        );
+      }
+      if (spies.log.length > 0) {
+        problems.push(`these things happened and none of them should have: ${spies.log.join("; ")}`);
+      }
+
+      if (answer.status !== testCase.expectStatus) {
+        problems.push(`the status is ${answer.status}, expected ${testCase.expectStatus}`);
+      }
+
+      const { text, body } = await readBody(answer);
+      if (!body) {
+        problems.push(`the body is not a JSON object: ${text}`);
+      } else if (body.code !== testCase.expectCode) {
+        problems.push(`the code is ${JSON.stringify(body.code)}, expected ${testCase.expectCode}`);
+      }
+      problems.push(...disclosureProblems(text));
+
+      if (problems.length > 0) throw new Error(problems.join("; "));
+    },
+  );
+}
+
+Deno.test(
+  "withConsent: the setting is ON -- the rest of the handler runs ONCE and its answer comes back untouched",
+  async () => {
+    const spies = gateSpies();
+    const answer = await withConsent(
+      () => Promise.resolve({ data: [{ ai_suggestions_enabled: true }], error: null }),
+      spies.proceed,
+    );
+
+    const problems: string[] = [];
+
+    // THE OVER-CORRECTION GUARD. A gate that refused everybody would pass all three
+    // tests above and would quietly break the feature for the people who said yes.
+    if (spies.calls() !== 1) {
+      problems.push(`the rest of the handler ran ${spies.calls()} time(s), expected exactly 1`);
+    }
+    if (!spies.log.includes("the task was read")) {
+      problems.push("the task was never read, so the gate did not let the ask through");
+    }
+    if (!spies.log.some((line) => line.startsWith("the AI service received a request"))) {
+      problems.push("the AI service received nothing, so the gate did not let the ask through");
+    }
+
+    // And the gate returns `proceed`'s answer rather than one of its own.
+    if (answer.status !== 200) problems.push(`the status is ${answer.status}, expected 200`);
+    const { text, body } = await readBody(answer);
+    if (!body) {
+      problems.push(`the body is not a JSON object: ${text}`);
+    } else if (JSON.stringify(body.suggestions) !== JSON.stringify(["Book the hall"])) {
+      problems.push(`the answer is ${text}, not the one the rest of the handler built`);
+    }
+
+    if (problems.length > 0) throw new Error(problems.join("; "));
+  },
+);
+
+// ---------------------------------------------------------------------------
 // 9. The answers: one sentence for every failure, and the suggestions for success
 // ---------------------------------------------------------------------------
 
@@ -1536,11 +1929,18 @@ Deno.test("every code produces the SAME sentence and the same status, and carrie
   }
   if (!statuses.has(503)) problems.push(`the status is ${[...statuses].join(", ")}, expected 503`);
 
-  // The words themselves, so a code added or removed is noticed here. Eleven since the
-  // coach's review of PR #190 added `model_unavailable`.
-  if (SUGGEST_CODES.length !== 11) {
+  // The words themselves, so a code added or removed is noticed here. Eleven after the
+  // coach's review of PR #190 added `model_unavailable`; TWELVE since Build it 21
+  // (issue #211) added `ai_suggestions_unknown`, counted from the list in this session.
+  //
+  // RAISING THIS NUMBER IS THE ONLY THING A NEW CODE MAY DO TO THIS TEST. The two
+  // assertions that matter -- one sentence, one status, across every code in the list
+  // -- are untouched, and `ai_suggestions_unknown` is held to both of them by being in
+  // the list at all. The OFF refusal is deliberately NOT in the list, and section 8b
+  // asserts that it is not, so there is no way to satisfy both by loosening either.
+  if (SUGGEST_CODES.length !== 12) {
     throw new Error(
-      `there are ${SUGGEST_CODES.length} codes; this file was written against 11. A new ` +
+      `there are ${SUGGEST_CODES.length} codes; this file was written against 12. A new ` +
         `code needs no new sentence -- every one of them gets the same one, which is the ` +
         `point -- but it does need adding to the copy of this list in ` +
         `scripts/staging/build-it-20-ai-checks.mjs, which refuses a code it does not know`,
@@ -1690,6 +2090,87 @@ Deno.test("the reply checks REFUSE a reader that passes a claim straight through
     throw new Error(
       "the broken reader fails even the plain success case, so it is not the plausible " +
         "mistake this test is about",
+    );
+  }
+});
+
+Deno.test("the consent checks REFUSE a gate that reads the setting with a truthy test", async () => {
+  // THE MISTAKE, and it is the one anybody writes without thinking twice:
+  //
+  //   if (row.ai_suggestions_enabled) { send it }
+  //
+  // It is correct for the two cases somebody has in mind while writing it -- a real
+  // `true` and a real `false` -- so every obvious test passes. What it does with a
+  // column that arrives as TEXT is send somebody's task title to Anthropic because the
+  // four-character string "false" is truthy in JavaScript.
+  function brokenCheckAiConsent(rows: unknown) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { consented: false as const };
+    }
+    const row = rows[0] as { ai_suggestions_enabled?: unknown };
+    return row.ai_suggestions_enabled
+      ? { consented: true as const }
+      : { consented: false as const };
+  }
+
+  // The cases this file says must NOT come out as consent. Counted, so a case deleted
+  // from the table above turns this red rather than quietly shrinking what it proves.
+  const mustRefuse = CONSENT_CASES.filter(
+    (c) => !c.expect.consented && !c.throws && !c.rejects,
+  );
+  if (mustRefuse.length !== 11) {
+    throw new Error(
+      `expected 11 consent cases that must be refused and can be fed to a plain ` +
+        `function, found ${mustRefuse.length} -- was one removed?`,
+    );
+  }
+
+  const missed: string[] = [];
+  for (const testCase of mustRefuse) {
+    const answer = testCase.answer();
+    if (brokenCheckAiConsent(answer.data).consented) missed.push(testCase.name);
+  }
+
+  if (missed.length === 0) {
+    throw new Error(
+      "a truthy test passed EVERY case this file says must be refused, so those cases " +
+        "are not testing what they claim",
+    );
+  }
+
+  // And it must still get the two obvious cases right, or this test is catching
+  // something other than the mistake it names.
+  if (!brokenCheckAiConsent([{ ai_suggestions_enabled: true }]).consented) {
+    throw new Error("the broken check refuses a real `true`, so it is not the plausible mistake");
+  }
+  if (brokenCheckAiConsent([{ ai_suggestions_enabled: false }]).consented) {
+    throw new Error("the broken check accepts a real `false`, so it is not the plausible mistake");
+  }
+
+  // AND THE SAME MISTAKE AT THE GATE, which is the half that would actually spend
+  // money: a gate that trusted that check would run the rest of the handler for a
+  // person whose setting reads as the string "false".
+  const spies = gateSpies();
+  const brokenGate = async (rows: unknown, proceed: () => Promise<Response>) =>
+    brokenCheckAiConsent(rows).consented ? await proceed() : consentOffRefusal();
+
+  await brokenGate([{ ai_suggestions_enabled: "false" }], spies.proceed);
+  if (spies.log.length === 0) {
+    throw new Error(
+      "the broken gate sent nothing for the string \"false\", so this test is not " +
+        "exercising the mistake it describes",
+    );
+  }
+
+  // The real gate, same answer, must do none of it.
+  const realSpies = gateSpies();
+  await withConsent(
+    () => Promise.resolve({ data: [{ ai_suggestions_enabled: "false" }], error: null }),
+    realSpies.proceed,
+  );
+  if (realSpies.log.length !== 0) {
+    throw new Error(
+      `withConsent let the string "false" through: ${realSpies.log.join("; ")}`,
     );
   }
 });

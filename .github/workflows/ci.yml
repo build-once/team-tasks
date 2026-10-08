@@ -203,7 +203,14 @@ jobs:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
       EXPECTED_SENTRY_SCRUB_CHECKS: "95"
-      EXPECTED_SCREEN_STATE_CHECKS: "110"
+      # 110 -> 158 with Build it 21 (issue #211). Forty-eight checks over
+      # web/src/lib/consent.ts and the two files that read the setting: the three
+      # states and every shape of nothing, "Saved" only after a read-back, the
+      # settings sentence table, what the consent screen promises in its own
+      # words, and that no screen selects either new column -- which after
+      # 20261007204900_ai_suggestions_consent.sql is refused for everybody, the
+      # person included. Counted from the script's own output.
+      EXPECTED_SCREEN_STATE_CHECKS: "158"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and
@@ -320,7 +327,14 @@ jobs:
       # is expected, and the apikey alone, where the library's is -- and nine cases
       # replace three. Five of the nine FAILED before the split, the first of them
       # the real staging answer being called a fault.
-      EXPECTED_AI_CASES: "75"
+      #
+      # 75 -> 110 with Build it 21 (issue #211), which extends this script with the
+      # consent setting: where it stands, switching it, the ask being refused with
+      # the setting off, nobody switching or reading anybody else's, and the setting
+      # being left as the run found it. Thirty-five cases, and the one that matters
+      # feeds judgeRefusedWhenOff the answer a function with NO consent check gives
+      # -- 200 with suggestions -- and requires all four parts to come out FAIL.
+      EXPECTED_AI_CASES: "110"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -412,7 +426,19 @@ jobs:
       # covers the BODY of a reply and not only its headers -- and one of those two
       # is the over-correction guard, because a fix that aborted everything would
       # pass the other.
-      EXPECTED_FUNCTION_TESTS: "192"
+      #
+      # 192 -> 213 with Build it 21 (issue #211): twenty-one tests over the consent
+      # check. Fourteen are what checkAiConsent decides for on, off, no profile row
+      # and every way a read can fail to answer -- four of those fourteen are the
+      # truthy shapes a boolean column read back as text arrives in, where the string
+      # "false" must not be read as consent. Two are the OFF refusal's own body and
+      # the fact that its code is deliberately NOT one of the twelve fixed-failure
+      # codes. Four are withConsent, the gate the handler itself calls, handed the
+      # rest of the handler as `proceed`: with the setting off, no profile row, or an
+      # unreadable setting, the task is NEVER read and a stubbed AI service receives
+      # NOTHING -- and with it on, `proceed` runs exactly once. The last is the
+      # can-this-fail guard for a gate that reads the setting with a truthy test.
+      EXPECTED_FUNCTION_TESTS: "213"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -529,10 +529,15 @@ check(
   ALL_BUTTON_IDS.some((id) => /[A-Z\s]/.test(id)),
   false,
 );
+// THE COUNT, AND IT IS AN EQUALITY RATHER THAN A FLOOR, on purpose: a button
+// appearing in this list that nobody meant to add is worth a red check. So adding a
+// button means raising this number in the same change, and saying so in the pull
+// request -- 16 -> 17 with Build it 21 (issue #211), whose one new button is the
+// Save on the AI suggestions setting. Counted from the list in that session.
 check(
   "the buttons that actually exist, counted from the list",
   ALL_BUTTON_IDS.length,
-  16,
+  17,
 );
 
 // ---- readButtonId -------------------------------------------------------
@@ -600,7 +605,7 @@ check(
 // and nothing else may be. This is the whole promise in one check, and it is the
 // one that goes red if `pressed` is ever loosened to "is it a known identifier".
 check(
-  "ACROSS ALL 16 BUTTONS: each one-button gate accepts exactly itself",
+  "ACROSS EVERY BUTTON: each one-button gate accepts exactly itself",
   ALL_BUTTON_IDS.map((gate) =>
     ALL_BUTTON_IDS.filter((id) => pressed(id, [gate])).join(","),
   ),
@@ -700,6 +705,359 @@ check(
   "every outcome has a sentence in the invitation map too",
   OUTCOME_KEYS.map((key) => count(INVITE_MAP, `${key}:`)),
   OUTCOME_KEYS.map(() => 1),
+);
+
+// =========================================================================
+// 8. The AI suggestions consent setting, as a screen sees it
+// =========================================================================
+//
+// Build it 21 (issue #211). web/src/lib/consent.ts holds three decisions, and the
+// trap in all three is the same one section 1 is about, applied to a boolean instead
+// of a row count: A FAILED READ IS NOT "OFF". `data?.enabled ?? false` makes the two
+// identical, and a failed read drawn as "off" is this app telling somebody they have
+// not consented to something when it does not know.
+//
+// AND THE SECOND TRAP IS THE TRUTHY TEST. `if (row.enabled)` is correct for a real
+// `true` and a real `false` and reads the four-character string "false" as consent.
+// The same mistake is checked on the function's side, in
+// supabase/functions/_tests/suggest_subtasks_test.ts.
+//
+// WHAT THIS DOES NOT COVER, said plainly: nothing about the database, and nothing
+// about whether suggest-subtasks really refuses. The function's own check is what
+// stops anything being sent, and its Deno tests are where that is established. This
+// section is about what a screen may SAY.
+console.log("\n8. the AI suggestions setting: a failed read is never 'off'");
+
+const {
+  CONSENT_OFF,
+  CONSENT_ON,
+  CONSENT_PATH,
+  CONSENT_SETTING_NAME,
+  CONSENT_STATES,
+  CONSENT_UNREADABLE,
+  SETTINGS_GOOD_CODES,
+  SETTINGS_OUTCOMES,
+  consentState,
+  mayAskForSuggestions,
+  savedAs,
+  settingsSentence,
+  settingsWentWell,
+} = await load("consent.ts");
+
+check("the three states", CONSENT_STATES.slice(), ["on", "off", "unreadable"]);
+
+check(
+  "switched on",
+  consentState({ data: [{ enabled: true, changed_at: "2026-10-08T00:00:00Z" }] }),
+  CONSENT_ON,
+);
+check("switched off", consentState({ data: [{ enabled: false }] }), CONSENT_OFF);
+check(
+  "the RPC's row as an object rather than a one-item list: read the same way",
+  consentState({ data: { enabled: true } }),
+  CONSENT_ON,
+);
+
+// THE ONE THIS SECTION EXISTS FOR.
+check(
+  "THE READ FAILED: unreadable, NOT off -- a failed read is not a statement about anybody's choice",
+  consentState({ failed: true, data: [{ enabled: true }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  "failed wins over a row saying off, too",
+  consentState({ failed: true, data: [{ enabled: false }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  "failed with nothing at all",
+  consentState({ failed: true }),
+  CONSENT_UNREADABLE,
+);
+
+// Every shape of nothing.
+check("no data at all", consentState({}), CONSENT_UNREADABLE);
+check("data is null", consentState({ data: null }), CONSENT_UNREADABLE);
+check("an empty list", consentState({ data: [] }), CONSENT_UNREADABLE);
+check("a row with no enabled", consentState({ data: [{}] }), CONSENT_UNREADABLE);
+check(
+  "enabled is null",
+  consentState({ data: [{ enabled: null }] }),
+  CONSENT_UNREADABLE,
+);
+check("data is a string", consentState({ data: "on" }), CONSENT_UNREADABLE);
+check("data is a number", consentState({ data: 1 }), CONSENT_UNREADABLE);
+
+// THE TRUTHY SHAPES, which are the ones a column read back as text arrives in. Every
+// one of them is truthy in JavaScript, and three of them are plausible.
+check(
+  'the STRING "true"',
+  consentState({ data: [{ enabled: "true" }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  'THE STRING "false", WHICH IS TRUTHY',
+  consentState({ data: [{ enabled: "false" }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  'the single character "t", which is how Postgres prints a true',
+  consentState({ data: [{ enabled: "t" }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  "the number 1",
+  consentState({ data: [{ enabled: 1 }] }),
+  CONSENT_UNREADABLE,
+);
+check(
+  "the number 0, which is falsy and still not a false",
+  consentState({ data: [{ enabled: 0 }] }),
+  CONSENT_UNREADABLE,
+);
+
+// May the Suggest subtasks button be offered? Only on a setting known to be ON.
+check(
+  "only a setting known to be ON may be asked on -- unreadable is not a yes",
+  CONSENT_STATES.map((state) => mayAskForSuggestions(state)),
+  [true, false, false],
+);
+
+// "Saved" only after the read-back agrees. Build it 19's rule, applied to a boolean.
+console.log("\n8b. 'Saved' only after the setting has been read back");
+
+check(
+  "asked for on, read back on",
+  savedAs(true, CONSENT_ON),
+  true,
+);
+check("asked for off, read back off", savedAs(false, CONSENT_OFF), true);
+check(
+  "ASKED FOR ON, READ BACK OFF: not saved, whatever the write answered",
+  savedAs(true, CONSENT_OFF),
+  false,
+);
+check("asked for off, read back on: not saved", savedAs(false, CONSENT_ON), false);
+check(
+  "THE READ-BACK FAILED: not saved. The write may have worked; this does not know",
+  [savedAs(true, CONSENT_UNREADABLE), savedAs(false, CONSENT_UNREADABLE)],
+  [false, false],
+);
+
+// The sentence table, for the reason TEAM_ACTION_OUTCOMES has one: an unrecognised
+// code must print nothing at all, so a crafted link cannot display chosen words on
+// this site in this site's styling.
+console.log("\n8c. the settings sentences are ours, and an unknown code prints nothing");
+
+const SETTINGS_KEYS = [
+  "on",
+  "off",
+  "unconfirmed",
+  "failed",
+  "needname",
+  "badname",
+  "button",
+];
+
+check(
+  "every outcome this app writes has a sentence, and there are no others",
+  Object.keys(SETTINGS_OUTCOMES).sort(),
+  SETTINGS_KEYS.slice().sort(),
+);
+check(
+  "each one is a non-empty sentence",
+  SETTINGS_KEYS.map((key) => typeof SETTINGS_OUTCOMES[key] === "string" && SETTINGS_OUTCOMES[key].length > 10),
+  SETTINGS_KEYS.map(() => true),
+);
+check(
+  "each key resolves to its own sentence",
+  SETTINGS_KEYS.map((key) => settingsSentence(key) === SETTINGS_OUTCOMES[key]),
+  SETTINGS_KEYS.map(() => true),
+);
+check(
+  "AN UNKNOWN CODE PRINTS NOTHING, which is what stops a crafted link showing chosen words",
+  [
+    settingsSentence("your account has been closed"),
+    settingsSentence("__proto__"),
+    settingsSentence("toString"),
+    settingsSentence("constructor"),
+    settingsSentence(undefined),
+    settingsSentence(null),
+    settingsSentence(42),
+    settingsSentence(["on"]),
+  ],
+  [null, null, null, null, null, null, null, null],
+);
+check("a code with spaces round it is still read", settingsSentence("  off  "), SETTINGS_OUTCOMES.off);
+check(
+  "only the two good codes are drawn as good news",
+  SETTINGS_KEYS.map((key) => settingsWentWell(key)),
+  SETTINGS_KEYS.map((key) => SETTINGS_GOOD_CODES.includes(key)),
+);
+check(
+  "and nothing else is, including an unknown code",
+  [settingsWentWell("failed"), settingsWentWell("nonsense"), settingsWentWell(undefined)],
+  [false, false, false],
+);
+
+// THE SENTENCES THEMSELVES, held to the promises docs/plan.md makes and
+// docs/claims.md records. Not a taste check: each of these is the difference between
+// a consent screen and a screen that looks like one.
+console.log("\n8d. what the consent screen promises, in its own words");
+
+const CONSENT_SOURCE = readFileSync(resolve(LIB, "consent.ts"), "utf8");
+
+check(
+  "the setting has ONE name, and it is the plan's",
+  CONSENT_SETTING_NAME,
+  "AI suggestions",
+);
+check("and one address", CONSENT_PATH, "/settings");
+
+const {
+  CONSENT_HOW_LONG,
+  CONSENT_OFF_MEANS,
+  CONSENT_ONLY_YOU,
+  CONSENT_STARTS_OFF,
+  CONSENT_WHAT_IS_SENT,
+  CONSENT_WHO_GETS_IT,
+} = await load("consent.ts");
+
+// WHO GETS IT MUST BE NAMED. "An AI service" is not an answer to "who has my words",
+// and docs/plan.md names the company.
+check(
+  "the screen names the company the title goes to",
+  CONSENT_WHO_GETS_IT.includes("Anthropic"),
+  true,
+);
+
+// WHAT IS SENT MUST NAME WHAT IS NOT. docs/plan.md's list of what must never go is
+// the list this sentence has to be able to answer for.
+check(
+  "and says what is NOT sent: address, name, user ID, team, other tasks",
+  [
+    /email address/i.test(CONSENT_WHAT_IS_SENT),
+    /\bname\b/i.test(CONSENT_WHAT_IS_SENT),
+    /user ID/i.test(CONSENT_WHAT_IS_SENT),
+    /team/i.test(CONSENT_WHAT_IS_SENT),
+    /other tasks/i.test(CONSENT_WHAT_IS_SENT),
+  ],
+  [true, true, true, true, true],
+);
+check(
+  "and that it is the title of the ONE task, not the list",
+  /one task/i.test(CONSENT_WHAT_IS_SENT),
+  true,
+);
+
+// OFF MEANS NO MORE GOES, AND NOT THAT ANYTHING COMES BACK. This is the one claim on
+// the screen that could not be put right afterwards if it were wrong.
+check(
+  "off means nothing more is sent",
+  /stops anything more being sent/i.test(CONSENT_OFF_MEANS),
+  true,
+);
+check(
+  "AND SAYS IT CANNOT BRING BACK WHAT WENT -- the claim that must never be implied",
+  /cannot bring back/i.test(CONSENT_OFF_MEANS),
+  true,
+);
+check(
+  "the retention figures are Anthropic's, and both are named",
+  [/30 days/.test(CONSENT_HOW_LONG), /2 years/.test(CONSENT_HOW_LONG), /Anthropic say/.test(CONSENT_HOW_LONG)],
+  [true, true, true],
+);
+check(
+  "it starts off, for everybody",
+  /starts off for everybody/i.test(CONSENT_STARTS_OFF),
+  true,
+);
+check(
+  "and only the person can change it",
+  [/only you/i.test(CONSENT_ONLY_YOU), /nobody in your teams/i.test(CONSENT_ONLY_YOU)],
+  [true, true],
+);
+
+// NO SCREEN MAY READ THE COLUMN DIRECTLY (issue #207). The module that holds the
+// screen's half of this says so, and these two checks are about the files that do the
+// reading.
+console.log("\n8e. no screen reads the setting's column, and no write asks for it back");
+
+const SETTINGS_ACTIONS = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "settings", "actions.ts"),
+  "utf8",
+);
+const SETTINGS_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "settings", "page.tsx"),
+  "utf8",
+);
+const TASKS_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "tasks", "page.tsx"),
+  "utf8",
+);
+
+// Counted as "the RPC's name appears, and `.rpc(` appears" rather than as an exact
+// run of characters: the two pages indent that call differently, and a check that
+// broke when a line was wrapped would be a check about formatting.
+check(
+  "all three files read the setting through my_ai_suggestions(), not through a select",
+  [
+    count(SETTINGS_PAGE, '"my_ai_suggestions"') > 0 && count(SETTINGS_PAGE, ".rpc(") > 0,
+    count(TASKS_PAGE, '"my_ai_suggestions"') > 0 && count(TASKS_PAGE, ".rpc(") > 0,
+    count(SETTINGS_ACTIONS, '"my_ai_suggestions"') > 0 &&
+      count(SETTINGS_ACTIONS, ".rpc(") > 0,
+  ],
+  [true, true, true],
+);
+
+// THE TRAP ISSUE #207 NAMES: `.update({...}).select("ai_suggestions_enabled")` would
+// be refused 42501 for the person's own row. No file may ask for either new column
+// back, and no file may select either of them at all.
+check(
+  "NO FILE SELECTS EITHER NEW COLUMN: a select on it is refused for everybody, the person included",
+  [
+    count(SETTINGS_ACTIONS, '.select("ai_suggestions_enabled")'),
+    count(SETTINGS_PAGE, '.select("ai_suggestions_enabled")'),
+    count(TASKS_PAGE, '.select("ai_suggestions_enabled")'),
+    count(SETTINGS_ACTIONS, "ai_suggestions_changed_at"),
+    count(SETTINGS_PAGE, "ai_suggestions_changed_at"),
+  ],
+  [0, 0, 0, 0, 0],
+);
+check(
+  "and no file reads profiles with a star, which fails outright after the consent migration",
+  [
+    count(SETTINGS_PAGE, '.select("*")'),
+    count(SETTINGS_ACTIONS, '.select("*")'),
+    count(TASKS_PAGE, '.select("*")'),
+  ],
+  [0, 0, 0],
+);
+// TWO WRITES OF THE SETTING, and that is the number this action should have: the
+// ordinary update, and the second one after a profile row has been created for
+// somebody who had none (issue #207). A third would be a path nobody meant to add.
+//
+// The representation each one asks for is `user_id` and the check above is what says
+// it is not either new column -- counted there rather than here, because an exact
+// count of `.select("user_id")` in this file would also be counting the sentence in
+// the comment that explains why it is user_id.
+check(
+  "the setting is written in exactly the two places this action has for it",
+  count(SETTINGS_ACTIONS, "ai_suggestions_enabled: wanted"),
+  2,
+);
+check(
+  "the profile insert names only the two columns a client role may insert",
+  [
+    count(SETTINGS_ACTIONS, ".insert({ user_id: userId, display_name: nickname })"),
+    count(SETTINGS_ACTIONS, "ai_suggestions_enabled: wanted,"),
+  ],
+  [1, 0],
+);
+check(
+  "the module that holds the screen's half says the column cannot be read",
+  count(CONSENT_SOURCE, "my_ai_suggestions()") > 0,
+  true,
 );
 
 // ------------------------------------------------------------------- the score

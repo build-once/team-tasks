@@ -59,6 +59,10 @@ export const BUTTON_IDS = {
   inviteSend: "invite_send",
   inviteRetry: "invite_retry",
 
+  // Settings. One button, and the switch it carries is the thing that decides
+  // whether anybody's task title leaves this project (Build it 21, issue #211).
+  aiSuggestionsSave: "ai_suggestions_save",
+
   // The invitation page
   inviteAccept: "invite_accept",
 

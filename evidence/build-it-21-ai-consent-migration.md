@@ -1785,3 +1785,77 @@ runs there on the owner's machine and was not touched.
 The guard's `db-remote-write` rule excludes `localhost` and `127.0.0.1`, which is why none of this
 was blocked and why none of it is a remote write.
 
+---
+
+# Appendix B — Record of the staging apply
+
+**Added 8 Oct 2026 by the assistant (Claude Code), in the Build it 21 part 2b session (issue #211),
+which asked for this comment to be copied here.** It is the coach's comment on pull request #210,
+reproduced verbatim below the rule. Everything above this appendix is a sandbox on the owner's own
+machine; **this is the first record in this file of the migration reaching a real project**, which is
+why it is kept apart rather than folded into section 2.
+
+**The assistant verified none of it.** It has no staging or production connector, did not watch any of
+these calls happen, and issue #211 says in so many words, "Do not use any MCP connector or the browser
+tool." If the coach's own record disagrees with what is below, the coach's record is the one to trust.
+
+**On the time.** The comment is stamped `2026-10-08T07:27:00Z` (`gh pr view 210 --json comments`, run in
+this session), one minute before PR #210 merged at `2026-10-08T07:27:56Z`. That ordering is why its last
+line says production was not applied — and why it was out of date within the minute: the merge triggered
+`.github/workflows/migrate-production.yml`, run
+[37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469), whose "Apply migrations
+to production" step succeeded. **`docs/environments.md` is where that now lives**, and it is the record
+to read rather than this appendix, for exactly the reason the migration file's own header gives: a status
+note goes stale without anyone noticing.
+
+---
+
+> **Record of the staging apply (coach, comment only), 8 Oct 2026.** To be copied into the evidence file
+> by the next pull request.
+>
+> - Owner: applied the migration to staging with the Supabase CLI's remote migration push from this
+>   branch, then ran `npm --prefix web test` against staging: 25 passed, 0 failed, 0 skipped; three
+>   sign-outs HTTP 204. The push output itself was not pasted to the coach.
+> - Coach, staging read-only connector, afterwards: 9 migrations recorded, newest `20261007204900`;
+>   `ai_suggestions_enabled` default false, not null; `ai_suggestions_changed_at` nullable, no default;
+>   all 3 profile rows off; `my_ai_suggestions()` present, security definer; trigger
+>   `profiles_stamp_ai_suggestions` present.
+> - Rights, by `has_table_privilege` / `has_column_privilege` / `has_function_privilege`:
+>   - `anon`: no table-level select or update; cannot read or update the setting; can read
+>     `display_name` (subject to the row rules); cannot run the function.
+>   - `authenticated`: no table-level select or update; cannot read the setting directly; can update
+>     `ai_suggestions_enabled`; cannot update `ai_suggestions_changed_at`; can run the function.
+>   - `service_role`: can read the setting; cannot update it; cannot run the function.
+> - Not done on staging: switching the setting through the Data API as a real signed-in person. The
+>   sandbox covered it; the next pull request's screen will be the first real use.
+>
+> Production: not applied; it follows through the pipeline after merge.
+
+**One wording change, and it is the only one.** The first bullet's phrase naming the Supabase CLI's
+remote migration push command has been replaced by a description of it. The literal command text is one
+the repository's guard refuses on sight (`db-remote-write`), including inside a file being written, and
+nothing is gained by committing the exact characters. Nothing else in the quotation is altered.
+
+## What this appendix settles, and the four things it does not
+
+**It settles** that the migration is live on staging, that the two columns have the shape the file
+intended, that the trigger and `my_ai_suggestions()` exist, and that the privileges are the ones
+sections 4 and 4b set — read by role and by column rather than inferred from the migration.
+
+**It does not settle:**
+
+1. **That the setting can be switched by a real signed-in person through the Data API.** The coach's own
+   last bullet says so. The sandbox covered it as Carol; nothing has done it on staging. That is what
+   `scripts/staging/build-it-20-ai-checks.mjs` sections 2, 3 and 7 are for, and the owner runs them.
+2. **That `suggest-subtasks` refuses with the setting off.** Nothing could have, on 8 October: the
+   function on staging is the Build it 20 version and has no consent check. The run that settles it is
+   the owner's, after deploying the version in this pull request.
+3. **Anything about production's current privileges.** The production read in
+   `evidence/production-log.md` under 7 Oct was taken *before* the migration existed anywhere, and
+   answers a different question — whether the migration's grants would narrow or widen what `anon`
+   already held.
+4. **That the `npm --prefix web test` run in the first bullet proves the migration is safe.** It proves
+   the *code on that branch* still works against a staging database that now has the migration, which is
+   worth having and is not the same claim. The one touch of `public.profiles` in those tests is a
+   signed-out read of `user_id`, and `anon` keeps column-level select on that column.
+

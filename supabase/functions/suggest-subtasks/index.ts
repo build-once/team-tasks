@@ -36,6 +36,14 @@
 // the whole of Build it 20, and it is the first thing the tests beside this file
 // check.
 //
+// AND SINCE BUILD IT 21 THERE IS A SECOND GATE IN FRONT OF THE KEY, which is the
+// consent setting: this function sends nothing unless the person asking has switched
+// AI suggestions on. See "The consent check" below. The two gates are independent and
+// both still stand -- docs/plan.md's order of release is that the production key waits
+// for this setting to be live on production, to have been seen to refuse with it off,
+// AND for a privacy page to exist (issue #204). The first of those three is what this
+// change does; the other two are not this file's to settle.
+//
 // WHAT IS SENT, AND NOTHING ELSE. The title of the one task the person asked
 // about, and the fixed instructions below. buildAnthropicRequest is exported so
 // that supabase/functions/_tests/suggest_subtasks_test.ts reads the body THIS
@@ -216,23 +224,33 @@ const INSTRUCTIONS = [
 // reached, service down, bad reply) gives the caller one fixed answer with a short
 // code."
 //
-// ONE ANSWER means one sentence and one status for all eleven codes below, and that
-// is a decision rather than laziness. Compare it with invite-member, which has a
+// ONE ANSWER means one sentence and one status for every code in the list below, and
+// that is a decision rather than laziness. Compare it with invite-member, which has a
 // different sentence per failure code -- and is right to, because there the owner's
 // next move differs: a refused address wants editing, an unreachable service wants
-// waiting. Here every one of the eleven has the same next move, which is to press the
+// waiting. Here every one of them has the same next move, which is to press the
 // button again later or to get on without the suggestions. A screen that explained
-// which of nine things went wrong with a free AI helper would be telling somebody
+// which of twelve things went wrong with a free AI helper would be telling somebody
 // about this app's plumbing instead of about their tasks.
 //
-// 503 for all nine, including the two that are not breakages. `not_configured` is
-// production's ordinary state until Build it 21 and `busy` is a refusal, and both
-// get 503 because the sentence is the same and a caller must not be able to tell
-// "this environment has no key" from "the service is down" -- the first is a fact
-// about the deployment that nobody outside needs.
+// TWELVE, counted from the list below in the session that added the twelfth
+// (issue #211). The Deno test beside this file asserts the count, so the number in
+// this sentence cannot drift away from the list on its own.
+//
+// 503 for all twelve, including the two that are not breakages. `not_configured` is
+// production's ordinary state until the production key is installed and `busy` is a
+// refusal, and both get 503 because the sentence is the same and a caller must not be
+// able to tell "this environment has no key" from "the service is down" -- the first
+// is a fact about the deployment that nobody outside needs.
+//
+// AND ONE REFUSAL IS DELIBERATELY NOT IN THIS LIST: the consent setting being OFF.
+// It has its own sentence and its own status, for the reason set out beside
+// consentOffRefusal below -- it is the one refusal here the person can act on, and
+// the only one that is not news about this app's plumbing. `account_suspended` is
+// outside the list for the same kind of reason and has been since Build it 20.
 //
 // THE CODE IS WHERE THE DIFFERENCE LIVES, and it goes to the log line and to the
-// body. It is one of nine fixed words, never anything the service said and never
+// body. It is one of a fixed list of words, never anything the service said and never
 // anything anybody typed, which is what makes it safe to put in both.
 export const SUGGEST_CODES = [
   // No AI_API_KEY in this environment's function settings. Production, until
@@ -283,6 +301,17 @@ export const SUGGEST_CODES = [
   // suggestions -- including a reply that claims to have done something or gives
   // instructions. See readSuggestions.
   "bad_reply",
+  // THE CONSENT SETTING COULD NOT BE READ (issue #211). Not "off" -- off has its
+  // own answer, below, because off is a fact about the person's own choice and
+  // they can act on it. This one is the read failing: the row did not come back,
+  // or came back holding something that is not a boolean.
+  //
+  // IT IS IN THIS LIST, AND THAT IS docs/plan.md's OWN INSTRUCTION rather than a
+  // choice made here: "If the setting cannot be read, it is off. A failed read is
+  // not a yes. The function answers that suggestions are not available -- the one
+  // sentence it already has for every other refusal -- rather than treating an
+  // unknown as permission." Being in this list IS that sentence.
+  "ai_suggestions_unknown",
   // This person already has a call in flight. See beginCall for what this does and
   // does not guarantee.
   "busy",
@@ -425,6 +454,233 @@ export async function checkSuspension(
     return { allowed: false, why: "suspended" };
   }
   return { allowed: true };
+}
+
+// ---------------------------------------------------------------------------
+// The consent check -- the thing that decides whether anybody's task title
+// leaves this project at all
+// ---------------------------------------------------------------------------
+//
+// Issue #211, and docs/plan.md's "AI suggestions -- the consent setting". That
+// section says where this has to be, and says it twice:
+//
+//   "suggest-subtasks sends nothing to the AI service unless the setting is on, and
+//   that is checked in the function -- in the same place and for the same reason the
+//   suspension check is there: the function holds the key, so the function is the only
+//   thing that can decide not to spend it. A screen that hid the button would not be
+//   this, and a screen is not where a rule lives."
+//
+// The screen does hide the button (web/src/app/tasks/page.tsx), and that is a
+// courtesy. THIS is the control. A signed-in person with a token and curl reaches
+// this function without ever drawing a screen.
+//
+// ---------------------------------------------------------------------------
+// HOW IT READS THE SETTING, AND WHY -- which issue #211 asks to be said out loud
+// ---------------------------------------------------------------------------
+//
+// THE ADMIN CONNECTION, BY USER ID. `ctx.supabaseAdmin`, selecting the one column
+// for `user_id = callerId`. NOT the caller's rights through public.my_ai_suggestions().
+//
+// That is not a preference. 20261007204900_ai_suggestions_consent.sql -- applied to
+// staging and to production before this function was written -- took the execute
+// grant on that function away from service_role by name, and its section 3 says
+// why, and says what this function must do instead:
+//
+//   "service_role is revoked too [...] for the same reason is_active() must never be
+//   called by a server function: an admin-client connection has no signed-in user, so
+//   auth.uid() is null, so this function would answer false for every caller and would
+//   do it without an error. suggest-subtasks must read the column for a specific user
+//   id instead, which is what the service_role select in section 4 is for."
+//
+// So the migration's `grant select (ai_suggestions_enabled, ai_suggestions_changed_at)
+// on table public.profiles to service_role` is the grant this read uses, and it exists
+// for this read and nothing else.
+//
+// AND WHAT ABOUT CALLING IT AS THE CALLER, through ctx.supabase? `authenticated` does
+// hold the execute grant, so the call would work -- and it would be structurally
+// incapable of reading somebody else's setting, because my_ai_suggestions() takes no
+// arguments. It was not chosen for two reasons. The migration is already applied and
+// says in its own comments that this function reads by user id, so the other choice
+// would leave a merged migration describing something that does not happen. And
+// my_ai_suggestions() folds the suspension check into its answer -- a suspended person
+// reads false -- which would quietly merge two refusals this function is required to
+// keep apart: a suspended caller must get `account_suspended` at 403, in the same
+// order as the other three doors, not a sentence about an AI setting.
+//
+// SO HOW IS "IT CANNOT READ SOMEBODY ELSE'S BY MISTAKE" MADE TRUE HERE, since an
+// admin read bypasses row-level security and the `.eq()` is the only thing choosing
+// the row? Three things, and the first is the one that matters:
+//
+//   * THE ID COMES FROM THE VERIFIED TOKEN AND NOWHERE ELSE. `ctx.userClaims.id`, the
+//     same value the suspension check above already used, read before the request body
+//     is parsed. Nothing from the body reaches this read -- the body is not even read
+//     yet when this runs -- so there is no value a caller can put anywhere that
+//     changes which row is selected. A request can lie about a task id; it cannot lie
+//     about this.
+//   * ONE COLUMN, AND IT IS A BOOLEAN. `ai_suggestions_enabled` and nothing else: not
+//     the timestamp, not display_name, not user_id. So even a read that somehow
+//     returned the wrong row would return a true or a false and nothing about a person.
+//   * THE READ IS PASSED IN, written out at the call site, so the `.eq("user_id",
+//     callerId)` is a line a reviewer sees rather than one buried in a helper. Same
+//     shape and same argument as AccountStatusRead above.
+//
+// ---------------------------------------------------------------------------
+// THREE NOTHINGS, AND ALL OF THEM MEAN "DO NOT SEND"
+// ---------------------------------------------------------------------------
+//
+// Issue #211: "Off, no profile row, and a setting that cannot be read are all treated
+// as off." They are, in the sense that matters -- nothing is sent to the AI service in
+// any of the three -- and they come out as TWO answers rather than three, because what
+// the person should be told differs:
+//
+//   off, explicitly                 -> consentOffRefusal(): their own choice, and they
+//   no profile row (so off,         can change it. docs/plan.md: the setting is "Off
+//   which is what the plan means    for everyone -- including every account that
+//   by "off for everyone")          already exists on the day it arrives", so a person
+//                                   with no row has not switched it on, and telling
+//                                   them it is off is true.
+//   the read did not answer         -> unavailableAnswer("ai_suggestions_unknown"):
+//                                   the fixed sentence. Telling somebody their setting
+//                                   is off when this code could not read it would be
+//                                   stating something unknown as a fact, and the
+//                                   plan names this sentence for this case.
+//
+// NOTHING IS LOGGED FOR THE OFF CASE, on purpose, and that is `busy`'s argument rather
+// than `not_configured`'s: a person who has not switched a setting on is not news, and
+// a log line every time somebody presses a button they have not consented to is a log
+// line that makes the real ones harder to find. The unknown case IS logged, because a
+// read that stopped working is something the owner needs to know about.
+
+// Its own code, like SUSPENDED_CODE above and for the same reason: this refusal has
+// its own sentence, so it is not one of the SUGGEST_CODES.
+export const AI_SUGGESTIONS_OFF_CODE = "ai_suggestions_off";
+
+// THE SENTENCE. It says what happened and what did not, in the plan's own words for
+// the setting ("AI suggestions"), and it names no company, no model, no key and no
+// status. "so nothing was sent" is the half worth having: the person pressed a button
+// that sends their task's title somewhere, and the one thing they need to know is that
+// it did not go.
+//
+// WHERE THEY SWITCH IT ON IS NOT IN THIS SENTENCE, and that is deliberate. A function
+// does not know this app's addresses -- it is deployed separately and may be older than
+// the screens -- so a path written here could send somebody to a page that has moved.
+// The screen says where (web/src/lib/consent.ts), and the screen is the thing that can
+// link to it.
+export const AI_SUGGESTIONS_OFF_MESSAGE =
+  "AI suggestions are switched off for your account, so nothing was sent.";
+
+// Exported so the test reads the body THIS function sends.
+export function consentOffRefusal(): Response {
+  return fail(AI_SUGGESTIONS_OFF_MESSAGE, 403, AI_SUGGESTIONS_OFF_CODE);
+}
+
+// Three answers, not two, for checkSuspension's reason: "I could not tell" is not a
+// yes and is not the same news as "no".
+export type ConsentVerdict =
+  | { consented: true }
+  | { consented: false; why: "off" }
+  | { consented: false; why: "unknown"; code?: string };
+
+// Same shape as AccountStatusRead and TaskTitleRead, and passed in for the same two
+// reasons: a test can hand this a read that FAILS and prove the fail-closed branch
+// with no database, and the query stays written out at the call site.
+export type AiConsentRead = () => PromiseLike<{
+  data: unknown;
+  error: { code?: string } | null;
+}>;
+
+// Has this person switched AI suggestions on? Exported so the test runs THIS function
+// rather than a copy of it.
+export async function checkAiConsent(
+  read: AiConsentRead,
+): Promise<ConsentVerdict> {
+  let answer: { data: unknown; error: { code?: string } | null };
+  try {
+    answer = await read();
+  } catch {
+    // A thrown error -- the network, the client itself. Nothing about the cause is
+    // returned or logged.
+    return { consented: false, why: "unknown" };
+  }
+
+  // Lesson F14: the error AND what came back.
+  if (answer?.error) {
+    return { consented: false, why: "unknown", code: answer.error.code };
+  }
+  if (!Array.isArray(answer?.data)) {
+    // No error and no array either: an unanswered question, not an empty one.
+    return { consented: false, why: "unknown" };
+  }
+  if (answer.data.length === 0) {
+    // NO PROFILE ROW, which is the ordinary state of a new account -- there is no
+    // trigger on auth.users and display_name is not null with no default, so an
+    // account has no profile until somebody saves a nickname. The setting is off for
+    // everyone who has not switched it on, and that includes everyone with no row to
+    // switch it in.
+    return { consented: false, why: "off" };
+  }
+
+  const row = answer.data[0] as { ai_suggestions_enabled?: unknown };
+
+  // `=== true` AND `=== false`, with everything else falling through to unknown.
+  // Nothing truthy, nothing falsy: the column is `boolean not null`, so a value that
+  // is neither of those two did not come out of that column, and guessing which way
+  // to read it is exactly the guess docs/plan.md forbids ("A failed read is not a
+  // yes"). A string "false" is truthy in JavaScript, which is the mistake this line
+  // is written to make impossible.
+  if (row?.ai_suggestions_enabled === true) return { consented: true };
+  if (row?.ai_suggestions_enabled === false) {
+    return { consented: false, why: "off" };
+  }
+  return { consented: false, why: "unknown" };
+}
+
+// THE GATE. The handler calls this and nothing else: either it answers, or it calls
+// `proceed` and answers with whatever that returns.
+//
+// WHY IT IS SHAPED AS A WRAPPER RATHER THAN A CHECK FOLLOWED BY AN `if`. Because the
+// thing that has to be proved is a NEGATIVE -- that with the setting off, no task is
+// read and nothing reaches the AI service -- and a negative about an order cannot be
+// proved by testing the pieces one at a time. A test can ask an `if` what it decides;
+// it cannot ask it what did not run after it.
+//
+// With this shape it can. `proceed` IS the rest of the handler, so the test hands
+// withConsent a `proceed` that would read a task and call a stubbed AI service, and
+// then asserts that the stub was never called and the read never made. That is a fact
+// about this function, not about a copy of its order written out in a test file --
+// which is the argument the whole test file beside this one rests on.
+//
+// AND THE OVER-CORRECTION IS GUARDED FROM THE OTHER SIDE: a gate that refused
+// everybody would pass that test too, so the same section asserts that a setting that
+// IS on calls `proceed` exactly once and returns its answer untouched.
+export async function withConsent(
+  read: AiConsentRead,
+  proceed: () => Promise<Response>,
+): Promise<Response> {
+  const consent = await checkAiConsent(read);
+
+  if (consent.consented) return await proceed();
+
+  if (consent.why === "off") {
+    // Not logged. See the note above: a person who has not switched a setting on is
+    // not news, and a log line per press is a log line that makes the real ones
+    // harder to find.
+    return consentOffRefusal();
+  }
+
+  // The read did not answer, so whether this person has consented is NOT KNOWN -- and
+  // an unknown is not a yes. docs/plan.md names the fixed sentence for this case,
+  // which is what unavailableAnswer sends.
+  //
+  // The Postgres error code, if there was one, goes no further than checkAiConsent's
+  // return value: it is not in the body and not in the line below, because a database
+  // error code is a fact about this app's plumbing. Nor is the caller's id.
+  console.error(
+    "suggest-subtasks: the AI-suggestions consent setting could not be read, so " +
+      "nothing was sent. Code: ai_suggestions_unknown. No user id, title or " +
+      "database message is logged.",
+  );
+  return unavailableAnswer("ai_suggestions_unknown");
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +934,7 @@ export function readApiKey(
 // WHY READING THE MESSAGE AT ALL IS ALLOWED HERE, when nothing the service says may
 // reach a body or a log. Because this is a CLASSIFICATION and not a disclosure: the
 // two strings below are OUR constants, the test is `startsWith`, and what comes out
-// is one of this file's own eleven words. Not one character of the service's message
+// is one of this file's own fixed words. Not one character of the service's message
 // is kept, returned, logged or compared against anything else. A 400 is otherwise
 // indistinguishable from a bad request of our own making, and issue #183 asks for
 // "spend limit reached" to have its own code -- which cannot be done from the status
@@ -1094,160 +1350,199 @@ export default {
       );
     }
 
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return fail("Expected a JSON body with a task id.", 400);
-    }
-
-    // ---- A TASK ID, NEVER A TITLE ----------------------------------------
+    // ---- Has this person switched AI suggestions on? ---------------------
     //
-    // ISSUE #183: "The caller sends a task ID, never a title."
+    // AFTER THE DOORS AND BEFORE EVERYTHING ELSE, which is where issue #211 puts it:
+    // "After the door checks and before anything is read or sent", and "The check
+    // comes before the task is read, so a person who has not consented causes no task
+    // read at all."
     //
-    // Why that is the whole design rather than a detail: a function that took a
-    // title would send Anthropic whatever string the caller put in the body, which
-    // is a signed-in person's arbitrary text with nothing in front of it. Taking an
-    // id means the only text that can leave this project is text that is already in
-    // this database AND that this caller is allowed to read -- two facts the
-    // database establishes, not this code.
-    const rawTaskId = (body as { task_id?: unknown } | null)?.task_id;
-    if (typeof rawTaskId !== "string" || rawTaskId.trim() === "") {
-      return fail("Which task are the suggestions for?", 400);
-    }
-    const taskId = rawTaskId.trim();
-
-    // Checked BEFORE any database call, for invite-member's reason: tasks.id is a
-    // uuid column, and anything else makes Postgres refuse the cast with 22P02,
-    // which would arrive as a failed read and be answered as though the server
-    // broke.
-    if (!UUID_PATTERN.test(taskId)) {
-      return fail("That is not a valid task id.", 400);
-    }
-
-    // ---- One call at a time per person ------------------------------------
+    // It is before `await req.json()` as well, which is more than the issue asks for
+    // and costs nothing: this check needs nothing from the body, so a person who has
+    // not consented causes no body parse, no task read, no key read and no request.
+    // The only thing their press costs is one boolean read of their own row.
     //
-    // Taken before the task is read and released in the `finally` below, so every
-    // path out of the rest of this handler -- an answer, a refusal, a thrown error
-    // -- gives it back.
-    if (!beginCall(callerId)) {
-      // Not logged. "Somebody pressed the button twice" is not news, and a log line
-      // per double-click is a log line that makes the real ones harder to find.
-      return unavailableAnswer("busy");
-    }
-
-    try {
-      // ---- The task, read with the CALLER'S OWN RIGHTS -------------------
-      //
-      // ctx.supabase, not ctx.supabaseAdmin. See the long note beside readTaskTitle:
-      // this is the one read in this project that wants the row-level rules to
-      // apply, because the rules are what decide whose task titles may leave.
-      const task = await readTaskTitle(() =>
-        ctx.supabase
-          .from("tasks")
-          .select("title")
-          .eq("id", taskId)
-          .limit(1)
-      );
-
-      if (!task.ok) {
-        if (task.why === "unknown") {
-          // The read did not answer. NOT a 404: claiming the task does not exist
-          // would be claiming something this code does not know, and the person
-          // would go looking for a task that is sitting there.
-          return fail(
-            "Could not read that task, so no suggestions were asked for. Please try again.",
-            500,
-            task.code,
-          );
+    // THE ORDER OF EVERY REFUSAL THAT WAS ALREADY HERE IS UNCHANGED. 401 for no
+    // caller, then `account_suspended` at 403, then the 500 for a suspension check
+    // that did not answer -- all above this line, in the order and with the statuses
+    // and bodies they have had since Build it 20. Below it, the 400s for a malformed
+    // body and a bad id, `busy`, the 404, `not_configured`, and the rest, in their
+    // own unchanged order.
+    // THE GATE ITSELF IS ONE EXPORTED FUNCTION, AND EVERYTHING BEHIND IT IS THE
+    // SECOND ARGUMENT. That shape is not decoration: it is what makes
+    // "with the setting off, the task is never read and nothing is sent"
+    // something a test can establish about THIS handler rather than about a copy of
+    // its order written out in a test file. withConsent either calls `proceed` or
+    // answers without it, and the test hands it a `proceed` that would read a task
+    // and call a stubbed AI service, then asserts neither happened.
+    //
+    // The read is written out here, at the call site, so the `.eq("user_id",
+    // callerId)` is a line a reviewer sees. callerId is the verified token's id and
+    // nothing from the request body has been parsed at this point.
+    return await withConsent(
+      () =>
+        ctx.supabaseAdmin
+          .from("profiles")
+          .select("ai_suggestions_enabled")
+          .eq("user_id", callerId)
+          .limit(1),
+      async () => {
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return fail("Expected a JSON body with a task id.", 400);
         }
-        // "missing" and "unusable" both answer the same 404. A task the caller
-        // cannot see is indistinguishable from one that is not there, which is the
-        // point; and a row whose title this code cannot use is, as far as this
-        // feature goes, not a task it can suggest anything about.
-        return taskNotFoundAnswer();
-      }
 
-      // ---- Is this environment set up to ask? ----------------------------
-      //
-      // AFTER the task has been read, so that a task the caller may not see answers
-      // 404 on production -- where there is no key -- exactly as it does on staging.
-      // The other order would leak the difference: "not available" for every id
-      // would tell a caller nothing, but "not available" for ids that exist and 404
-      // for ids that do not would tell them which uuids are real.
-      const apiKey = readApiKey();
-      if (apiKey === "") {
-        // PRODUCTION'S NORMAL STATE UNTIL BUILD IT 21, not a breakage. Logged at
-        // info rather than error for exactly that reason, and it names the setting,
-        // never a value.
-        console.log(
-          "suggest-subtasks: AI_API_KEY is not set in this environment, so nothing was sent. " +
-            "Code: not_configured. No value is logged.",
-        );
-        return unavailableAnswer("not_configured");
-      }
+        // ---- A TASK ID, NEVER A TITLE ----------------------------------------
+        //
+        // ISSUE #183: "The caller sends a task ID, never a title."
+        //
+        // Why that is the whole design rather than a detail: a function that took a
+        // title would send Anthropic whatever string the caller put in the body, which
+        // is a signed-in person's arbitrary text with nothing in front of it. Taking an
+        // id means the only text that can leave this project is text that is already in
+        // this database AND that this caller is allowed to read -- two facts the
+        // database establishes, not this code.
+        const rawTaskId = (body as { task_id?: unknown } | null)?.task_id;
+        if (typeof rawTaskId !== "string" || rawTaskId.trim() === "") {
+          return fail("Which task are the suggestions for?", 400);
+        }
+        const taskId = rawTaskId.trim();
 
-      const model = chooseModel();
-      if (!model.ok) {
-        console.error(
-          "suggest-subtasks: approved-models.json has no single entry marked \"use\": true " +
-            "with a model name, so nothing was sent. Code: no_model.",
-        );
-        return unavailableAnswer("no_model");
-      }
+        // Checked BEFORE any database call, for invite-member's reason: tasks.id is a
+        // uuid column, and anything else makes Postgres refuse the cast with 22P02,
+        // which would arrive as a failed read and be answered as though the server
+        // broke.
+        if (!UUID_PATTERN.test(taskId)) {
+          return fail("That is not a valid task id.", 400);
+        }
 
-      // ---- The call -----------------------------------------------------
-      const answer = await callAnthropic(
-        buildAnthropicRequest({ model: model.model, title: task.title, apiKey }),
-      );
+        // ---- One call at a time per person ------------------------------------
+        //
+        // Taken before the task is read and released in the `finally` below, so every
+        // path out of the rest of this handler -- an answer, a refusal, a thrown error
+        // -- gives it back.
+        if (!beginCall(callerId)) {
+          // Not logged. "Somebody pressed the button twice" is not news, and a log line
+          // per double-click is a log line that makes the real ones harder to find.
+          return unavailableAnswer("busy");
+        }
 
-      if (!answer.ok) {
-        // No status: the request was never answered. The code says which of the two
-        // reasons it was.
-        console.error(
-          `suggest-subtasks: no suggestions. HTTP status from the AI service: none. ` +
-            `Code: ${answer.code}. No title, reply or service message is logged.`,
-        );
-        return unavailableAnswer(answer.code);
-      }
+        try {
+          // ---- The task, read with the CALLER'S OWN RIGHTS -------------------
+          //
+          // ctx.supabase, not ctx.supabaseAdmin. See the long note beside readTaskTitle:
+          // this is the one read in this project that wants the row-level rules to
+          // apply, because the rules are what decide whose task titles may leave.
+          const task = await readTaskTitle(() =>
+            ctx.supabase
+              .from("tasks")
+              .select("title")
+              .eq("id", taskId)
+              .limit(1)
+          );
 
-      const fields = errorFields(answer.body);
-      const statusCode = judgeAnthropicStatus(answer.status, fields.type, fields.message);
+          if (!task.ok) {
+            if (task.why === "unknown") {
+              // The read did not answer. NOT a 404: claiming the task does not exist
+              // would be claiming something this code does not know, and the person
+              // would go looking for a task that is sitting there.
+              return fail(
+                "Could not read that task, so no suggestions were asked for. Please try again.",
+                500,
+                task.code,
+              );
+            }
+            // "missing" and "unusable" both answer the same 404. A task the caller
+            // cannot see is indistinguishable from one that is not there, which is the
+            // point; and a row whose title this code cannot use is, as far as this
+            // feature goes, not a task it can suggest anything about.
+            return taskNotFoundAnswer();
+          }
 
-      if (statusCode !== null) {
-        // THE STATUS AND THE CODE ONLY, which is what issue #183 asks for: "Log the
-        // status and the code only: never the title, the reply, or the service's
-        // words." The status is a number the service set and the code is one of nine
-        // words from the list in this file. Neither can carry anything somebody
-        // typed, and the error type and message that judgeAnthropicStatus just read
-        // go no further than that function.
-        console.error(
-          `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
-            `${answer.status}. Code: ${statusCode}. No title, reply or service ` +
-            `message is logged.`,
-        );
-        return unavailableAnswer(statusCode);
-      }
+          // ---- Is this environment set up to ask? ----------------------------
+          //
+          // AFTER the task has been read, so that a task the caller may not see answers
+          // 404 on production -- where there is no key -- exactly as it does on staging.
+          // The other order would leak the difference: "not available" for every id
+          // would tell a caller nothing, but "not available" for ids that exist and 404
+          // for ids that do not would tell them which uuids are real.
+          const apiKey = readApiKey();
+          if (apiKey === "") {
+            // PRODUCTION'S NORMAL STATE UNTIL BUILD IT 21, not a breakage. Logged at
+            // info rather than error for exactly that reason, and it names the setting,
+            // never a value.
+            console.log(
+              "suggest-subtasks: AI_API_KEY is not set in this environment, so nothing was sent. " +
+                "Code: not_configured. No value is logged.",
+            );
+            return unavailableAnswer("not_configured");
+          }
 
-      const verdict = readSuggestions(answer.body);
-      if (!verdict.ok) {
-        console.error(
-          `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
-            `${answer.status}. Code: ${verdict.code}. The reply was not up to five ` +
-            `short plain-text suggestions, and it is not logged.`,
-        );
-        return unavailableAnswer(verdict.code);
-      }
+          const model = chooseModel();
+          if (!model.ok) {
+            console.error(
+              "suggest-subtasks: approved-models.json has no single entry marked \"use\": true " +
+                "with a model name, so nothing was sent. Code: no_model.",
+            );
+            return unavailableAnswer("no_model");
+          }
 
-      // Nothing is logged on success. docs/plan.md decided "Logs: we add none of our
-      // own", and a count of suggestions would be the thin end of logging what they
-      // were.
-      return suggestionsAnswer(verdict.suggestions);
-    } finally {
-      // IN A FINALLY, so a thrown error, an abort or an early return cannot leave
-      // this person unable to ask again until their isolate is recycled.
-      endCall(callerId);
-    }
+          // ---- The call -----------------------------------------------------
+          const answer = await callAnthropic(
+            buildAnthropicRequest({ model: model.model, title: task.title, apiKey }),
+          );
+
+          if (!answer.ok) {
+            // No status: the request was never answered. The code says which of the two
+            // reasons it was.
+            console.error(
+              `suggest-subtasks: no suggestions. HTTP status from the AI service: none. ` +
+                `Code: ${answer.code}. No title, reply or service message is logged.`,
+            );
+            return unavailableAnswer(answer.code);
+          }
+
+          const fields = errorFields(answer.body);
+          const statusCode = judgeAnthropicStatus(answer.status, fields.type, fields.message);
+
+          if (statusCode !== null) {
+            // THE STATUS AND THE CODE ONLY, which is what issue #183 asks for: "Log the
+            // status and the code only: never the title, the reply, or the service's
+            // words." The status is a number the service set and the code is one of nine
+            // words from the list in this file. Neither can carry anything somebody
+            // typed, and the error type and message that judgeAnthropicStatus just read
+            // go no further than that function.
+            console.error(
+              `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
+                `${answer.status}. Code: ${statusCode}. No title, reply or service ` +
+                `message is logged.`,
+            );
+            return unavailableAnswer(statusCode);
+          }
+
+          const verdict = readSuggestions(answer.body);
+          if (!verdict.ok) {
+            console.error(
+              `suggest-subtasks: no suggestions. HTTP status from the AI service: ` +
+                `${answer.status}. Code: ${verdict.code}. The reply was not up to five ` +
+                `short plain-text suggestions, and it is not logged.`,
+            );
+            return unavailableAnswer(verdict.code);
+          }
+
+          // Nothing is logged on success. docs/plan.md decided "Logs: we add none of our
+          // own", and a count of suggestions would be the thin end of logging what they
+          // were.
+          return suggestionsAnswer(verdict.suggestions);
+        } finally {
+          // IN A FINALLY, so a thrown error, an abort or an early return cannot leave
+          // this person unable to ask again until their isolate is recycled.
+          endCall(callerId);
+        }
+      },
+    );
   }),
 };
 
@@ -1256,7 +1551,11 @@ export default {
 //
 // The console calls above print, between them, exactly three kinds of value: the
 // name of a setting that is not set, an HTTP status the AI service answered with,
-// and one of the eleven fixed codes from SUGGEST_CODES. That is all.
+// and one of the twelve fixed codes from SUGGEST_CODES. That is all.
+//
+// AND ONE OF THEM PRINTS NOTHING AT ALL: the consent refusal. See withConsent -- a
+// person who has not switched a setting on is not news, so the off case has no log
+// line, while the unreadable case has one carrying its code and nothing else.
 //
 // THEY NEVER PRINT:
 //   * the task's title, which is free text somebody typed and which docs/plan.md's

@@ -73,7 +73,7 @@ export function Header({
   account,
 }: {
   signedIn?: boolean;
-  current?: "tasks" | "teams";
+  current?: "tasks" | "teams" | "settings";
   account?: string | null;
 }) {
   return (
@@ -86,9 +86,17 @@ export function Header({
 
         {signedIn ? (
           <div className={styles.right}>
-            {/* Both pages are reachable from every signed-in screen. Before
+            {/* Every signed-in page is reachable from every other one. Before
                 this, /teams could only be opened by typing the address, and
-                /tasks only from the front page. */}
+                /tasks only from the front page.
+
+                SETTINGS IS HERE BECAUSE OF WHAT IS ON IT. It holds the AI
+                suggestions switch (Build it 21, issue #211), which decides
+                whether a task's title leaves this project -- and docs/plan.md
+                makes a point of it: "A setting is not consent if the person
+                switching it on cannot find out what it sends." A setting
+                reachable only by typing an address is not findable, so it is in
+                the same place as the other two pages. */}
             <nav className={styles.nav} aria-label="Your pages">
               <Link
                 className={styles.navLink}
@@ -103,6 +111,13 @@ export function Header({
                 aria-current={current === "teams" ? "page" : undefined}
               >
                 My teams
+              </Link>
+              <Link
+                className={styles.navLink}
+                href="/settings"
+                aria-current={current === "settings" ? "page" : undefined}
+              >
+                Settings
               </Link>
             </nav>
 

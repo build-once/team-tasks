@@ -341,7 +341,7 @@ free text that could contain absolutely anything.
 | The signed-in person's user ID, attached to an error report | Tells the owner whether one person or everyone is hitting an error, without an address | Sentry — as the row above | Owner via Sentry; Sentry | **Not confirmed** — as the row above | **No way in the app** — it is what the owner searches by to delete the events; **not yet tried** | No on its own — it is not an address — but it links a person to everything else in the report |
 | The caller's IP address on an error report | **Nothing** — Sentry stores one by default, and we do not want it | Sentry, unless switched off | Owner via Sentry; Sentry | **Owner to set, not yet reported**: the owner will switch on Sentry's setting that stops an IP being stored, and its default data scrubbing. Neither has been seen in the dashboard | Not user-deletable | **Yes** — IP address |
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
-| Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles` *(proposed column)* | The person whose setting it is; owner | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
+| Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
 
 ## Collecting less — decided
@@ -513,7 +513,41 @@ send it, and not sending it is always available.
 - **Not tried — asking Anthropic to delete one person's data.** No request has ever been sent, so the
   30-day and 2-year retention figures cited above are what Anthropic publishes, not something observed
   or exercised. Nothing identifying the asker is sent, so there would be nothing to search by.
-- **Unverified — the AI suggestions setting does not exist.** Written on 2026-10-07 as the thing to
-  build: there is no column, no screen, no check in `suggest-subtasks`, and no production key. Nothing in
-  this repository can show it refusing, because there is nothing to refuse with yet. "Seen to refuse with
-  it off", in the order of release above, is the step that settles it.
+- **The AI suggestions setting — what exists, and what still does not. Rewritten 2026-10-08, which is
+  what [#208](https://github.com/build-once/team-tasks/issues/208) asked for.** The sentence this
+  replaces said "there is no column, no screen, no check in `suggest-subtasks`, and no production key",
+  which was true when it was written on 7 October and stopped being true the next morning. Four claims,
+  taken one at a time:
+
+  - **The column exists, on staging and on production.** `20261007204900_ai_suggestions_consent.sql`
+    added `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at`, the trigger that
+    stamps the second, and `my_ai_suggestions()`. The owner applied it to **staging on 8 October 2026**
+    and the coach read the result back through the staging read-only connector: 9 migrations recorded,
+    newest `20261007204900`; the default false and not null; all 3 profile rows off; the function present
+    and `security definer`. **Production has it too**, applied by
+    `.github/workflows/migrate-production.yml` when PR #210 merged — run
+    [37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469), whose "Apply
+    migrations to production" step succeeded — **and read back the same day** through the production
+    read-only connector: both columns present and off, the function present, `anon` and `authenticated`
+    holding **no** table-level SELECT or UPDATE on `profiles`, `service_role` holding SELECT and **not**
+    UPDATE, and **no profile rows at all**, because nobody has signed up. That read is the one that says
+    what the statements left behind, which a green workflow run cannot — and the privilege half of it is
+    the fact this whole feature's privacy rests on. **None of it was done or seen by the assistant**: the
+    staging apply and both sets of connector reads are the owner's and the coach's, recorded in
+    `evidence/build-it-21-ai-consent-migration.md` and `evidence/production-log.md`, and the production
+    run's step conclusions were read with `gh run view --json`. Nobody writing this opened a dashboard.
+  - **The check in `suggest-subtasks` exists in this repository and is deployed to production, not to
+    staging.** Build it 21 part 2b added it: `withConsent` refuses a caller whose setting is off with its
+    own sentence and the code `ai_suggestions_off`, and refuses an unreadable setting with the fixed
+    sentence and `ai_suggestions_unknown`. Production gets every function on merge, through the same
+    workflow. **Staging is deployed by hand and has not been**, so the version running there is still
+    Build it 20's, with no consent check — `docs/environments.md` says where each thing stands.
+  - **The screen exists**: `/settings`, with the switch and the words. Nobody has opened it in a browser.
+  - **The production key is still not installed**, and all three of its preconditions are still open:
+    the setting has not been *seen to refuse* with it off on production, and there is no privacy page
+    ([#204](https://github.com/build-once/team-tasks/issues/204)).
+
+  So "seen to refuse with it off", in the order of release above, is still the step that settles it, and
+  it is still not done. What this repository can show today is the check refusing in Deno tests, with the
+  task never read and a stubbed service receiving nothing. A refusal from a **deployed** function is the
+  owner's staging run, and `scripts/staging/build-it-20-ai-checks.mjs` is what makes it.
