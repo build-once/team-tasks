@@ -1207,6 +1207,32 @@ project.
 
 ---
 
+## 11a. The checks that ran on this change
+
+Locally, before the commit — the two that read files this change touches:
+
+| Command | Result |
+|---|---|
+| `node scripts/friendly-words-check.mjs` | `45 of 45 checks passed`, exit 0. It reads `supabase/migrations`, so it is the local check this change could have broken |
+| `node scripts/approved-model-check.mjs` | `6 PASS, 0 FAIL`, exit 0. 260 text files read; no file names an unapproved model |
+
+And on the pull request, [run
+37778656947](https://github.com/build-once/team-tasks/actions/runs/37778656947), read with
+`gh pr checks 224 --watch`: **all 16 checks pass, `required` included** — Guard self-test, Skills lint,
+Launch check self-test, Workflow lint, Vet-tool self-test, Handoff self-test, Drift-check self-test,
+Pure-function checks, Staging script self-tests, Edge function tests (Deno), `npm test` on
+windows-latest and macos-latest, Secret scan (gitleaks), App build, App tests (access rules on staging),
+and `required` in 3s.
+
+**None of those checks tests this migration**, and that is worth saying rather than letting a green row
+imply otherwise. Nothing in CI applies a migration or starts a database; what the green run establishes
+is that **this change broke nothing that was already checked** — including `friendly-words-check`, which
+reads two other migration files, and the Deno tests over the four Edge Functions, none of which has heard
+of `usage_counts`. The proof of the migration itself is sections 3 to 10 of this file and lives nowhere
+else.
+
+---
+
 ## 12. Issues filed with this change
 
 Three, all filed in this session, each saying what is wrong, where it is, why it matters and how we will
