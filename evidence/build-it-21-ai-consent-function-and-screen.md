@@ -187,6 +187,51 @@ session that the new page exists at the address everything else links to:
 ├ ƒ /signup
 ```
 
+### 2.5 And CI's own numbers, which are the ones that count
+
+Everything in §2 above ran on this machine. The numbers CI measured on another, with its own pinned
+versions, are below — read from the three counting jobs' logs of run
+[37753549151](https://github.com/build-once/team-tasks/actions/runs/37753549151) on PR #214, with
+`gh run view --log --job=<id>`. **All 18 checks pass, `required` included.**
+
+```
+Edge function tests (Deno), with deno 2.9.7:
+  ok | 213 passed | 0 failed (448ms)
+  Counted 213 passing tests; at least 213 expected.
+
+Pure-function checks:
+  tasks-filter-check:   counted  47 PASS lines; at least  47 expected.
+  password-reset-check: counted  92 PASS lines; at least  84 expected.
+  sentry-scrub-check:   counted  95 PASS lines; at least  95 expected.
+  screen-state-check:   counted 158 PASS lines; at least 158 expected.
+  friendly-words-check: counted  45 PASS lines; at least  45 expected.
+  approved-model-check: counted   6 PASS lines; at least   6 expected.
+
+Staging script self-tests:
+  build-it-16-checks:                   counted  39 cases; at least  39 expected.
+  build-it-16-suspend-checks:           counted  40 cases; at least  40 expected.
+  build-it-18-invitation-status-checks: counted  57 cases; at least  57 expected.
+  build-it-20-ai-checks:                counted 110 cases; at least 110 expected.
+```
+
+The three numbers this change moved — **213**, **158** and **110** — are the same on CI as they are
+locally, which is the point of reading them rather than assuming: a count that only holds on one machine
+is a count that turns a pull request red on somebody else's. `deno 2.8.2` here against CI's `2.9.7`, and
+Linux against Windows, made no difference to any of them.
+
+**`password-reset-check` counting 92 against a floor of 84 is not this change's doing** and is not a
+fault: that number is a floor, somebody added eight checks without raising it, and a floor behaving that
+way is a floor working. It is noted because it appears in the output above and would otherwise look like
+something this change left behind.
+
+**One thing CI's green does NOT mean, said before anybody reads it as more than it is.** `App tests
+(access rules on staging)` passed in 13 seconds, against the staging database — which **does** now have
+the consent migration. That proves this branch's code breaks none of the existing access rules, which is
+worth having. It proves nothing about the consent check, because that job never calls
+`suggest-subtasks`: the function on staging is still Build it 20's. And `Edge function tests (Deno)` is
+where the consent check is actually exercised, with every read injected, so its green says nothing about
+any deployed function either.
+
 ---
 
 ## 3. Seen to fail first — three runs, and the third is the one that matters
