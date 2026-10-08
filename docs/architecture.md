@@ -425,7 +425,7 @@ interesting part:
 |---|---|---|
 | **`SELECT`** — see that a file is there, and get a signed link for it | the caller may see the task whose ID is the first segment of the path, **and** `is_active()` | A subquery on `public.tasks` inside the policy runs **as the caller**, so `tasks`' own policies apply to it. The storage rule therefore does not restate feature 5 — it **asks** it, and cannot drift from it |
 | **`INSERT`** — attach a file | the same question, plus `is_active()` — **and it is no longer the only thing in the way** | "the only RLS policy required for uploading objects is to grant the `INSERT` permission", from the page above. But the owner's decision of 2026-10-08 puts **the 100 MB per person on the server at upload**, and a policy cannot sum a person's other files. So this policy is now the **floor** rather than the control: it still refuses an upload onto somebody else's task, and something of ours stands in front of it to count — see below |
-| **`DELETE`** — remove a file | the same question, plus `is_active()`, **plus `owner_id = auth.uid()`** | **Only the uploader may delete a file**, decided by the owner on 2026-10-08. This is the one of the four policies that asks something about the file itself rather than only about its task, and it is why `owner_id` has to mean what `docs/plan.md` marks as not confirmed about it |
+| **`DELETE`** — remove a file | the same question, plus `is_active()`, **plus either `owner_id = auth.uid()` or the caller created the task** | **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** — decided by the owner on 2026-10-08. So this is the one of the four policies with a **second** condition beside the task question, and the only one that asks something about the file itself: which is why `owner_id` has to mean what `docs/plan.md` marks as not confirmed about it. The two halves come from different rows — `storage.objects.owner_id` for the uploader, `tasks.owner_id` for the creator — so the policy reads both, and a team mate who is neither gets no `DELETE` at all |
 | **`UPDATE`** | **none, on purpose** | Nothing in this design overwrites a file. Upsert is what would need `SELECT` and `UPDATE` together, and not offering it means a file's bytes never change under a link somebody already holds |
 
 **That `exists (select 1 from public.tasks where id = …)` shape is the thing to get right**, and it is the
@@ -512,10 +512,13 @@ service-role key already lives.
 **The owner decided on 2026-10-08 that leftover files are not acceptable.** Two mechanisms, and the second
 is the one that makes it a property of the system rather than of one code path:
 
-1. **The app deletes the files first, then the task, and refuses the whole thing if the files cannot be
-   removed.** The order is the right way round: files-then-task can fail halfway and leave a task with
-   fewer files, which is visible and recoverable; task-then-files fails halfway and leaves exactly the
-   orphan this exists to prevent.
+1. **The app deletes all the files first, then the task, under the creator's own rights, and refuses the
+   whole thing if any cannot be removed.** The order has **two** reasons. Failure: files-then-task can
+   fail halfway and leave a task with fewer files, which is visible and recoverable; task-then-files
+   fails halfway and leaves exactly the orphan this exists to prevent. And **permission**, which is the
+   stronger one — the creator's right to delete these files comes *from* the task, through the `DELETE`
+   policy above. Delete the task first and that right is gone, along with any row that could answer who
+   created it. So this is the only order in which the permission exists at all.
 2. **And the database refuses to delete a `tasks` row while files remain under `attachments/<task id>/`.**
    Whatever asked — a screen, a server function, the SQL editor, a cascade from somewhere else.
 
@@ -532,16 +535,32 @@ something anybody has to remember. **Not confirmed** — whether such a refusal 
 it fires on a direct delete has been neither read nor tried, and nothing of this is built. If it does not,
 the requirement stands and is simply no longer enforced here.
 
-**And one case this creates that nothing here resolves.** Only the uploader may delete a file; the
-database refuses to delete a task that still has files. So on a **team** task, its creator cannot delete
-it while another member's file is on it. `docs/plan.md` sets out the two plausible answers and chooses
-neither; [#234](https://github.com/build-once/team-tasks/issues/234) holds it. It is named here because
-whichever answer is taken changes the `DELETE` policy in the table above, or the authority of whatever
-performs the delete.
+**And the reason nothing here needs a privileged delete path, which is the quiet virtue of the owner's
+decision of 2026-10-08.** This section first said it created a case it could not resolve: with only the
+uploader able to delete a file, a team task's creator could not delete their own task while another
+member's file sat on it ([#234](https://github.com/build-once/team-tasks/issues/234)). The answer was to
+widen the `DELETE` policy rather than to widen anybody's *authority* — **a file may be deleted by whoever
+uploaded it or by whoever created its task** — and the consequence for this file is worth stating
+plainly:
+
+**no part of this app deletes anything with more power than the person asking for it.** The alternative
+answer would have been a delete path running with the service-role key, removing one person's file on
+another's instruction, bypassing every policy on the way through — and once a path like that exists, what
+it may do is a property of code rather than of a rule a reviewer can read. The thing that permits this
+deletion is instead the policy in the table above, which is exactly where this file says such decisions
+belong: "the database is what actually stops Bob."
+
+**What it does not grant.** A team mate who neither uploaded the file nor created the task gets no
+`DELETE` at all — they can see it and open it, and that is the whole of it. And the task's creator gains
+little she did not have: she could already destroy that file by deleting the whole task, which feature 4
+has always permitted. What is new is the finer version of it.
 
 ### What this section does NOT decide
 
-Four things, named so they are open questions rather than gaps somebody discovers while building:
+**Three** things, named so they are open questions rather than gaps somebody discovers while building.
+(This said four earlier on 2026-10-08. The fourth was who clears a file somebody else attached when the
+task has to go, and the owner settled it the same day — the paragraph above. Counted here, not
+remembered.)
 
 - **Which of the two upload shapes above is used**, and what an Edge Function will accept as a body. The
   **where** is decided — server code, before the file is accepted — and the **how** is not.
@@ -550,8 +569,6 @@ Four things, named so they are open questions rather than gaps somebody discover
   2026-10-08, held by [#235](https://github.com/build-once/team-tasks/issues/235). Whose job it is to walk
   a person's tasks and clear their files is that build's question, and guessing at it here would put an
   unreviewed design in this file.
-- **Who clears a file somebody else attached, when the task has to go** — the case two paragraphs above,
-  [#234](https://github.com/build-once/team-tasks/issues/234).
 - **Whether `storage.objects` records a last-opened time.** Two Supabase pages disagree, and if it does,
   this project will be holding when each person last opened each file. `docs/plan.md`'s "Unverified" list
   carries it, because it is a question about personal data before it is a question about architecture.
@@ -691,6 +708,13 @@ members of that team stop seeing each other's tasks, and which team a task used 
   100 MB in total — which no row-level rule can answer, because the rule would have to count rows the
   caller may not be able to see. The owner decided on 2026-10-08 that it is enforced on the server, which
   is the same answer "at most 3 teams per person" got and for the same reason.
+- **"May this person delete this file?"** — in the **database**, and it is the one storage question with
+  **two** ways to say yes: the person uploaded the file, or the person created the task it is on. The
+  owner's decision of 2026-10-08. Worth its own bullet because of what it avoids: deleting a task removes
+  all its files **under the creator's own rights**, so there is no delete path in this app that runs with
+  more authority than the person asking. The alternative would have been code holding the service-role
+  key removing one person's file on another's instruction — and what such a path may do is a property of
+  code rather than of a rule anybody can read.
 
 ## The parts
 

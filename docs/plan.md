@@ -454,15 +454,16 @@ already there. **Images and PDFs only, 5 MB each.** The files live in Supabase S
 project, and they are opened through a link that **expires after 5 minutes**.
 
 **Decided 2026-10-08, and this section was written before those decisions rather than after them.** It
-went to the owner with **five** open decisions and two things to accept or reject, and all seven came back
-settled the same day. Each is recorded in its place below; they are gathered here so the whole set is in
-one view, the way "Daily limits on what costs money" above gathers its nine.
+went to the owner with **five** open decisions and two things to accept or reject, all seven came back
+settled the same day, and **writing them down produced an eighth question that the owner then settled
+too** — the one in the "who may delete" row. Each is recorded in its place below; they are gathered here
+so the whole set is in one view, the way "Daily limits on what costs money" above gathers its nine.
 
 | | Decided |
 |---|---|
 | How many files per task | **3** |
 | How much per person in total | **100 MB**, and **enforced on the server at upload** — which is the half that decides where the check lives |
-| Who may delete a file | **Only the uploader** |
+| Who may delete a file | **The person who uploaded it, or the person who created its task. Nobody else.** Settled in two steps on the same day: "only the uploader" first, then the question that exposed ([#234](https://github.com/build-once/team-tasks/issues/234)) — and the owner's answer to that was a third option neither this section nor the issue had proposed |
 | Whether the upload box warns about what is inside a photograph | **Yes — one line beside the box**, saying a photo can carry where and when it was taken and that the app does not remove it |
 | Whether files may be left behind | **No. Not acceptable.** Deleting a task **deletes its files first** and is **refused if they cannot be removed**; and **the database refuses to delete a task that still has files**. Removing a person's files when an account is deleted is **a requirement of Build it 26** |
 | That a renamed file can get through | **Accepted as written.** The app promises the refusal and promises nothing about contents |
@@ -615,7 +616,7 @@ Which, read off the "Who may touch a task" table in `docs/architecture.md`, mean
 |---|---|---|---|
 | **See that a file is there, and open it** | yes | yes | **no** |
 | **Attach a file** | yes | yes | **no** |
-| **Delete a file** | yes | **only the file they attached themselves** | **no** |
+| **Delete a file** | yes | **only if they attached it, or they created the task** | **no** |
 
 **And a suspended person is refused all three**, the same way "Suspending an account" above refuses them
 everything else. The database rule on the bucket has to ask `is_active()` the way the existing table rules
@@ -624,41 +625,52 @@ suspended person cannot delete their own attachments either**, which is the same
 account-deletion gap that suspension already causes for tasks, and the "Two gaps" section below now says
 so about files too.
 
-**Only the uploader may delete a file. Decided by the owner on 2026-10-08**, against the one alternative,
-and both are kept here so the question is not re-argued from scratch later:
+**Who may delete a file: the person who uploaded it, or the person who created its task. Nobody else.
+Decided by the owner on 2026-10-08**, and it is **the owner's third answer rather than either of the two
+this section originally offered** — which is worth recording, because the question it settles was one the
+plan found rather than one it was asked.
 
-| | Why |
-|---|---|
-| **Only the uploader — chosen** | It is the rule feature 4 already chose for tasks, for the stated reason: "only the person who created a task can delete it, so nobody loses an entry because somebody else tidied up". A file is more costly to lose than a line of text — the person's copy may be gone from the phone that took it — so the argument that picked this rule for tasks is **stronger** here, not weaker |
-| **Anyone who can see the task — not chosen** | Simpler to explain, and it matches ticking and renaming rather than deleting. It was also the only one of the two that let a team clear up a file somebody attached and then left, since nobody can leave a team in this version and nobody can delete an account |
+**What the question was.** This section was first written proposing "only the uploader", chosen against
+"anyone who can see the task". The owner took "only the uploader" on 2026-10-08 — and writing it down
+beside the deletion decision below exposed a case neither answer covered. Alice creates a task in a team;
+Bob attaches a photo. Only Alice may delete the task (feature 4); only Bob may delete his file; and **the
+database refuses to delete a task that still has files**. So **Alice could not delete her own task**, and
+no screen could offer her a way through, because the only person who could clear the obstacle was Bob. It
+could not happen on a personal task — nobody else can see one, so its creator is its only possible
+uploader — and on a team task it was not rare but normal. It went back to the owner as
+[#234](https://github.com/build-once/team-tasks/issues/234) with the two answers the plan could see, and
+the answer that came back was neither.
 
-**What choosing it costs, stated rather than left to be discovered:** a file nobody wants can only be
-removed by the person who attached it, or by the operator in the dashboard. That is the same shape as a
-stranded task, and it is a real cost.
+**The rule now, in one line: a file may be deleted by its uploader, or by the creator of the task it is
+on.** Which is to say the task's creator is the custodian of the task *and everything hanging off it*,
+and that is the same person feature 4 already trusts with destroying the task outright.
 
-**And it collides with the deletion decision below, in one specific case. This is the one thing the
-owner's seven answers did not settle, and it is new rather than overlooked** — it exists *because* two of
-them were decided the way they were, and neither is wrong on its own.
+**Three things it gets right, and they are the reason it beats both of the originals.**
 
-Put the two side by side. **Only the uploader may delete a file.** And **the database refuses to delete a
-task that still has files.** Now: Alice creates a task in a team, Bob attaches a photo to it. Only Alice
-may delete the task — feature 4 — and only Bob may delete his file. So **Alice cannot delete her own
-task**, and no screen can offer her a way through, because the only person who can clear the obstacle is
-Bob.
+- **The deadlock is gone, without an exception.** Alice may delete Bob's file because she created the
+  task, so deleting her own task is something she can simply do. No code path needs permission the person
+  does not have, and no screen has to explain a thing a person cannot fix.
+- **It gives the task's creator almost nothing new.** She could already destroy Bob's photo by deleting
+  the whole task — feature 4 has always let her, and the deletion decision below means the files go with
+  it. What she gains is the *finer* version of a power she had: removing one file and keeping the task.
+  That is a real addition and a small one, and it is the right size.
+- **It keeps the reason "only the uploader" was proposed in the first place.** That reason was feature
+  4's: "only the person who created a task can delete it, so nobody loses an entry because somebody else
+  tidied up." **The person it protects against is a team mate at large** — Carol, who is in the team,
+  can see the task, and did not create it or upload the file. **Carol still cannot delete anything**, and
+  "anyone who can see the task" would have let her. So the protection survives; what changed is that it
+  is not also aimed at the one person who owns the thing the file is attached to.
 
-- **It cannot happen on a personal task.** Nobody else can see one, so its creator is the only possible
-  uploader, and that person is the same person. This is a team-task case only.
-- **It is not rare, either.** A task somebody else attached a photo to is the normal shape of this
-  feature working.
-- **Both plausible answers are somebody's call, not this document's.** Either the delete path is allowed
-  to remove files on the task it is deleting — which means removing Bob's file on Alice's instruction, and
-  reads as a departure from "only the uploader" unless that rule is read as being about *deleting a file*
-  rather than about *deleting a task* — or a team task with somebody else's file on it stays until that
-  person removes the file, which is a task nobody can finish with.
+**What it costs, stated rather than left to be discovered.** Bob's photo can be removed by somebody
+other than Bob, and he is not asked and not told. That is a genuine loss against "only the uploader" and
+the plan does not pretend otherwise — it is bounded by the fact that the person who can do it is the one
+person who could already have taken the whole task away, and by Bob being able to delete his own file
+whenever he likes.
 
-**So this plan does not choose.** It is filed as its own question, with the two answers and what each
-costs, because inventing a third here would be exactly the kind of quiet design decision rule 9 asks to
-be put in front of the owner first.
+**And one case is now narrower but not gone: a file nobody wants, on a task nobody will delete.** If Bob
+attaches something unwanted to Alice's task, Alice can remove it. If Bob attaches it to **his own** task
+in the team, only Bob can — he is both uploader and creator. So the operator in the dashboard is still
+the last resort, for a smaller set of cases than before.
 
 ### Links, and what an unexpired one allows
 
@@ -716,11 +728,25 @@ question has no yes for anybody. Only the operator, in the dashboard, could see 
 
 **Two things now stop that, and the second is the one that makes it true rather than intended:**
 
-1. **The app deletes the files, then the task — and refuses the whole thing if the files cannot be
-   removed.** Not "tries and carries on": a file that would not delete means the task stays, and the
-   person is told. The order matters and is the right way round. Files-then-task can fail halfway and
-   leave a task with fewer files than it had, which is recoverable and visible. Task-then-files fails
-   halfway and leaves exactly the orphan this decision exists to prevent.
+1. **The app deletes all the files, then the task — under the creator's own rights — and refuses the
+   whole thing if any of them cannot be removed.** Not "tries and carries on": a file that would not
+   delete means the task stays, and the person is told.
+
+   **"Under the creator's own rights" is the clause that matters, and it is the owner's decision of
+   2026-10-08.** The deletion runs **as the person asking**, with no more authority than they have
+   sitting at the screen — and it works because the rule above gives a task's creator the right to delete
+   the files on it. So **nothing in this app needs a privileged delete path**: the thing that permits it
+   is a database rule a reviewer can read, not code that acts on somebody's behalf with more power than
+   they have. That is the same preference this plan shows everywhere else — "the database is what
+   actually stops Bob" — applied to a destructive action rather than a read.
+
+   **And the order has two reasons now, not one.** The first is failure: files-then-task can fail halfway
+   and leave a task with fewer files than it had, which is visible and recoverable, where task-then-files
+   fails halfway and leaves exactly the orphan this decision exists to prevent. The second arrived with
+   the rights decision and is sharper — **the creator's right to delete the files comes *from* the task**.
+   Delete the task first and that right vanishes with it, along with any way of asking who created the
+   task the file hangs on. So the order is not a preference; it is the only order in which the permission
+   exists.
 2. **And the database refuses to delete a task that still has files**, whatever asked it to. This is the
    half that counts, for the same reason row-level security rather than a screen is what enforces feature
    5: *a rule that lives only in the app is a rule that holds until something else deletes the row.* A
@@ -739,11 +765,17 @@ and whether a refusal fires on a cascade the way it fires on a direct delete is 
 that this plan has not answered by reading or by trying. If it turns out not to, the Build it 26
 requirement is still a requirement and is simply no longer self-enforcing.
 
-**And "refused" has to mean something a person can act on.** A delete that fails with nothing useful
-behind it is worse than one that leaves an orphan, because the person tries again. What the screen says
-is not written here, beyond the one thing that must be true of it: it says **which** thing is in the way,
-because in the one case named in the section above the person is powerless and needs to know that rather
-than guess.
+**And what "refused" can now mean has narrowed, which is the second thing the rights decision bought.**
+Before it, the most likely reason a file could not be removed was **permission** — somebody else's file
+on your task, with no way through. That reason is gone: a task's creator may delete every file on their
+own task. So a refusal now means something went **wrong** rather than something is **not allowed** — a
+storage error, a request that did not arrive — which is a failure a person can reasonably retry, and a
+different conversation from being told they are powerless.
+
+It still has to mean something a person can act on. A delete that fails with nothing useful behind it is
+worse than one that leaves an orphan, because the person tries again blindly. What the screen says is not
+written here, beyond the one thing that must be true of it: **it says the task was not deleted**, plainly,
+rather than failing quietly and leaving somebody to find the task still there.
 
 **When the task moves between personal and a team: nothing is left behind, and nothing has to move.**
 The path is `attachments/<task id>/…` and the task's ID does not change when its `team_id` does, so
@@ -956,7 +988,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Nothing exists**: no bucket, no rule, no code. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **Only the uploader may delete a file** (decided 2026-10-08), which on a team task means a file somebody else attached is theirs to remove, not yours | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
+| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Nothing exists**: no bucket, no rule, no code. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
@@ -1363,22 +1395,30 @@ it rather than a reason to recount.
   cited there — read on 2026-10-08, with no connector and no browser used — which is how Supabase
   describes the service, not something observed in this project.
 - **Decided, so no longer open — the five decisions and two acceptances this section carried when it was
-  written on 2026-10-08.** Three files per task; 100 MB per person, **enforced on the server at upload**;
-  only the uploader may delete a file; one line beside the upload box about what is inside a photograph;
-  and **leftover files are not acceptable**, so deleting a task deletes its files and the database refuses
-  to delete a task that still has them, with the account half a requirement of Build it 26. Plus the two
-  that were put up to accept or reject: that a renamed file can get through (**accepted as written**), and
-  that the limits do not keep this inside the egress allowance (**recorded as written, with no egress
-  limit built now**). They are recorded in the section itself and gathered in its table. They are named
+  written on 2026-10-08, and the eighth question that writing them down produced.** Three files per task;
+  100 MB per person, **enforced on the server at upload**; one line beside the upload box about what is
+  inside a photograph; and **leftover files are not acceptable**, so deleting a task deletes its files and
+  the database refuses to delete a task that still has them, with the account half a requirement of Build
+  it 26. Plus the two that were put up to accept or reject: that a renamed file can get through
+  (**accepted as written**), and that the limits do not keep this inside the egress allowance (**recorded
+  as written, with no egress limit built now**).
+
+  **And the eighth, which was the one this list carried as open for part of that day:** who may delete a
+  file. "Only the uploader" was taken first, and writing it beside the deletion decision exposed a
+  deadlock — a team task whose creator could not delete it, because another member's file was on it and
+  only that member could remove it
+  ([#234](https://github.com/build-once/team-tasks/issues/234)). **The owner's answer was a third option
+  neither the plan nor the issue had proposed: a file may be deleted by whoever uploaded it, or by
+  whoever created its task, and by nobody else** — and **deleting a task removes all its files under the
+  creator's own rights**, so no part of this app deletes anything with more authority than the person
+  asking. All of it is recorded in the section itself and gathered in its table. They are named
   here so that somebody reading this list for open questions does not go looking for answers that are
   already above.
-- **ONE question the decisions created, and it is open: who clears a file somebody else attached, when the
-  task has to go?** Only the uploader may delete a file, and the database refuses to delete a task that
-  still has files — so on a **team** task, the creator cannot delete their own task while another
-  member's file is on it, and no screen can offer them a way through. It cannot happen on a personal task.
-  It is set out in "Who can read, upload and delete a file" above with the two plausible answers and what
-  each costs, and **this plan does not choose between them**:
-  [#234](https://github.com/build-once/team-tasks/issues/234).
+- **And one thing that followed from it rather than being decided — a privileged delete path is not
+  needed and is not designed.** Because the task's creator holds the right to delete the files on their
+  own task, the deletion runs as the person asking, permitted by a database rule rather than by code
+  acting on somebody's behalf. Nothing in the plan now asks for a delete that carries the service-role
+  key. **Nothing is built**, so this is a property of the design rather than of anything observed.
 - **Not confirmed — whether a refusal to delete a task that still has files also fires on a cascade.**
   The Build it 26 requirement is made self-enforcing by the expectation that deleting an account, which
   cascades to that person's tasks, would be refused the same way a direct delete is. That is a question

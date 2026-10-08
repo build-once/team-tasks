@@ -392,10 +392,25 @@ was written earlier on 2026-10-08, where two of them were proposals in front of 
 | **Cost of any of it** | Free plan has no overage | **$0** |
 
 **So storage is not where this bites, and the number to remember is ten.** At the plan's six people the
-proposal uses 60% of the free allowance; at **ten** people it uses all of it. That is the first limit in
+design uses 60% of the free allowance; at **ten** people it uses all of it. That is the first limit in
 this project whose binding constraint is **the size of the group** rather than the behaviour of one
 person, which is worth saying because every other ceiling on this page scales with use and this one
 scales with headcount.
+
+**And one thing about whose 100 MB it is, which the deletion decision of 2026-10-08 made worth writing
+down.** The total is per **uploader** — so a file Bob attaches to Alice's team task counts against
+**Bob's** 100 MB, not Alice's, even though it lives on her task and she is the one who may delete the
+task. Two consequences, neither of them a problem and both of them surprising the first time:
+
+- **Somebody else can free your allowance.** A file may be deleted by whoever uploaded it **or by
+  whoever created its task** (`docs/plan.md`), so Alice deleting Bob's photo — or deleting the task it is
+  on, which removes every file — gives Bob his space back without Bob doing anything.
+- **Nobody else can spend it.** The reverse does not hold: no action of Alice's can push Bob closer to his
+  100 MB, because only Bob's own uploads count against it. So the limit still bounds exactly one person's
+  behaviour, which is what makes it a limit rather than a shared pool.
+
+Both follow from keying the total to the uploader, which is also the only thing it *can* be keyed to —
+`storage.objects.owner_id` is the one field that says who put the file there.
 
 **Egress — this is where it bites, and the finding is the opposite way round:**
 
