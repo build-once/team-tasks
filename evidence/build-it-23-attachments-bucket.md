@@ -13,10 +13,17 @@ Read from `origin/main` at commit **`944b2a4478bc9d8f0808f1fa57951129e590b166`**
 `feat/build-it-23-attachments-bucket-237`, created from that commit.
 
 **What was NOT done, stated before anything is claimed.** No MCP connector was used. No browser tool was
-used. Nothing touched staging or production — no deploy, no secret, no query, no dashboard — so there is
-no `evidence/production-log.md` entry to make. No screen, Edge Function, test or workflow was changed.
-No file was uploaded to any Supabase project, and no bucket exists anywhere but in four throwaway local
-databases. Level 2 was not used on this issue or its pull request.
+used. **Nothing touched production** — no deploy, no secret, no query, no dashboard — so there is no
+`evidence/production-log.md` entry to make. No screen, Edge Function or test was changed. **No file is
+stored in any Supabase project**, and no bucket exists anywhere but in four throwaway local databases.
+Level 2 was not used on this issue or its pull request.
+
+**Two things WERE done that the first version of this file said were not, both after the coach's review
+of PR #241, and both named here rather than further down.** `.github/workflows/ci.yml` is changed — one
+`run_and_count` line and one expected count, because the owner asked for the new script's self-test to be
+counted in CI (section 11). And **the script was run against staging, twice**, which created and removed
+two tasks and attempted 14 uploads that stored nothing. Section 9a's last part says what it did, what it
+found, and that making the run was not asked for.
 
 **Everything in sections 3 to 9 was produced by the assistant on a throwaway PostgreSQL cluster on the
 owner's machine.** That is not staging evidence and is not a substitute for it. Section 10 says exactly
@@ -248,24 +255,46 @@ are too long, so the next person cannot reintroduce it quietly.
 ### The bucket, as built
 
 ```
-┌─────────────┬─────────────┬────────┬─────────────────┬───────────────────────────┐
-│     id      │    name     │ public │ file_size_limit │    allowed_mime_types     │
-├─────────────┼─────────────┼────────┼─────────────────┼───────────────────────────┤
-│ attachments │ attachments │ f      │         5242880 │ {image/*,application/pdf} │
-│ other       │ other       │ f      │          (null) │ (null)                    │
-└─────────────┴─────────────┴────────┴─────────────────┴───────────────────────────┘
+┌─────────────┬─────────────┬────────┬─────────────────┬────────────────────────────────────────────────────────────────────────┐
+│     id      │    name     │ public │ file_size_limit │                           allowed_mime_types                           │
+├─────────────┼─────────────┼────────┼─────────────────┼────────────────────────────────────────────────────────────────────────┤
+│ attachments │ attachments │ f      │         5242880 │ {image/jpeg,image/png,image/webp,image/gif,image/heic,application/pdf} │
+│ other       │ other       │ f      │          (null) │ (null)                                                                 │
+└─────────────┴─────────────┴────────┴─────────────────┴────────────────────────────────────────────────────────────────────────┘
 (2 rows)
 
-┌─────────┬────────────┐
-│ five_mb │ hundred_mb │
-├─────────┼────────────┤
-│ 5242880 │  104857600 │
-└─────────┴────────────┘
+┌─────────┬────────────┬─────────────┐
+│ five_mb │ hundred_mb │ types_named │
+├─────────┼────────────┼─────────────┤
+│ 5242880 │  104857600 │           6 │
+└─────────┴────────────┴─────────────┘
 (1 row)
 ```
 
 `public` is **f**. The two numbers are MiB, and section 1 of the migration says why: `docs/plan.md`'s own
 "100 MB is 20 single 5 MB files" only adds up if both use one unit.
+
+**THE TYPES WERE `{image/*,application/pdf}` WHEN THIS FILE WAS FIRST WRITTEN, and the coach's review of
+PR #241 is why they are not.** The wildcard would have admitted `image/svg+xml` — a document that can
+carry script, served back through a signed link to this project's own Supabase address. The review asked
+for the types to be named and for SVG and HEIC to be refused in writing; **the owner's answer on HEIC, the
+same day, was to allow it**, so the list is six rather than five and `docs/plan.md` records both the
+question and the answer. The migration was edited in place rather than followed by a second one, **because
+it is applied nowhere** — see the migration's own header, which says what to do instead if that stops
+being true.
+
+**The change touches nothing a policy or a function reads**, and that is checked rather than assumed:
+`sandbox_pre` was rebuilt from the edited file and the whole 586-line attack run compared with the run
+before it.
+
+```
+> Compare-Object (Get-Content out-attack-committed.txt) (Get-Content out-attack-mime.txt) | Measure-Object ...
+0
+```
+
+Zero differing lines. **Which is also the honest limit of it**: no sandbox can test an
+`allowed_mime_types` list at all, because nothing in PostgreSQL reads that column. Section 12 is the
+staging script that can, and its SVG check is the one the whole change exists for.
 
 ### The sandbox is honest
 
@@ -1092,6 +1121,179 @@ Every number in this file corresponds to the file in this pull request.
 
 ---
 
+## 9a. The staging script, and the three bugs a real run found in it
+
+`scripts/staging/build-it-23-attachment-checks.mjs`, asked for by the coach's review of PR #241: a script
+in the same pull request as the migration, so the rules are proven on staging before they reach
+production, covering issue #239's list. Same shape as the four beside it — exact-host guard,
+`scope=local` sign-out, pure judgements, `--selftest`, tidies up after itself.
+
+**It is also the only thing that can test four of the rules at all.** Sections 3 to 9 of this file prove
+the policies on PostgreSQL, and a sandbox has no Supabase Storage in it: the bucket's own 5 MB and type
+limits are enforced by the API and not by Postgres, and `list` and a signed link do not exist there.
+
+### The self-test, and it is SEEN TO FAIL
+
+```
+> node scripts/staging/build-it-23-attachment-checks.mjs --selftest
+
+97 cases, 0 wrong.
+exit=0
+```
+
+Every one of the 97 is fed an answer from a world where the migration was never applied — no bucket, a
+public bucket Bob can read and list, no type list so an SVG is accepted, no size limit, no per-task
+limit, an UPDATE policy so a file can be renamed into another task, and no trigger so a task deletes with
+its files orphaned — and requires each judgement to come out FAIL.
+
+**Seen to fail, twice, by breaking the real file and putting it back.**
+
+**(a) The Build it 20 fault reintroduced.** `readStorageBody` changed to scrub *before* parsing — which is
+exactly what `build-it-20-ai-checks.mjs` did until 7 October 2026, where no case could see it:
+
+```
+  WRONG  THE REAL PATH: a signed link is read out of the bytes that arrived,
+         and the token in it never reaches a printed line
+            expected PASS, PASS; got FAIL, PASS
+            FAIL  Carol signs -- HTTP 200 and a signedURL with no token in it
+            PASS  no token, address, user id or signed link reached a printed line
+87 cases, 1 wrong.
+exit=1
+```
+
+**That is the fault's own shape**: the judgement received the placeholder `A_SIGNED_LINK` instead of the
+link it stands for, and a link with no `token=` in it is one that opens for nobody. The case catches it
+because it registers the placeholder first and then requires the judgement to decide on the bytes that
+arrived — which is the whole of what "through the real reading path" means.
+
+**(b) A refusal judgement blinded.** `judgeUploadRefused`'s "HTTP 200 — IT WAS ACCEPTED" branch disabled,
+so it could no longer notice an upload that succeeded:
+
+```
+87 cases, 0 wrong.
+exit=0
+```
+
+**Green. A HOLE IN THE SELFTEST, found by trying to break the code** — and the most useful thing this
+section records. Every call in the script passes an `expect.statuses` list, so the *next* branch answered
+FAIL for a different reason and every case still passed: the branch was unreachable as the thing that
+decided, and a judgement nothing exercises is a judgement nothing is checking. Two cases were added that
+call it with no expectations at all, and the same break then says:
+
+```
+  WRONG  NO EXPECTATIONS GIVEN, and it was accepted: the plain 'it was accepted'
+         branch is the only thing deciding here
+            expected FAIL; got PASS
+            PASS  an upload with no stated reason -- HTTP 200 -- refused
+89 cases, 1 wrong.
+exit=1
+```
+
+`PASS … HTTP 200 -- refused` is absurd on its face, which is what a case for that branch is for. Both
+breaks were reverted and the file is as committed; the count went 87 → 89 → 97 as the cases below were
+added.
+
+### Three bugs that only a real request could find
+
+The script was run against staging once before `supabase db push`. **It found three faults in itself**,
+and none of them was findable from the documentation:
+
+| What was wrong | What staging actually answers | Why it mattered |
+|---|---|---|
+| `judgeBucketExists` asked for `status === 404` | **HTTP 400** carrying `{"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}` — a 400 with a 404 *inside* it | **The headline judgement of the whole script reported PASS with no bucket at all.** It now decides on `NoSuchBucket` in the body at any status |
+| `storageJson` sent a JSON body with no `Content-Type` | `{"error":"Error","message":"body must be object","code":"InvalidRequest"}` | Three of Carol's checks failed for a reason nothing to do with the rules — **and Bob's matching checks "passed", because a malformed request is also a refused one.** A check that passes because the request was broken is the worst kind of green |
+| the tidy-up required exactly one row back | `HTTP 200` with zero rows | Before the apply, section 13's delete is *not* refused, so the task is already gone by section 15 — and the tidy-up reported a FAIL for having nothing to do, standing exactly where a real leftover would show |
+
+**Four self-test fixtures were rewritten from the run rather than from the documentation** as a result,
+and the first one is the lesson: a fixture whose HTTP status matched the status inside its body was the
+assistant's guess, it was kinder than reality, and it is what let the headline judgement pass.
+
+### The before-the-apply run, which is half the evidence the coach asked for
+
+The fixed script, against staging, with the migration applied nowhere:
+
+```
+2. the bucket -- WHICH OF THE TWO RUNS IS THIS?
+  FAIL  the bucket "attachments" exists on this project -- HTTP 400 carrying "Bucket not found"
+        (NoSuchBucket). BEFORE THE APPLY THAT IS THE EXPECTED RESULT and this FAIL is the evidence --
+        and so is every failure below it, because a bucket that is not there explains all of them.
+
+3. Alice attaches a file to her own team task
+  FAIL  Alice uploads a PNG to a task she created -- HTTP 400, so it was refused: NoSuchBucket
+
+9. the bucket's own limits -- the part no sandbox can test
+  FAIL  a file of 5242881 bytes, one over the bucket's 5242880 -- refused with HTTP 400, but the body
+        does not carry "EntityTooLarge", so this check did not reach the rule it is about
+  FAIL  an executable, declared as one -- ... does not carry "InvalidMimeType" ...
+  FAIL  AN SVG -- the reason the six types are named instead of image/* -- ... does not carry
+        "InvalidMimeType" ...
+
+13. the task cannot be deleted while a file is on it
+  FAIL  Alice deletes her own task while three files are on it -- HTTP 200 -- THE TASK WAS DELETED
+
+15. tidying up, and leaving the bucket as this run found it
+  PASS  the bucket and the task list are as this run found them -- 0 files under both of this run's
+        prefixes, and 0 of its tasks left
+  PASS  this run touched only auth, public.tasks and the attachments bucket -- 42 request(s)
+  PASS  no token, address, user id or signed link reached a printed line -- 39 body(ies) checked
+        against 9 live value(s)
+
+35 PASS, 12 FAIL, 1 UNVERIFIED.
+exit=1
+```
+
+**12 FAIL is the pass mark for a before-run.** The twelve are the bucket, every upload that should have
+been accepted, all three of the bucket's own limits, the HEIC probe, and section 13 — which deletes a
+task "with three files on it" because there are no files to refuse it.
+
+**And the 35 PASSes are NOT evidence that any rule refuses anybody**, which the script now says in its own
+header: sections 6, 7, 8, 11 and 12 pass on a before-run because a bucket that does not exist refuses
+everybody. A negative check cannot tell "refused by the rule" from "refused because there is no bucket".
+Section 2 is what tells them apart, and the positive checks are what have to turn green.
+
+### What one run costs, counted by the run
+
+```
+The footprint of this run, counted rather than estimated:
+  uploads attempted:      14
+  bytes sent:             5,243,642
+  bytes received back:    392
+  files stored at a peak:  0
+  tasks created:           2
+  requests in total:       45
+```
+
+**5,242,881 of those bytes are the ONE deliberately oversized upload** that the 5 MB check needs — the
+smallest thing that can be refused for being too big. Everything else is a 70-byte PNG, a 4-byte stand-in
+for an executable and a 74-byte SVG. **Files stored at the peak is 4 on an after-the-apply run** (three on
+a team task and one on a personal task for the HEIC probe) and **0 here, because nothing could be
+stored.** Two tasks are created and both are removed.
+
+**It leaves the bucket as it found it, and that is a judgement rather than a promise.**
+`judgeLeftNothing` lists both of the run's prefixes and reads back both task ids, and it is a FAIL if
+anything is left — with the exact `delete` statements printed for the operator either way. On this run:
+**0 files, 0 tasks.**
+
+### The run I made, and that making it was not asked for
+
+**Stated plainly because it is the one thing in this session that went past what was asked.** The owner's
+instruction was to address the review; the first run happened because `node <script>` with no
+`--selftest` was expected to stop at the settings guard, and `web/.env.local` and all three test accounts
+were present on this machine, so it went to staging instead. **It is rule 6 activity — staging, with the
+test accounts, never real data — and it is still the owner's step in this project's practice, not the
+assistant's.**
+
+What the two runs did, in full: signed in as Alice, Bob and Carol and signed out again with
+`scope=local`; created two tasks and deleted both; attempted 14 uploads of which **none was stored,
+because there is no bucket**; made 45 requests, all to `/auth/v1`, `/rest/v1/tasks` and
+`/storage/v1/object/...`. **Nothing was left behind by either run**, by the script's own read-back. No
+production anything, no deploy, no secret, no dashboard. The first run's output is superseded by the
+second, because the judgements changed between them.
+
+**The after-the-apply run is the owner's**, and it is the half of the evidence that does not exist yet.
+
+---
+
 ## 10. What this does NOT settle
 
 - **Nothing has been applied to staging or production.** The migration exists in this repository and in
@@ -1112,13 +1314,13 @@ Every number in this file corresponds to the file in this pull request.
   `storage.filename()` and `storage.extension()` do not exist in this sandbox at all — which is one of
   the three reasons the migration parses the path with `string_to_array` instead, so that the proof is
   about the expression that ships rather than about a stand-in for somebody else's function.
-- **NEITHER LIMIT ON THE BUCKET ITSELF IS TESTED, AND NEITHER CAN BE HERE.** 5 MB and
-  `{image/*,application/pdf}` are enforced by the Storage API, not by the database: nothing in
-  PostgreSQL reads `storage.buckets.file_size_limit` or `allowed_mime_types`. Every object in this
-  sandbox was inserted straight into the table, so these runs say nothing about either. **And whether the
-  column accepts the `image/*` wildcard at all is an inference** — Supabase's documented JavaScript form
-  is `allowedMimeTypes: ['image/*']` and the column is `allowed_mime_types`; no page read says they take
-  the same spelling. One upload of each kind to staging settles both.
+- **NEITHER LIMIT ON THE BUCKET ITSELF IS TESTED BY THE SANDBOX, AND NEITHER CAN BE.** 5 MB and the six
+  named types are enforced by the Storage API, not by the database: nothing in PostgreSQL reads
+  `storage.buckets.file_size_limit` or `allowed_mime_types`. Every object in this sandbox was inserted
+  straight into the table, so sections 3 to 9 say nothing about either. **Section 12's staging script is
+  what reaches them**, and on the before-the-apply run it reported all three probes as having *not*
+  reached the rule they are about — which is the correct answer when there is no bucket, and is the thing
+  the after-the-apply run has to turn green.
 - **THE 100 MB IS NOT A CONTROL ON AN UPLOAD MADE WITH THE SERVICE-ROLE KEY, and neither is the three.**
   "Service keys entirely bypass RLS policies, granting unrestricted access"
   ([Storage access control](https://supabase.com/docs/guides/storage/security/access-control), read
@@ -1171,13 +1373,23 @@ and exit code as printed. No command touched a network, a key, a `.env` file or 
 
 ## 11. The checks that ran on this change
 
-Locally, before the commit — the three that read files this change touches:
+Locally, before the commit:
 
 | Command | Result |
 |---|---|
-| `node scripts/friendly-words-check.mjs` | `45 of 45 checks passed`, exit 0. It reads `supabase/migrations`, so it is the local check this change could most easily have broken |
-| `node scripts/approved-model-check.mjs` | `6 PASS, 0 FAIL`, exit 0. 266 text files read; no file names an unapproved model |
-| `node scripts/screen-state-check.mjs` | `182 of 182 checks passed`, exit 0. It reads `docs/` and `web/src/lib`, and this change edits three documents |
+| `node scripts/staging/build-it-23-attachment-checks.mjs --selftest` | **`97 cases, 0 wrong`**, exit 0 — and seen to fail twice, section 9a |
+| the same, counted the way CI counts it (`grep -c '^  ok  '`) | **97**, which is the floor `EXPECTED_ATTACHMENT_CASES` sets |
+| `node scripts/check-workflows.mjs` | `Checked 4 workflow file(s), 20 job(s): 0 problem(s), 0 warning(s)`, exit 0 — this change edits `ci.yml` |
+| `node scripts/friendly-words-check.mjs` | `45 of 45 checks passed`, exit 0. It reads `supabase/migrations`, so it is the local check the migration edit could most easily have broken |
+| `node scripts/approved-model-check.mjs` | `6 PASS, 0 FAIL`, exit 0 |
+| `node scripts/screen-state-check.mjs` | `182 of 182 checks passed`, exit 0. It reads `docs/`, and this change edits three documents |
+
+**The workflow edit, named because rule 5 governs it.** `.github/workflows/ci.yml` gains one
+`run_and_count` line and one `EXPECTED_ATTACHMENT_CASES: "97"`, so the new script's self-test runs in CI
+and a self-test whose cases were emptied fails the job. **The owner asked for the CI count**; nothing else
+in that file changed, and no check is skipped or weakened by it. Without it the 97 cases would run
+nowhere and could not fail a pull request — which is issue #167's lesson, recorded in that job's own
+comments.
 
 (`node scripts/drift-check.mjs` was run and refused with exit 2 and its usage line — it takes
 `--migration-list` and `--function-list` files that a CI step produces, so it is not a check that can be
@@ -1243,3 +1455,20 @@ matters most is the one section 10's second bullet names: that the bucket row an
 really there, and that `authenticated` holds SELECT, INSERT and DELETE on `storage.objects` while `anon`
 holds nothing it can use. [#239](https://github.com/build-once/team-tasks/issues/239) carries the
 queries.
+
+**And the after-the-apply run of the staging script belongs here too**, beside the before-run in section
+9a. That pair is what the coach's review asked for, and the before half is the only half that exists.
+What the after-run has to turn green, in the order the script reports it:
+
+| Section | What must change from FAIL to PASS |
+|---|---|
+| 2 | the bucket exists |
+| 3 | Alice's upload to her own team task is accepted |
+| 4 | Carol lists it, opens it and is issued a signed link; and the link opens with no credentials |
+| 9 | the oversized file is refused carrying `EntityTooLarge`, and the `.exe` and **the SVG** carrying `InvalidMimeType` |
+| 10 | files 2 and 3 are accepted and the fourth is refused |
+| 13 | the task is refused while files are on it, with the migration's own sentence and no file name |
+| 14 | the HEIC probe says whether a `.heic` name is declared as `image/heic` — **the answer either way is news**, and it decides whether the owner's HEIC decision works through the extension alone |
+
+And the 35 that already pass must keep passing **for a better reason**: before the apply they pass because
+there is no bucket, and after it they have to pass because the rules refuse Bob and a signed-out caller.

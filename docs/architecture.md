@@ -408,7 +408,15 @@ already checked. A public bucket would make every rule below decoration, which i
 the point this file makes about the publishable key: the key is safe only because RLS is on.
 
 **Two restrictions live on the bucket itself**, so they hold whoever is uploading and whatever screen they
-came from: **images and PDFs only**, and **5 MB**.
+came from: **six named types only — `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/heic`
+and `application/pdf`** — and **5 MB**.
+
+**The types are named rather than admitted by `image/*`, decided 2026-10-08 after the migration's
+review**, and the reason belongs here as well as in `docs/plan.md` because it is about this document's own
+subject: the wildcard would have accepted `image/svg+xml`, and an SVG is a document that can carry script.
+Arrow (13) below hands a browser a signed link to **this project's own Supabase address**, so an SVG
+served through it would be script running from this app's origin, out of a file nobody read before it was
+stored. **HEIC is the owner's addition** the same day, for iPhone photographs.
 
 **And here is the honest limit of that, because it decides what the app may claim.** Supabase checks the
 type the upload *declares*, and the declared type comes from the file's extension or from a `contentType`

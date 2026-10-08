@@ -284,12 +284,12 @@ jobs:
           run_and_count friendly-words-check scripts/friendly-words-check.mjs "$EXPECTED_FRIENDLY_WORDS_CHECKS"
           run_and_count approved-model-check scripts/approved-model-check.mjs "$EXPECTED_APPROVED_MODEL_CHECKS"
 
-  # The --selftest of the four staging scripts that have one: issues #114, #136,
-  # #167 and #183. A selftest here is the thing that makes a green staging run mean
-  # anything -- it feeds every judgement in the script an answer from a world
-  # where the door is open and requires each one to come out FAIL. None of them
-  # sends a request, reads web/.env.local or uses an account, so all four run here
-  # with no secret of any kind.
+  # The --selftest of the five staging scripts that have one: issues #114, #136,
+  # #167, #183 and the coach's review of PR #241. A selftest here is the thing that
+  # makes a green staging run mean anything -- it feeds every judgement in the
+  # script an answer from a world where the door is open and requires each one to
+  # come out FAIL. None of them sends a request, reads web/.env.local or uses an
+  # account, so all five run here with no secret of any kind.
   #
   # THE THIRD ARRIVED WITH ISSUE #167. build-it-18-invitation-status-checks.mjs was
   # added for Build it 18 part 2b and this job named only the other two by path, so
@@ -373,6 +373,31 @@ jobs:
       # job passes no flag and makes no request of any kind: --selftest returns before a
       # setting is read.
       EXPECTED_AI_CASES: "140"
+      # THE FIFTH ARRIVED WITH BUILD IT 23 (the coach's review of PR #241), which
+      # asks for a staging script in this pull request so the bucket's rules are
+      # proven on staging before they reach production. build-it-23-attachment-checks.mjs
+      # is the script the owner runs before and after `supabase db push`, and its 97
+      # cases are what make a green run from it mean something: they feed every
+      # judgement an answer from a world where the migration was never applied -- no
+      # bucket at all, a public bucket Bob can read and list, no type list so an SVG
+      # is accepted, no size limit, no per-task limit, an UPDATE policy so a file can
+      # be renamed into another task, and no trigger so a task deletes with its files
+      # orphaned -- and require each one to come out FAIL.
+      #
+      # Six of the 97 are there because BREAKING THE CODE ON PURPOSE FOUND HOLES IN
+      # THE SELFTEST ITSELF, which is the reason to count cases rather than trust an
+      # exit code. Two exercise judgeUploadRefused with no stated expectation, because
+      # deleting its "it was accepted" branch altogether left every other case green --
+      # the branch was unreachable as the thing that decided. Four carry the bodies
+      # staging REALLY sends, copied off a run rather than written from the
+      # documentation: Storage answers HTTP 400 with a 404 inside it, which is what let
+      # the headline judgement pass with no bucket at all.
+      #
+      # This job makes no request of any kind: --selftest returns before a setting is
+      # read, so it needs no key, no account and no network, the same as the four
+      # beside it. The staging run itself is NOT here and cannot be -- it needs the
+      # staging URL and all three test accounts, and it uploads about 5 MB.
+      EXPECTED_ATTACHMENT_CASES: "97"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -380,7 +405,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all four self-tests, and count the cases each one ran
+      - name: Run all five self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -407,6 +432,7 @@ jobs:
           run_and_count build-it-16-suspend-checks         scripts/staging/build-it-16-suspend-checks.mjs         "$EXPECTED_SUSPEND_CASES"
           run_and_count build-it-18-invitation-status-checks scripts/staging/build-it-18-invitation-status-checks.mjs "$EXPECTED_INVITATION_STATUS_CASES"
           run_and_count build-it-20-ai-checks                scripts/staging/build-it-20-ai-checks.mjs                "$EXPECTED_AI_CASES"
+          run_and_count build-it-23-attachment-checks        scripts/staging/build-it-23-attachment-checks.mjs        "$EXPECTED_ATTACHMENT_CASES"
 
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the

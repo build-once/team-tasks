@@ -604,7 +604,9 @@ that one process, and nothing writes them to disk.
 
 The names the scripts expect, as they are read in the code today:
 
-**Five** scripts read them today, and `scripts/staging/` holds all five:
+**Eight** scripts read them today, and `scripts/staging/` holds all eight. **This said "five" and listed
+five until 2026-10-08**, when the eighth was added and the count was checked by listing the directory
+rather than trusting the sentence; the three rows in the middle had been missing since Build it 18.
 
 | Short name | File | What it checks | Does it write? |
 |---|---|---|---|
@@ -613,12 +615,20 @@ The names the scripts expect, as they are read in the code today:
 | `tasks` | `build-it-15-checks.mjs` | the team **task** rules | **yes** — it creates tasks and deletes them again by id at the end of the run |
 | `doors` | `build-it-16-checks.mjs` | the three Edge Functions refuse a token that is present but not genuine, refuse somebody who does not own the team, and answer 404 for a team that does not exist | no — every request it sends is one a function must refuse, and the forged ones carry an empty body |
 | `suspend` | `build-it-16-suspend-checks.mjs` | the three Edge Functions refuse a **suspended** caller, and still answer an active one normally (issue #133) | no — every body it sends is one each function refuses on its own merits, so there is nothing to create |
+| `status` | `build-it-18-invitation-status-checks.mjs` | the deployed `invite-member` writes down what happened to an invitation's email, and the team's owner can read it | **yes** — one invitation, to one fixed plus-address, and **it cannot be deleted from the script**: `invitations` has no delete policy, so the owner removes the row by hand. The statement is printed at the end of every run |
+| `ai` | `build-it-20-ai-checks.mjs` | the deployed `suggest-subtasks`: what it sends, the consent setting, and today's limit | **yes**, and **it is the only one that COSTS MONEY** — metered requests to Anthropic. It creates a task and deletes it again |
+| `files` | `build-it-23-attachment-checks.mjs` | the rules on the `attachments` bucket: who may read, list, sign, upload and delete, the bucket's own 5 MB and six named types, three files per task, that nothing may be replaced or renamed, and that a task cannot be deleted while a file is on it | **yes** — two tasks and up to four files, **all removed at the end**, and a judgement that lists both prefixes to prove it. One run sends about **5 MB**, nearly all of it the one deliberately oversized upload the 5 MB check needs. **Run it before `supabase db push` and after**: before, it must fail |
 
 `suspend` needs one of `--expect-suspended` or `--expect-active`, and will not run without one: only
 the owner can add or remove a row in `account_status`, so the script has to be told which state it is
 looking at. Its own file explains the whole sequence, including the two SQL statements. `doors` takes
 one optional extra name, `EXPIRED_ACCESS_TOKEN`, and says UNVERIFIED for that one check when it is
 not set.
+
+**`files` reads all six account names and `ALICE_TEAM_ID`** — it is the only one that signs in as all
+three people and creates a task in a team, so the "Read by" column below is not exhaustive for it. Five
+of the eight have a `--selftest` that needs none of these and is run by CI: `doors`, `suspend`, `status`,
+`ai` and `files`.
 
 | Variable | Read by | What it is |
 |---|---|---|
