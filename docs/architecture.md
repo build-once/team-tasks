@@ -233,14 +233,14 @@ something to act on. See `docs/plan.md` → "Suggest subtasks — an outside AI 
 **No secret arrow starts at the web app.** There is no mobile app. If you ever find yourself
 wanting a secret in `web/` client code, the answer is a new server function, not an exception.
 
-## The daily usage count, and which functions write it
+## `usage_counts`, and which functions write it
 
 Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
 built**: there is no migration and no table. This section is the shape, agreed before anything is typed,
 which is what the top of this file says the whole document is for.
 
-**The table.** `daily_usage` *(proposed)* — one row per person, per feature, per day, holding four
-values and nothing else:
+**The table is called `usage_counts`** — named by the owner on 2026-10-08, and the name to use
+everywhere. One row per person, per feature, per day, holding four values and nothing else:
 
 | Column | What it is |
 |---|---|
@@ -253,12 +253,27 @@ The natural key is **(person, feature, day)**, so there is exactly one row per p
 day and a use is an increment rather than an insert. **No task id, no title, no invited address, no team
 id.** A row cannot be read backwards into what somebody was doing.
 
+**Rows live 7 days**, decided by the owner on 2026-10-08, **and the removal is part of the same
+statement that does the counting** — not a scheduled job, and not something anybody has to remember. So
+the write path is: refuse if today's count has reached the limit, otherwise increment today's row and
+delete this person's rows older than the window. One step.
+
 **Which functions write it: the two that spend money, and nothing else.**
 
 | Writes it | What it counts | Where in the order |
 |---|---|---|
 | `suggest-subtasks` | one metered request to Anthropic | after the door checks and the consent check, **immediately before** the call to the AI service |
-| `invite-member` | one email sent to the email service | after the door checks and the team's 20-pending check, **immediately before** the send |
+| `invite-member` | one email sent to the email service — **including a retry**, which sends a second one | after the door checks and the team's 20-pending check, **immediately before** the send |
+
+**Both write the count *before* the paid call and never take it back**, which is the owner's decision of
+2026-10-08 and the reason the increment sits where the table above says. A count written after the answer
+would make a loop of failures free, and a failing service is exactly when something retries. So the
+count can be **higher than the number of calls that reached anybody, and never lower** — `docs/plan.md`
+sets out why that is the right direction for an unknown to fail in.
+
+**The two limits come from one file**: `supabase/functions/_shared/limits.ts`, confirmed by the owner on
+2026-10-08, holding 20 and 20. A `_`-prefixed directory beside the functions rather than inside one,
+because both functions read it and neither owns it.
 
 **Nothing else writes it.** `create-team` and `accept-invite` spend nothing, so they have nothing to
 count. The web app cannot write it at all — same reason it cannot write `teams`: the table will have no
@@ -277,9 +292,12 @@ unreachable through the Data API, so the `revoke` is the lock that matters and t
 intended rather than an oversight. (Supabase's security advisor reports that as an
 `RLS-enabled-no-policy` notice, which is the table working as designed; `evidence/production-log.md`
 records the same notice being accepted for `account_status` on 4 October 2026.) `service_role` needs
-**select, insert and update** — it is what the two functions connect as — and needs **delete** as well if
-the owner chooses the retention option where the counting statement removes the person's old rows. It
-does **not** need anything else, and the operator reads it in the dashboard.
+**select, insert, update and delete** — it is what the two functions connect as, and **delete is needed
+because of the 7-day decision**: the statement that counts is also the statement that removes the
+person's rows older than the window, so the role doing the counting has to be able to delete. That is the
+one privilege this table needs that `account_status` does not, and it is a consequence of a retention
+choice rather than of anything about the counting. It needs nothing beyond those four, and the operator
+reads it in the dashboard.
 
 **It adds no secret and no new arrow.** Both writes happen inside functions that already hold the
 service-role key, on connections that already exist, so nothing crosses a boundary that was not already

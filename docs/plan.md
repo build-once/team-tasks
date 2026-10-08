@@ -252,10 +252,27 @@ because rule 9 asks for the plan before the code. Build it 22 is where it is bui
 written first, with no code, no migration and no table in existence on the day it was written.
 
 **What it is.** A count of how many times each person used each limited feature on each day, kept in this
-project's own database, and a refusal once that count has reached the day's limit. It is the thing
-"Suggest subtasks" above has been promising since 7 October — "**Usage counts and daily limits arrive in
-Build it 22.** They are not designed here and no number for them is written here" — and this is where
-they are designed and where the numbers are written.
+project's own database in a table called **`usage_counts`**, and a refusal once that count has reached the
+day's limit. It is the thing "Suggest subtasks" above has been promising since 7 October — "**Usage counts
+and daily limits arrive in Build it 22.** They are not designed here and no number for them is written
+here" — and this is where they are designed and where the numbers are written.
+
+**Decided 2026-10-08, and this section was written before those decisions rather than after them.** It
+went to the owner with **seven** open questions and one wording point, and all eight came back settled
+the same day. Each is recorded in its place below; they are gathered here so the whole set is in one
+view. **Nine rows for eight answers**, because one question — the names — covered two things:
+
+| | Decided |
+|---|---|
+| How long a count is kept | **7 days**, removed by the same statement that does the counting |
+| The two limits | **20 and 20**, unchanged, **with the arithmetic kept as written** in `docs/costs.md` — which says they are not the binding ceiling at six people |
+| A retry of an invitation | **Counts.** It sends a second email |
+| When the count is written | **Before the paid call, and never given back** |
+| The table's name | **`usage_counts`**, everywhere |
+| The config file | **`supabase/functions/_shared/limits.ts`**, as proposed |
+| The refusal's sentence | **Stands as written below**, and [#184](https://github.com/build-once/team-tasks/issues/184) is the one to update |
+| "It resets tomorrow" | **Stays**, with the inaccuracy for people not on UTC recorded rather than fixed |
+| The sign-up and reset emails | **Not counted.** Supabase's own rate limits hold them, and reading those is **Build it 25** |
 
 **What is stored, and nothing else:** the **person's ID**, the **feature**, the **day**, and the
 **count**. Four values. **Nothing about which task** and **nothing about which address**: not a task id,
@@ -272,30 +289,54 @@ the secret key and are what does the counting, and **the app's operator**, throu
 for a member of their own team. The person who can is whoever has the Supabase dashboard, which today is
 one person.
 
-**How long it is kept. Proposed here, and the owner's to decide — this is the one part of this section
-that is not settled.** The count's only job in the app is to answer "how many today", so yesterday's row
-is already useless for enforcement; everything past today is for the operator, and a row per person per
+**How long it is kept: 7 days, removed by the same statement that does the counting. Decided by the owner
+on 2026-10-08.** The count's only job in the app is to answer "how many today", so yesterday's row is
+already useless for enforcement; everything past today is for the operator, and a row per person per
 feature per day is a record of **which days somebody used this app**, which is the same kind of fact the
-appendix already flags about exact timestamps. Three options, with the recommendation first:
+appendix already flags about exact timestamps. A week is enough for the operator to tell a spike from a
+habit, and no more than that is kept.
 
-| Option | Keeps | Argument for | Argument against |
-|---|---|---|---|
-| **7 days, removed by the same statement that does the counting** — recommended | A week | A week is enough for the operator to tell a spike from a habit, and the removal happens on a path that is already writing, so it needs **no scheduler, no new dependency and no second thing to remember**. A retention period nobody enforces is not a retention period, and this one cannot drift because it runs on every use | One extra statement on every counted use, and the deletion is a side effect of counting rather than a job you can see running |
-| 35 days, removed by hand by the operator | Five weeks | Covers a month, so the operator can hold a month of counts against a month of Anthropic's billing | **Nobody will do it**, and then it is not a 35-day window, it is a permanent activity log that says it is a window |
-| Only today, older rows deleted on the next write | One day | Collects least, which is this plan's bias everywhere else | The operator loses the one view that would show a loop — "this person did 20 a day for six days" is the shape of a problem, and a single day cannot show it |
+**The removal is in code, not in a routine, and that is the half of the decision that matters.** It
+happens on a path that is already writing, so it needs **no scheduler, no new dependency and no second
+thing for anybody to remember** — and it cannot drift, because it runs on every use. A retention period
+that depends on somebody doing it is not a retention period; it is a permanent record wearing a window's
+label. The cost, stated rather than hidden: one extra statement on every counted use, and the deletion is
+a side effect of counting rather than a job you can watch run.
 
-**Deleted with the account**, whichever is chosen: the rows are keyed by the person's ID and go when the
-account goes. There is still no way to delete an account in this app, which the appendix's "Two gaps"
-section already says and this section does not improve.
+**The two options not chosen**, kept here on purpose so the question is not re-argued from scratch later,
+the way the "Collecting less — declined" list below keeps its reasons:
 
-**The limits: 20 AI suggestions and 20 invitations per person per day.** Both numbers live in **one
-config file**, not spelled at a call site and not in two places — the proposed path is
-`supabase/functions/_shared/limits.ts`, read by both `suggest-subtasks` and `invite-member`, and the
-code pull request settles it. Changing a limit is then a one-line change in one file, which is also what
-makes it reviewable: a limit nobody can find is a limit nobody can check. **Per person, not per team**:
-one person who owns three teams has 20 invitations a day in total, not 20 for each team. The existing
-limits are untouched and are different things — at most 20 **pending** invitations per team, at most 3
-teams per person, and a 7-day expiry — none of which caps how many a person may send in a day.
+| Not chosen | Why not |
+|---|---|
+| 35 days, removed by hand by the operator | It would cover a month, so a month of counts could be held against a month of Anthropic's billing. But **nobody will do it** — and then it is not a 35-day window, it is a permanent activity log that says it is a window |
+| Only today, older rows deleted on the next write | Collects least, which is this plan's bias everywhere else. But the operator loses the one view that would show a loop: "this person did 20 a day for six days" is the shape of a problem, and a single day cannot show it |
+
+**Deleted with the account.** The rows are keyed by the person's ID and go when the account goes. There is
+still no way to delete an account in this app, which the appendix's "Two gaps" section already says and
+this section does not improve.
+
+**The limits: 20 AI suggestions and 20 invitations per person per day. Confirmed by the owner on
+2026-10-08, after the arithmetic, and the arithmetic is kept as written.** That last clause is the
+decision, not a formality: `docs/costs.md` works out that at the plan's group size of about six, **20 a
+day is not the binding ceiling for either service** — Anthropic's worst case is above the 5-dollar spend
+limit, and 20 invitations each is above the email service's free daily quota. The numbers stand anyway,
+because **the two controls do different jobs**. The vendor cap stops the *bill*, properly, by refusing
+requests. What it cannot do is stop **one** person, or one retry loop, from using the whole month's
+allowance in an afternoon and leaving the other five with a helper that has stopped working. That is this
+limit's job, and 20 is sized for a volunteer's day rather than for the multiplication. The arithmetic is
+kept **because** it says so: a page that showed only the reassuring half would be the page somebody
+trusted later.
+
+Both numbers live in **one config file**: `supabase/functions/_shared/limits.ts`, the location proposed
+when this section was written and confirmed on 2026-10-08, read by both `suggest-subtasks` and
+`invite-member`. Not spelled at a call site and not in two places. Changing a limit is then a one-line
+change in one file, which is also what makes it reviewable: a limit nobody can find is a limit nobody can
+check.
+
+**Per person, not per team**: one person who owns three teams has 20 invitations a day in total, not 20
+for each team. The existing limits are untouched and are different things — at most 20 **pending**
+invitations per team, at most 3 teams per person, and a 7-day expiry — none of which caps how many a
+person may send in a day.
 
 **The day is a UTC day**, and the count is keyed by that date. Not the person's local day, because the
 app does not know what that is: nothing in this project stores a time zone, and a zone taken from the
@@ -311,23 +352,34 @@ rather than hidden:
   UTC days, or two local days can share one.
 - **The sentence below is approximate for them, and can be wrong by up to the offset.** Somebody at UTC−5
   who reaches the limit at 10:00 local gets their allowance back at 19:00 **the same local day**, and the
-  app will have told them "tomorrow". **The wording stays as it is**, because "it resets at 00:00 UTC" is
-  precise and means nothing to a volunteer, and because this app is for one group of about six. If that
-  trade is wrong, the wording is the owner's to change — not the limit.
+  app will have told them "tomorrow". **The wording stays, decided by the owner on 2026-10-08** with that
+  inaccuracy in front of them: "it resets at 00:00 UTC" is precise and means nothing to a volunteer, and
+  this app is for one group of about six. So the inaccuracy is **recorded here rather than fixed**, which
+  is the honest version of leaving it alone — and if this app ever has people spread across time zones,
+  this paragraph is the one to come back to.
 
-**What counts as a use. Proposed, with the reasoning, because this is the half that decides whether the
+**What counts as a use. Decided by the owner on 2026-10-08, and this is the half that decides whether the
 limit protects anything.** The rule is: **a use is counted the moment this app is about to spend money,
-and it is never given back.** In practice the count is written immediately before the paid call is made,
-and no answer — success, refusal, timeout or silence — changes it afterwards.
+and it is never given back.** The count is written immediately before the paid call is made, and no
+answer — success, refusal, timeout or silence — changes it afterwards.
 
 | Does it count? | `suggest-subtasks` | `invite-member` |
 |---|---|---|
 | **No — refused before anything is sent** | No signed-in caller; `account_suspended`; a suspension read that did not answer; `ai_suggestions_off`; `ai_suggestions_unknown`; a malformed body or a bad task id; `busy`; a task that was not found or whose title is unusable; a task read that did not answer; `not_configured` (production has no key); `no_model` | No signed-in caller; `account_suspended`; a caller who does not own the team; inviting yourself; inviting somebody already in the team; the team's 20-pending limit; no `EMAIL_FROM` or no delivery setting; a failure writing the invitation row |
-| **Yes — the request was made** | The call to Anthropic, whatever comes back: suggestions, `refused`, `model_unavailable`, `rate_limited`, `spend_limit`, `unavailable`, `timeout`, `bad_reply` | The send to the email service, whether it answers **sent** or **failed** — and a **retry**, which replaces the link and sends a second email, is a second use |
+| **Yes — the request was made** | The call to Anthropic, whatever comes back: suggestions, `refused`, `model_unavailable`, `rate_limited`, `spend_limit`, `unavailable`, `timeout`, `bad_reply` | The send to the email service, whether it answers **sent** or **failed** — and **a retry counts**, decided 2026-10-08: it replaces the link and sends a second email, so it is a second use. See below |
 | **Yes, and it is the awkward one** | `unreachable` — the request could never be made at all, so it cost nothing | — |
 
-**Why `unreachable` still counts**, which is the one place this rule gives a wrong-looking answer. The
-count is written before the call rather than after the answer, and that ordering is the whole protection:
+**A retry of an invitation counts. Decided by the owner on 2026-10-08**, and the argument against it was
+real enough to be worth keeping: somebody retrying because the first send failed is not doing a second
+thing, and charging them a slot for the email service's bad day reads as unfair. It counts anyway,
+because **the thing being limited is the email and a retry sends one** — `invite-member`'s retry path
+replaces the link and starts the 7 days again, so it is a second send by every measure except intent.
+The alternative would also need the app to tell a retry from a first attempt in the count, which is a
+second thing to get right in exchange for softening a limit.
+
+**Why `unreachable` still counts, which is the one place this rule gives a wrong-looking answer. Decided
+by the owner on 2026-10-08: the count is written before the paid call and never given back.** That
+ordering is the whole protection:
 a count written only on success makes a loop of failures free, and a failing service is exactly when
 something retries. Over-counting by one when the network is down costs a person one press; under-counting
 when the service is broken costs the owner the thing this limit exists for. **The count may therefore be
@@ -342,6 +394,15 @@ key, status or number. It is **not** one of the twelve fixed failure codes `sugg
 for the same reason the consent refusal is not: those twelve all mean "something in this app's plumbing
 went wrong, press it again later", and this one is a fact about the person's own day that they can plan
 around. Like the consent refusal, it gets its own sentence and its own code.
+
+**The sentence stands. Decided by the owner on 2026-10-08**, against
+[#184](https://github.com/build-once/team-tasks/issues/184)'s condition 3, which asks for this refusal to
+reuse the function's existing fixed sentence and one of its existing codes. **#184 is the thing that
+changes, not the sentence**, and a comment on that issue says so. The reason the condition was written
+that way is sound — a new sentence usually means new plumbing on a screen to explain it — and the consent
+refusal has since shown the other shape: a refusal a person can act on earns its own words, and hiding it
+behind "Suggestions aren't available right now" would be using a sentence designed to conceal plumbing to
+conceal something useful instead.
 
 **This replaces the per-instance "one call at a time" lock as the real control, and that lock stays
 exactly where it is.** [#186](https://github.com/build-once/team-tasks/issues/186) records what is wrong
@@ -360,11 +421,8 @@ worth saying because it looks as though it should.** #184 is the reload: asking 
 of `/tasks?suggest=<id>` asks again and spends again. A daily limit does not stop the second ask — it
 stops the twenty-first. What it does is make the asks **countable**, which is #184's condition 2 and
 half of its condition 4; its condition 1, "the second ask did not reach the AI service", stays open and
-needs something this section does not design. **One deliberate departure, named here so it is not found
-later:** #184's condition 3 asks for the refusal to use the function's existing fixed sentence and one of
-its existing codes. It does not, because the sentence above is the one this plan specifies and it is a
-better answer — it tells the person something they can act on, which the fixed sentence exists precisely
-not to do. #184 is for updating on that point; the limit is not.
+needs something this section does not design. **And its condition 3 is departed from on purpose** — see
+the sentence above, and the owner's decision of 2026-10-08 that #184 is what updates.
 
 ## Deliberately not in the first version
 
@@ -468,7 +526,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `daily_usage` *(proposed — no table exists)*. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — the table is planned with no rule and no table privileges for signed-in or signed-out callers, the way `account_status` has none. The app's **operator** via the dashboard; the **server functions**, which hold the secret key and do the counting. **Not a team's owner**, for whom there is nothing to read | **Proposed 7 days**, removed by the same statement that counts — **the owner's to decide**, with the three options set out above | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
+| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` *(named 2026-10-08; no table exists yet)*. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — the table is planned with no rule and no table privileges for signed-in or signed-out callers, the way `account_status` has none. The app's **operator** via the dashboard; the **server functions**, which hold the secret key and do the counting. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
 ## Collecting less — decided
 
@@ -565,10 +623,10 @@ time that has been true of anything in this plan except a suspension.
   — so the count cannot be read backwards into what somebody was doing, only how often.
 - **Nobody can read it through the app, not even the person it is about.** No rule and no table
   privileges for signed-in or signed-out callers, the way `account_status` has none.
-- **A short window, and one that enforces itself.** The proposed 7 days is removed by the same statement
-  that does the counting, because a retention period that depends on somebody remembering is one that
-  quietly becomes "forever". The period is the owner's to set; that it be enforced by code rather than by
-  intention is the recommendation.
+- **A short window, and one that enforces itself.** **7 days**, decided 2026-10-08, removed by the same
+  statement that does the counting — because a retention period that depends on somebody remembering is
+  one that quietly becomes "forever". Both halves were the owner's choice: the length, and that it be
+  enforced by code rather than by intention.
 - **One file holds the numbers.** Two limits, in one place, so the thing a reviewer has to find is in one
   place.
 
@@ -725,23 +783,34 @@ shape of.
   nothing; what settles a **deployed** refusal is a run of
   `scripts/staging/build-it-20-ai-checks.mjs`, and the production equivalent of that run does not exist,
   because rule 19 does not permit one.
-- **Unverified — the whole "Daily limits on what costs money" section describes an intention.** Written
-  2026-10-08 with **no code**: there is no `daily_usage` table, no migration, no config file, no check in
-  either function, and nothing has ever been counted. Every table name, column list, privilege and
-  refusal in that section is a design, not something read back from a database. The table name
-  `daily_usage` and the path `supabase/functions/_shared/limits.ts` are **proposals** and the code pull
-  request settles both.
-- **The owner's to decide — how long a usage count is kept, and how old rows go.** Three options are set
-  out in that section with a recommendation; none is chosen. Until one is, nothing should be built that
-  depends on a particular answer.
-- **Not confirmed — that a 20-a-day limit keeps either service inside its ceiling.** `docs/costs.md`
-  carries the arithmetic, run on 2026-10-08, and the answer in both cases is **no** at about six people:
-  the Anthropic worst case is above the 5-dollar monthly limit, and 20 invitations each is above Resend's
-  free 100-a-day. So the vendor ceilings stay the outer limit and the daily limit is what stops **one
-  person or one loop** reaching them alone. The Anthropic half of that arithmetic rests on an **assumed**
-  input token count, which is still not measured — the same assumption `docs/costs.md` has carried since
-  2026-10-07.
-- **Not confirmed — what limits Supabase applies to the sign-up and password-reset emails it sends.**
-  Those two are the only email this app sends that `invite-member` does not, they are sent to people who
-  are not signed in, and **nothing in this plan counts them**. Supabase's own rate limits are what hold
-  them, and the page that would say what those are has not been read. No figure is written here.
+- **Unverified — "Daily limits on what costs money" is decided but not built.** The nine decisions in that
+  section's table are the owner's, taken on 2026-10-08. **The code is not**: there is no `usage_counts`
+  table, no migration, no config file, no check in either function, and nothing has ever been counted.
+  Every column, privilege and refusal in that section is a design, not something read back from a
+  database. **Decided is not the same as true**, and this entry stays until Build it 22's code exists and
+  a run shows the limit refusing.
+- **Decided, so no longer open — the four questions this list carried on the morning of 2026-10-08.** How
+  long a count is kept (7 days, removed by the counting statement), whether the limits stay at 20 (they
+  do), whether a retry counts (it does), and when the count is written (before the paid call, never given
+  back). They are recorded in the section itself. They are named here so that somebody reading this list
+  for open questions does not go looking for answers that are already above.
+- **Confirmed and accepted — a 20-a-day limit does NOT keep either service inside its ceiling.** This was
+  a "not confirmed" until the arithmetic was done on 2026-10-08, and the answer in both cases is **no** at
+  about six people: the Anthropic worst case is above the 5-dollar monthly limit, and 20 invitations each
+  is above the email service's free 100-a-day. **The owner kept both limits and kept the arithmetic**, so
+  this is now a known fact rather than a gap: the vendor ceilings are the outer limit, and the daily limit
+  is what stops **one person or one loop** reaching them alone. `docs/costs.md` has the numbers.
+- **Still not confirmed — the input token count that half of that arithmetic rests on.** The Anthropic
+  figure assumes 1,000 input tokens per call, the same assumption `docs/costs.md` has carried since
+  2026-10-07, and it has never been measured. The output figure is not an assumption: it is
+  `MAX_OUTPUT_TOKENS` read from the function. So the $9.30 is an upper bound on a guess, and settling it
+  needs the `usage` figures from a real response.
+- **Not read, and now scheduled — what limits Supabase applies to the sign-up and password-reset emails
+  it sends.** Those two are the only email this app sends that `invite-member` does not, they are sent to
+  people who are **not signed in**, and **nothing in Build it 22 counts them** — decided by the owner on
+  2026-10-08, because there is no person's ID to key a count by, and the reset screen deliberately
+  answers identically whether or not an address has an account, so counting per address would rebuild the
+  exact distinction that screen refuses to make. What holds them is **Supabase's own rate limits**, and
+  **reading those is Build it 25** — the owner's decision of 2026-10-08.
+  [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
+  know it is done. No figure is written here until somebody has read the page.

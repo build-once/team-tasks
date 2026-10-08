@@ -190,8 +190,15 @@ spending cap does not really apply. The plan's £30/month ceiling includes the d
 ## Daily limits per person, and the worst case they allow
 
 Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
-built**: there is no table, no config file and no check in either function, so every figure below is
-arithmetic on a design, not a measurement of anything that has run.
+built**: there is no `usage_counts` table, no config file and no check in either function, so every figure
+below is arithmetic on a design, not a measurement of anything that has run.
+
+> **The owner read this section on 2026-10-08 and kept both limits at 20, and kept this arithmetic as
+> written.** That is worth recording here rather than only in the plan, because the arithmetic says the
+> limits do **not** keep either service inside its ceiling at six people — and the decision was taken with
+> that in front of them, for the reason set out under the Anthropic table below: the vendor cap stops the
+> *bill*, and the daily limit stops *one person or one loop* taking the month in an afternoon. Nothing on
+> this page is softened to make the numbers look better.
 
 **Two services are in scope, because they are the only two a person can spend by pressing a button.**
 Supabase, Vercel, GitHub and Sentry are not: nothing a volunteer does meters them per action — Supabase
@@ -239,9 +246,10 @@ working. That is the job of the daily limit, and 20 a day is sized for a volunte
 rather than for the arithmetic above: twenty presses is a generous day's use, and a loop reaches it in
 seconds and then stops.
 
-**What would make the two agree**, if the owner wants the daily limit to be the binding one at six
-people: the limit would have to be **5 ÷ (6 × 31 × $0.0025) ≈ 10.7**, so **10 a day**. Written down
-rather than acted on — the plan says 20, and changing it is the owner's call.
+**What would make the two agree**, if the daily limit were wanted as the binding one at six people: it
+would have to be **5 ÷ (6 × 31 × $0.0025) ≈ 10.7**, so **10 a day**. **Not taken.** The owner kept 20 on
+2026-10-08, for the reason in the paragraph above. The figure is kept here because it is the thing to
+re-read if the group ever grows, or if a measured input token count moves the per-call cost.
 
 ### Resend: the arithmetic, shown
 
@@ -270,20 +278,32 @@ every day for a month, is 3,720 invitations to a group of about six. The plan's 
 same way: at most **20 pending** invitations per team, at most **3 teams** per person, and a **7-day**
 expiry. And `docs/plan.md` already calls the realistic shape of this risk a loop rather than growth.
 
-### One email path these limits do not cover
+**And one thing that makes the 20 tighter than it looks: a retry counts.** The owner decided on
+2026-10-08 that re-sending an invitation whose email failed consumes a slot, because it sends a second
+email and the email is the metered thing. So a person whose sends are failing works through their twenty
+faster, which is the right way round — a failing email service is exactly the situation in which a
+person presses the button repeatedly, and that is what this limit exists to bound.
+
+### One email path these limits do not cover, and when it gets read
 
 **The sign-up confirmation and the password-reset email are sent by Supabase, not by `invite-member`**,
-and **nothing in Build it 22 counts them.** They cannot be counted the way the other two are: both are
-sent to somebody who is **not signed in** — there is no person's ID to key a count by, and the
-password-reset path deliberately answers identically whether or not the address has an account
-(`docs/plan.md`, and `scripts/password-reset-check.mjs` enforces it), so counting per address would
-rebuild exactly the distinction that screen refuses to make.
+and **nothing in Build it 22 counts them — decided by the owner on 2026-10-08.** They cannot be counted
+the way the other two are: both are sent to somebody who is **not signed in**, so there is no person's ID
+to key a count by, and the password-reset path deliberately answers identically whether or not the
+address has an account (`docs/plan.md`, and `scripts/password-reset-check.mjs` enforces it) — so counting
+per address would rebuild exactly the distinction that screen refuses to make. A limit that undid a
+privacy promise to save an email would be the wrong trade.
 
 What holds them is **Supabase's own rate limits on its built-in email**, and **what those are has not
-been read** — no figure is written here. `docs/stack.md` records the decision that the built-in sender is
-for testing only and is "rate-limited and Supabase documents it as unsuitable for production", which is
-the nearest thing to a number this project has. The cost today is **£0**: it is Supabase's own sending
-on the free plan, not Resend's quota.
+been read.** No figure is written here. **Reading them is Build it 25** — the owner's decision of
+2026-10-08, and [#219](https://github.com/build-once/team-tasks/issues/219) holds it with what to read
+and how we will know it is done.
+
+The nearest thing to a number this project has today is `docs/stack.md`'s decision that the built-in
+sender is for testing only and is "rate-limited and Supabase documents it as unsuitable for production".
+The cost today is **£0**: it is Supabase's own sending on the free plan, not Resend's quota. **Which is
+also why this is Build it 25 rather than urgent** — nothing here can produce a bill, so what is at risk
+is a volunteer not getting a reset email, not money.
 
 ## Unverified
 
@@ -317,16 +337,20 @@ question does not get re-asked from scratch.
   prices and the spend-limit behaviour are read from Anthropic's pages, which is how Anthropic describes
   the service, not what this account is set to.
 - **UNSURE — the registrar row in full; no registrar chosen.**
-- **Unverified — the whole "Daily limits per person" section is arithmetic on a design.** Added
-  2026-10-08. No table, no config file, no check in either function, and nothing has ever been counted.
-  The two limits are `docs/plan.md`'s; everything else in that section is multiplication, done in the
-  session that wrote it.
+- **Unverified — the "Daily limits per person" section is arithmetic on a design, even though the design
+  is now decided.** Added 2026-10-08; the owner settled the limits, the retention and the counting rule
+  the same day. **The code did not arrive with the decisions**: no `usage_counts` table, no config file,
+  no check in either function, and nothing has ever been counted. Everything in that section except the
+  two limits and the cited prices is multiplication done by hand in the session that wrote it.
 - **Still not confirmed — the input token count the Anthropic worst case rests on.** 1,000 is the same
   assumption carried since 2026-10-07, and the fixed instructions that would let somebody count it now
   exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an
-  assumption: it is `MAX_OUTPUT_TOKENS` in that file, read in this session.
-- **Not read — Supabase's rate limits on the sign-up and password-reset emails it sends.** They are the
-  one email path no daily limit here covers, and no figure for them is written on this page.
+  assumption: it is `MAX_OUTPUT_TOKENS` in that file, read in this session. So **$9.30 is an upper bound
+  on a guess**, and the owner's decision to keep the limits at 20 was taken knowing that.
+- **Not read, and now scheduled — Supabase's rate limits on the sign-up and password-reset emails it
+  sends.** They are the one email path no daily limit here covers, by the owner's decision of
+  2026-10-08, and no figure for them is written on this page. **Reading them is Build it 25**:
+  [#219](https://github.com/build-once/team-tasks/issues/219).
 
 Resolved on 2026-09-27, both confirmed against vendor documentation:
 
