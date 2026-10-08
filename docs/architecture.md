@@ -233,6 +233,69 @@ something to act on. See `docs/plan.md` → "Suggest subtasks — an outside AI 
 **No secret arrow starts at the web app.** There is no mobile app. If you ever find yourself
 wanting a secret in `web/` client code, the answer is a new server function, not an exception.
 
+## The daily usage count, and which functions write it
+
+Added 2026-10-08 for Build it 22 (`docs/plan.md` → "Daily limits on what costs money"). **Nothing is
+built**: there is no migration and no table. This section is the shape, agreed before anything is typed,
+which is what the top of this file says the whole document is for.
+
+**The table.** `daily_usage` *(proposed)* — one row per person, per feature, per day, holding four
+values and nothing else:
+
+| Column | What it is |
+|---|---|
+| the person's ID | the `auth.users` id, and what the row is keyed by. `on delete cascade`, so the count goes with the account |
+| the feature | which limited thing was used. A short fixed word, not free text |
+| the day | a **UTC** date. Not a timestamp, so the row cannot say what time of day anybody was active |
+| the count | how many times, that day |
+
+The natural key is **(person, feature, day)**, so there is exactly one row per person per feature per
+day and a use is an increment rather than an insert. **No task id, no title, no invited address, no team
+id.** A row cannot be read backwards into what somebody was doing.
+
+**Which functions write it: the two that spend money, and nothing else.**
+
+| Writes it | What it counts | Where in the order |
+|---|---|---|
+| `suggest-subtasks` | one metered request to Anthropic | after the door checks and the consent check, **immediately before** the call to the AI service |
+| `invite-member` | one email sent to the email service | after the door checks and the team's 20-pending check, **immediately before** the send |
+
+**Nothing else writes it.** `create-team` and `accept-invite` spend nothing, so they have nothing to
+count. The web app cannot write it at all — same reason it cannot write `teams`: the table will have no
+insert or update policy, and the browser holds only the publishable key.
+
+**It reads the count in the same place it writes it.** The check and the increment are one step in one
+function, for the reason every other limit in this app lives in a function: a count has to be read across
+rows the caller may not see, which a row-level policy cannot do, and a limit enforced by a screen is not
+enforced. This is the same argument as "at most 3 teams per person" and "at most 20 pending invitations"
+above, with one addition — those two count rows a person owns, and this one counts **what a person did**,
+which is the first table in this database that is about behaviour rather than content.
+
+**Who can read it: nobody through the app.** RLS on, **no policy**, and no table privileges for `anon`
+or `authenticated` — the same shape as `account_status`, and the same reasoning: the table is meant to be
+unreachable through the Data API, so the `revoke` is the lock that matters and the absence of a policy is
+intended rather than an oversight. (Supabase's security advisor reports that as an
+`RLS-enabled-no-policy` notice, which is the table working as designed; `evidence/production-log.md`
+records the same notice being accepted for `account_status` on 4 October 2026.) `service_role` needs
+**select, insert and update** — it is what the two functions connect as — and needs **delete** as well if
+the owner chooses the retention option where the counting statement removes the person's old rows. It
+does **not** need anything else, and the operator reads it in the dashboard.
+
+**It adds no secret and no new arrow.** Both writes happen inside functions that already hold the
+service-role key, on connections that already exist, so nothing crosses a boundary that was not already
+crossed. The two arrows that *do* carry a key — **(7)** the invitation email and **(12)** the AI call —
+are unchanged; what changes is that each now has a counter in front of it.
+
+**And it is what finally makes one claim on this page true.** The row for arrow (12) above says the
+function is "where the three limits live that a browser could not be trusted with". A fourth joins them,
+and it is the first one that is about *how often* rather than about *what*: until this table exists, the
+only thing between a retry loop and Anthropic's 5-dollar cap is the cap itself
+([#186](https://github.com/build-once/team-tasks/issues/186) and
+[#184](https://github.com/build-once/team-tasks/issues/184) are the two open issues that say so). The
+`Set` of user ids inside one isolate that `suggest-subtasks` uses today is **not** this: it lives in one
+isolate's memory, so two asks that land on two isolates both proceed. It stays, because it catches a
+double click for free, and it stops being the answer to "what stops this spending money".
+
 ## Who may read a team
 
 `supabase/migrations/20261002122203_team_rules.sql` (Build it 14 part A) is the first migration whose

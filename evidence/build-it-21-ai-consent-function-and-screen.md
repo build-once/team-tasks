@@ -407,3 +407,106 @@ as it has since Build it 20, because that script's guard is built on it. Nothing
 5. **Anything about the retention figures on the screen.** They are `docs/plan.md`'s, quoted from
    Anthropic's published page on 7 October; that page was **not re-read** in this session. The screen
    attributes them — "Anthropic say" — because that is all they can be.
+
+---
+
+# Appendix A — Record of the staging runs and the owner's screen check
+
+**Added 8 Oct 2026 by the assistant (Claude Code), in the Build it 22 part 0 session
+([#215](https://github.com/build-once/team-tasks/issues/215)), which asked for this comment to be copied
+here.** It is the coach's comment on pull request #214, reproduced verbatim below the rule. **Everything
+above this appendix is a local run on the owner's own machine; this is the first record in this file of
+the consent check running anywhere real**, which is why it is kept apart rather than folded into section
+2.
+
+**The assistant verified none of it.** It has no staging or production connector, did not watch any of
+these calls happen, deployed nothing, opened no browser, and issue #215 says in so many words, "Do not
+use any MCP connector or the browser tool." If the coach's own record disagrees with what is below, the
+coach's record is the one to trust.
+
+**On the time.** The comment is stamped `2026-10-08T10:06:02Z` (`gh pr view 214 --json comments`, run in
+this session), **27 seconds after** PR #214 merged at `2026-10-08T10:05:35Z` (`gh pr view 214 --json
+mergedAt`, same session). So unlike Appendix B of
+`evidence/build-it-21-ai-consent-migration.md` — whose comment was written one minute *before* its merge
+and was stale within the minute — this one was written after the fact and its last paragraph says so
+itself.
+
+**It answers section 6 item 1 of this file, and leaves items 2 to 5 where they were.** Item 1 said
+"Whether the deployed function refuses. Nothing here is deployed." It is deployed now, and it refuses.
+
+---
+
+> **Record of the staging runs and the owner's screen check (coach, comment only), 8 Oct 2026.** To be
+> copied into the evidence file by the next pull request.
+>
+> - Owner agreed to the `screen-state-check` equality going 16 → 17 (rule 20) by proceeding with the
+>   staging steps, 8 Oct.
+> - Run 1, before the deploy, `scripts/staging/build-it-20-ai-checks.mjs` against staging: 37 PASS, 8
+>   FAIL, 0 UNVERIFIED. The 8 FAILs are sections 2 and 7: with Alice's setting OFF the deployed function
+>   answered 200 with suggestions.
+> - Owner: deployed `suggest-subtasks` to the staging project with the Supabase CLI's function deploy
+>   command (CLI 2.75.0): "Deployed Functions on project ghskxrhqlhvrhpnivqbd: suggest-subtasks".
+> - Run 2, after the deploy: 45 PASS, 0 FAIL, 0 UNVERIFIED. Setting OFF: 403, code `ai_suggestions_off`,
+>   "AI suggestions are switched off for your account, so nothing was sent." Setting ON: 5 suggestions.
+>   OFF again: refused again. Bob's update of Alice's setting changed 0 rows; Bob's read of the column
+>   was refused with 42501. A POST with no credentials at all: 401 `UNAUTHORIZED_NO_AUTH_HEADER` from the
+>   platform (first time observed for this function). An apikey-only POST: 401 `UNUSABLE_CREDENTIAL` from
+>   `@supabase/server`. Two simultaneous asks both answered 200. Both settings left OFF; the task
+>   deleted.
+> - Owner, local app from this branch against staging, signed in as Alice: with the setting off, Suggest
+>   subtasks explained that suggestions are switched off; the Settings page showed the wording; switching
+>   on and saving confirmed, and suggestions worked; switching off returned the explanation. Reported as
+>   "all are right and passed"; no screenshots.
+> - Not checked: a person with no profile row switching it on through the screen (#207's path; the
+>   sandbox covered the database side); `/settings` on a phone.
+>
+> Merged by the owner as PR #214. The production AI key is still not installed; #204 (privacy page) is
+> open.
+
+**One wording change, and it is the only one.** The third bullet's phrase naming the Supabase CLI's
+function-deploy command has been replaced by a description of it, for the same reason Appendix B of
+`evidence/build-it-21-ai-consent-migration.md` replaced the `db push` phrase: everything that inspects
+commands, the guard included, reads the prose of a file being written as if it were the command, and
+nothing is gained by committing the exact characters. **The project reference
+`ghskxrhqlhvrhpnivqbd` is left as the coach wrote it** — it is the **staging** project, and that
+reference is already committed in eight evidence files and seven staging scripts (counted with
+`grep -rl` in this session). The production reference is a different value and is not in this file.
+Nothing else in the quotation is altered.
+
+## What this appendix settles, and the five things it does not
+
+**It settles the claim the whole of Build it 21 was waiting on: the deployed function refuses when the
+setting is off.** And it settles it the only way a behaviour can be settled — **it was seen to fail
+first**. Run 1, against the Build it 20 function, failed sections 2 and 7 with the setting OFF and a 200
+carrying suggestions; Run 2, against this version, passed all 45. The pair is what makes the deploy the
+cause. One run of 45 PASS on its own would have proved far less.
+
+It also settles, on staging and for the first time against a real database rather than a sandbox:
+`authenticated` cannot read the column (42501 for Bob), cannot update somebody else's setting (0 rows),
+and the two credential-less shapes of request are refused by the platform before any of this code runs.
+
+**It does not settle:**
+
+1. **Anything about production.** Staging is not production. `docs/plan.md`'s order of release asks for
+   the setting to be **seen to refuse with it off on production**, and production has **no profile rows
+   at all** because nobody has signed up — so there is currently nothing there that could exercise it.
+   That precondition is open, and so is the privacy page
+   ([#204](https://github.com/build-once/team-tasks/issues/204)). The production `AI_API_KEY` stays
+   uninstalled.
+2. **That the one-call-at-a-time lock works.** "Two simultaneous asks both answered 200" is the lock
+   **not** engaging, and the script's `judgeOneAtATime` passes either way on purpose, which is why that
+   line is a report and not a pass. It is
+   [#186](https://github.com/build-once/team-tasks/issues/186), unchanged, and Build it 22's daily count
+   is what replaces it as the real control.
+3. **That a person with no profile row can switch the setting on through the screen.** The coach's own
+   last bullet says so. Still the weakest-covered path in Build it 21, and
+   [#207](https://github.com/build-once/team-tasks/issues/207) holds it.
+4. **Anything seen by anybody writing this.** The screen check is the **owner's report in words** — "all
+   are right and passed", with no screenshots — and the two script runs are the owner's runs read back by
+   the coach. Nobody writing this file opened a browser or a terminal against staging.
+   [#212](https://github.com/build-once/team-tasks/issues/212) is still open, including `/settings` on a
+   phone.
+5. **That `screen-state-check`'s 16 → 17 was the right call rather than an agreed one.** The owner agreed
+   to it by proceeding (rule 20), which is what makes it theirs; it is not evidence that the count is
+   correct, only that the change to a test's expected number was a person's decision and not the
+   assistant's.
