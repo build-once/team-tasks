@@ -40,16 +40,42 @@
 // delete owner-only), while `invitations` has no delete policy at all. So this one
 // leaves staging as it found it.
 //
+// AND SINCE BUILD IT 21 IT ALSO CHANGES A SETTING, which is a different kind of thing
+// from creating a row and is treated more carefully for one reason: the setting is a
+// CONSENT setting, and a script that quietly left somebody opted in to sending their
+// task titles to an outside company would be a worse thing than any bug it was looking
+// for. So:
+//
+//   * it READS each person's setting before it writes it, and writes nothing if it
+//     could not read it -- because then it would have no way to put it back;
+//   * it puts both back in the `finally`, so a run that stops on an EXCEPTION still
+//     restores them -- and NOT a run that is interrupted. A `finally` does not run on
+//     Ctrl-C: Node delivers SIGINT, the default handler exits, and the restore never
+//     happens. Issue #213 holds that, with the window (the tens of seconds the three
+//     metered requests take), what it leaves behind, and what a fix has to show. Until
+//     it is fixed: IF YOU INTERRUPT THIS SCRIPT, check Alice's and Bob's
+//     ai_suggestions_enabled before running it again -- otherwise the next run reads
+//     the left-over `true` as where it found the setting and faithfully puts it back;
+//   * and it CHECKS that it put them back, with judgeConsentRestored, which fails
+//     rather than assuming. If that check fails, the message says to look in the
+//     dashboard by hand.
+//
+// It changes Alice's setting (off, on, off, then back to what it was) and Bob's (on,
+// then back) -- Bob's because the consent check runs BEFORE the task is read, so with
+// his setting off his ask would be refused for consent and section 5's question about
+// task visibility would never be asked. It creates no profile row for anybody.
+//
 // WHAT IT COSTS, IN MONEY, and this is the only script in this repository of which that
 // is true. Once AI_API_KEY is set on staging, an ask is a metered request to Anthropic.
 // AT MOST THREE PER RUN reach the service: Alice's ask about her own task, and the two
 // simultaneous asks in the one-at-a-time check. Every other call in this script is
 // refused before any key is touched -- a 400 for a bad id, a 404 for a task the caller
-// cannot see, two 401s for the two shapes of a signed-out call -- so none of those costs
-// anything. Claude Haiku 4.5 is $1 per million input tokens and $5 per million output, and
-// the reply is capped at 300 output tokens (docs/costs.md), so three asks is a fraction of
-// a penny. The ceiling behind all of it is the 5-dollar monthly spend limit on the Team
-// Tasks workspace.
+// cannot see, two 401s for the two shapes of a signed-out call, and BOTH of the asks
+// made with the setting off, which the function refuses before it reads the task -- so
+// none of those costs anything. Claude Haiku 4.5 is $1 per million input tokens and $5
+// per million output, and the reply is capped at 300 output tokens (docs/costs.md), so
+// three asks is a fraction of a penny. The ceiling behind all of it is the 5-dollar
+// monthly spend limit on the Team Tasks workspace.
 //
 // WHAT IT CANNOT ASK, so that nobody reads a green run as more than it is (rule 8):
 //
@@ -92,6 +118,9 @@
 //   POST   {url}/rest/v1/tasks                       body {title}
 //   DELETE {url}/rest/v1/tasks?id=eq.{id}
 //   GET    {url}/rest/v1/tasks?id=eq.{id}&select=...
+//   POST   {url}/rest/v1/rpc/my_ai_suggestions       body {} -- reads the setting
+//   PATCH  {url}/rest/v1/profiles?user_id=eq.{id}    body {ai_suggestions_enabled}
+//   GET    {url}/rest/v1/profiles?select=...         -- the read that must be REFUSED
 //   Prefer: return=representation   -- what makes a write answer with the rows it
 //          touched, so a refusal reads as "0 rows" instead of being guessed at
 //   the API key travels in the `apikey` header; Authorization carries the caller's JWT.
@@ -110,10 +139,16 @@
 // WHAT IT NEVER PRINTS: a password, an access or refresh token, the publishable key,
 // the project URL, a user id, or an email address -- not Alice's and not Bob's, even
 // though docs/environments.md publishes both. Every response body goes through scrub()
-// before it is printed or kept. What does get printed: HTTP statuses, the eleven failure
-// codes, the fixed sentence the function produces, the task id it made, and THE
-// SUGGESTIONS THEMSELVES -- which is a deliberate exception and is argued for beside
-// judgeSuggestions.
+// before it is printed or kept. What does get printed: HTTP statuses, the failure
+// codes, the fixed sentence the function produces, the task id it made, whether each
+// person's AI-suggestions setting reads ON or OFF, and THE SUGGESTIONS THEMSELVES --
+// which is a deliberate exception and is argued for beside judgeSuggestions.
+//
+// THE SETTING IS PRINTED AS THE WORD "ON" OR "OFF" AND NEVER AS A ROW, which is why the
+// timestamp beside it never appears: `my_ai_suggestions()` answers with `changed_at` as
+// well, and when somebody last changed a setting is a fact about when they were active.
+// readConsentState reads `enabled` and nothing else, and every detail line is built
+// from its answer rather than from the body.
 //
 // AND THE ORDER THE SCRUB RUNS IN, which the owner's staging run of 7 October 2026
 // proved is not a detail. Each response is read into TWO forms and they are not
@@ -167,7 +202,7 @@ const UNAVAILABLE_MESSAGE = "Suggestions aren't available right now.";
 // does not exist gets. Written out for the same reason.
 const NOT_FOUND_MESSAGE = "That task was not found.";
 
-// The eleven codes, copied from supabase/functions/suggest-subtasks/index.ts's
+// The twelve codes, copied from supabase/functions/suggest-subtasks/index.ts's
 // SUGGEST_CODES rather than imported, for the same reason.
 //
 // THIS LIST REFUSES A CODE IT DOES NOT KNOW, which is what makes it worth keeping in
@@ -177,6 +212,9 @@ const NOT_FOUND_MESSAGE = "That task was not found.";
 // this file in its failure message.
 //
 // `model_unavailable` arrived with the coach's review of PR #190.
+// `ai_suggestions_unknown` arrived with Build it 21 (issue #211): the consent setting
+// could not be read, which docs/plan.md says must answer with this same fixed sentence
+// rather than be treated as permission.
 const SUGGEST_CODES = [
   "not_configured",
   "no_model",
@@ -189,7 +227,40 @@ const SUGGEST_CODES = [
   "timeout",
   "bad_reply",
   "busy",
+  "ai_suggestions_unknown",
 ];
+
+// ---------------------------------------------------------------------------
+// THE CONSENT SETTING (Build it 21, issue #211)
+// ---------------------------------------------------------------------------
+//
+// The setting is `profiles.ai_suggestions_enabled`, added by
+// 20261007204900_ai_suggestions_consent.sql, and it decides whether suggest-subtasks
+// sends anything at all. This script's job is to prove that from OUTSIDE: switch it,
+// ask, and see what the deployed function does.
+//
+// THE OFF REFUSAL IS NOT ONE OF THE TWELVE CODES ABOVE and does not carry their
+// sentence, which is the function's own decision: off is the one refusal the person
+// can act on, so it says so and says nothing about plumbing. Both halves are written
+// out here character for character, as this script's statement of the contract.
+const CONSENT_OFF_CODE = "ai_suggestions_off";
+const CONSENT_OFF_MESSAGE =
+  "AI suggestions are switched off for your account, so nothing was sent.";
+
+// HOW THE SETTING IS READ FROM OUTSIDE, and it is not a select. No client role holds
+// SELECT on that column -- that is how the migration stops a team mate reading it
+// through the existing "your team mates' profiles" policy -- so a
+// `profiles?select=ai_suggestions_enabled` is refused 42501 even for the person's own
+// row. `public.my_ai_suggestions()` is the way, and PostgREST publishes a function in
+// the public schema at /rest/v1/rpc/<name>.
+//
+// IT TAKES NO ARGUMENTS, which is the property this script relies on when it checks
+// that Bob cannot learn Alice's setting: there is no parameter to point at her.
+const CONSENT_RPC = "rpc/my_ai_suggestions";
+
+// And how it is WRITTEN: a PATCH on the person's own profile row, naming the one
+// column `authenticated` holds an update grant on.
+const PROFILES_PATH = "profiles";
 
 // The two caps, copied from the function.
 const SUGGESTIONS_MAX = 5;
@@ -978,6 +1049,313 @@ export function judgeOneAtATime(first, second) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// The consent setting, judged from outside (Build it 21, issue #211)
+// ---------------------------------------------------------------------------
+
+// WHERE DOES THE SETTING STAND? Read through my_ai_suggestions(), which always returns
+// exactly one row -- the migration's section 3 says so and says why -- so anything else
+// is a finding rather than an absence.
+//
+// `enabled` comes back as a real JSON boolean, and this reads it as one: `=== true` and
+// `=== false`, with everything else unreadable. A truthy test here would read the
+// four-character string "false" as consent, and the same mistake is checked on the
+// function's side and on the screen's.
+export function readConsentState(answer) {
+  if (answer.error) return { known: false, detail: answer.error };
+  if (!Array.isArray(answer.rows)) {
+    return { known: false, detail: "the RPC did not answer with a list of rows" };
+  }
+  if (answer.rows.length !== 1) {
+    return {
+      known: false,
+      detail:
+        `${answer.rows.length} row(s) came back from my_ai_suggestions(), expected` +
+        ` exactly 1. That function is written to answer one row for every caller --` +
+        ` signed out, suspended, and with no profile row -- so a different number is a` +
+        ` change in the database rather than a state of this account`,
+    };
+  }
+  const value = answer.rows[0]?.enabled;
+  if (value === true) return { known: true, enabled: true };
+  if (value === false) return { known: true, enabled: false };
+  return {
+    known: false,
+    detail:
+      `its \`enabled\` is ${JSON.stringify(value)}, which is neither true nor false.` +
+      ` The column is \`boolean not null\`, so a value that is neither did not come out` +
+      ` of it -- and guessing which way to read it is the guess docs/plan.md forbids`,
+  };
+}
+
+export function judgeConsentRead(answer, who) {
+  const what = `${who}'s AI-suggestions setting can be read through my_ai_suggestions()`;
+  const state = readConsentState(answer);
+  if (!state.known) return [{ what, verdict: UNVERIFIED, detail: state.detail }];
+  return [
+    {
+      what,
+      verdict: PASS,
+      detail: `it reads ${state.enabled ? "ON" : "OFF"}`,
+    },
+  ];
+}
+
+// A PATCH on the person's own row. `Prefer: return=representation` is set for every
+// write this script makes, so a refusal reads as 0 rows rather than being guessed at.
+export function judgeConsentSwitched(answer, who, wanted) {
+  const what = `${who} can switch the setting ${wanted ? "ON" : "OFF"} on her own row`;
+  if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
+  if (!Array.isArray(answer.rows) || answer.rows.length !== 1) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `${Array.isArray(answer.rows) ? answer.rows.length : "no list of"} row(s) came` +
+          ` back from the update, expected 1. Nought rows means no profile row to write` +
+          ` on, or the row rules refused it -- and with no profile row the setting cannot` +
+          ` be switched on at all, which is issue #207`,
+      },
+    ];
+  }
+  return [{ what, verdict: PASS, detail: "one row updated" }];
+}
+
+// AND THE READ-BACK, because an update that answered 1 row is not the same fact as a
+// setting that now holds the value. Build it 19's rule, from outside.
+export function judgeConsentReadBack(answer, who, wanted) {
+  const what =
+    `and reading it back says ${wanted ? "ON" : "OFF"} -- the switch is confirmed` +
+    ` against the database, not against ${who}'s own write`;
+  const state = readConsentState(answer);
+  if (!state.known) return [{ what, verdict: UNVERIFIED, detail: state.detail }];
+  return [
+    {
+      what,
+      verdict: state.enabled === wanted ? PASS : FAIL,
+      detail: `it reads ${state.enabled ? "ON" : "OFF"}`,
+    },
+  ];
+}
+
+// THE CHECK THIS WHOLE SECTION IS FOR. With the setting off, the ask is refused, with
+// the function's own consent code, and nothing was sent.
+//
+// FOUR RESULTS, because they are four different pieces of news:
+//
+//   1. it was refused at all, with 403 -- not 200, and not the fixed 503 either;
+//   2. the code is the consent one, so this is the setting doing it rather than some
+//      other refusal that happens to land on the same status;
+//   3. the sentence is the function's own, character for character, and says nothing
+//      was sent;
+//   4. and the body carries nothing but error and code.
+//
+// BEFORE THE DEPLOY ALL FOUR FAIL, which is the point: the version of this function on
+// staging today has no consent check, so Alice's ask with the setting off answers 200
+// with suggestions -- and that FAIL is the evidence that the behaviour was not there.
+export function judgeRefusedWhenOff(answer) {
+  const what = "with the setting OFF, the ask is REFUSED and nothing is sent";
+  if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
+
+  const { judged: read, show } = readBothWays(answer);
+  const results = [];
+
+  results.push({
+    what,
+    verdict: answer.status === 403 ? PASS : FAIL,
+    detail:
+      answer.status === 403
+        ? "HTTP 403"
+        : `HTTP ${answer.status}, expected 403. A 200 here means the deployed function` +
+          ` sent a task title to the AI service for somebody who has not consented,` +
+          ` which is the one thing this setting exists to prevent. A 503 means it` +
+          ` refused for some other reason and the consent check was not what did it.` +
+          ` Body: ${shown(answer).slice(0, MAX_REFUSAL_BODY)}`,
+  });
+
+  results.push({
+    what: `and the code is "${CONSENT_OFF_CODE}", so it is the SETTING that refused it`,
+    verdict: read.code === CONSENT_OFF_CODE ? PASS : FAIL,
+    detail:
+      `its code is ${JSON.stringify(show.code)}. ` +
+      (read.code === "account_suspended"
+        ? "That is the SUSPENSION refusal, which is also a 403 -- this account is" +
+          " suspended on staging and this check cannot say anything about consent until" +
+          " the owner removes the row"
+        : `Expected ${JSON.stringify(CONSENT_OFF_CODE)}`),
+  });
+
+  results.push({
+    what: "and the sentence is the function's own, saying that nothing was sent",
+    verdict: read.message === CONSENT_OFF_MESSAGE ? PASS : FAIL,
+    detail:
+      `its sentence is ${JSON.stringify(show.message)}. Expected exactly` +
+      ` ${JSON.stringify(CONSENT_OFF_MESSAGE)}`,
+  });
+
+  results.push({
+    what: "and the body carries error and code and nothing else",
+    verdict:
+      Array.isArray(read.extra) && read.extra.slice().sort().join(",") === "code,error"
+        ? PASS
+        : FAIL,
+    detail: `its fields are ${(show.extra ?? []).join(", ")}`,
+  });
+
+  return results;
+}
+
+// NOBODY SWITCHES ANYBODY ELSE'S. docs/plan.md: "Only that person can switch it, and
+// only for themselves. Not their team's owner, not another member, not the owner of
+// the app on their behalf."
+//
+// Bob is not in Alice's team, so he does not even get the team-mate read -- but the
+// check is worth making from the weakest position available to this script, because
+// what it tests is the UPDATE policy, whose `using` is `(select auth.uid()) = user_id`
+// and which no membership changes.
+//
+// 0 ROWS IS THE PASS, not an error: a refused update matches no row rather than
+// failing, which is why `Prefer: return=representation` is set.
+export function judgeCannotChangeAnother(answer, before, after) {
+  const what = "Bob CANNOT switch Alice's setting: his update changes no row";
+  if (answer.error) {
+    // A 42501 would also be a refusal, and a correct one -- but it is not the refusal
+    // this check predicts, so it is reported rather than counted as a pass.
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail:
+          `his update answered an error rather than 0 rows: ${answer.error}. Still a` +
+          ` refusal, and Alice's setting is checked below either way`,
+      },
+    ];
+  }
+
+  const results = [];
+
+  results.push({
+    what,
+    verdict: Array.isArray(answer.rows) && answer.rows.length === 0 ? PASS : FAIL,
+    detail:
+      Array.isArray(answer.rows) && answer.rows.length === 0
+        ? "0 rows came back, so the update matched nothing"
+        : `${Array.isArray(answer.rows) ? answer.rows.length : "no list of"} row(s) came` +
+          ` back. Anything but 0 means one person changed another person's consent` +
+          ` setting, which docs/plan.md forbids in its plainest words`,
+  });
+
+  // AND ALICE'S SETTING IS WHAT IT WAS. The row count is Bob's side of it; this is
+  // hers, and it is the one that would actually matter.
+  const beforeState = readConsentState(before);
+  const afterState = readConsentState(after);
+
+  results.push({
+    what: "and Alice's own setting is unchanged, read through her own rights",
+    verdict:
+      beforeState.known && afterState.known && beforeState.enabled === afterState.enabled
+        ? PASS
+        : FAIL,
+    detail:
+      !beforeState.known || !afterState.known
+        ? `her setting could not be read on both sides of his attempt: ` +
+          `${beforeState.detail ?? "before: fine"} / ${afterState.detail ?? "after: fine"}`
+        : `it read ${beforeState.enabled ? "ON" : "OFF"} before his attempt and ` +
+          `${afterState.enabled ? "ON" : "OFF"} after`,
+  });
+
+  return results;
+}
+
+// AND BOB CANNOT READ HERS EITHER, which is a different promise from not changing it.
+// He has no SELECT on the column and my_ai_suggestions() takes no arguments, so there
+// is no request he can make for her value. The nearest thing he CAN do is ask for the
+// column directly, and that is what this checks: it must be refused rather than
+// answered with an empty result.
+export function judgeCannotReadAnother(answer) {
+  const what =
+    "Bob cannot read the setting's column at all -- not Alice's, and not even his own";
+  if (answer.error) {
+    // THIS IS THE PASS. `readRestBody` turns a non-2xx into `error`, so a 42501 arrives
+    // here as one. The detail names the status, which is the whole of what is checked.
+    return [
+      {
+        what,
+        verdict: /\b40[13]\b/.test(answer.error) || /42501/.test(answer.error)
+          ? PASS
+          : UNVERIFIED,
+        detail:
+          `his request for that column was refused: ${answer.error}. No client role` +
+          ` holds SELECT on it, which is how the migration stops a team mate reading it` +
+          ` through the existing "your team mates' profiles" policy`,
+      },
+    ];
+  }
+  return [
+    {
+      what,
+      verdict: FAIL,
+      detail:
+        `HTTP ${answer.status} with ` +
+        `${Array.isArray(answer.rows) ? answer.rows.length : "no list of"} row(s). A` +
+        ` signed-in caller selected that column, so the privilege that was supposed to` +
+        ` hide it is not there. An EMPTY result is still a FAIL here: it means the` +
+        ` select was allowed and the row rules happened to return nothing`,
+    },
+  ];
+}
+
+// THE SETTING IS LEFT AS THE RUN FOUND IT, for each person this run touched. A test
+// that quietly opts somebody in to sending their task titles to an outside company
+// would be a worse thing than the bug it was looking for.
+export function judgeConsentRestored(who, before, after) {
+  const what = `${who}'s setting is left exactly as this run found it`;
+  const beforeState = readConsentState(before);
+  const afterState = readConsentState(after);
+
+  if (!beforeState.known) {
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail:
+          `this run could not read the setting before it started, so it cannot say` +
+          ` whether it put it back: ${beforeState.detail}`,
+      },
+    ];
+  }
+  if (!afterState.known) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `it read ${beforeState.enabled ? "ON" : "OFF"} before the run and cannot be` +
+          ` read now: ${afterState.detail}. CHECK IT BY HAND in the dashboard --` +
+          ` public.profiles.ai_suggestions_enabled for this account -- because this run` +
+          ` changed it and cannot confirm it put it back`,
+      },
+    ];
+  }
+
+  return [
+    {
+      what,
+      verdict: beforeState.enabled === afterState.enabled ? PASS : FAIL,
+      detail:
+        beforeState.enabled === afterState.enabled
+          ? `it was ${beforeState.enabled ? "ON" : "OFF"} and it is ${
+            afterState.enabled ? "ON" : "OFF"
+          }`
+          : `IT WAS ${beforeState.enabled ? "ON" : "OFF"} AND IT IS NOW ${
+            afterState.enabled ? "ON" : "OFF"
+          }. Put it back by hand: this run left somebody's consent setting somewhere` +
+            ` they did not put it`,
+    },
+  ];
+}
+
 // The task this script made is gone again.
 export function judgeTaskDeleted(deleted, readBack) {
   const results = [];
@@ -1053,6 +1431,10 @@ export function judgeTouchedNothing(log) {
     "/auth/v1/logout?scope=local",
     `/functions/v1/${FUNCTION_NAME}`,
     "/rest/v1/tasks",
+    // Build it 21 (issue #211). The setting is read through the function and written
+    // on the profile row, so this run touches two more endpoints than it used to.
+    `/rest/v1/${CONSENT_RPC}`,
+    `/rest/v1/${PROFILES_PATH}`,
   ];
 
   const problems = [];
@@ -1061,6 +1443,23 @@ export function judgeTouchedNothing(log) {
     const full = entry.path;
     const ok = allowed.some((prefix) => full === prefix || path === prefix);
     if (!ok) problems.push(`${entry.method} ${entry.path}`);
+  }
+
+  // AND NOTHING WAS INSERTED INTO OR DELETED FROM profiles. This run switches a
+  // setting on an existing row and nothing else: it must not create a profile for
+  // anybody, which would leave a nickname on staging that nobody asked for, and it
+  // must not remove one.
+  const profileWrites = log.filter(
+    (entry) =>
+      entry.path.startsWith(`/rest/v1/${PROFILES_PATH}`) &&
+      entry.method !== "PATCH" &&
+      entry.method !== "GET",
+  );
+  if (profileWrites.length > 0) {
+    problems.push(
+      `it did more than PATCH and GET on profiles: ` +
+        profileWrites.map((e) => `${e.method} ${e.path}`).join(", "),
+    );
   }
 
   // It must NEVER have read account_status, which docs/plan.md says nobody reads
@@ -1081,7 +1480,8 @@ export function judgeTouchedNothing(log) {
       verdict: problems.length === 0 ? PASS : FAIL,
       detail:
         problems.length === 0
-          ? `${log.length} requests, all to the four endpoints above, one task created and one deleted`
+          ? `${log.length} requests, all to the ${allowed.length} endpoints above, one` +
+            ` task created and one deleted, and nothing but PATCH and GET on profiles`
           : problems.join("; "),
     },
   ];
@@ -1203,7 +1603,14 @@ function runSelftest() {
   console.log("");
 
   const madeUpTaskId = "a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b";
+  const madeUpUserId = "a1b2c3d4-0002-4e5f-8a9b-0c1d2e3f4a5b";
   const madeUpAddress = "nobody-at-all@example.com";
+
+  // The columns a PATCH on profiles asks back, written out here rather than taken from
+  // TASK_COLUMNS or a constant further down the file: everything below the --selftest
+  // branch has not been declared yet when this function runs, so naming one would be a
+  // ReferenceError rather than a check.
+  const SOME_TASK_COLUMNS = "id,title,done,team_id,owner_id";
 
   // A stand-in for an access token, deliberately dull: a realistic one is what
   // `.githooks/pre-commit` refuses, gitleaks reporting a JWT. The scrub cases care
@@ -1219,6 +1626,19 @@ function runSelftest() {
     body: JSON.stringify({ error: UNAVAILABLE_MESSAGE, code }),
   });
   const notFound = { status: 404, body: JSON.stringify({ error: NOT_FOUND_MESSAGE }) };
+
+  // One row from my_ai_suggestions(), as a PostgREST read gives it back. `changed_at`
+  // is included because the function returns it and this script must not care.
+  const consentRows = (enabled) => ({
+    status: 200,
+    rows: [{ enabled, changed_at: enabled ? "2026-10-08T09:00:00+00:00" : null }],
+  });
+
+  // The refusal the deployed function is supposed to send with the setting off.
+  const consentRefusal = {
+    status: 403,
+    body: JSON.stringify({ error: CONSENT_OFF_MESSAGE, code: CONSENT_OFF_CODE }),
+  };
 
   const goodThree = ["Book the hall", "Print flyers", "Ask for donations"];
 
@@ -1738,6 +2158,255 @@ function runSelftest() {
         ),
       expect: [PASS, FAIL, PASS, PASS],
     },
+
+    // ---- the consent setting (Build it 21, issue #211) ----
+    //
+    // The judgements above were all about a function that may send. These are about
+    // the setting that decides whether it may at all, and the one that matters is
+    // `judgeRefusedWhenOff`: every case below hands it the answer a function WITHOUT a
+    // consent check gives, and requires a FAIL.
+    { name: "the setting reads ON", run: () => judgeConsentRead(consentRows(true), "Alice"), expect: [PASS] },
+    { name: "the setting reads OFF", run: () => judgeConsentRead(consentRows(false), "Alice"), expect: [PASS] },
+    {
+      name: "the RPC could not be reached: UNVERIFIED, not off",
+      run: () => judgeConsentRead({ error: "HTTP 500" }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "THE RPC ANSWERED NO ROWS, which it is written never to do",
+      run: () => judgeConsentRead({ rows: [] }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "the RPC answered two rows",
+      run: () => judgeConsentRead({ rows: [{ enabled: true }, { enabled: false }] }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: 'THE SETTING CAME BACK AS THE STRING "false", WHICH IS TRUTHY: not read as consent',
+      run: () => judgeConsentRead({ rows: [{ enabled: "false" }] }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: 'and the string "true" is not read as consent either',
+      run: () => judgeConsentRead({ rows: [{ enabled: "true" }] }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "the setting came back null",
+      run: () => judgeConsentRead({ rows: [{ enabled: null }] }, "Alice"),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- switching it ----
+    {
+      name: "one row updated: the switch took",
+      run: () => judgeConsentSwitched({ status: 200, rows: [{ user_id: madeUpUserId }] }, "Alice", true),
+      expect: [PASS],
+    },
+    {
+      name:
+        "NOUGHT ROWS UPDATED: no profile row to write on, or the row rules refused it --" +
+        " which is issue #207's silent switch",
+      run: () => judgeConsentSwitched({ status: 200, rows: [] }, "Alice", true),
+      expect: [FAIL],
+    },
+    {
+      name: "the update was refused outright",
+      run: () => judgeConsentSwitched({ error: "HTTP 403" }, "Alice", true),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "the read-back agrees with what was asked for",
+      run: () => judgeConsentReadBack(consentRows(true), "Alice", true),
+      expect: [PASS],
+    },
+    {
+      name:
+        "THE UPDATE SAID ONE ROW AND THE READ-BACK SAYS OFF: not saved, which is Build it" +
+        " 19's rule from outside",
+      run: () => judgeConsentReadBack(consentRows(false), "Alice", true),
+      expect: [FAIL],
+    },
+    {
+      name: "the read-back could not be made",
+      run: () => judgeConsentReadBack({ error: "HTTP 500" }, "Alice", true),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- THE ONE THIS SECTION EXISTS FOR ----
+    {
+      name: "the setting is off and the ask is refused, with the consent code and sentence",
+      run: () => judgeRefusedWhenOff(consentRefusal),
+      expect: [PASS, PASS, PASS, PASS],
+    },
+    {
+      name:
+        "A FUNCTION WITH NO CONSENT CHECK: the setting is off and it answers 200 with" +
+        " suggestions. This is what staging answers BEFORE the deploy, and every part fails",
+      run: () => judgeRefusedWhenOff(ok(goodThree)),
+      expect: [FAIL, FAIL, FAIL, FAIL],
+    },
+    {
+      name:
+        "refused, but with the FIXED FAILURE instead -- so something other than the setting" +
+        " refused it and the consent check is unexercised",
+      run: () => judgeRefusedWhenOff(unavailable("not_configured")),
+      expect: [FAIL, FAIL, FAIL, PASS],
+    },
+    {
+      name:
+        "THE SUSPENSION REFUSAL, which is also a 403: the status passes and the code does not," +
+        " because this account being suspended says nothing about consent",
+      run: () =>
+        judgeRefusedWhenOff({
+          status: 403,
+          body: JSON.stringify({
+            error: "You can't do that at the moment.",
+            code: "account_suspended",
+          }),
+        }),
+      expect: [PASS, FAIL, FAIL, PASS],
+    },
+    {
+      name: "the right code with the WRONG sentence: the function and this file disagree",
+      run: () =>
+        judgeRefusedWhenOff({
+          status: 403,
+          body: JSON.stringify({ error: "Nope.", code: CONSENT_OFF_CODE }),
+        }),
+      expect: [PASS, PASS, FAIL, PASS],
+    },
+    {
+      name: "the right refusal carrying a field it should not",
+      run: () =>
+        judgeRefusedWhenOff({
+          status: 403,
+          body: JSON.stringify({
+            error: CONSENT_OFF_MESSAGE,
+            code: CONSENT_OFF_CODE,
+            user_id: madeUpUserId,
+          }),
+        }),
+      expect: [PASS, PASS, PASS, FAIL],
+    },
+    {
+      name: "the ask never arrived at all",
+      run: () => judgeRefusedWhenOff({ error: "could not reach suggest-subtasks" }),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- nobody switches anybody else's ----
+    {
+      name: "Bob's update of Alice's row changes nothing, and her setting is unmoved",
+      run: () =>
+        judgeCannotChangeAnother(
+          { status: 200, rows: [] },
+          consentRows(false),
+          consentRows(false),
+        ),
+      expect: [PASS, PASS],
+    },
+    {
+      name:
+        "BOB'S UPDATE CHANGED A ROW: one person switched another person's consent setting," +
+        " which docs/plan.md forbids in its plainest words",
+      run: () =>
+        judgeCannotChangeAnother(
+          { status: 200, rows: [{ user_id: madeUpUserId }] },
+          consentRows(false),
+          consentRows(true),
+        ),
+      expect: [FAIL, FAIL],
+    },
+    {
+      name:
+        "his update changed no row and HERS MOVED ANYWAY, which would mean something else" +
+        " did it",
+      run: () =>
+        judgeCannotChangeAnother({ status: 200, rows: [] }, consentRows(false), consentRows(true)),
+      expect: [PASS, FAIL],
+    },
+    {
+      name: "Bob's attempt was refused with an error rather than 0 rows: still a refusal, reported",
+      run: () =>
+        judgeCannotChangeAnother({ error: "HTTP 403" }, consentRows(false), consentRows(false)),
+      expect: [UNVERIFIED],
+    },
+    {
+      name: "Bob's request for the column is refused, which is the privilege doing its job",
+      run: () => judgeCannotReadAnother({ error: "HTTP 403 permission denied for table profiles" }),
+      expect: [PASS],
+    },
+    {
+      name:
+        "HIS REQUEST FOR THE COLUMN WAS ANSWERED, with nought rows -- which is still a FAIL," +
+        " because the select was allowed and the row rules merely happened to return nothing",
+      run: () => judgeCannotReadAnother({ status: 200, rows: [] }),
+      expect: [FAIL],
+    },
+    {
+      name: "or answered with a row, which is the leak itself",
+      run: () => judgeCannotReadAnother({ status: 200, rows: [{ ai_suggestions_enabled: true }] }),
+      expect: [FAIL],
+    },
+
+    // ---- and it is put back ----
+    {
+      name: "off before, off after: staging is as this run found it",
+      run: () => judgeConsentRestored("Alice", consentRows(false), consentRows(false)),
+      expect: [PASS],
+    },
+    {
+      name: "on before, on after",
+      run: () => judgeConsentRestored("Alice", consentRows(true), consentRows(true)),
+      expect: [PASS],
+    },
+    {
+      name:
+        "OFF BEFORE AND ON AFTER: this run left somebody opted in to sending their task" +
+        " titles to an outside company",
+      run: () => judgeConsentRestored("Alice", consentRows(false), consentRows(true)),
+      expect: [FAIL],
+    },
+    {
+      name: "it cannot be read now, and this run changed it: a FAIL that says to check by hand",
+      run: () => judgeConsentRestored("Alice", consentRows(false), { error: "HTTP 500" }),
+      expect: [FAIL],
+    },
+    {
+      name:
+        "it could not be read BEFORE the run either, so whether it was put back is unknown" +
+        " rather than wrong",
+      run: () => judgeConsentRestored("Alice", { error: "HTTP 500" }, consentRows(false)),
+      expect: [UNVERIFIED],
+    },
+
+    // ---- and the endpoint list knows about the two new ones ----
+    {
+      name: "the two new endpoints are allowed, and a PATCH on profiles is what this run makes",
+      run: () =>
+        judgeTouchedNothing([
+          { method: "POST", path: "/auth/v1/token?grant_type=password" },
+          { method: "POST", path: `/rest/v1/tasks?select=${SOME_TASK_COLUMNS}` },
+          { method: "POST", path: `/rest/v1/${CONSENT_RPC}` },
+          { method: "PATCH", path: `/rest/v1/${PROFILES_PATH}?user_id=eq.${madeUpUserId}` },
+          { method: "DELETE", path: `/rest/v1/tasks?id=eq.${madeUpTaskId}&select=id` },
+        ]),
+      expect: [PASS],
+    },
+    {
+      name:
+        "AN INSERT INTO profiles: this run must not create a profile for anybody, which" +
+        " would leave a nickname on staging nobody asked for",
+      run: () =>
+        judgeTouchedNothing([
+          { method: "POST", path: `/rest/v1/tasks?select=${SOME_TASK_COLUMNS}` },
+          { method: "POST", path: `/rest/v1/${PROFILES_PATH}` },
+          { method: "DELETE", path: `/rest/v1/tasks?id=eq.${madeUpTaskId}&select=id` },
+        ]),
+      expect: [FAIL],
+    },
   ];
 
   let wrong = 0;
@@ -2044,29 +2713,78 @@ async function signOut(session) {
 }
 
 // ---------------------------------------------------------------------------
+// The consent setting, read and written from outside (Build it 21, issue #211)
+// ---------------------------------------------------------------------------
+
+// READ IT THROUGH THE FUNCTION. `public.my_ai_suggestions()` is published by PostgREST
+// as an RPC because it is a function in the public schema, and it takes no arguments,
+// so this is the whole request: a POST with an empty body carrying the person's token.
+//
+// A SELECT WOULD NOT WORK AND MUST NOT BE SUBSTITUTED FOR IT. No client role holds
+// SELECT on either new column, so `profiles?select=ai_suggestions_enabled` is refused
+// 42501 -- for the person's own row. That refusal is itself checked, as Bob, further
+// down: judgeCannotReadAnother.
+async function readConsent(session) {
+  return await rest("POST", CONSENT_RPC, {
+    accessToken: session.accessToken,
+    body: {},
+  });
+}
+
+// WRITE IT ON THE PERSON'S OWN ROW. `select=user_id` and NOT the column being written:
+// asking for the setting back needs SELECT on it and would be refused 42501, which is
+// issue #207's second trap and the one a screen is most likely to walk into.
+//
+// The `user_id=eq.` filter is not what keeps this to one person's row -- the update
+// policy's `using (select auth.uid()) = user_id` does that -- it is here so the request
+// says plainly which row it means, and so that Bob's attempt below can name Alice's.
+async function setConsent(session, userId, wanted) {
+  return await rest(
+    "PATCH",
+    `${PROFILES_PATH}?user_id=eq.${userId}&select=user_id`,
+    {
+      accessToken: session.accessToken,
+      body: { ai_suggestions_enabled: wanted },
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
 console.log("Build it 20 part 1 -- the AI helper in the deployed function");
+console.log("Build it 21 part 2b -- and the consent setting that decides whether it may send");
 console.log(`  staging host:    ${STAGING_HOST} (confirmed by parsing the URL, not by a substring)`);
 console.log(`  function:        ${FUNCTION_NAME}`);
 console.log("  accounts:        Alice (owns the task) and Bob (must be refused it)");
 console.log("  the task:        one PERSONAL task, created by this run and deleted by it");
+console.log("  the setting:     switched by this run, and PUT BACK as it was found");
 console.log("  tokens, passwords, addresses, user ids and the task's title: not printed");
 console.log("");
 console.log("RUN THIS BEFORE AND AFTER DEPLOYING THE FUNCTION TO STAGING. Before the");
-console.log("deploy it MUST FAIL: there is no function of that name on the project, so");
-console.log("the platform answers 404 to every call. One green run on its own says");
-console.log("nothing about the deploy -- the pair is the evidence.");
+console.log("deploy it MUST FAIL. Twice over, now: the version of this function on");
+console.log("staging today has NO CONSENT CHECK, so section 2's 'refused when off'");
+console.log("fails even though the function answers -- and if the function is not");
+console.log("deployed at all, the platform answers 404 to every call. One green run on");
+console.log("its own says nothing about the deploy -- the pair is the evidence.");
 console.log("");
 console.log("IT SPENDS MONEY, once AI_API_KEY is set on staging: at most THREE metered");
 console.log("requests to Anthropic per run. Every other call here is refused before any");
-console.log("key is touched. See the note at the top of this file for the arithmetic.");
+console.log("key is touched -- including both of the asks made with the setting off,");
+console.log("which cost nothing because the function refuses before it reads the task.");
+console.log("See the note at the top of this file for the arithmetic.");
 console.log("");
 
 let alice = null;
 let bob = null;
 let taskId = null;
+
+// Where each person's setting stood before this run touched it, so the `finally` can
+// put it back. `null` means nobody has looked yet, which is different from "it could
+// not be read" -- and a run that never read it never writes it either.
+let aliceConsentBefore = null;
+let bobConsentBefore = null;
 
 try {
   // -------------------------------------------------------------------------
@@ -2119,10 +2837,93 @@ try {
   console.log("");
 
   // -------------------------------------------------------------------------
-  // 2. Is the function there, and what does it say about Alice's own task?
+  // 2. THE CONSENT SETTING, OFF: the ask must be refused and nothing sent
+  // -------------------------------------------------------------------------
+  //
+  // FIRST, before anything is asked with the setting on, because this is the state the
+  // feature is FOR. docs/plan.md: "Nobody's task title leaves production before there
+  // is a setting that lets them say no."
+  //
+  // Where it stands is read before it is touched, so the `finally` can put it back.
+
+  console.log("2. The consent setting is OFF, and the ask is refused");
+
+  aliceConsentBefore = await readConsent(alice);
+  record(judgeConsentRead(aliceConsentBefore, "Alice"));
+
+  const aliceConsentKnown = readConsentState(aliceConsentBefore).known;
+
+  if (!aliceConsentKnown) {
+    // IT IS NOT TOUCHED IF IT CANNOT BE READ. A run that switched a consent setting it
+    // could not read would have no way of putting it back, and leaving somebody opted
+    // in to sending their task titles to an outside company is worse than an
+    // unanswered check (rule 8).
+    record([
+      {
+        what: "the consent checks in sections 2 and 7 can be made at all",
+        verdict: UNVERIFIED,
+        detail:
+          "Alice's setting could not be read, so this run has NOT written it: it would" +
+          " have no way to put it back. Everything below runs against whatever the" +
+          " setting happens to be, which may show as failures. Fix the read first --" +
+          " my_ai_suggestions() should answer one row for any signed-in caller",
+      },
+    ]);
+  } else {
+    const toOff = await setConsent(alice, alice.userId, false);
+    record(judgeConsentSwitched(toOff, "Alice", false));
+    record(judgeConsentReadBack(await readConsent(alice), "Alice", false));
+
+    // THE ASK, with the setting off. This is also the first call this run makes to the
+    // function, so it is the one that answers "is it deployed at all" -- the function's
+    // own 403 is an answer from its own code, and the platform's 404 for a name it does
+    // not know is not.
+    const askedWhileOff = await callFunction(alice.accessToken, { task_id: taskId });
+    if (askedWhileOff.printable !== undefined) {
+      console.log(`        body: ${askedWhileOff.printable}`);
+    }
+    record(judgeFunctionDeployed(askedWhileOff));
+    record(judgeRefusedWhenOff(askedWhileOff));
+  }
+  console.log("");
+
+  // -------------------------------------------------------------------------
+  // 3. She switches it ON, and so does Bob
+  // -------------------------------------------------------------------------
+  //
+  // WHY BOB TOO, which is not obvious. Section 5's whole point is that a task Bob
+  // cannot see answers EXACTLY as a task that does not exist -- and the consent check
+  // comes before the task is read, so with Bob's setting off his ask would be refused
+  // for consent and never reach the read at all. The check would compare a consent
+  // refusal with a 404 and fail, while proving nothing about task visibility.
+  //
+  // So Bob consents for the duration of the run, and his setting is put back too. That
+  // is the only way section 5 asks its question rather than a different, easier one.
+
+  console.log("3. Both switch the setting ON, so the asks below reach the task read");
+
+  if (aliceConsentKnown) {
+    const toOn = await setConsent(alice, alice.userId, true);
+    record(judgeConsentSwitched(toOn, "Alice", true));
+    record(judgeConsentReadBack(await readConsent(alice), "Alice", true));
+  }
+
+  if (bob !== null) {
+    bobConsentBefore = await readConsent(bob);
+    record(judgeConsentRead(bobConsentBefore, "Bob"));
+
+    if (readConsentState(bobConsentBefore).known) {
+      const bobOn = await setConsent(bob, bob.userId, true);
+      record(judgeConsentSwitched(bobOn, "Bob", true));
+    }
+  }
+  console.log("");
+
+  // -------------------------------------------------------------------------
+  // 4. Is the function there, and what does it say about Alice's own task?
   // -------------------------------------------------------------------------
 
-  console.log("2. Alice asks for suggestions on her own task");
+  console.log("4. Alice asks for suggestions on her own task, with the setting ON");
 
   const aliceAsk = await callFunction(alice.accessToken, { task_id: taskId });
   if (aliceAsk.printable !== undefined) console.log(`        body: ${aliceAsk.printable}`);
@@ -2131,11 +2932,11 @@ try {
   console.log("");
 
   // -------------------------------------------------------------------------
-  // 3. Who may NOT ask
+  // 5. Who may NOT ask
   // -------------------------------------------------------------------------
 
   console.log(
-    "3. Who may not ask: a stranger, a made-up id, a malformed id, and nobody at all -- in" +
+    "5. Who may not ask: a stranger, a made-up id, a malformed id, and nobody at all -- in" +
       " the two shapes 'nobody' comes in",
   );
 
@@ -2202,10 +3003,10 @@ try {
   console.log("");
 
   // -------------------------------------------------------------------------
-  // 4. One call at a time
+  // 6. One call at a time
   // -------------------------------------------------------------------------
 
-  console.log("4. Two asks at once");
+  console.log("6. Two asks at once");
 
   const [firstAsk, secondAsk] = await Promise.all([
     callFunction(alice.accessToken, { task_id: taskId }),
@@ -2215,16 +3016,107 @@ try {
   if (secondAsk.printable !== undefined) console.log(`        second: ${secondAsk.printable}`);
   record(judgeOneAtATime(firstAsk, secondAsk));
   console.log("");
+
+  // -------------------------------------------------------------------------
+  // 7. She switches it OFF again -- and nobody else can touch it
+  // -------------------------------------------------------------------------
+  //
+  // THE SECOND HALF OF WHAT ISSUE #211 ASKS FOR, and it is not the same check as
+  // section 2's. Section 2 asked whether a setting that was already off refuses.
+  // This asks whether switching it off STOPS something that was working a moment ago
+  // -- which is the promise docs/plan.md makes in those words: "Switching it off stops
+  // any further sending at once, because the function reads the setting on each
+  // request and nothing caches it."
+  //
+  // So the order matters: this ask comes after three that succeeded, in the same run,
+  // against the same deployed isolate. If the function cached the setting, or read it
+  // once per isolate rather than once per request, this is the check that would catch
+  // it and section 2's would not.
+
+  console.log("7. She switches it OFF again, and the ask is refused again");
+
+  if (aliceConsentKnown) {
+    const backOff = await setConsent(alice, alice.userId, false);
+    record(judgeConsentSwitched(backOff, "Alice", false));
+    record(judgeConsentReadBack(await readConsent(alice), "Alice", false));
+
+    const askedAfterOff = await callFunction(alice.accessToken, { task_id: taskId });
+    if (askedAfterOff.printable !== undefined) {
+      console.log(`        body: ${askedAfterOff.printable}`);
+    }
+    record(judgeRefusedWhenOff(askedAfterOff));
+  }
+
+  // NOBODY SWITCHES ANYBODY ELSE'S, and nobody reads anybody else's. Two separate
+  // promises, both docs/plan.md's: "Only that person can switch it, and only for
+  // themselves", and "Who can see it: the person whose setting it is; owner".
+  if (bob === null) {
+    record([
+      {
+        what: "Bob CANNOT switch Alice's setting: his update changes no row",
+        verdict: UNVERIFIED,
+        detail:
+          "Bob could not sign in, so nobody tried to change somebody else's consent" +
+          " setting. This is the check that proves one person cannot opt another person" +
+          " in to sending their task titles to an outside company, and it has not been" +
+          " made",
+      },
+    ]);
+  } else {
+    const before = await readConsent(alice);
+    const bobsAttempt = await setConsent(bob, alice.userId, true);
+    if (bobsAttempt.printable !== undefined) {
+      console.log(`        Bob on Alice's row: ${bobsAttempt.printable}`);
+    }
+    const after = await readConsent(alice);
+    record(judgeCannotChangeAnother(bobsAttempt, before, after));
+
+    // And the column itself, asked for directly. HIS OWN ROW IS ENOUGH to settle it:
+    // the privilege is about a column for a role across the whole table, so if he can
+    // select it at all he can select it for every row the policies give him -- which
+    // includes his team mates'.
+    const bobsRead = await rest(
+      "GET",
+      `${PROFILES_PATH}?select=ai_suggestions_enabled`,
+      { accessToken: bob.accessToken },
+    );
+    record(judgeCannotReadAnother(bobsRead));
+  }
+  console.log("");
 } catch (cause) {
   console.log("");
   console.log(`  (the run stopped early: ${cause.message})`);
   console.log("");
 } finally {
   // -------------------------------------------------------------------------
-  // 5. Put staging back as it was found
+  // 8. Put staging back as it was found
   // -------------------------------------------------------------------------
 
-  console.log("5. Clearing up, and what this run touched");
+  console.log("8. Clearing up, and what this run touched");
+
+  // THE SETTINGS FIRST, before the task and before the sign-outs, because this is the
+  // part that would otherwise leave somebody opted in to sending their task titles to
+  // an outside company. It is in the `finally`, so it happens even when the run
+  // stopped early -- which is exactly when it is most needed.
+  //
+  // Each person is only written if this run READ their setting to begin with: the
+  // restore writes the value it found, so with nothing found there is nothing to write
+  // and nothing was ever changed.
+  for (const [who, session, before] of [
+    ["Alice", alice, aliceConsentBefore],
+    ["Bob", bob, bobConsentBefore],
+  ]) {
+    if (session === null || before === null) continue;
+
+    const state = readConsentState(before);
+    if (!state.known) {
+      record(judgeConsentRestored(who, before, before));
+      continue;
+    }
+
+    await setConsent(session, session.userId, state.enabled);
+    record(judgeConsentRestored(who, before, await readConsent(session)));
+  }
 
   if (taskId !== null && alice !== null) {
     const deleted = await rest("DELETE", `tasks?id=eq.${taskId}&select=id`, {
@@ -2299,9 +3191,18 @@ try {
 //
 // THE STAGING RUNS. Three of them, and the first is meant to fail:
 //
-//   1. BEFORE the deploy. There is no suggest-subtasks on staging, so the platform
-//      answers 404 and the checks in sections 2, 3 and 4 fail. Keep that output: it is
-//      what shows the behaviour was not there.
+//   1. BEFORE the deploy of the Build it 21 version. TWO THINGS MAKE THIS FAIL and it
+//      is worth knowing which one you are looking at:
+//
+//        * if the function is deployed but is the BUILD IT 20 version, it has no
+//          consent check, so section 2's "the ask is refused with the setting off"
+//          fails -- the function answers 200 with suggestions for somebody who has not
+//          consented. That is the FAIL issue #211 asks to be kept, and it is the
+//          evidence that the behaviour was not there;
+//        * if no function of that name is deployed at all, the platform answers 404 to
+//          every call and judgeFunctionDeployed fails as well.
+//
+//      Keep that output either way.
 //
 //   2. The owner deploys the function to staging, from their own terminal:
 //

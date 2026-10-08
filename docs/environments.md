@@ -20,6 +20,31 @@ running service unless it says so. See "What is not filled in yet, and why" at t
 | **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md` |
 | **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`**, plus the migration job in `.github/workflows/migrate-production.yml`, which runs on a push to `main` and nothing else. No hand-editing in a dashboard, and the AI assistant never touches it |
 
+## Where each migration has been applied
+
+Added 2026-10-08 for [#208](https://github.com/build-once/team-tasks/issues/208), which asked that this
+record live here rather than in a status note inside a migration file — a note kept in the file itself
+goes stale without anyone noticing.
+
+**Both columns of this table are reports, not observations by the assistant.** The staging row is the
+owner's apply plus the coach's read-back through the staging read-only connector; the production row is
+the step conclusions of a GitHub Actions run, read with `gh run view --json`. Nobody writing this opened
+a dashboard or connected to either database.
+
+| Migration | Staging | Production |
+|---|---|---|
+| Everything up to and including `20261006095847_invitation_status.sql` | applied | applied — `migrate-production` has run on every merge to `main` since Build it 6 |
+| `20261007204900_ai_suggestions_consent.sql` | **applied 8 Oct 2026**, by the owner from the `feat/ai-consent-migration-206` branch. Read back by the coach the same day: 9 migrations recorded, newest `20261007204900`; `ai_suggestions_enabled` default false and not null; `ai_suggestions_changed_at` nullable with no default; `my_ai_suggestions()` present and `security definer`; trigger `profiles_stamp_ai_suggestions` present. `evidence/build-it-21-ai-consent-migration.md` holds it | **applied 8 Oct 2026**, by `.github/workflows/migrate-production.yml` when PR #210 merged — run [37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469), whose "Apply migrations to production" step succeeded. **The step's log output was not read**: the command used to read it was refused by the guard (`db-remote-write`, matching the literal text of a remote push inside a search pattern) and was not retried, so what is recorded here is the run's step conclusion and nothing finer |
+
+**And where the server functions stand, which is a different question and is answered differently.**
+Migrations and functions do not travel together: production gets every function on a merge to `main`,
+through the same workflow, while **staging is deployed by hand** by the owner (rule 19).
+
+| Function | Staging | Production |
+|---|---|---|
+| `create-team`, `invite-member`, `accept-invite` | deployed | deployed |
+| `suggest-subtasks` | **the Build it 20 version**, deployed by the owner on 7 Oct 2026. The Build it 21 consent check is **not** on staging until the owner deploys it again | **the newest merged version**, because the pipeline deploys every function on merge. **With no `AI_API_KEY`**, so every ask there answers the fixed failure with the code `not_configured` — which is production's intended state until `docs/plan.md`'s three preconditions are met |
+
 ## Rules
 
 - We never build, test or experiment on production.

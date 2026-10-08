@@ -8,6 +8,15 @@ import { Header } from "@/app/components/Header";
 import { LoadFailed } from "@/app/components/LoadFailed";
 import { BUTTON_IDS } from "@/lib/buttons";
 import {
+  CONSENT_BUTTON_OFF,
+  CONSENT_PATH,
+  CONSENT_READ_FAILED,
+  CONSENT_UNREADABLE,
+  consentState,
+  mayAskForSuggestions,
+  type ConsentState,
+} from "@/lib/consent";
+import {
   SCREEN_EMPTY,
   SCREEN_ERROR,
   screenState,
@@ -177,7 +186,45 @@ export default async function MyTasksPage({
   let suggestionsData: unknown = null;
   let suggestionsFailed = false;
 
+  // ---- THE CONSENT SETTING (Build it 21, issue #211) ----------------------
+  //
+  // `null` until somebody presses the button, and that is a deliberate saving rather
+  // than an oversight: when nobody has asked for suggestions the setting decides
+  // nothing on this page, so there is no reason to spend a round trip reading it on
+  // every view of My tasks. It is read at the moment it starts to matter.
+  //
+  // WHAT IT IS FOR HERE, and what it is NOT. The function checks this setting itself,
+  // with the key in its hand, and refuses a caller whose setting is off whatever this
+  // screen drew -- docs/plan.md: "A screen that hid the button would not be this, and
+  // a screen is not where a rule lives." So this read is not the control. It is here
+  // so that pressing the button when the setting is off gives the person a sentence
+  // that says WHERE to switch it on, which the function cannot say: the function is
+  // deployed separately from these pages and does not know their addresses.
+  //
+  // AND SO THAT THE FUNCTION IS NOT CALLED AT ALL, which issue #211 asks for in those
+  // words. Nothing is spent and nothing is read on behalf of somebody who has not
+  // consented -- not by the function, which would refuse, and not from here either.
+  let consent: ConsentState | null = null;
+
   if (suggestTask !== null) {
+    // THE RPC, not a select on profiles: no client role may read that column. See
+    // web/src/lib/consent.ts, and issue #207 which found it. It takes no arguments, so
+    // there is no way to ask about anybody else's setting.
+    const { data: consentData, error: consentError } = await supabase.rpc(
+      "my_ai_suggestions",
+    );
+    consent = consentState({
+      failed: Boolean(consentError),
+      data: consentData,
+    });
+  }
+
+  // ONLY A SETTING KNOWN TO BE ON. An unreadable setting is not a yes, the same way
+  // round as the function's own refusal -- offering the ask on an unreadable setting
+  // would send somebody to a refusal they could not have predicted.
+  const mayAsk = consent !== null && mayAskForSuggestions(consent);
+
+  if (suggestTask !== null && mayAsk) {
     // ONLY THE TASK'S ID GOES IN THE BODY. Not its title -- the function reads that
     // itself, with the caller's own rights, which is what makes "a person can only
     // ask about a task they can see" true in the database rather than on this screen.
@@ -200,8 +247,13 @@ export default async function MyTasksPage({
   // Three states, never an empty list. suggestOutcome puts `failed` ahead of the data
   // for the reason screenState puts it ahead of the row count, and answers
   // "unavailable" rather than handing this page nought suggestions to draw.
+  //
+  // `asked` IS FALSE WHEN THE SETTING IS NOT ON, which keeps the consent case out of
+  // this decision entirely: it is not a failure of the helper, so it must not come out
+  // as "Suggestions aren't available right now." It has its own panel below, with its
+  // own sentence and a link to the setting.
   const suggestions = suggestOutcome({
-    asked: suggestTask !== null,
+    asked: suggestTask !== null && mayAsk,
     failed: suggestionsFailed,
     data: suggestionsData,
   });
@@ -949,16 +1001,50 @@ export default async function MyTasksPage({
                       answers "unavailable" rather than handing this page an empty list,
                       so there is no branch here that could draw a heading with nothing
                       under it -- which is what issue #183's "never shows an empty list
-                      as if it were a result" forbids. */}
-                  {suggestTask?.id !== task.id ? null : suggestions.state ===
-                      SUGGEST_UNAVAILABLE ? (
+                      as if it were a result" forbids.
+
+                      AND SINCE BUILD IT 21 THERE IS ONE BRANCH IN FRONT OF ALL THREE:
+                      the consent setting. It is first because it is not a failure of
+                      the helper and must not be dressed as one -- "Suggestions aren't
+                      available right now" would be false for somebody who can have
+                      them the moment they switch a setting on. This branch is reached
+                      WITHOUT the function having been called (issue #211 asks for
+                      that), so nothing was read and nothing was sent. */}
+                  {suggestTask?.id !== task.id ? null : !mayAsk ? (
                     <div className={styles.suggest}>
-                      {/* ONE SENTENCE, for all eleven of the function's codes. It says
-                          what this costs the person and nothing about why: no status,
-                          no code, no company's name, and nothing the service said.
-                          On production for the whole of Build it 20 this is the honest
-                          answer rather than an error -- there is no key there until the
-                          consent setting lands, so suggestions genuinely are not
+                      {/* TWO THINGS, because a sentence that said only the first would
+                          read as a fault: that it is off and nothing went, and where
+                          to change it. The function sends a sentence of its own for
+                          this case and cannot name an address -- it is deployed
+                          separately from these pages -- so the address is here.
+
+                          AND A THIRD CASE, kept apart: a setting that could NOT BE
+                          READ is not "off". Telling somebody their setting is off when
+                          this page could not read it would be stating an unknown as a
+                          fact about their own choice. */}
+                      <Banner tone="bad" icon="alert">
+                        {consent === CONSENT_UNREADABLE
+                          ? CONSENT_READ_FAILED
+                          : CONSENT_BUTTON_OFF}
+                      </Banner>
+                      <Link className="btn btn--quiet" href={CONSENT_PATH}>
+                        Open Settings
+                      </Link>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
+                    </div>
+                  ) : suggestions.state === SUGGEST_UNAVAILABLE ? (
+                    <div className={styles.suggest}>
+                      {/* ONE SENTENCE, for every one of the function's fixed-failure
+                          codes. It says what this costs the person and nothing about
+                          why: no status, no code, no company's name, and nothing the
+                          service said. On production this is the honest answer rather
+                          than an error -- there is no key there until docs/plan.md's
+                          three preconditions are met, so suggestions genuinely are not
                           available. */}
                       <Banner tone="bad" icon="alert">
                         {SUGGESTIONS_UNAVAILABLE}

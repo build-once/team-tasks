@@ -272,6 +272,34 @@ Nothing here wrote anything, and nothing in this session touched production.
 
 ---
 
+## 2026-10-07
+
+**Where this line comes from.** Written on 8 Oct 2026 by the assistant (Claude Code) from the coach's
+review comment on **pull request #210**, and copied into this log because issue #211 asked for it in
+those words. As with every entry above it: the assistant has no production access of any kind, did not
+watch the call happen, and **did not use the production read-only connector to check it** — rules 1 and
+10 forbid that, and rule 19's exception covers production function secrets and nothing else. Issue #211
+also says in so many words, "Do not use any MCP connector or the browser tool." The entry below is the
+issue's words, repeated verbatim, and the assistant has verified **nothing** in it.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| 7 Oct 2026 — no clock time given | The coach (claude.ai), via the production read-only connector | One read of **rights only, no row contents** | Settle the open question in PR #210: whether that migration's grants to `anon` would *widen* what it already holds, before the migration reached production | > 7 Oct 2026. Coach, read-only connector. One read of rights on `public.profiles` for `anon`, `authenticated` and `service_role`: each held table-level SELECT, INSERT and UPDATE. No row contents. |
+
+**What it settles.** `20261007204900_ai_suggestions_consent.sql` revokes table-level SELECT, INSERT and
+UPDATE from `anon` and `authenticated` and grants them back column by column. Whether that *narrows* or
+*widens* what those roles hold depends entirely on what they held first — and the answer is that all
+three held the table-level privileges, so the migration narrows. Had `anon` held nothing, the re-grants
+in its section 4 would have been handing it rights it did not have.
+
+**Two things this is not.** It is a reading of **production's privileges**, which is a different project
+from the sandbox that same comment describes — the sandbox reads are in
+`evidence/build-it-21-ai-consent-migration.md` and are not production. And it was taken **before** the
+migration was applied anywhere, so it says nothing about what production's privileges are now; the
+record of the apply itself is in that evidence file and in `docs/environments.md`.
+
+---
+
 ## Nothing written to production yet
 
 No entry above changed anything: every one is a read. **The assistant has never run a production
