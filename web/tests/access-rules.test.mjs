@@ -807,12 +807,16 @@ test("Bob CANNOT delete the file", async () => {
   console.log(`# Bob deleting the file: ${describeStorage(asBob)}, and the file is still there`);
 });
 
+// `what` is the word the test's NAME uses, and it is given rather than built
+// from the verb: the first run of these in CI printed "the file cannot be
+// deleteed", because `${what}ed` is fine for list and open and wrong for
+// delete. A test's name is read by whoever is looking at a failure.
 for (const [what, action] of [
-  ["list", async () => storageList(fileTaskId, null)],
-  ["open", async () => storageDownload(filePath(), null)],
-  ["delete", async () => storageDelete(filePath(), null)],
+  ["listed", async () => storageList(fileTaskId, null)],
+  ["opened", async () => storageDownload(filePath(), null)],
+  ["deleted", async () => storageDelete(filePath(), null)],
 ]) {
-  test(`Signed out: the file cannot be ${what}ed`, async () => {
+  test(`Signed out: the file cannot be ${what}`, async () => {
     fileTaskOrFail();
 
     // The "can" half first, as everywhere else in this file.
@@ -831,12 +835,12 @@ for (const [what, action] of [
     // delete is judged by the read-back below rather than by its body, for the
     // reason staging.mjs's note on storageDelete gives.
     if (!answer.refused) {
-      if (what === "list") {
+      if (what === "listed") {
         assert.ok(
           !answer.names?.includes(FILE_NAME),
           "A STRANGER WITH THE PUBLISHABLE KEY CAN LIST ALICE'S FILE",
         );
-      } else if (what === "open") {
+      } else if (what === "opened") {
         assert.fail(`A STRANGER OPENED ALICE'S FILE: ${answer.byteLength} bytes came back`);
       }
     }
@@ -844,7 +848,7 @@ for (const [what, action] of [
     const after = await storageList(fileTaskId, sessions.alice.accessToken);
     assert.ok(
       after.names?.includes(FILE_NAME),
-      `the file did not survive a signed-out ${what}`,
+      `the file was ${what} by a signed-out caller, or did not survive it`,
     );
     console.log(`# signed out, ${what}: HTTP ${answer.status ?? "?"} -- nothing`);
   });

@@ -9,9 +9,17 @@ runs either side of it.
 
 ## 0. What was run here, and what was not — read this first
 
-**NOTHING IN THIS FILE WAS RUN AGAINST STAGING OR PRODUCTION.** Not one request. Every command below is
-a local build, a local type check, a lint, or a pure-function script that connects to nothing. The
-assistant deployed nothing and applied nothing.
+**THE ASSISTANT RAN NOTHING AGAINST STAGING OR PRODUCTION.** Not one request. Every command in sections
+3 to 5.4 is a local build, a local type check, a lint, or a pure-function script that connects to
+nothing. Nothing was deployed and nothing was applied.
+
+**CI IS A DIFFERENT MATTER, AND IT IS SAID HERE RATHER THAN LEFT TO BE NOTICED.** Opening the pull
+request ran the `app-tests` job, which signs in to **staging** as Alice, Bob and Carol — it has done that
+on every pull request since Build it 17, and section 5.4 is its result. So the 15 new tests DID run
+against the real bucket, by the pipeline and on the owner's secrets rather than by me. That is the
+established flow for this repository and not a step anybody took specially; it is flagged because
+"nothing touched staging" would otherwise read as a claim about the whole change rather than about my own
+commands.
 
 **AND NOBODY HAS OPENED THIS SCREEN IN A BROWSER.** There is no screenshot in this file and no run of the
 app. What the pull request asks the owner to check on a phone is listed in it, and section 7 below says
@@ -24,8 +32,15 @@ what that leaves unproved — which is most of what a person would call "does it
 | `scripts/sentry-scrub-check.mjs` | **yes**, 119 checks | a stored file's path does not survive a scrub |
 | `scripts/staging/build-it-23-attachment-checks.mjs --selftest` | **yes**, 107 cases | the two fixed defects, and that both fixes can fail |
 | the same script against **staging** | **no** — the owner's step | the bucket's own limits, and the HEIC finding, against the real service |
-| `web/tests/access-rules.test.mjs` | **no** — it signs in to staging | the three policies, both sides of each |
+| `web/tests/access-rules.test.mjs` | **not by me — BY CI, AGAINST STAGING, and all 40 passed.** Section 5.4 | the three policies, both sides of each |
 | the screen in a browser | **no** | everything a person would call working |
+
+**THE THIRD ROW CHANGED AFTER THIS FILE WAS WRITTEN, and it is the most important line in it.** It said
+"**no** — it signs in to staging", which was true of me and not of the pull request: the `app-tests` job
+has run on every pull request since Build it 17, so opening one ran the 15 new tests against staging.
+**All 40 passed.** Section 5.4 is the result, with what each refusal actually answered — and it is a
+better class of evidence than anything else in this file, because it is the real service rather than a
+pure function.
 
 ---
 
@@ -301,7 +316,58 @@ exit=1
 
 **The leak fix**, in section 4.1 above.
 
-### 5.4 And four defects found in my own work, three of them by these checks
+### 5.4 THE 15 NEW TESTS, AGAINST THE REAL BUCKET ON STAGING — all 40 passed
+
+**Run by CI, not by me**, in the `app-tests` job of run
+[37941748170](https://github.com/build-once/team-tasks/actions/runs/37941748170) on pull request #245,
+read with `gh run view --job 113857601832 --log`. This is the strongest evidence in this file, because it
+is the real Storage service rather than a pure function.
+
+```
+# pass 40
+# fail 0
+App tests: 40 passed, 0 failed, 0 skipped, 0 todo; at least 40 expected to pass.
+```
+
+**And what each one actually answered**, from the run's own log lines — these are observations rather
+than expectations:
+
+| What was tried | What staging answered |
+|---|---|
+| Alice attaches a PNG to her own team task, content type set | `HTTP 200, and it is in the folder` — so the upload **and** the read-back |
+| Carol lists the task's folder | 200, and the file is in it |
+| Carol opens the file | 200, **byte for byte** — the length and the bytes both asserted |
+| Bob lists the folder | `HTTP 200 with 0 entry(ies), and it is not one` |
+| Bob opens the file | `HTTP 400 -- refused` |
+| Bob deletes the file | `HTTP 400 code="AccessDenied", and the file is still there` |
+| signed out, with the publishable key: list / open / delete | `HTTP 200 -- nothing` / `HTTP 400` / `HTTP 400`, and the file survived all three |
+| 5,242,881 bytes, one over the limit | `HTTP 400 code="EntityTooLarge"` |
+| an SVG, declared as one | `HTTP 400 code="InvalidMimeType"` |
+| Alice deletes her own task while the file is on it | `HTTP 409 (23503), no file named` |
+| Alice deletes the file | accepted, and the folder no longer holds it |
+| Alice then deletes the task | one row, and the task is gone |
+
+**Three things in that table are worth drawing out.**
+
+1. **`EntityTooLarge` and `InvalidMimeType` both arrived at HTTP 400**, not at the 413 and 400 the
+   error-codes page gives. That is the wrapping the staging script already warns about — "an HTTP 400
+   carrying the real status inside the body" — confirmed again, and it is why `uploadRefusal` in
+   `web/src/lib/attachments.ts` decides on the **code** and treats the status as a sanity check.
+2. **Bob's delete answered `AccessDenied`**, which is a code neither this change nor the staging script
+   had seen before. It is handled: `uploadRefusal` reads an unknown code at 400 as a refusal about
+   permission, which is what it is.
+3. **A signed-out list answered 200 with nothing**, where a signed-out open and delete were refused
+   outright. Both shapes of no, exactly as Supabase's own page says listing "may" differ from reading —
+   and the tests accept either rather than requiring one, which is why that difference did not fail them.
+
+**What this does NOT cover**, so the table is not read as more than it is: the 100 MB, two simultaneous
+uploads, a suspended person, HEIC, and anything through a screen. Section 7 has the full list.
+
+**One cosmetic fault it did find.** The signed-out tests were named with `${what}ed`, which printed "the
+file cannot be **deleteed**". Fixed by naming the word rather than building it; a test's name is read by
+whoever is looking at a failure.
+
+### 5.5 And four defects found in my own work, three of them by these checks
 
 Written down because a check that has never caught anything is a check nobody should trust.
 
@@ -376,12 +442,20 @@ and the comment beside it now names all three of the app's buttons that are not 
 
 ## 7. What this does NOT settle
 
-The honest list, and it is longer than the one above.
+The honest list, and it is longer than the one above. **Section 5.4 took the three policies off it** —
+they are now seen refusing the right people against the real service — and everything below is what that
+run did not reach.
 
 1. **Nobody has opened the screen.** No browser, no screenshot, no phone. Every sentence in
    `docs/claims.md` §2e is checked as a **string in a module**, and that one is really drawn where the
    check says is a question for the diff and for a person looking at it. The pull request asks the owner
-   to check seven things on a phone and says so.
+   to check eight things on a phone and says so. **The test run proves the RULES and says nothing about
+   the SCREEN**, which is the distinction to hold on to: it makes its requests with `fetch`, not through
+   anything in `web/src/app`.
+1a. **AND NO HEIC PHOTOGRAPH HAS BEEN UPLOADED BY THIS APP'S OWN PATH.** The tests send a PNG. The
+   finding that made the content-type table necessary came from the staging script, and the check that
+   holds it — section 14b — has not been run since it was written. **This is the single most likely thing
+   in the change to be wrong**, and it is first on the phone list for that reason.
 2. **The 100 MB per person has never refused anybody, anywhere.** It is proved on the local sandbox
    (part 1, section 7.2) and the owner's staging run did not fill it. So `FILE_NO_ROOM` is a sentence
    nobody has ever seen.
@@ -418,6 +492,12 @@ made as that person, so the database's own counted limits are what refuse a four
 hundred-and-first megabyte, and no part of this app holds a key that could get past them. Every refusal
 has a sentence this app wrote, and not one of them carries a word Supabase chose. A file's name never
 reaches a link, a log or an error report, and the scrub has a rule for the path in case something this
-app did not write ever quotes one. **None of it has been seen working by anybody**, and the two things
-that would settle most of it — a staging run of the script and a person with a phone — are both the
+app did not write ever quotes one.
+
+**And the rules under all of that have now been seen working against the real service**, by CI, on
+staging: 40 tests and 0 failures, with Alice's upload accepted and read back, Carol opening the file byte
+for byte, Bob and a signed-out stranger refused all three, the bucket refusing 5,242,881 bytes and an SVG
+by name, and the task refusing to be deleted while a file sat on it. **What has NOT been seen is anybody
+using the screen** — no browser, no phone, no HEIC photograph and no 100 MB. The two things that would
+settle most of what is left are a staging run of the script and a person with a phone, and both are the
 owner's step.
