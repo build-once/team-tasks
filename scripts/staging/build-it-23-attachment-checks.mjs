@@ -5,11 +5,11 @@
 //
 // Build it 23 part 1, the coach's review of PR #241, and issue #239's list.
 //
-// WHY IT EXISTS, AND WHY IT HAS TO BE RUN TWICE. PR #241 adds a migration and
-// nothing that uses it: no screen, no Edge Function, no upload path. NOTHING IS
+// WHY IT EXISTS, AND WHY IT HAD TO BE RUN TWICE. PR #241 added a migration and
+// nothing that used it: no screen, no Edge Function, no upload path. NOTHING WAS
 // APPLIED BY THAT BRANCH -- the assistant applies nothing anywhere, and
 // `supabase db push` against staging is the owner's step (rule 19). So this
-// script is written to be run:
+// script was written to be run:
 //
 //   * BEFORE the apply, where it MUST FAIL. There is no bucket, so every request
 //     answers 404 "Bucket not found" and section 2 reports it. Those failures are
@@ -19,6 +19,18 @@
 // A single green run proves nothing about the apply, because a check that was
 // always green would look exactly the same. THE PAIR IS THE EVIDENCE. Section 2's
 // first judgement says which of the two you are looking at, in those words.
+//
+// THAT PAIR HAS NOW HAPPENED, AND THIS IS WHAT A RUN MEANS AFTERWARDS. The owner
+// applied the migration to staging on 9 October 2026; the run before it was
+// 35 PASS / 12 FAIL / 1 UNVERIFIED and the run after it was 49 PASS / 2 FAIL,
+// both recorded in evidence/build-it-23-attachments-bucket.md with the coach's
+// read-back of the bucket between them. Production has it too, from the pipeline
+// on the merge of PR #241.
+//
+// So a run today is no longer about the apply. It is a regression check over
+// rules that are live in both projects -- and the two FAILs of the second run
+// were defects in THIS FILE rather than in those rules. Both are fixed here
+// (sections 14 and 15), which is the other reason to run it again.
 //
 // IT IS ALSO THE ONLY THING THAT CAN PROVE FOUR OF THE RULES AT ALL, which is the
 // other reason it is in this pull request rather than later.
@@ -38,8 +50,12 @@
 //   FILES STORED AT THE PEAK:        4  (3 on a team task, 1 on a personal task)
 //   FILES STORED WHEN IT FINISHES:   0
 //   TASKS CREATED:                   2      TASKS LEFT:  0
-//   REQUESTS THAT CARRY FILE BYTES: 13
-//   BYTES SENT:        5,243,6xx -- about 5.0 MiB, and 5,242,881 of them are the
+//   REQUESTS THAT CARRY FILE BYTES: 15 -- counted by hand in the session that
+//                      changed section 14 from one probe into two checks, which
+//                      added one. THE RUN PRINTS ITS OWN COUNT in its last
+//                      section, and that is the number to trust: this one is a
+//                      reader's estimate and the other is a measurement.
+//   BYTES SENT:        5,243,7xx -- about 5.0 MiB, and 5,242,881 of them are the
 //                      ONE deliberately oversized upload that check (8) needs.
 //                      Everything else is a 70-byte PNG, a 4-byte stand-in for an
 //                      executable and a 74-byte SVG.
@@ -74,7 +90,12 @@
 //     are open questions in docs/plan.md and neither is answered here.
 //   * ANYTHING ABOUT PRODUCTION. It refuses to run against anything but the
 //     staging host, before it reads a password.
-//   * ANYTHING ABOUT A SCREEN. There is no upload screen; this is the API.
+//   * ANYTHING ABOUT A SCREEN. Build it 23 part 2 adds one -- the files panel on
+//     My tasks, with the upload box -- and nothing here opens a browser. What
+//     this script and that screen share is the content-type table: section 14b
+//     sends `image/heic` because that is what web/src/lib/attachments.ts would
+//     send, so a green 14b says the app's choice works against the real service
+//     and says nothing at all about the screen that makes it.
 //   * AND -- BEFORE THE APPLY -- WHETHER A REFUSAL IS THE RULE'S OR THE MISSING
 //     BUCKET'S. This is the one weakness worth stating plainly, because it is in
 //     the output rather than hidden: sections 6, 7, 8, 11 and 12 report PASS on
@@ -85,6 +106,18 @@
 //     words -- and the positive checks (3, 4, 10) which have to succeed and do
 //     not. So: a before-run with section 2 red is the expected pair; a before-run
 //     is NOT evidence that any rule refuses anybody.
+//
+// AND TWO THINGS IT NOW ANSWERS THAT IT USED TO ASK (9 October 2026):
+//
+//   * WHETHER A `.heic` NAME IS DECLARED AS image/heic. It is not. Section 14 was
+//     one probe that passed if the upload was accepted; it is now two checks that
+//     require it to be REFUSED without a content type and ACCEPTED with
+//     `image/heic` set. The owner agreed to that change of expectation -- rule 20
+//     -- and the long note above judgeHeicWithoutContentType says why it is not a
+//     loosening.
+//   * WHY SECTION 15 REPORTED A SIGNED LINK IN A BODY WHEN NO LINK WAS PRINTED.
+//     Because a scrub applied when an answer arrives cannot catch a credential
+//     that is born in that answer. See signedLinksIn and readStorageAnswer.
 //
 // IT CAN FAIL, which is the only reason to trust it passing. Every judgement is a
 // pure function, and `--selftest` feeds those functions answers from a world where
@@ -767,44 +800,119 @@ export function judgeTaskDeleteAccepted(answer, what) {
   ];
 }
 
-// THE PROBE, and the one check whose answer is news rather than a rule.
-// docs/plan.md records as NOT CONFIRMED whether Supabase declares a `.heic` file
-// as image/heic -- the declared type comes from the extension, and no page read
-// says which extensions map to which types. If it does not, the owner's decision
-// to accept HEIC does not work and the list needs a `contentType` or another entry.
-// PNG bytes are sent under a .heic name on purpose: what is being tested is the
-// DECLARED type, which is all Storage looks at.
-export function judgeHeicByExtension(answer, what) {
+// ---------------------------------------------------------------------------
+// HEIC: TWO CHECKS, AND THE EXPECTATION OF THE FIRST ONE IS REVERSED
+// ---------------------------------------------------------------------------
+//
+// WHAT THIS USED TO BE, AND WHY IT CHANGED. There was one judgement here,
+// judgeHeicByExtension, and it was a PROBE rather than a rule: docs/plan.md
+// recorded as NOT CONFIRMED whether Supabase declares a `.heic` file as
+// `image/heic`, issue #239 asked for one upload to settle it, and the judgement
+// answered PASS if the upload was accepted.
+//
+// THE OWNER'S STAGING RUN OF 9 OCTOBER 2026 SETTLED IT, AND THE ANSWER IS NO. A
+// `.heic` name with no content type set by the caller is refused with
+// `InvalidMimeType`. Supabase works the declared type out from the extension --
+// "By default, Supabase Storage determines content type from the file extension.
+// You can override this with the `contentType` option"
+// (https://supabase.com/docs/guides/storage/uploads/standard-uploads) -- and it
+// does not map that one. So an iPhone photograph, which is the commonest thing
+// this feature exists for and the reason the owner added HEIC to the bucket's
+// list at all, was refused by the very bucket that was widened to accept it.
+//
+// SO THE EXPECTATION IS THE OTHER WAY ROUND NOW, AND THE OWNER AGREED TO THAT
+// CHANGE. AGENTS.md rule 20 is the reason this paragraph exists: a test is never
+// changed to make a run go green, and a test somebody was allowed to change gets
+// its own line in the pull request saying what changed and who agreed to it. The
+// owner agreed on 9 October 2026, and the pull request says so.
+//
+// IT IS NOT A LOOSENING, WHICH IS WHAT RULE 20 IS ACTUALLY ABOUT. The old
+// judgement asserted a thing that is false of staging, so it could never pass; it
+// was not catching a fault, it was recording an unanswered question. The two
+// below assert MORE than it did:
+//
+//   14a  without a content type, a .heic upload is REFUSED, and refused for the
+//        type -- which pins the finding, so a future Supabase that started
+//        mapping the extension would turn this red and somebody would read why.
+//   14b  WITH `image/heic` set by the caller, the same bytes under the same name
+//        are ACCEPTED. This is the half that matters: it is the thing the app's
+//        upload path now does, proved against the real service.
+//
+// PNG bytes under a .heic name in both, on purpose. What is being tested is the
+// DECLARED type, which is all Storage looks at -- docs/plan.md is explicit that a
+// renamed file gets through and that the app promises the refusal and never the
+// contents.
+
+// 14a. No content type: it must be refused, and refused for the type.
+export function judgeHeicWithoutContentType(answer, what) {
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
-  if (answer.status === 200) {
-    return [
-      {
-        what,
-        verdict: PASS,
-        detail:
-          "HTTP 200, so a .heic name with no Content-Type is declared as something this" +
-          " bucket accepts. The owner's HEIC decision works through the extension alone",
-      },
-    ];
-  }
+
   const body = answer.printable ?? "";
-  if (body.includes(INVALID_MIME)) {
+
+  if (answer.status === 200) {
     return [
       {
         what,
         verdict: FAIL,
         detail:
-          `HTTP ${answer.status} ${INVALID_MIME}: a .heic name is NOT declared as image/heic` +
-          ` by Supabase, so an iPhone photograph is refused unless the upload sets` +
-          ` contentType itself. docs/plan.md carries this as not confirmed; this is the answer`,
+          "HTTP 200 -- IT WAS ACCEPTED, which is the opposite of what the owner's run of" +
+          " 9 October 2026 found. Either Supabase now maps the .heic extension, or this" +
+          " upload set a content type after all. If it is the first, the app no longer" +
+          " needs to set the type for HEIC -- read TYPE_BY_EXTENSION in" +
+          " web/src/lib/attachments.ts before changing anything, because it is still" +
+          " right for every other extension",
+      },
+    ];
+  }
+  if (!body.includes(INVALID_MIME)) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `refused with HTTP ${answer.status}, but not for the TYPE: the body does not` +
+          ` carry "${INVALID_MIME}", so this check did not reach the thing it is about --` +
+          ` ${body.slice(0, MAX_REFUSAL_BODY)}`,
       },
     ];
   }
   return [
     {
       what,
+      verdict: PASS,
+      detail:
+        `HTTP ${answer.status} ${INVALID_MIME} -- refused. Supabase does not declare a` +
+        ` .heic name as image/heic, which is why the app sets the content type itself`,
+    },
+  ];
+}
+
+// 14b. With `image/heic` set by the caller: it must be accepted. This is the one
+// that proves the app's upload path works for an iPhone photograph.
+export function judgeHeicWithContentType(answer, what) {
+  if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
+
+  if (answer.status === 200) {
+    return [
+      {
+        what,
+        verdict: PASS,
+        detail:
+          "HTTP 200 -- stored. The six named types include image/heic and the caller said" +
+          " so, which is exactly what web/src/app/tasks/AttachFile.tsx does",
+      },
+    ];
+  }
+  const body = answer.printable ?? "";
+  return [
+    {
+      what,
       verdict: FAIL,
-      detail: `HTTP ${answer.status}: ${body.slice(0, MAX_REFUSAL_BODY)}`,
+      detail: body.includes(INVALID_MIME)
+        ? `HTTP ${answer.status} ${INVALID_MIME} -- REFUSED EVEN WITH image/heic SET, so the` +
+          ` bucket's own list does not hold it and the owner's HEIC decision is not in the` +
+          ` database. Check allowed_mime_types on the bucket row`
+        : `HTTP ${answer.status}: ${body.slice(0, MAX_REFUSAL_BODY)}`,
     },
   ];
 }
@@ -968,10 +1076,15 @@ export function judgeContractNumbers(maxBytes, perTask, seconds, types) {
 
 const PLACEHOLDERS = [];
 
+// ONCE PER VALUE. A signed link is now registered from the bytes of the answer
+// that carries it, and a second answer could carry the same link -- the same
+// file opened twice in one run -- so without this the list would grow a
+// duplicate pair per request and section 15 would check the same value twice.
+// Harmless either way; this just keeps the count in its detail line honest.
 function remember(value, placeholder) {
-  if (typeof value === "string" && value !== "") {
-    PLACEHOLDERS.push([value, placeholder]);
-  }
+  if (typeof value !== "string" || value === "") return;
+  if (PLACEHOLDERS.some(([known]) => known === value)) return;
+  PLACEHOLDERS.push([value, placeholder]);
 }
 
 function scrubWith(text, placeholders) {
@@ -1012,9 +1125,87 @@ export function judgeScrubbed(label, text, value, placeholders) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// A CREDENTIAL THAT IS BORN IN AN ANSWER, which is the fourth bug the staging
+// runs found and the one that needed this function
+// ---------------------------------------------------------------------------
+//
+// THE OWNER'S RUN OF 9 OCTOBER 2026, after the apply: 49 PASS, 2 FAIL, and the
+// second FAIL was section 15 reporting that "a signed link is in a body this run
+// kept or printed" -- when the output printed no link at all. The coach read the
+// pasted output and said so: "the script is keeping the sign response before the
+// link is registered for scrubbing, or the check is judging its own kept copy."
+//
+// IT IS THE FIRST OF THOSE, EXACTLY. Every value this script scrubs is
+// registered before the request that could carry it: an access token, a user id
+// and an address all exist the moment somebody signs in, so `remember` is called
+// in signIn and every body afterwards is scrubbed against them. A SIGNED LINK IS
+// DIFFERENT IN KIND -- it does not exist until the answer that carries it
+// arrives. So the order was:
+//
+//   1. ask for a link;
+//   2. readStorageBody scrubs the body against the placeholders AS THEY ARE, and
+//      the link is not among them;
+//   3. BODIES_SEEN keeps that copy, with the live link in it;
+//   4. section 5 then registers the link for every LATER body;
+//   5. section 15 checks every kept body against the link and finds it in the
+//      copy made at step 2.
+//
+// Nothing was printed, and the check was not wrong either: a live credential
+// really was sitting in a string this run had kept. A scrub applied at the
+// moment of arrival cannot catch a value that becomes known from that very
+// arrival, and no number of extra `remember` calls after the fact can fix it --
+// the copy is already made.
+//
+// SO THE LINK IS REGISTERED FROM THE BYTES, BEFORE THEY ARE READ. This function
+// is the pure half of that: given the raw body, it answers with every string in
+// it that carries a signed-link token. storageJson calls it on the text that
+// arrived and registers what it finds, and only then hands the text to
+// readStorageBody -- so by the time anything is kept or printed, the placeholder
+// is in place.
+//
+// IT LOOKS FOR `token=` AND NOT FOR A FIELD NAME, on purpose. Supabase's
+// createSignedUrl answers `{ signedURL: "/object/sign/...?token=..." }` and
+// createSignedUrls answers an array of objects, so a field name would be two
+// shapes to keep up with and a third would arrive unnoticed. What makes a string
+// a credential here is the token in it, and that is what is looked for.
+export function signedLinksIn(raw) {
+  let value;
+  try {
+    value = JSON.parse(raw ?? "");
+  } catch {
+    return [];
+  }
+
+  const found = [];
+  const visit = (node) => {
+    if (typeof node === "string") {
+      if (node.includes("token=")) found.push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (node !== null && typeof node === "object") {
+      for (const item of Object.values(node)) visit(item);
+    }
+  };
+  visit(value);
+  return found;
+}
+
 // Nothing printed or kept may carry a live value.
+//
+// "OR KEPT" IS THE HONEST WORDING, and it is what this judgement has always
+// checked: BODIES_SEEN holds the scrubbed copy of every answer, which is the set
+// of strings this run COULD print, and a credential sitting in one of them is a
+// fault whether or not a console.log happened to reach it. The sentence said
+// "reached a printed line" until 9 October 2026, which is how the owner came to
+// read a FAIL about a link that was never printed and have no way to tell
+// whether the script or the scrub was at fault.
 export function judgeNothingLeaked(bodies, secrets) {
-  const what = "no token, address, user id or signed link reached a printed line";
+  const what = "no token, address, user id or signed link reached a printed or kept line";
   const checked = secrets.filter(([value]) => value !== "");
   if (checked.length === 0) {
     return [
@@ -1066,6 +1257,33 @@ export function readStorageBody({ status, raw }, placeholders) {
     parsed = null;
   }
   return { status, body: text, parsed, printable: scrubWith(text, placeholders) };
+}
+
+// ONE FUNCTION THAT IS THE WHOLE ORDER, which is the shape the 9 October 2026
+// failure argues for rather than two lines in a request helper.
+//
+// The bug was an ORDER: the sign response was kept, scrubbed against the
+// placeholders as they then were, before the link in it was registered. A fix
+// written as two statements inside `storageJson` would have been correct and
+// unreachable -- storageJson makes a network request, so no selftest can drive
+// it, and the thing that went wrong would have had no check over it at all.
+//
+// So the order lives here, in something `--selftest` can call: register every
+// credential the bytes carry, THEN read them. Remove the loop below and section
+// S5a goes red.
+//
+// IT MUTATES THE LIST IT IS GIVEN, which is the one impure thing in this group
+// and is said out loud rather than hidden behind a name. That is what makes it
+// work on the real run, where `PLACEHOLDERS` is one list shared by every
+// request: a link registered from one answer is scrubbed out of every later one
+// as well.
+export function readStorageAnswer({ status, raw }, placeholders) {
+  for (const link of signedLinksIn(raw)) {
+    if (!placeholders.some(([known]) => known === link)) {
+      placeholders.push([link, "A_SIGNED_LINK"]);
+    }
+  }
+  return readStorageBody({ status, raw }, placeholders);
 }
 
 export function readRestBody({ ok, status, raw }, placeholders) {
@@ -1629,16 +1847,47 @@ function runSelftest() {
       run: () => judgeDeleteRefused(storage(REFUSAL_WRAPPER, noSuchKey), "delete a missing file"),
       expect: [PASS],
     },
+    // ---- HEIC, both halves, and the expectation reversed on 9 Oct 2026 ----
+    //
+    // The owner's staging run settled issue #239's question and the owner agreed
+    // to this change (AGENTS.md rule 20). The notes above the two judgements say
+    // what changed; these are the cases that make each of them able to fail.
     {
-      name: "the HEIC probe: a .heic name is accepted",
-      run: () => judgeHeicByExtension(storage(200, uploaded), "heic by extension"),
+      name:
+        "14a: a .heic name with NO content type is refused for its type, which is what" +
+        " staging really does",
+      run: () => judgeHeicWithoutContentType(storage(400, badMime), "heic, bare"),
       expect: [PASS],
     },
     {
       name:
-        "the HEIC probe: a .heic name is NOT declared image/heic, so the owner's decision" +
-        " needs a contentType or a longer list",
-      run: () => judgeHeicByExtension(storage(400, badMime), "heic by extension"),
+        "14a: SUPABASE STARTED MAPPING THE EXTENSION -- it was accepted, which reverses the" +
+        " finding the app's content-type table is built on",
+      run: () => judgeHeicWithoutContentType(storage(200, uploaded), "heic, bare"),
+      expect: [FAIL],
+    },
+    {
+      name:
+        "14a: REFUSED FOR THE WRONG REASON -- row-level security, so the type was never" +
+        " reached and this check did not run",
+      run: () => judgeHeicWithoutContentType(storage(403, denied), "heic, bare"),
+      expect: [FAIL],
+    },
+    {
+      name: "14b: with image/heic set, the same name is accepted -- an iPhone photograph works",
+      run: () => judgeHeicWithContentType(storage(200, uploaded), "heic, typed"),
+      expect: [PASS],
+    },
+    {
+      name:
+        "14b: THE BUCKET DOES NOT HOLD image/heic -- refused even with the type set, so the" +
+        " owner's decision is not in the database",
+      run: () => judgeHeicWithContentType(storage(400, badMime), "heic, typed"),
+      expect: [FAIL],
+    },
+    {
+      name: "14b: refused by a rule rather than by the type list, which is also a failure here",
+      run: () => judgeHeicWithContentType(storage(403, denied), "heic, typed"),
       expect: [FAIL],
     },
     {
@@ -1746,6 +1995,130 @@ function runSelftest() {
       run: () => {
         const answer = readStorageBody({ status: 200, raw: signedBody }, []);
         return judgeNothingLeaked([answer.printable], [[standInSignedPath, "a signed link"]]);
+      },
+      expect: [FAIL],
+    },
+
+    // ---- S5a. THE BUG THE OWNER'S RUN OF 9 OCTOBER 2026 FOUND ----
+    //
+    // Section 15 reported a signed link in a kept body when no link had been
+    // printed, and the cause was an ORDER rather than a wrong judgement: the sign
+    // response was kept, scrubbed against the placeholders as they then were,
+    // BEFORE the link in it was registered. Every case above this one hands a
+    // judgement a body whose placeholders were decided in advance, which is
+    // exactly why none of them could see it -- the same shape of blind spot the
+    // header describes about build-it-20-ai-checks.mjs.
+    //
+    // THESE FOUR GO THROUGH THE ORDER ITSELF. The first two are what signedLinksIn
+    // has to get right; the last two are the whole chain -- raw bytes, register,
+    // read, judge -- with the registration in place and then left out. The fourth
+    // IS the 9 October failure, reproduced, and it must come out FAIL.
+    {
+      name: "THE FIX: a signed link is found in the bytes that arrived",
+      run: () => [
+        {
+          what: "signedLinksIn finds the link in a sign response",
+          verdict: signedLinksIn(signedBody).includes(standInSignedPath) ? PASS : FAIL,
+          detail: `${signedLinksIn(signedBody).length} credential-bearing string(s)`,
+        },
+      ],
+      expect: [PASS],
+    },
+    {
+      name:
+        "and it finds nothing in a body with no token in it, so an ordinary answer" +
+        " registers no placeholder",
+      run: () => [
+        {
+          what: "signedLinksIn finds nothing in an upload's answer, a list, or a refusal",
+          verdict:
+            signedLinksIn(uploaded).length === 0 &&
+            signedLinksIn(listWithFile).length === 0 &&
+            signedLinksIn(denied).length === 0 &&
+            signedLinksIn("not json at all").length === 0
+              ? PASS
+              : FAIL,
+          detail: "four bodies, no credential in any of them",
+        },
+      ],
+      expect: [PASS],
+    },
+    {
+      name:
+        "THE WHOLE CHAIN, THROUGH THE FUNCTION THE RUN REALLY USES: an empty registry, the" +
+        " raw bytes in, a link issued, and nothing kept that carries it",
+      run: () => {
+        // readStorageAnswer is exactly what storageJson calls, with the same
+        // starting point a real run has before any link exists: a registry that
+        // does not contain one.
+        const registry = [];
+        const answer = readStorageAnswer({ status: 200, raw: signedBody }, registry);
+        return [
+          ...judgeSigned(answer, "Carol signs"),
+          ...judgeNothingLeaked([answer.printable], [[standInSignedPath, "a signed link"]]),
+          {
+            what: "and the link is now registered, so every LATER body is scrubbed against it too",
+            verdict: registry.some(([value]) => value === standInSignedPath) ? PASS : FAIL,
+            detail: `${registry.length} placeholder(s) after one sign response`,
+          },
+        ];
+      },
+      expect: [PASS, PASS, PASS],
+    },
+    {
+      name:
+        "and it registers the link ONCE however many answers carry it, so the count in" +
+        " section 15's detail line stays honest",
+      run: () => {
+        const registry = [];
+        readStorageAnswer({ status: 200, raw: signedBody }, registry);
+        readStorageAnswer({ status: 200, raw: signedBody }, registry);
+        return [
+          {
+            what: "two answers carrying the same link register one placeholder",
+            verdict: registry.length === 1 ? PASS : FAIL,
+            detail: `${registry.length} placeholder(s)`,
+          },
+        ];
+      },
+      expect: [PASS],
+    },
+    {
+      name:
+        "AND AN ORDINARY ANSWER REGISTERS NOTHING: an upload, a list and a refusal leave the" +
+        " registry alone, so nothing is scrubbed that should be readable",
+      run: () => {
+        const registry = [];
+        for (const body of [uploaded, listWithFile, denied, "not json at all"]) {
+          readStorageAnswer({ status: 200, raw: body }, registry);
+        }
+        return [
+          {
+            what: "four ordinary answers, no placeholder registered",
+            verdict: registry.length === 0 ? PASS : FAIL,
+            detail: `${registry.length} placeholder(s)`,
+          },
+        ];
+      },
+      expect: [PASS],
+    },
+    {
+      name:
+        "THE 9 OCTOBER FAILURE, REPRODUCED: read and keep FIRST, register afterwards --" +
+        " which is what the script did, and the kept copy still holds the link",
+      run: () => {
+        // The order the script used before the fix. The registry is the one the
+        // run really had at that moment: Alice's token and her user id, and no
+        // link, because the link did not exist until this very body arrived.
+        const registry = [
+          [standInToken, "ALICE_ACCESS_TOKEN"],
+          [standInUserId, "ALICE_USER_ID"],
+        ];
+        const kept = readStorageBody({ status: 200, raw: signedBody }, registry).printable;
+        // ... and only now is the link registered, from the parsed answer, which
+        // is one request too late: the copy above is already made.
+        registry.push([standInSignedPath, "A_SIGNED_LINK"]);
+        return judgeNothingLeaked([kept], [[standInSignedPath, "a signed link"]]);
       },
       expect: [FAIL],
     },
@@ -2047,9 +2420,15 @@ async function storageJson(method, path, { accessToken = null, apikey = true, bo
     return { error: `could not reach Storage (${cause.message})` };
   }
 
-  // Judged on what arrived, printed and kept scrubbed. readStorageBody is where
-  // that order lives, and --selftest exercises it.
-  const answer = readStorageBody({ status: response.status, raw: await response.text() }, PLACEHOLDERS);
+  // Judged on what arrived, printed and kept scrubbed -- and every credential
+  // the answer CARRIES registered before either of those happens, which is the
+  // fix for the second FAIL of the owner's staging run of 9 October 2026.
+  // readStorageAnswer is where that order lives, in one place, so --selftest can
+  // drive it; signedLinksIn's note is the whole argument.
+  const answer = readStorageAnswer(
+    { status: response.status, raw: await response.text() },
+    PLACEHOLDERS,
+  );
   BODIES_SEEN.push(answer.printable);
   return answer;
 }
@@ -2171,8 +2550,10 @@ console.log("build-it-23-attachment-checks: the rules on the attachments bucket,
 console.log(`  project: https://${STAGING_HOST}`);
 console.log(`  bucket:  ${BUCKET} (private)`);
 console.log("");
-console.log("RUN THIS TWICE. Before `supabase db push` there is no bucket and section 2");
-console.log("fails; after it, everything must pass. The pair is the evidence.");
+console.log("The migration was applied to staging on 9 Oct 2026, so section 2 should");
+console.log("PASS. A run before the apply fails there, and the pair of runs either side");
+console.log("of it is in evidence/build-it-23-attachments-bucket.md. This run is now a");
+console.log("regression check over rules that are live on staging and on production.");
 console.log("");
 
 const created = { tasks: [], files: [] };
@@ -2276,6 +2657,16 @@ try {
   console.log("");
 
   // ---- 4. Carol: list, read, sign ----
+  //
+  // `carolSigned` is declared OUTSIDE this block so section 5 can use it. That
+  // is the third of the owner's three asks about this script: the output had no
+  // section 5, because the signed-link check lived inside section 4's `else` and
+  // printed no heading of its own -- so a reader counting sections found 4 then
+  // 6 and had no way to tell whether a check had been lost. It is a section
+  // now, with a heading, and it keeps its number so every section below it keeps
+  // the number the owner's two runs referred to.
+  let carolSigned = null;
+
   console.log("4. Carol, a member of the team, can list, open and get a link");
   if (carol.error) {
     record([{ what: "Carol's three reads", verdict: UNVERIFIED, detail: "Carol could not sign in" }]);
@@ -2300,32 +2691,49 @@ try {
         "Carol opens the file",
       ),
     );
-    const carolSigned = await storageJson("POST", `/object/sign/${BUCKET}/${firstKey}`, {
+    carolSigned = await storageJson("POST", `/object/sign/${BUCKET}/${firstKey}`, {
       accessToken: carol.accessToken,
       body: { expiresIn: SIGNED_LINK_SECONDS },
     });
     record(judgeSigned(carolSigned, "Carol is issued a signed link"));
+  }
+  console.log("");
 
-    // ---- 5. the link, with no credentials at all ----
-    const signedPath = carolSigned.parsed?.signedURL;
-    if (typeof signedPath === "string" && signedPath !== "") {
-      remember(signedPath, "A_SIGNED_LINK");
-      record(
-        judgeSignedLinkOpens(
-          await storageBytes(`${storageUrl}${signedPath}`, { apikey: false, logPath: "a signed link" }),
-          PNG_BYTES,
-          "the signed link opens with NO key and NO session",
-        ),
-      );
-    } else {
-      record([
-        {
-          what: "the signed link opens with NO key and NO session",
-          verdict: UNVERIFIED,
-          detail: "no link was issued, so there was nothing to open",
-        },
-      ]);
-    }
+  // ---- 5. the link, with no credentials at all ----
+  //
+  // A SECTION OF ITS OWN, WITH A HEADING, since 9 October 2026. It was always a
+  // check and never a section: it sat inside section 4's `else` and printed no
+  // heading, so the output went 4, 6 and the owner's run had a numbered gap in
+  // it. Nothing about what it asks has changed.
+  //
+  // It is also the sharpest thing this script measures, which is an argument for
+  // its own heading rather than against: the link carries no key and no session,
+  // and this is where that is shown rather than described.
+  console.log("5. the link itself -- no key, no session, and it still opens the file");
+  const signedPath = carolSigned?.parsed?.signedURL;
+  if (typeof signedPath === "string" && signedPath !== "") {
+    // ALREADY REGISTERED FOR THE SCRUB, by storageJson, from the bytes of the
+    // answer that carried it -- which is the fix for the second FAIL of the
+    // owner's run of 9 October 2026. The call that used to be here was too late
+    // by one request: the sign response had already been kept with the live link
+    // in it. signedLinksIn's note is the whole argument.
+    record(
+      judgeSignedLinkOpens(
+        await storageBytes(`${storageUrl}${signedPath}`, { apikey: false, logPath: "a signed link" }),
+        PNG_BYTES,
+        "the signed link opens with NO key and NO session",
+      ),
+    );
+  } else {
+    record([
+      {
+        what: "the signed link opens with NO key and NO session",
+        verdict: UNVERIFIED,
+        detail: carol.error
+          ? "Carol could not sign in, so no link was asked for"
+          : "no link was issued, so there was nothing to open",
+      },
+    ]);
   }
   console.log("");
 
@@ -2580,19 +2988,47 @@ try {
   );
   console.log("");
 
-  // ---- 14. the HEIC probe, on the personal task ----
-  console.log("14. the probe: is a .heic name declared as image/heic? (issue #239)");
+  // ---- 14. HEIC: refused without a content type, accepted with one ----
+  //
+  // TWO CHECKS SINCE 9 OCTOBER 2026, where there was one probe. The owner's run
+  // settled issue #239's HEIC question -- a .heic name with no content type is
+  // refused -- and agreed to this change of expectation. The notes above
+  // judgeHeicWithoutContentType say what changed and why it is not a loosening.
+  console.log("14. HEIC: refused without a content type, accepted with image/heic set");
+  console.log("    (the finding of the owner's staging run, 9 Oct 2026, and issue #239)");
   if (!UUID_PATTERN.test(personalTaskId)) {
-    record([{ what: "the HEIC probe", verdict: UNVERIFIED, detail: "the personal task was not created" }]);
+    record([{ what: "the two HEIC checks", verdict: UNVERIFIED, detail: "the personal task was not created" }]);
   } else {
+    // 14a. The same bytes, the same name, NO Content-Type.
+    const bareName = `${MARK}-phone-bare.heic`;
+    record(
+      judgeHeicWithoutContentType(
+        await storageJson("POST", objectPath(personalTaskId, bareName), {
+          accessToken: alice.accessToken,
+          body: PNG_BYTES,
+          // NO Content-Type ON PURPOSE: the declared type then comes from the
+          // extension, which is the thing being tested.
+        }),
+        "a .heic name with NO content type is refused for its type",
+      ),
+    );
+
+    // 14b. The same bytes, the same extension, with the type this app would set.
+    // A DIFFERENT NAME, because a name is unique within a bucket and 14a may
+    // have stored something if the answer ever changes -- "400 Asset Already
+    // Exists" would then be a failure for the wrong reason.
     const heicName = `${MARK}-phone.heic`;
     const heic = await storageJson("POST", objectPath(personalTaskId, heicName), {
       accessToken: alice.accessToken,
       body: PNG_BYTES,
-      // NO Content-Type ON PURPOSE: the declared type then comes from the
-      // extension, which is the thing being tested.
+      contentType: "image/heic",
     });
-    record(judgeHeicByExtension(heic, "a .heic name, with no Content-Type set by the caller"));
+    record(
+      judgeHeicWithContentType(
+        heic,
+        "the same name WITH image/heic set by the caller is accepted -- what the app does",
+      ),
+    );
     if (heic.status === 200) {
       created.files.push(`${personalTaskId}/${heicName}`);
       record(
@@ -2702,10 +3138,10 @@ console.log("");
 console.log(`${passes} PASS, ${failures} FAIL, ${unverified} UNVERIFIED.`);
 console.log("");
 if (failures > 0) {
-  console.log("IF YOU RAN THIS BEFORE `supabase db push`, FAILURES ARE THE EXPECTED");
-  console.log("RESULT and section 2 says so in its own words. Run it again after the");
-  console.log("apply; the pair is the evidence. If you ran it after, read section 2");
-  console.log("first: a bucket that is not there explains everything below it.");
+  console.log("READ SECTION 2 FIRST: a bucket that is not there explains everything");
+  console.log("below it, and before `supabase db push` that is the expected result.");
+  console.log("The migration IS applied to staging as of 9 Oct 2026, so section 2");
+  console.log("passing and something below it failing is a real finding.");
 }
 console.log("Nothing in this run was production. Nothing here deployed anything.");
 process.exit(failures > 0 ? 1 : 0);
@@ -2743,5 +3179,7 @@ process.exit(failures > 0 ? 1 : 0);
 //     $env:ALICE_TEAM_ID = '...'
 //     node scripts/staging/build-it-23-attachment-checks.mjs
 //
-// RUN IT BEFORE `supabase db push` AND AFTER. Before, it must fail: there is no
-// bucket. After, it must pass. A single green run proves nothing about the apply.
+// THE BEFORE-AND-AFTER PAIR HAS BEEN RUN, by the owner on 9 October 2026, and is
+// in evidence/build-it-23-attachments-bucket.md. A run today is a regression
+// check: section 2 should pass, and anything failing under it is a real finding
+// rather than a missing bucket.

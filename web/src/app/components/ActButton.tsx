@@ -13,10 +13,20 @@ import { ACT_FIELD, type ButtonId } from "@/lib/buttons";
 // `<button type="submit"`, which should find none: a submit button in a page is
 // either this component or a mistake.
 //
-// THERE IS ONE BUTTON IN THE APP THAT IS NOT THIS, on purpose: the Try again in
-// web/src/app/error.tsx. It is `type="button"` with an onClick, not a form
-// submission at all -- there is nothing for an identifier to travel to, because
-// `retry` is a function the error boundary was handed.
+// THREE BUTTONS IN THE APP ARE NOT THIS, on purpose, and all three are the same
+// exception rather than three: `type="button"` with an onClick, not a form
+// submission at all, so there is nothing for an identifier to travel to.
+//
+//   * the Try again in web/src/app/error.tsx, and the one in
+//     web/src/app/global-error.tsx -- `retry` is a function the error boundary
+//     was handed. (This note used to say "one button" and name only the first
+//     of those two. Counted in the session that added the third, by searching
+//     web/src for `type="button"`, rather than carried forward.)
+//   * the Attach in web/src/app/tasks/AttachFile.tsx (Build it 23, issue #242)
+//     -- the file's bytes go from the browser straight to Supabase Storage, as
+//     the signed-in person, so no server action is called and no form is
+//     posted. The two controls beside it, Open and Delete, DO post to server
+//     actions and are this component, with `file_open` and `file_delete`.
 //
 // AND ONE SMALL CONSEQUENCE WORTH NAMING, because it is why this component exists
 // rather than the attributes being written out. scripts/password-reset-check.mjs

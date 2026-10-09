@@ -6,6 +6,18 @@ import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
 import { LoadFailed } from "@/app/components/LoadFailed";
+import { filesForTasks } from "@/lib/attachment-store";
+import {
+  FILES_LOAD_FAILED,
+  FILE_SENTENCES,
+  GOOD_OUTCOMES,
+  MAX_FILES_PER_TASK,
+  TASK_FILES_IN_THE_WAY,
+  WHO_CAN_SEE_FILES,
+  fileSizeWords,
+  readFileOutcome,
+  taskAndFilesDeleted,
+} from "@/lib/attachments";
 import { BUTTON_IDS } from "@/lib/buttons";
 import {
   CONSENT_BUTTON_OFF,
@@ -45,7 +57,16 @@ import {
   type TaskTeam,
 } from "@/lib/tasks";
 
-import { addTask, deleteTask, moveTask, renameTask, setDone } from "./actions";
+import {
+  addTask,
+  deleteFile,
+  deleteTask,
+  moveTask,
+  openFile,
+  renameTask,
+  setDone,
+} from "./actions";
+import { AttachFile } from "./AttachFile";
 import styles from "./tasks.module.css";
 
 function Tick() {
@@ -97,8 +118,19 @@ function ShowLink({
 export default async function MyTasksPage({
   searchParams,
 }: PageProps<"/tasks">) {
-  const { problem, added, moved, rename, confirm, move, suggest, filter } =
-    await searchParams;
+  const {
+    problem,
+    added,
+    moved,
+    rename,
+    confirm,
+    move,
+    suggest,
+    files,
+    file,
+    deleted,
+    filter,
+  } = await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows
@@ -354,6 +386,65 @@ export default async function MyTasksPage({
         ? tasks.filter((task) => task.team_id === null)
         : tasks.filter((task) => task.team_id === activeFilter);
 
+  // ---- THE FILES ON EACH TASK (Build it 23, issue #242) -------------------
+  //
+  // One listing per task in the list being drawn, in parallel. There is no one
+  // request that answers "the files on these twelve tasks": a listing is by
+  // prefix, and a task's prefix is its id.
+  //
+  // WHY EVERY VISIBLE TASK AND NOT ONLY THE OPEN ONE, which is the saving that
+  // was available and was not taken: without it, a task carrying three
+  // photographs would look exactly like a task carrying none until somebody
+  // pressed something. docs/plan.md's own table of who may touch a file begins
+  // "See that a file is there", and a count on the row is what makes that true
+  // of the screen rather than only of the rules.
+  //
+  // THE COST IS REAL AND IS NAMED RATHER THAN HIDDEN: this page now makes one
+  // more request per task drawn, so a filter showing twelve tasks makes twelve.
+  // They are parallel, so the page waits for the slowest rather than the sum,
+  // and each answer is a few hundred bytes -- but it is a change in what a view
+  // of My tasks costs, and the pull request says so.
+  // [#244](https://github.com/build-once/team-tasks/issues/244) is where a
+  // cheaper shape is argued, with the three alternatives and what each costs.
+  //
+  // NOTHING IS ASKED WHEN THE TASK READ FAILED, because `visible` is empty then
+  // -- the same way round as the AI helper's "a database fault must not turn
+  // into a bill", and here it keeps a failed read from becoming a dozen storage
+  // requests.
+  const { byTask: filesByTask, failed: filesFailed } = await filesForTasks(
+    supabase,
+    visible.map((task) => task.id),
+  );
+
+  // Which task's attachment panel is open. Checked against the tasks this page
+  // actually read, not merely for shape: `?files=` arrives in the address bar,
+  // and a panel drawn for a task that is not on the screen would be a box
+  // offering to attach a file to something the person cannot see.
+  const filesOpenFor =
+    visible.find((task) => task.id === String(files ?? "").trim().toLowerCase())?.id ?? null;
+
+  // What just happened to a file, as one of the fixed words in
+  // web/src/lib/attachments.ts. Anything else is null and draws nothing, so a
+  // crafted `?file=` cannot put a sentence of somebody else's choosing on this
+  // screen.
+  const fileOutcome = readFileOutcome(file);
+
+  // How many files went with a task that has just been deleted.
+  //
+  // CAPPED AT WHAT THE RULES ALLOW A TASK TO HAVE, which is the point of
+  // reading it this way rather than taking the digits. The number arrives in
+  // the address bar, so a hand-typed one could otherwise put "with the 99 files
+  // on it" on screen -- a false claim about something that had just been
+  // destroyed. No task can ever have had more than three, so anything above
+  // three is not a number this app wrote and is dropped.
+  const deletedText = String(deleted ?? "").trim();
+  const deletedWith =
+    /^[0-9]{1,2}$/.test(deletedText) &&
+    Number(deletedText) >= 1 &&
+    Number(deletedText) <= MAX_FILES_PER_TASK
+      ? Number(deletedText)
+      : null;
+
   // Counted from the rows this page is about to draw, not from a second query,
   // so the number can never disagree with the list underneath it.
   //
@@ -523,6 +614,43 @@ export default async function MyTasksPage({
           </Banner>
         )}
 
+        {/* A task that took its files with it (Build it 23, issue #242). Said
+            out loud rather than left quiet, because the person who deletes a
+            task need not be the person who attached the photograph on it: on a
+            team task, feature 4 lets its creator delete it and the owner's
+            decision of 8 October 2026 lets them delete the files on it, so
+            somebody else's file can go without them being asked. The least this
+            screen can do is say how many went. */}
+        {deletedWith === null ? null : (
+          <Banner tone="ok" icon="check">
+            {taskAndFilesDeleted(deletedWith)}
+          </Banner>
+        )}
+
+        {/* The other half of that decision: the files could not all be removed,
+            so the task is still here with them on it. NOT "please try again
+            later" and not "you cannot do that" -- it is a state the person can
+            see on the screen underneath, and the sentence says so. */}
+        {problem === "filesleft" ? (
+          <Banner tone="bad" icon="alert">
+            {TASK_FILES_IN_THE_WAY}
+          </Banner>
+        ) : null}
+
+        {/* What happened to one file. ONE MAP, in
+            web/src/lib/attachments.ts, so this screen draws no sentence of its
+            own -- and nothing Supabase Storage wrote reaches it: the actions
+            read a status and an error code, choose a word from a fixed list,
+            and throw the plumbing away. */}
+        {fileOutcome === null ? null : (
+          <Banner
+            tone={(GOOD_OUTCOMES as readonly string[]).includes(fileOutcome) ? "ok" : "bad"}
+            icon={(GOOD_OUTCOMES as readonly string[]).includes(fileOutcome) ? "check" : "alert"}
+          >
+            {FILE_SENTENCES[fileOutcome]}
+          </Banner>
+        )}
+
         {problem === "title" ? (
           <Banner tone="bad" icon="alert">
             A task needs some text, and no more than {TITLE_MAX} characters.
@@ -666,6 +794,27 @@ export default async function MyTasksPage({
           </LoadFailed>
         ) : null}
 
+        {/* THE FILE LISTS, which are a third read on this page and get the same
+            treatment as the other two (Build it 19 rule 1). `byTask` is empty
+            for a task whose listing failed, and an empty list drawn as "no
+            files" would be this app telling somebody the photograph they
+            attached is gone -- the exact trap web/src/lib/screen-state.ts
+            exists for, arriving through a different door.
+
+            So one failed listing is enough to say so, and when it is said NO
+            TASK shows a file count or a panel: a page that said "no files" for
+            eleven tasks and nothing at all about the twelfth would be worse
+            than one that says it could not read them.
+
+            It is drawn even when the task list itself failed, which cannot
+            happen -- nothing is asked for then, because `visible` is empty --
+            and is harmless if it ever did. */}
+        {filesFailed ? (
+          <LoadFailed target="tasks" filter={carried}>
+            {FILES_LOAD_FAILED}
+          </LoadFailed>
+        ) : null}
+
         {canChoose && listState !== SCREEN_ERROR ? (
           <nav className={styles.shows} aria-label="Which tasks to show">
             <ShowLink value={null} active={activeFilter === FILTER_ALL}>
@@ -737,6 +886,15 @@ export default async function MyTasksPage({
               // stranded task open for somebody who now belongs to no teams at
               // all, which is precisely the person issue #91 is about.
               const canMove = mine && (canChoose || task.team_id !== null);
+
+              // ---- THE FILES ON THIS TASK (Build it 23, issue #242) -------
+              //
+              // Nothing when the listings failed, and the page says so once
+              // above rather than once per row. An empty list and an unknown
+              // list are different things and `filesFailed` is what keeps them
+              // apart -- so no row below claims a task has no files when this
+              // page does not know.
+              const taskFiles = filesFailed ? [] : (filesByTask.get(task.id) ?? []);
 
               return (
                 <li className={styles.item} key={task.id}>
@@ -976,6 +1134,48 @@ export default async function MyTasksPage({
                             subtasks for {task.title}
                           </span>
                         </Link>
+                        {/* THE FILES (Build it 23, issue #242). A link, like
+                            every other control on this row, and CHEAP to follow
+                            unlike the one above it: it opens a panel on this
+                            same page and asks nothing of anybody but Storage,
+                            which the page has already asked. So no
+                            prefetch={false} -- there is nothing here that
+                            spends money.
+
+                            THE COUNT IS ON THE LINK, which is what makes "see
+                            that a file is there" true of the screen rather than
+                            only of the rules: a task carrying three
+                            photographs reads differently from a task carrying
+                            none, without pressing anything. No count when the
+                            listings failed, because this page does not know
+                            one -- and never a "0", which would be a claim
+                            dressed as a number.
+
+                            Drawn on every task the person can see, because the
+                            plan says a file is visible to exactly the people
+                            its task is visible to. What differs between them is
+                            inside the panel: who may delete which file. */}
+                        <Link
+                          className={styles.action}
+                          href={tasksPath({
+                            filter: carried,
+                            files: task.id,
+                          })}
+                        >
+                          Files
+                          {taskFiles.length > 0 ? (
+                            <span className={styles.fileCount}>
+                              {taskFiles.length}
+                            </span>
+                          ) : null}
+                          <span className="visually-hidden">
+                            {taskFiles.length === 1
+                              ? ` on ${task.title}: 1 file`
+                              : taskFiles.length > 1
+                                ? ` on ${task.title}: ${taskFiles.length} files`
+                                : ` on ${task.title}`}
+                          </span>
+                        </Link>
                         <Link
                           className={styles.action}
                           href={tasksPath({
@@ -1027,6 +1227,181 @@ export default async function MyTasksPage({
                           </Link>
                         ) : null}
                       </div>
+                    </div>
+                  )}
+
+                  {/* ---- THE FILES PANEL (Build it 23, issue #242) ------------
+                      Drawn UNDER the row, like the suggestions below and for the
+                      same reason: the task stays visible while somebody works on
+                      something attached to it. One task at a time, from `?files=`,
+                      which was checked against the tasks this page read.
+
+                      WHAT IS IN IT: the files, each with Open and Delete; the box
+                      that attaches one; the line about what is inside a
+                      photograph; and the line about who can open a file and for
+                      how long. Everything a person needs in order to decide,
+                      beside the thing they are deciding about. */}
+                  {filesOpenFor !== task.id ? null : (
+                    <div className={styles.files}>
+                      {taskFiles.length === 0 ? (
+                        <p className={styles.empty}>No files on this task yet</p>
+                      ) : (
+                        <ul className={styles.fileList}>
+                          {taskFiles.map((stored) => {
+                            const size = fileSizeWords(stored.size);
+
+                            return (
+                              <li className={styles.fileItem} key={stored.name}>
+                                {/* THE FILE'S NAME, drawn as text and nothing
+                                    else. Not a link: a link would put the name
+                                    in an address, and from there into this
+                                    browser's history, Vercel's access log and
+                                    `event.request.url` on any error report --
+                                    which docs/plan.md forbids outright, because
+                                    a name is free text somebody's phone chose.
+                                    So Open and Delete are forms, and the name
+                                    travels in a field. */}
+                                <span className={styles.fileName}>
+                                  {stored.name}
+                                </span>
+                                {size === null ? null : (
+                                  <span className={styles.fileSize}>{size}</span>
+                                )}
+
+                                {/* OPEN asks for the link at the moment it is
+                                    pressed, which is why it is a form and not
+                                    an address on the page: a signed link made
+                                    while this screen was drawn would already be
+                                    part-way through its five minutes, and all
+                                    the way through for anybody who left the tab
+                                    open. */}
+                                <form action={openFile}>
+                                  <input type="hidden" name="id" value={task.id} />
+                                  <input
+                                    type="hidden"
+                                    name="name"
+                                    value={stored.name}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="filter"
+                                    value={carried ?? ""}
+                                  />
+                                  <ActButton
+                                    className="btn btn--quiet"
+                                    act={BUTTON_IDS.fileOpen}
+                                  >
+                                    Open
+                                    <span className="visually-hidden">
+                                      {" "}
+                                      {stored.name}
+                                    </span>
+                                  </ActButton>
+                                </form>
+
+                                {/* DELETE IS DRAWN FOR EVERYBODY WHO CAN SEE THE
+                                    TASK, and that is a departure from this
+                                    page's own habit -- issue #83's lesson is to
+                                    draw a control only for the people it will
+                                    work for, which is why Delete on the task
+                                    itself appears only for its creator.
+
+                                    THE REASON IS THAT THE ANSWER DOES NOT CARRY
+                                    WHO UPLOADED THE FILE. A file may be deleted
+                                    by whoever attached it or by whoever created
+                                    the task (the owner's decision of 8 October
+                                    2026), and the first of those two is a fact
+                                    about `storage.objects.owner_id` -- which a
+                                    listing does not return. The installed
+                                    client says so itself: `owner` is marked
+                                    "@deprecated Owner identifier - NOT returned
+                                    by list() or remove() operations"
+                                    (web/node_modules/@supabase/storage-js/dist/
+                                    index.d.mts, FileObject), and the info
+                                    endpoint's own shape has no owner field
+                                    either. So this screen cannot tell whose
+                                    file it is looking at.
+
+                                    Drawing it only for the task's creator would
+                                    hide it from the one person the uploader
+                                    branch exists for -- somebody deleting the
+                                    photograph they attached to a team mate's
+                                    task. So it is drawn, the DELETE policy
+                                    decides, and a refusal gets a sentence that
+                                    names the rule rather than guessing which
+                                    half of it bit.
+
+                                    AND IT IS ONE PRESS, where deleting a task
+                                    takes two. Not an oversight: a confirmation
+                                    step would have to carry the file's identity
+                                    across a page load, and the only place to
+                                    carry it is the address bar -- which is the
+                                    one thing the comment above this says must
+                                    never hold a file's name. A second
+                                    confirmation is worth a lot; a file name in
+                                    every browser history is worth more. */}
+                                <form action={deleteFile}>
+                                  <input type="hidden" name="id" value={task.id} />
+                                  <input
+                                    type="hidden"
+                                    name="name"
+                                    value={stored.name}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="filter"
+                                    value={carried ?? ""}
+                                  />
+                                  <ActButton
+                                    className={`btn ${styles.danger}`}
+                                    act={BUTTON_IDS.fileDelete}
+                                  >
+                                    Delete
+                                    <span className="visually-hidden">
+                                      {" "}
+                                      {stored.name}
+                                    </span>
+                                  </ActButton>
+                                </form>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+
+                      {/* The upload box. A client component, and the only one
+                          in this app: the bytes go from this browser straight
+                          to Storage as the signed-in person, so that the INSERT
+                          policy is evaluated and the two counted limits are
+                          reached. web/src/app/tasks/AttachFile.tsx says why at
+                          length, and issue #240 is the argument.
+
+                          `filesAlready` is what the page just counted, and it
+                          does two jobs: it stops the box being offered on a
+                          task that is already full, and it is what tells a
+                          row-level refusal "this task has its three" apart from
+                          a row-level refusal "you may not". */}
+                      <AttachFile
+                        taskId={task.id}
+                        filesAlready={taskFiles.length}
+                        taskTitle={task.title}
+                      />
+
+                      {/* WHO CAN OPEN A FILE, AND FOR HOW LONG. Said here
+                          rather than only in docs/plan.md, which is the same
+                          decision as the "no one else on Team Tasks can see it"
+                          line on the chooser above (issue #202): the person
+                          attaching a photograph is the person who needs to know
+                          that a link to it works for five minutes for anybody
+                          holding it. */}
+                      <p className="hint">{WHO_CAN_SEE_FILES}</p>
+
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
                     </div>
                   )}
 

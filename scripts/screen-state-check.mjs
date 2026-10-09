@@ -533,11 +533,18 @@ check(
 // appearing in this list that nobody meant to add is worth a red check. So adding a
 // button means raising this number in the same change, and saying so in the pull
 // request -- 16 -> 17 with Build it 21 (issue #211), whose one new button is the
-// Save on the AI suggestions setting. Counted from the list in that session.
+// Save on the AI suggestions setting, and 17 -> 19 with Build it 23 part 2 (issue
+// #242): Open and Delete on a file. Counted from the list in each session.
+//
+// TWO AND NOT THREE, which is the thing to know when reading that list: the
+// Attach beside them is `type="button"` with an onClick, because the file's bytes
+// go from the browser straight to Storage and no form is posted -- so there is
+// nothing for an identifier to travel to. web/src/app/components/ActButton.tsx
+// names all three of the app's buttons that are not that component and why.
 check(
   "the buttons that actually exist, counted from the list",
   ALL_BUTTON_IDS.length,
-  17,
+  19,
 );
 
 // ---- readButtonId -------------------------------------------------------
@@ -1002,6 +1009,18 @@ const TASKS_PAGE = readFileSync(
   resolve(HERE, "..", "web", "src", "app", "tasks", "page.tsx"),
   "utf8",
 );
+// The two files Build it 23 part 2 added to that folder, read as text for the
+// same reason as the others: they import through the "@/" alias that only the
+// Next.js build resolves, and what section 10 wants of them is a promise about
+// shape rather than a function to call.
+const TASKS_ACTIONS = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "tasks", "actions.ts"),
+  "utf8",
+);
+const ATTACH_FILE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "tasks", "AttachFile.tsx"),
+  "utf8",
+);
 
 // Counted as "the RPC's name appears, and `.rpc(` appears" rather than as an exact
 // run of characters: the two pages indent that call differently, and a check that
@@ -1319,6 +1338,611 @@ check(
     count(TASKS_PAGE, "body as { error?: unknown }"),
   ],
   [1, 0],
+);
+
+// =========================================================================
+// 10. Files on a task: the numbers, the six types, and every sentence
+// =========================================================================
+//
+// Build it 23 part 2 (issue #242). web/src/lib/attachments.ts is the pure half
+// of the feature, and three different kinds of thing are checked here.
+//
+// FIRST, AND IT IS THE ONE WORTH HAVING: THE NUMBERS AND THE TYPES ARE READ OUT
+// OF THE MIGRATION'S OWN TEXT and compared with the module's. The database is
+// the control -- the bucket's row holds the 5 MB and the six types, and
+// public.attachments_may_add() counts the three-per-task and the 100 MB -- so
+// every number in that module is a COPY, kept so the screen can say something a
+// person can read instead of showing `EntityTooLarge`. A copy nobody checks is a
+// copy that drifts, and a drifted copy here means a screen promising a limit the
+// database does not keep.
+//
+// This is the same move scripts/friendly-words-check.mjs makes about roles and
+// invitation statuses: read the migration, not a memory of it.
+//
+// SECOND, the decisions that are genuinely this module's: which content type a
+// file's name gets (the finding that made the whole browser upload necessary),
+// what a name is rebuilt as, and which sentence a refusal gets.
+//
+// THIRD, that no sentence carries a word Supabase chose. docs/plan.md asks for
+// plain words and NEVER the storage service's own text, and that is a thing a
+// check can hold a file to.
+console.log("\n10. files on a task -- the numbers against the migration, and the sentences");
+
+const {
+  ACCEPTED_TYPES,
+  ACCEPT_ATTRIBUTE,
+  BUCKET,
+  FILE_OUTCOMES,
+  FILE_SENTENCES,
+  GOOD_OUTCOMES,
+  LINK_SECONDS,
+  MAX_BYTES_PER_PERSON,
+  MAX_FILES_PER_TASK,
+  MAX_FILE_BYTES,
+  MAX_NAME_CHARS,
+  PHOTO_METADATA_LINE,
+  TYPE_BY_EXTENSION,
+  WHO_CAN_SEE_FILES,
+  checkBeforeSending,
+  contentTypeFor,
+  fileSizeWords,
+  objectPath,
+  readFileList,
+  readFileOutcome,
+  storedName,
+  taskAndFilesDeleted,
+  taskIdOf,
+  uploadRefusal,
+} = await load("attachments.ts");
+
+// The migration, as text. It cannot be imported -- it is SQL -- and text is all
+// this needs of it: the question is whether the same numbers and the same six
+// type names appear in both files.
+const BUCKET_MIGRATION = readFileSync(
+  resolve(
+    HERE,
+    "..",
+    "supabase",
+    "migrations",
+    "20261008191804_attachments_bucket.sql",
+  ),
+  "utf8",
+);
+
+check(
+  "the migration this module copies its numbers from is still there",
+  BUCKET_MIGRATION.length > 0,
+  true,
+);
+check(
+  "the bucket's name is the same in both",
+  [BUCKET, count(BUCKET_MIGRATION, `'${BUCKET}'`) > 0],
+  ["attachments", true],
+);
+check(
+  "5 MB: the module's number is the bucket row's own 5242880",
+  [MAX_FILE_BYTES, count(BUCKET_MIGRATION, String(MAX_FILE_BYTES)) > 0],
+  [5242880, true],
+);
+check(
+  "100 MB: the module's number is attachments_may_add's own 104857600",
+  [MAX_BYTES_PER_PERSON, count(BUCKET_MIGRATION, String(MAX_BYTES_PER_PERSON)) > 0],
+  [104857600, true],
+);
+check(
+  "3 files a task: the module's number is the migration's c_files_per_task",
+  [
+    MAX_FILES_PER_TASK,
+    count(BUCKET_MIGRATION, `c_files_per_task constant integer := ${MAX_FILES_PER_TASK}`),
+  ],
+  [3, 1],
+);
+check(
+  "both units are MiB and not millions, which is what makes '20 single 5 MB files' add up",
+  [MAX_FILE_BYTES === 5 * 1024 * 1024, MAX_BYTES_PER_PERSON === 100 * 1024 * 1024],
+  [true, true],
+);
+check(
+  "a signed link lives docs/plan.md's five minutes, as 300 seconds",
+  LINK_SECONDS,
+  300,
+);
+
+// ---- THE SIX TYPES, against the bucket's own array ----------------------
+//
+// The wildcard is the thing this check exists for. `image/*` was what the
+// migration had before the coach's review of PR #241, and it would have admitted
+// image/svg+xml -- a document that can carry script, served back from this
+// project's own address through a signed link.
+check(
+  "every type this app accepts is in the bucket's own allowed_mime_types",
+  ACCEPTED_TYPES.filter((type) => count(BUCKET_MIGRATION, `'${type}'`) === 0),
+  [],
+);
+check(
+  "six of them, named, with no wildcard and no SVG",
+  [
+    ACCEPTED_TYPES.length,
+    ACCEPTED_TYPES.some((type) => type.includes("*")),
+    ACCEPTED_TYPES.includes("image/svg+xml"),
+  ],
+  [6, false, false],
+);
+// THE BUCKET'S OWN ARRAY, sliced out of the insert statement rather than
+// searched for in the whole file -- which is what this check caught about itself
+// on its first run. The migration's comments QUOTE `'image/*'` at length, to
+// explain why it is not used, so a search over the file found the wildcard in
+// the prose that rules it out. Only the statement decides anything.
+const TYPE_ARRAY =
+  BUCKET_MIGRATION.split("allowed_mime_types)")[1]?.split("array[")[1]?.split("]")[0] ?? "";
+check(
+  "the bucket's own type array was found, so the two checks below are looking at something",
+  [TYPE_ARRAY !== "", count(TYPE_ARRAY, "'image/jpeg'")],
+  [true, 1],
+);
+check(
+  "and the array itself names no wildcard and no SVG -- only the statement decides",
+  [count(TYPE_ARRAY, "image/*"), count(TYPE_ARRAY, "image/svg+xml")],
+  [0, 0],
+);
+check(
+  "the array holds exactly the six this app accepts, and nothing else",
+  TYPE_ARRAY.split(",")
+    .map((line) => line.trim().replace(/'/g, ""))
+    .filter((type) => type !== "")
+    .sort(),
+  ACCEPTED_TYPES.slice().sort(),
+);
+check(
+  "the two neighbours of HEIC nobody has been asked about are accepted by neither",
+  [
+    ACCEPTED_TYPES.includes("image/heif"),
+    ACCEPTED_TYPES.includes("image/heic-sequence"),
+    count(BUCKET_MIGRATION, "'image/heif'"),
+    count(BUCKET_MIGRATION, "'image/heic-sequence'"),
+  ],
+  [false, false, 0, 0],
+);
+check(
+  "every extension this app knows maps to one of the six, and nothing else",
+  Object.values(TYPE_BY_EXTENSION).filter((type) => !ACCEPTED_TYPES.includes(type)),
+  [],
+);
+check(
+  "and every one of the six is reachable from some extension -- an accepted type nothing can produce would be decoration",
+  ACCEPTED_TYPES.filter(
+    (type) => !Object.values(TYPE_BY_EXTENSION).includes(type),
+  ),
+  [],
+);
+check(
+  "the file chooser offers the extensions and the types, so a phone's camera roll and a desktop dialogue both filter",
+  [
+    ACCEPT_ATTRIBUTE.includes(".heic"),
+    ACCEPT_ATTRIBUTE.includes("image/heic"),
+    ACCEPT_ATTRIBUTE.includes("svg"),
+  ],
+  [true, true, false],
+);
+
+// ---- contentTypeFor: the finding this feature turns on -------------------
+//
+// The owner's staging run of 9 October 2026: a `.heic` name with NO content type
+// is refused with InvalidMimeType, because Supabase works the type out from the
+// extension and does not map that one. So this app sets the type itself, and
+// `.heic` -> image/heic is the single most important line in the module.
+console.log("\n10a. which content type a file's name gets");
+check("A .heic PHOTOGRAPH, which is what this is all for", contentTypeFor("IMG_0042.heic"), "image/heic");
+check("and in capitals, as a camera may write it", contentTypeFor("IMG_0042.HEIC"), "image/heic");
+check("both spellings of a JPEG", [contentTypeFor("a.jpg"), contentTypeFor("a.jpeg")], ["image/jpeg", "image/jpeg"]);
+check("a screenshot", contentTypeFor("Screenshot 2026-10-09.png"), "image/png");
+check("a PDF", contentTypeFor("receipt.pdf"), "application/pdf");
+check("a WebP, which is what a phone browser often re-encodes to", contentTypeFor("photo.webp"), "image/webp");
+check("a GIF", contentTypeFor("wave.gif"), "image/gif");
+check(
+  "AN SVG IS REFUSED HERE TOO, not only by the bucket: the app will not even send one",
+  contentTypeFor("picture.svg"),
+  null,
+);
+check("an executable", contentTypeFor("tool.exe"), null);
+check("HEIF and HEIC-sequence, which nobody has been asked about", [contentTypeFor("a.heif"), contentTypeFor("a.heics")], [null, null]);
+check("no extension at all", contentTypeFor("photograph"), null);
+check("a trailing dot, so no extension", contentTypeFor("photo."), null);
+check("a leading dot, so no name", contentTypeFor(".png"), null);
+check("nothing at all", [contentTypeFor(undefined), contentTypeFor(null), contentTypeFor("")], [null, null, null]);
+check("not a string", contentTypeFor(42), null);
+check(
+  "THE LAST EXTENSION WINS, which is the honest reading of a double one: this is a .png as far as every extension rule goes",
+  contentTypeFor("payload.php.png"),
+  "image/png",
+);
+
+// ---- storedName: what may be in a path -----------------------------------
+//
+// The first segment of an object's path is the whole of how every rule in the
+// migration decides which task a file belongs to, so a name that could add a
+// segment is a name that could move a file to another task.
+console.log("\n10b. the name this app is willing to put in a path");
+check("an ordinary name survives", storedName("receipt.pdf"), "receipt.pdf");
+check(
+  "A SLASH CANNOT SURVIVE: it would add a path segment, which is where the task id lives",
+  storedName("../../other-task/secret.png"),
+  "other-task-secret.png",
+);
+check("spaces become one dash each run", storedName("my  holiday   photo.jpg"), "my-holiday-photo.jpg");
+check("accents and other scripts become dashes, which is a real cost and is written down", storedName("reçu-café.pdf"), "re-u-caf.pdf");
+check("a leading dot is dropped, so nothing becomes a hidden file", storedName("...photo.png"), "photo.png");
+check("a double dot inside a name is collapsed", storedName("a..b.png"), "a.b.png");
+check("the extension is kept whatever happens to the stem", storedName("***.pdf"), null);
+check(
+  "a name whose extension this app does not accept is refused outright",
+  storedName("tool.exe"),
+  null,
+);
+check(
+  "the stem is capped and the extension still survives whole",
+  (() => {
+    const long = `${"a".repeat(MAX_NAME_CHARS + 40)}.png`;
+    const out = storedName(long);
+    return [out.length, out.endsWith(".png"), out.startsWith("a".repeat(MAX_NAME_CHARS))];
+  })(),
+  [MAX_NAME_CHARS + 4, true, true],
+);
+check("nothing usable left", [storedName("---.png"), storedName(".png"), storedName("")], [null, null, null]);
+
+// ---- the path, and reading a task id back off one ------------------------
+console.log("\n10c. the path, and the task id in front of it");
+const A_TASK = "a1b2c3d4-0001-4e5f-8a9b-0c1d2e3f4a5b";
+check("the path is the task id, a slash, and the name", objectPath(A_TASK, "a.png"), `${A_TASK}/a.png`);
+check("and the id reads back off it", taskIdOf(`${A_TASK}/a.png`), A_TASK);
+check("in capitals too, lower-cased on the way out, as the migration's own lower() does", taskIdOf(`${A_TASK.toUpperCase()}/a.png`), A_TASK);
+check("a file at the top level has no task", taskIdOf("a.png"), null);
+check("a file nested deeper has no task either", taskIdOf(`${A_TASK}/more/a.png`), null);
+check("an empty name is not a file", [taskIdOf(`${A_TASK}/`), taskIdOf(`${A_TASK}/   `)], [null, null]);
+check("a first segment that is not a uuid", taskIdOf("not-a-task/a.png"), null);
+check("nothing at all", [taskIdOf(undefined), taskIdOf(""), taskIdOf(7)], [null, null, null]);
+
+// ---- what a listing is read as ------------------------------------------
+console.log("\n10d. the files a listing answered with");
+check(
+  "a file, with its size out of metadata",
+  readFileList([{ name: "a.png", id: "x", metadata: { size: 1234 } }]),
+  [{ name: "a.png", size: 1234 }],
+);
+check(
+  "A FOLDER IS DROPPED: Supabase marks one with a null id, and a folder is not a file to open",
+  readFileList([{ name: "sub", id: null, metadata: null }]),
+  [],
+);
+check(
+  "a row with no name, and a name that is not a string",
+  readFileList([{ id: "x", metadata: {} }, { name: 7, id: "x" }, { name: "  ", id: "x" }]),
+  [],
+);
+check(
+  "an unknown size is null and not a nought, so no screen draws a 0 it does not know",
+  readFileList([{ name: "a.png", id: "x", metadata: {} }]),
+  [{ name: "a.png", size: null }],
+);
+check(
+  "sorted by name, so two views of one task draw the same order",
+  readFileList([
+    { name: "c.png", id: "x", metadata: { size: 1 } },
+    { name: "a.png", id: "x", metadata: { size: 1 } },
+    { name: "b.png", id: "x", metadata: { size: 1 } },
+  ]).map((row) => row.name),
+  ["a.png", "b.png", "c.png"],
+);
+check(
+  "a failed read is not an empty list: anything that is not an array answers with nothing to draw",
+  [readFileList(null), readFileList(undefined), readFileList({})],
+  [[], [], []],
+);
+check(
+  "a size in words, and nothing at all when it is not known",
+  [fileSizeWords(900), fileSizeWords(90000), fileSizeWords(1468006), fileSizeWords(null)],
+  ["900 bytes", "88 KB", "1.4 MB", null],
+);
+
+// ---- which refusal, and from what ---------------------------------------
+//
+// THE CODES ARE READ AND NEVER DRAWN, which is the distinction
+// web/src/lib/teams.ts draws about `account_suspended`. These checks are about
+// the choosing; the one after them is about the sentences never carrying the
+// code that chose them.
+console.log("\n10e. which sentence a refusal gets, from a status and a code");
+check(
+  "the bucket's own type refusal",
+  uploadRefusal({ status: 400, code: "InvalidMimeType" }),
+  "wrongtype",
+);
+check(
+  "the bucket's own size refusal, at EITHER status -- staging was seen to wrap the real one inside the body",
+  [
+    uploadRefusal({ status: 413, code: "EntityTooLarge" }),
+    uploadRefusal({ status: 400, code: "EntityTooLarge" }),
+  ],
+  ["toobig", "toobig"],
+);
+check(
+  "a row-level refusal on a task that already has its three is TODAY'S THREE, not 'you cannot'",
+  uploadRefusal({ status: 403, filesAlready: MAX_FILES_PER_TASK }),
+  "toomany",
+);
+check(
+  "a row-level refusal on a task with room is a refusal about permission",
+  uploadRefusal({ status: 403, filesAlready: 1 }),
+  "notallowed",
+);
+check(
+  "and at the two other statuses a refusal arrives as",
+  [uploadRefusal({ status: 401 }), uploadRefusal({ status: 400 })],
+  ["notallowed", "notallowed"],
+);
+check(
+  "A STATUS THIS APP HAS NEVER SEEN IS A FAILURE, NOT A REFUSAL: 'try again' is the honest answer",
+  [uploadRefusal({ status: 500 }), uploadRefusal({ status: 503 }), uploadRefusal({})],
+  ["failed", "failed", "failed"],
+);
+check(
+  "a code of the wrong type is ignored rather than trusted",
+  uploadRefusal({ status: 500, code: 42 }),
+  "failed",
+);
+check(
+  "and the counted limit is not read off a number it cannot trust",
+  uploadRefusal({ status: 403, filesAlready: "three" }),
+  "notallowed",
+);
+
+console.log("\n10f. what this app refuses before it sends 5 MB over a phone connection");
+check(
+  "a file one byte over the bucket's limit",
+  checkBeforeSending({ name: "a.png", size: MAX_FILE_BYTES + 1 }),
+  { ok: false, outcome: "toobig" },
+);
+check("exactly the limit is fine", checkBeforeSending({ name: "a.png", size: MAX_FILE_BYTES }).ok, true);
+check(
+  "AN UNKNOWN SIZE IS NOT A SMALL ONE -- the same direction the migration's attachments_file_bytes takes",
+  [
+    checkBeforeSending({ name: "a.png" }).outcome,
+    checkBeforeSending({ name: "a.png", size: "big" }).outcome,
+  ],
+  ["toobig", "toobig"],
+);
+check("an empty file, which is what a cancelled chooser leaves", checkBeforeSending({ name: "a.png", size: 0 }), { ok: false, outcome: "failed" });
+check("a type this app does not accept", checkBeforeSending({ name: "a.svg", size: 10 }), { ok: false, outcome: "wrongtype" });
+check(
+  "and a good one comes back with the type to declare and the name to store",
+  checkBeforeSending({ name: "IMG 0042.heic", size: 2048 }),
+  { ok: true, contentType: "image/heic", storedAs: "IMG-0042.heic" },
+);
+
+// ---- the sentences ------------------------------------------------------
+console.log("\n10g. the sentences, and what none of them says");
+check(
+  "every outcome has a sentence, and every sentence has an outcome",
+  [
+    FILE_OUTCOMES.filter((outcome) => typeof FILE_SENTENCES[outcome] !== "string").length,
+    Object.keys(FILE_SENTENCES).sort().join(","),
+    FILE_OUTCOMES.slice().sort().join(","),
+  ],
+  [0, FILE_OUTCOMES.slice().sort().join(","), FILE_OUTCOMES.slice().sort().join(",")],
+);
+check(
+  "the five the owner asked for by name are all there and all different",
+  new Set(
+    ["toobig", "wrongtype", "toomany", "noroom", "notallowed"].map((o) => FILE_SENTENCES[o]),
+  ).size,
+  5,
+);
+check(
+  "two of the eleven are good news, and they are the two that report something happening",
+  GOOD_OUTCOMES.slice(),
+  ["attached", "deleted"],
+);
+
+// NEVER THE STORAGE SERVICE'S OWN TEXT. docs/plan.md's requirement, and these
+// are the exact words Supabase would have supplied.
+const STORAGE_WORDS = [
+  "InvalidMimeType",
+  "EntityTooLarge",
+  "NoSuchKey",
+  "NoSuchBucket",
+  "AccessDenied",
+  "row-level security",
+  "Bucket not found",
+  "bucket",
+  "mime",
+  "storage.objects",
+  "403",
+  "400",
+  "413",
+  "policy",
+];
+check(
+  "NOT ONE SENTENCE CARRIES A WORD SUPABASE CHOSE, nor a status, nor a code",
+  FILE_OUTCOMES.flatMap((outcome) =>
+    STORAGE_WORDS.filter((word) =>
+      FILE_SENTENCES[outcome].toLowerCase().includes(word.toLowerCase()),
+    ).map((word) => `${outcome}: ${word}`),
+  ),
+  [],
+);
+// AND NO SENTENCE NAMES A COMPANY. The AI helper's sentences are held to the
+// same thing in section 9, and for the same reason: a person pressing a button
+// on a to-do list is owed an answer about their file, not about the plumbing.
+check(
+  "and none names Supabase, Vercel or anybody else",
+  FILE_OUTCOMES.filter((outcome) =>
+    /supabase|vercel|amazon|s3|aws/i.test(FILE_SENTENCES[outcome]),
+  ),
+  [],
+);
+// THE NUMBERS IN A SENTENCE ARE INTERPOLATED FROM THE CONSTANTS, never typed.
+// So the two that carry one carry the right one, and the other nine carry none.
+check(
+  "the two sentences with a number in them have the right numbers",
+  [
+    FILE_SENTENCES.toobig.includes("5 MB"),
+    FILE_SENTENCES.noroom.includes("100 MB"),
+    FILE_SENTENCES.toomany.includes(String(MAX_FILES_PER_TASK)),
+  ],
+  [true, true, true],
+);
+check(
+  "and no other sentence names a number at all",
+  FILE_OUTCOMES.filter(
+    (outcome) =>
+      !["toobig", "noroom", "toomany"].includes(outcome) &&
+      /\d/.test(FILE_SENTENCES[outcome]),
+  ),
+  [],
+);
+check(
+  "100 MB is not said as how much is left, which this screen cannot know",
+  /used|using/.test(FILE_SENTENCES.noroom) && !/remaining|left of/.test(FILE_SENTENCES.noroom),
+  true,
+);
+
+// THE LINE BESIDE THE UPLOAD BOX -- the owner's decision D of 8 October 2026.
+// Two things have to be true of it, and both are checked rather than trusted.
+check(
+  "the photograph line says where AND when, and that this app does not remove it",
+  [
+    /where/i.test(PHOTO_METADATA_LINE),
+    /when/i.test(PHOTO_METADATA_LINE),
+    /does not remove/i.test(PHOTO_METADATA_LINE),
+  ],
+  [true, true, true],
+);
+check(
+  "and it says a photo CAN carry it, not that one does -- nobody here has looked inside one",
+  [/\bcan carry\b/i.test(PHOTO_METADATA_LINE), /\bdoes carry\b/i.test(PHOTO_METADATA_LINE)],
+  [true, false],
+);
+check(
+  "it is SHORT: a paragraph beside an upload button is a paragraph nobody reads",
+  PHOTO_METADATA_LINE.length < 160,
+  true,
+);
+check(
+  "and the link's five minutes is said on screen, with who it works for",
+  [/5 minutes/.test(WHO_CAN_SEE_FILES), /anyone who has it/i.test(WHO_CAN_SEE_FILES)],
+  [true, true],
+);
+
+check(
+  "only the fixed words are read back off a query string",
+  [
+    readFileOutcome("attached"),
+    readFileOutcome("  deleted  "),
+    readFileOutcome("Attached"),
+    readFileOutcome("toobigger"),
+    readFileOutcome("That file is too big."),
+    readFileOutcome(undefined),
+    readFileOutcome(["attached"]),
+    readFileOutcome("constructor"),
+  ],
+  ["attached", "deleted", null, null, null, null, null, null],
+);
+check(
+  "the task-deleted sentence counts what went, in the singular and the plural",
+  [taskAndFilesDeleted(1), taskAndFilesDeleted(3)],
+  ["Task deleted, with the file on it.", "Task deleted, with the 3 files on it."],
+);
+
+// ---- and the page, read as text -----------------------------------------
+//
+// The same two questions section 9 asks of the AI panel: does the page actually
+// use the module, and does it keep the plumbing out.
+console.log("\n10h. the page, and the one key that must not be anywhere near it");
+check(
+  "My tasks draws the sentences from the module's map rather than writing its own",
+  [count(TASKS_PAGE, "FILE_SENTENCES[fileOutcome]"), count(TASKS_PAGE, "readFileOutcome(file)")],
+  [1, 1],
+);
+check(
+  "it offers the upload box, and the line about photographs is DRAWN beside it rather than merely imported",
+  [count(TASKS_PAGE, "<AttachFile"), count(ATTACH_FILE, "{PHOTO_METADATA_LINE}")],
+  [1, 1],
+);
+check(
+  "the upload is made as the signed-in person, through the browser client",
+  [
+    count(ATTACH_FILE, 'from "@/lib/supabase/client"'),
+    count(ATTACH_FILE, "contentType: ready.contentType"),
+  ],
+  [1, 1],
+);
+check(
+  "and 'attached' is said only after the file is LISTED BACK, not because an upload returned no error",
+  [count(ATTACH_FILE, ".list("), count(ATTACH_FILE, 'setOutcome("attached")')],
+  [1, 1],
+);
+// THE WHOLE OF ISSUE #240 IN ONE CHECK. A service-role key anywhere in web/src
+// would mean no policy on storage.objects was evaluated, so neither counted
+// limit would be reached and the stored row would have no owner.
+check(
+  "NO SERVICE-ROLE KEY, AND NO SIGNED UPLOAD URL, anywhere in the upload path",
+  [
+    /createSignedUploadUrl/.test(ATTACH_FILE),
+    /uploadToSignedUrl/.test(ATTACH_FILE),
+    /SERVICE_ROLE|SECRET_KEY|sb_secret/i.test(ATTACH_FILE),
+    /SERVICE_ROLE|SECRET_KEY|sb_secret/i.test(TASKS_ACTIONS),
+  ],
+  [false, false, false, false],
+);
+check(
+  "deleting a task clears its files FIRST, and refuses the task if they are still there",
+  [
+    count(TASKS_ACTIONS, "clearTaskFiles(supabase, id)"),
+    count(TASKS_ACTIONS, 'problem: "filesleft"'),
+    count(TASKS_ACTIONS, "TASK_HAS_FILES_CODE"),
+  ],
+  [1, 2, 2],
+);
+// AND IT ASKS WHOSE TASK IT IS BEFORE IT TOUCHES STORAGE, which is about a
+// SENTENCE rather than a rule: clearing first for everybody is safe -- a team
+// mate cannot delete the files either -- and would tell them "its files could
+// not be removed first", which is true and conceals that the task was never
+// theirs. The order is what makes the message right, so the order is checked.
+// TWO places send `problem=delete`, and they are the same news in two
+// situations: the row is not this person's, and the delete matched nothing. The
+// sentence names both possibilities and claims neither, which is why one
+// sentence is right for both -- §2d of docs/claims.md.
+check(
+  "and it reads whose task it is BEFORE clearing, so a team mate is told the truthful thing",
+  [
+    count(TASKS_ACTIONS, 'problem: "delete"'),
+    TASKS_ACTIONS.indexOf("row.owner_id !== me") <
+      TASKS_ACTIONS.indexOf("clearTaskFiles(supabase, id)"),
+  ],
+  [2, true],
+);
+check(
+  "an unreadable claim is not a match, so an unknown is not a yes",
+  count(TASKS_ACTIONS, 'typeof me !== "string"'),
+  1,
+);
+check(
+  "and the two file actions read a CODE and never a message",
+  [
+    count(TASKS_ACTIONS, "error.message"),
+    count(ATTACH_FILE, "error.message"),
+    count(ATTACH_FILE, "plumbing.code"),
+  ],
+  [0, 0, 1],
+);
+// A FILE'S NAME NEVER GOES IN A LINK, which is why Open and Delete are forms.
+check(
+  "no control carries a file's name in an address: Open and Delete are forms",
+  [
+    count(TASKS_PAGE, "action={openFile}"),
+    count(TASKS_PAGE, "action={deleteFile}"),
+    count(TASKS_PAGE, "name: stored.name"),
+  ],
+  [1, 1, 0],
 );
 
 // ------------------------------------------------------------------- the score

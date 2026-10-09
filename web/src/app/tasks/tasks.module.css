@@ -278,6 +278,98 @@
   color: var(--muted);
 }
 
+/* ---- Files on a task (Build it 23, issue #242) ----------------------------
+   The same indent and the same tinted ground as the suggestions panel below,
+   because they are the same kind of thing on the screen: something attached to
+   the task above rather than another task. The difference between the two is
+   that everything in THIS panel is real -- these files are in the database --
+   so it has no dashed border saying "nothing here is saved yet". */
+.files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px 16px 44px;
+  background: #faf9f6;
+  border-top: 1px solid var(--line);
+}
+
+.fileList {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fileItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 0;
+}
+
+.fileItem + .fileItem {
+  border-top: 1px solid var(--border);
+}
+
+/* A file's name is somebody's phone's words, so it can be long and can be in
+   any script. It takes whatever room is left and wraps rather than pushing the
+   two buttons off the end of the row. */
+.fileName {
+  flex: 1;
+  min-width: 8rem;
+  overflow-wrap: anywhere;
+}
+
+.fileSize {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  white-space: nowrap;
+}
+
+/* The count beside "Files" on the row: how many are on this task, drawn only
+   when there is at least one. Never a "0" -- a zero in a chip reads as a
+   measurement, and the absence of the chip says the same thing more quietly. */
+.fileCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  margin-left: 6px;
+  padding: 0 5px;
+  color: var(--green-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  background: var(--green-soft);
+  border: 1px solid var(--green-soft-line);
+  border-radius: 999px;
+}
+
+/* Input and button side by side, like the add-a-task row. The file chooser is
+   allowed to shrink, because a browser's own file control has a width of its
+   own and a phone's is wider than it looks. */
+.attach {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+}
+
+.attachRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.attachRow input {
+  flex: 1;
+  min-width: 10rem;
+}
+
 /* ---- The AI helper's suggestions (Build it 20, issue #183) ----------------
    Indented and on a tinted ground, so it reads as something attached to the task
    above it rather than as more tasks. That distinction is the point of the whole

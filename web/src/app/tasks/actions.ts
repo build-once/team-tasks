@@ -3,11 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  clearTaskFiles,
+  removeOne,
+  signedLink,
+} from "@/lib/attachment-store";
+import { MAX_NAME_CHARS, objectPath, taskIdOf } from "@/lib/attachments";
 import { ACT_FIELD, BUTTON_IDS, pressed, type ButtonId } from "@/lib/buttons";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_PERSONAL,
   REFUSED_CODE,
+  TASK_HAS_FILES_CODE,
   TITLE_MAX,
   filterAfterAdd,
   isTeamId,
@@ -375,6 +382,70 @@ export async function deleteTask(formData: FormData) {
 
   const supabase = await createClient();
 
+  // ---- THE FILES GO FIRST (Build it 23, issue #242) ---------------------
+  //
+  // The owner's decision of 8 October 2026: "leftover files are not
+  // acceptable". Deleting a task deletes its files first and is refused if
+  // they cannot be removed -- and the database refuses to delete a task that
+  // still has files whatever asked it to, which is the half that makes it a
+  // property of the system rather than of this function being correct.
+  //
+  // IT RUNS AS THE PERSON ASKING, with no more authority than they have
+  // sitting at the screen. The DELETE policy on storage.objects lets a task's
+  // creator remove every file on their own task -- that is what the owner's
+  // answer to #234 bought -- so nothing here needs a privileged delete path,
+  // and docs/architecture.md calls that the quiet virtue of the decision.
+  //
+  // THE ORDER IS NOT A PREFERENCE. The creator's right to delete these files
+  // comes FROM the task: delete the task first and the right vanishes with it,
+  // along with any row that could say who created it. So files-then-task is the
+  // only order in which the permission exists.
+  //
+  // BUT NOT BEFORE ASKING WHOSE TASK IT IS, and that read is here because of a
+  // wrong SENTENCE rather than a wrong rule.
+  //
+  // Clearing first for everybody would be safe -- the same storage policy that
+  // admits a creator's delete refuses a team mate's, so somebody who may not
+  // delete the task cannot clear its files either and `cleared` comes back
+  // false. It is safe and it says the wrong thing: a team mate would be told
+  // "its files could not be removed first", which is true and conceals the
+  // actual reason, which is that the task was never theirs to delete. This page
+  // draws no Delete on somebody else's task, so it takes a hand-made request to
+  // get here -- and a hand-made request still deserves the truthful answer.
+  //
+  // So: the row is read first, as the caller. No row means the task is gone or
+  // was never visible, and a row belonging to somebody else means exactly what
+  // the "nothing deleted" sentence below already says. Both take that path and
+  // nothing touches storage, which also saves a delete that could not succeed
+  // from making three requests first.
+  const { data: owned, error: readError } = await supabase
+    .from("tasks")
+    .select("id, owner_id")
+    .eq("id", id);
+
+  if (readError) redirect(tasksPath({ filter, problem: "save" }));
+
+  const row = owned?.[0] as { owner_id?: unknown } | undefined;
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const me = claimsData?.claims?.sub;
+
+  // An unreadable claim is not a match. The same direction as everything else
+  // in this app: an unknown is not a yes.
+  if (!row || typeof me !== "string" || row.owner_id !== me) {
+    redirect(tasksPath({ filter, problem: "delete" }));
+  }
+
+  // A task with no files answers `cleared: true` with nothing removed, and the
+  // delete below then proceeds exactly as it always has.
+  const files = await clearTaskFiles(supabase, id);
+
+  if (!files.cleared) {
+    // Not "try again later" and not "you cannot do that": the task is still
+    // here, with its files on it, which is a state the person can see and act
+    // on. web/src/lib/attachments.ts holds the sentence.
+    redirect(tasksPath({ filter, problem: "filesleft" }));
+  }
+
   // Same as rename. From the reference for delete: "By default, deleted rows
   // are not returned. To return it, chain the call with .select() after
   // filters." https://supabase.com/docs/reference/javascript/delete
@@ -385,11 +456,32 @@ export async function deleteTask(formData: FormData) {
     .select("id");
 
   if (error) {
+    // THE TRIGGER, and since Build it 23 this branch is the one that can
+    // actually fire. tasks_refuse_delete_with_files() raises 23503 --
+    // foreign_key_violation, chosen because it reads as "something still points
+    // at this row", which is exactly what is true -- whenever an object remains
+    // under attachments/<task id>/.
+    //
+    // Reaching it means the clear above said it had emptied the folder and the
+    // database disagrees: a file arrived in between, or a list answered with
+    // something that was not the whole truth. Either way the task is still
+    // here with files on it, which is the same news as a clear that failed, so
+    // it gets the same sentence.
+    //
+    // The CODE is read and the message is not. The trigger's own sentence is
+    // written in the migration and is perfectly readable -- and it is still a
+    // message from the database, which web/src/lib/teams.ts's long note is
+    // about: a sentence this app did not write, appearing in this app's
+    // styling.
+    if (error.code === TASK_HAS_FILES_CODE) {
+      redirect(tasksPath({ filter, problem: "filesleft" }));
+    }
+
     // Kept as a belt-and-braces branch, and it is not expected to fire: a
     // delete this person may not do matches no row rather than failing -- the
-    // "nothing deleted" case below -- and the trigger is not fired on delete at
-    // all. If it ever does fire, "you cannot do that" is still the truthful
-    // reading of a 42501.
+    // "nothing deleted" case below -- and the column trigger is `before insert
+    // or update`, so it is not fired on a delete at all. If a 42501 ever does
+    // arrive, "you cannot do that" is still the truthful reading of it.
     if (error.code === REFUSED_CODE) {
       redirect(tasksPath({ filter, problem: "refused" }));
     }
@@ -411,5 +503,211 @@ export async function deleteTask(formData: FormData) {
   }
 
   revalidatePath("/tasks");
-  redirect(tasksPath({ filter }));
+
+  // AND IT SAYS WHAT WENT WITH IT, when anything did. A task that quietly took
+  // three photographs with it is a task that took three photographs with it
+  // whether or not anybody was told, and the person who pressed Delete on the
+  // task may not be the person who attached them. `files.removed` is counted
+  // from a read-back of the folder rather than from what the deletes said, so
+  // the number is what actually went.
+  redirect(
+    files.removed > 0
+      ? tasksPath({ filter, deleted: String(files.removed) })
+      : tasksPath({ filter }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Files on a task (Build it 23, issue #242)
+// ---------------------------------------------------------------------------
+//
+// Two actions, and NEITHER OF THEM UPLOADS: the bytes go from the browser
+// straight to Storage, as the signed-in person, in
+// web/src/app/tasks/AttachFile.tsx. web/src/lib/attachment-store.ts's header
+// says why, and issue #240 is the argument.
+//
+// WHAT BOTH OF THEM HAVE IN COMMON, and it is the thing to check when reading
+// them: they ask Storage as the person who pressed the button, through the
+// client this request's cookies built, and they contain no decision about who
+// may do what. The three policies on storage.objects decide. A file this person
+// may not see produces no link; a file they may not delete removes nothing.
+//
+// AND NEITHER EVER PUTS A FILE'S NAME IN A REDIRECT. The name arrives in a form
+// field and stays in this function: what goes back into the address bar is one
+// of the fixed words in web/src/lib/attachments.ts. docs/plan.md puts a file
+// name on the list of things that must never reach error reporting, and a name
+// in a URL is a name in `event.request.url`.
+
+// The one thing a file name may not contain, and the only shape check worth
+// making here: a `/` would add a path segment, and the FIRST segment of an
+// object's path is the whole of how every rule in the migration decides which
+// task a file belongs to. So a name with a separator in it could name a file on
+// another task.
+//
+// DELIBERATELY NOT `storedName`'s FULL ALPHABET. This app sanitises a name
+// before it uploads one, so every file it stored matches that narrower shape --
+// but a file put into the bucket by the operator, in the dashboard, need not,
+// and a name check that refused those would leave files this app could display
+// and not delete. The requirement is that a name cannot reach another task, and
+// this is that requirement and nothing more.
+function fileNameFrom(formData: FormData): string | null {
+  const name = String(formData.get("name") ?? "").trim();
+
+  if (name === "") return null;
+  if (name.includes("/")) return null;
+  // Longer than anything this app would ever have stored: the stem is capped at
+  // MAX_NAME_CHARS and an extension is four characters at the outside.
+  if (name.length > MAX_NAME_CHARS + 16) return null;
+  return name;
+}
+
+/**
+ * Open one file, through a link that lasts five minutes.
+ *
+ * THE LINK IS MADE NOW AND NOT WHEN THE PAGE WAS DRAWN, which is the reason
+ * this is an action at all rather than a link on the row. A signed URL put into
+ * the page's HTML would already be part-way through its five minutes by the
+ * time anybody looked at the screen, and all the way through it for anybody who
+ * left the tab open -- so somebody would press a working-looking link and be
+ * handed nothing.
+ *
+ * AND THE CHECK HAPPENS WHEN THE LINK IS MADE. Creating one is a read of the
+ * object, so the SELECT policy decides: a person who may not see the task gets
+ * no link, from the database rather than from this screen. What follows from
+ * that is the design's one sharp edge and is not something this function can
+ * soften -- for those five minutes whoever holds the link can open the file,
+ * signed in or not, and nothing calls it back. docs/plan.md's "Links, and what
+ * an unexpired one allows" is where that is written up, and the panel on screen
+ * says it in a sentence before anybody presses this.
+ *
+ * IT REDIRECTS IN THE SAME TAB, on purpose. A form cannot reliably open a new
+ * one -- a server action is submitted by React rather than by the browser, so
+ * `target` applies only when there is no JavaScript, and a control that behaves
+ * differently in the two cases is worse than one that behaves plainly in both.
+ * The cost is that the link lands in this browser's history, which docs/plan.md
+ * already names as a cost of the design: "a link sitting in a browser's history
+ * or a phone's share sheet is live for the rest of its five minutes."
+ *
+ * AND REDIRECTING TO AN ADDRESS OUTSIDE THIS APP IS SOMETHING `redirect` DOES,
+ * which is worth a citation rather than an assumption because the whole control
+ * rests on it: "`redirect` also accepts absolute URLs and can be used to
+ * redirect to external links"
+ * (web/node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md,
+ * the version-matched docs for the installed Next). The same page says what
+ * happens either way in an action: "it will perform a client-side navigation
+ * when JavaScript is available or serve a 303 for a progressive enhancement
+ * form submission" -- so Open works with no JavaScript, like every other control
+ * on this page and unlike the upload box.
+ */
+export async function openFile(formData: FormData) {
+  const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.fileOpen])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
+  const taskId = String(formData.get("id") ?? "");
+  const name = fileNameFrom(formData);
+
+  if (!taskId || name === null) {
+    redirect(tasksPath({ filter, file: "linkfailed" }));
+  }
+
+  const path = objectPath(taskId, name);
+
+  // The same question public.attachments_task_id() answers, asked here so a
+  // path this app would not have built is not sent anywhere. It is NOT how
+  // access is decided -- the SELECT policy is -- and a path that passes this
+  // and names somebody else's task still gets no link.
+  if (taskIdOf(path) === null) {
+    redirect(tasksPath({ filter, file: "linkfailed" }));
+  }
+
+  const supabase = await createClient();
+  const url = await signedLink(supabase, path);
+
+  if (url === null) {
+    // One sentence for "you may not see it", "it is not there" and "the request
+    // did not arrive", because this code cannot tell them apart: a SELECT
+    // policy leaves a row out rather than complaining, so a file somebody may
+    // not read and a file that is gone produce the same answer.
+    redirect(tasksPath({ filter, files: taskId, file: "linkfailed" }));
+  }
+
+  redirect(url);
+}
+
+/**
+ * Delete one file.
+ *
+ * WHO MAY: whoever attached it, or whoever created the task it is on, and
+ * nobody else -- the owner's decision of 8 October 2026, settled in the DELETE
+ * policy on storage.objects and not here. A team mate who is neither can see
+ * the file and open it, and this action removes nothing for them.
+ *
+ * SO THIS FUNCTION ASKS AND REPORTS, and the four answers it can get each have
+ * their own sentence:
+ *
+ *   refused      Storage said no outright.
+ *   nothing      the file was not in the folder when the delete was asked for.
+ *   stillthere   it was, and it still is -- no policy matched, or the folder
+ *                could not be read back.
+ *   removed      it was there and it is not now.
+ *
+ * DECIDED BY LISTING THE FOLDER BEFORE AND AFTER, and not by reading the
+ * delete's own answer, which cannot tell "deleted" from "matched nothing": this
+ * endpoint says `{"message":"Successfully deleted"}` either way, and the JS
+ * client's `remove` documents its own answer as `{"data": []}` on success.
+ * `removeOne` in web/src/lib/attachment-store.ts has the citations and the
+ * argument. Build it 19's rule, applied to a file: a message is a claim about
+ * what the store HOLDS, not about what a call returned.
+ */
+export async function deleteFile(formData: FormData) {
+  const filter = filterFrom(formData);
+
+  if (wrongButton(formData, [BUTTON_IDS.fileDelete])) {
+    redirect(tasksPath({ filter, problem: "button" }));
+  }
+
+  const taskId = String(formData.get("id") ?? "");
+  const name = fileNameFrom(formData);
+
+  if (!taskId || name === null) {
+    redirect(tasksPath({ filter, file: "failed" }));
+  }
+
+  const path = objectPath(taskId, name);
+  if (taskIdOf(path) === null) {
+    redirect(tasksPath({ filter, file: "failed" }));
+  }
+
+  const supabase = await createClient();
+  const result = await removeOne(supabase, path);
+
+  if (result.state === "refused") {
+    // A refusal, not a breakage, so not "please try again". One sentence for
+    // all three reasons it can be -- not your file, not your task, or a
+    // suspended account -- because the answer cannot tell them apart, which is
+    // the same choice INVITE_SENTENCES.conflict makes about three refusals
+    // sharing one status.
+    redirect(tasksPath({ filter, files: taskId, file: "notallowed" }));
+  }
+
+  if (result.state === "nothing") {
+    redirect(tasksPath({ filter, files: taskId, file: "gone" }));
+  }
+
+  if (result.state === "stillthere") {
+    // Three ways here, and they are all the same news: the delete matched no
+    // row because no policy admitted it, Storage answered without complaining
+    // and the file is still in the folder, or this app could not read the
+    // folder back and will not claim a deletion it has not seen. "It is still
+    // on the task" is true of every one of them, and "File deleted." over a
+    // file still on the screen underneath is the one outcome a person cannot
+    // act on.
+    redirect(tasksPath({ filter, files: taskId, file: "stillthere" }));
+  }
+
+  revalidatePath("/tasks");
+  redirect(tasksPath({ filter, files: taskId, file: "deleted" }));
 }

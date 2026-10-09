@@ -158,14 +158,31 @@ export function filterAfterAdd(
 // What it is NOT is a place the suggestions themselves travel. They never go in a
 // URL: the page asks for them and draws them in the same request, so the model's
 // words are never echoed back out of the address bar.
+// `files`, `file` and `deleted` arrived with Build it 23 (issue #242) and are
+// the ordinary kind of key rather than `suggest`'s expensive kind: `files` is
+// the task whose attachment panel is open, `file` is the outcome of an
+// attachment action -- one of the fixed words in web/src/lib/attachments.ts,
+// never a sentence and never a file's name -- and `deleted` is how many files
+// went with a task that has just been deleted, which is a number this app
+// counted rather than a number it was told.
+//
+// A FILE'S NAME NEVER TRAVELS IN A LINK, which is worth saying because it would
+// be the obvious way to build an Open control. A name is free text somebody's
+// phone chose, so putting one in a URL would put it in a browser's history, in
+// Vercel's access log and in `event.request.url` on any error report -- and
+// docs/plan.md forbids the last of those outright. Open and Delete are forms
+// that carry the name in a field instead, which is also why neither is a link.
 export function tasksPath(params: {
   filter?: string | null;
   rename?: string;
   confirm?: string;
   move?: string;
   suggest?: string;
+  files?: string;
   added?: string;
   moved?: string;
+  file?: string;
+  deleted?: string;
   problem?: string;
 }): string {
   const query = new URLSearchParams();
@@ -255,3 +272,19 @@ export function taskTeam(
 // are its creator. So a 42501 on a tick or a rename means: your own task, in a
 // team you are no longer in. Nothing else reaches it.
 export const REFUSED_CODE = "42501";
+
+// Postgres's foreign_key_violation, which is what
+// tasks_refuse_delete_with_files() raises when a task still has files under
+// `attachments/<task id>/`
+// (supabase/migrations/20261008191804_attachments_bucket.sql, section 7).
+//
+// WHY THAT CODE AND NOT 42501, written down here because the distinction is the
+// whole of what the screen says: 23503 reads as "something still points at this
+// row", which is exactly what is true, and 42501 means "you may not". This
+// refusal is not about permission -- a task's creator may delete every file on
+// their own task -- so it means the files are still there, which is a thing the
+// person can act on.
+//
+// Branched on as a code and never printed, for the reason beside REFUSED_CODE:
+// "Branch on this rather than on message text."
+export const TASK_HAS_FILES_CODE = "23503";
