@@ -386,14 +386,18 @@ project. This is the shape, agreed before anything is typed, which is what the t
 whole document is for. The Supabase facts in it are cited from the pages named in `docs/plan.md`, read on
 2026-10-08.
 
-**What exists as of later the same day: the migration, and nothing else.**
+**What existed as of later the same day: the migration, and nothing else.**
 `supabase/migrations/20261008191804_attachments_bucket.sql` (issue #237) holds the bucket row, the three
 policies on `storage.objects`, the two counted limits and the trigger that refuses to delete a task with
-files. It is **applied nowhere** — not local, not staging, not production — and proved only on throwaway
-local PostgreSQL databases (`evidence/build-it-23-attachments-bucket.md`). There is still **no screen, no
-Edge Function, no client code and no upload path**, so nothing in this repository can put a file in the
-bucket or draw one, and **no file has ever been uploaded to any project.** `docs/environments.md` is
-where the applied-or-not record lives.
+files.
+
+**And on 9 October 2026 it was applied and the screen was built (issue #242).** The migration is on
+staging — the owner's `supabase db push`, read back by the coach — and on production, from the pipeline on
+the merge of PR #241, **where nothing has been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)).
+`docs/environments.md` is where the applied-or-not record lives and is the authority on it. The screen is
+the files panel on My tasks: a list of a task's files, Open and Delete on each, and the upload box. So
+this section is no longer a description of a shape agreed before anything was typed — the parts of it
+marked below as decided are built, and the parts marked unverified are still unverified.
 
 ### The bucket
 
@@ -424,6 +428,25 @@ the caller sets — both of which the uploader chooses. **So a renamed file gets
 enforces the refusal, not the contents. `docs/plan.md` says what the app will and will not promise as a
 result, and carries the "not confirmed" that no Supabase page read says whether the bytes are inspected
 at all.
+
+**Which is why THIS APP SETS THE CONTENT TYPE ITSELF, and that is a finding rather than a preference —
+settled on 9 October 2026 by the owner's staging run.** `docs/plan.md` and
+[#239](https://github.com/build-once/team-tasks/issues/239) carried as not confirmed whether Supabase
+maps a `.heic` file to `image/heic`. **It does not.** A `.heic` name with no `contentType` set by the
+caller is refused with `InvalidMimeType` — so an iPhone photograph, the commonest thing this feature
+exists for and the whole reason the owner added HEIC to the list, was refused by the very bucket that had
+been widened to accept it.
+
+So `web/src/lib/attachments.ts` holds one table from extension to type, and the upload declares the type
+from it. Two things follow, and the second is the one that keeps the paragraph above honest:
+
+- **It is read off the NAME, not off the bytes** — and not off `file.type` either: a browser that does not
+  recognise `.heic` reports an empty type, which is the case that failed, and a browser's answer is chosen
+  by whatever is uploading. So nothing above changes. A renamed file still gets through, and the app still
+  promises the refusal and never the contents.
+- **What it changes is that a file this app does not recognise is refused HERE, in words**, instead of
+  being sent and refused out there with a code. The bucket is still what enforces the refusal; this only
+  means the person reads a sentence.
 
 ### The rules: `storage.objects`, not a new table
 
@@ -525,26 +548,51 @@ are not:**
 | Where it is decided | the `SELECT` policy, in the database | **server code**, before the file is accepted |
 | Does it need a key | **no** | yes — the counting runs where the secret key already lives |
 
-**What is still a choice is how the bytes travel, and there are two shapes.** This section names both and
-picks neither, because that is a design question for Build it 23 rather than a decision the owner has
-taken:
+**How the bytes travel was the open question, and it is decided: THE BROWSER UPLOADS STRAIGHT TO
+STORAGE, AS THE SIGNED-IN PERSON.** The owner's requirement for Build it 23 part 2, 9 October 2026 —
+"uploads go from the browser with the person's own rights; no service-role upload" — and it is
+[#240](https://github.com/build-once/team-tasks/issues/240)'s question answered. The code is
+`web/src/app/tasks/AttachFile.tsx`, the only client component in this app.
 
-- **Through a function.** The browser posts the file to a server function, which counts, then writes it to
-  Storage with the service-role key — which "entirely bypass[es] RLS policies", so in this shape the
-  `INSERT` policy is not what admits the file and the function is solely responsible. **What an Edge
-  Function will accept as a body is not established here**, and no figure for it is written.
-- **A signed upload URL.** The browser asks a server function, which counts and then hands back a URL the
-  browser uploads to directly: "Signed upload URLs can be used to upload files to the bucket without
-  further authentication"
-  ([`createSignedUploadUrl`](https://supabase.com/docs/reference/javascript/storage-from-createsigneduploadurl),
-  read 2026-10-08). The 5 MB never passes through our code. **And one thing to weigh before choosing it,
-  from that same page: those URLs "remain valid for 2 hours"** — which is twenty-four times the life of
-  the read link this app issues, and a credential of exactly the kind "Links, and what an unexpired one
-  allows" in `docs/plan.md` is careful about. Whether that duration can be shortened was not established.
+**So "server code" in the owner's decision above means the database, not an Edge Function**, and that is
+worth being exact about because the two readings build different things. The count the owner asked for is
+`attachments_may_add()`: it runs with more rights than the caller, sums rows the caller cannot see, and
+the `INSERT` policy calls it — which a screen cannot bypass and a later code change cannot forget. What
+it needs in order to run at all is that **the upload be made by somebody row-level security applies to**,
+which is exactly what this shape guarantees and what the other two did not.
 
-**Either way the count happens in server code and the key stays out of the browser**, which is the part
-that was decided. And either way this adds **no new secret store**: the counting runs where the
-service-role key already lives.
+**The two shapes this section used to name, and why neither was chosen:**
+
+| Not chosen | Why not |
+|---|---|
+| **Through an Edge Function** with the service-role key | It loses both halves of #240. "Service keys entirely bypass RLS policies", so `attachments_may_add()` is **never called** and the count would have to be re-implemented in the function — a second place holding 3 and 104857600. And the stored row would have **no owner**: "When using the `service_key` to create a resource, the owner will not be set" ([Ownership](https://supabase.com/docs/guides/storage/security/ownership)), so the file would belong to nobody's 100 MB and nobody but the task's creator could delete it |
+| **A signed upload URL** | It keeps the bytes out of our code, and its own page says those URLs "remain valid for 2 hours" — twenty-four times the life of the read link this app issues, and a credential of exactly the kind `docs/plan.md`'s "Links, and what an unexpired one allows" is careful about. Whether that can be shortened was never established, and it does not need to be: the chosen shape needs no second credential at all |
+
+**What the chosen shape costs, stated rather than discovered.** Two things:
+
+- **Attaching a file needs JavaScript**, and nothing else in this app does. Every other control on every
+  screen is a link or a form posting to a server action, which is why the screens work with none. The
+  upload box says so in a `<noscript>` line, in the place it matters. Seeing a file, opening one and
+  deleting one all still work without it — a server-rendered list and two forms.
+- **`@supabase/supabase-js` is now in the browser bundle**, which it never was before: `createClient` in
+  `web/src/lib/supabase/client.ts` existed and nothing imported it. That had one concrete consequence
+  worth recording, because it is the sort of thing that looks like a security finding and is not: the
+  library ships `e.startsWith("sb_publishable_")||e.startsWith("sb_secret_")`, a test for which kind of
+  key a string is, so the literal `sb_secret_` arrived in `web/.next/static` and CI's "No Supabase secret
+  key in the built bundle" step matched it. **The owner authorised one change to that step on 9 October
+  2026**: it now requires a character after the prefix, so every real key still matches and a prefix test
+  does not. The reasoning is written out in `.github/workflows/ci.yml` beside the line.
+
+**A server action was the alternative that needed no client JavaScript**, and it was offered: the server
+client carries the person's own JWT, so the `INSERT` policy would still be evaluated and `owner_id` still
+set. What it costs is that the 5 MB passes through this app's own server, and that
+`serverActions.bodySizeLimit` would have to be raised from its documented 1 MB default. The owner chose
+the browser.
+
+**This adds no new secret store and no new secret.** There was never a key in this path: the browser holds
+the publishable key and the person's session, exactly as it does for every other read in this app, and the
+publishable key is safe for the reason the bottom of this file gives — row-level security decides what it
+may reach.
 
 ### Deleting a task deletes its files, and the database is what enforces it
 
@@ -605,13 +653,12 @@ has always permitted. What is new is the finer version of it.
 
 ### What this section does NOT decide
 
-**Three** things, named so they are open questions rather than gaps somebody discovers while building.
-(This said four earlier on 2026-10-08. The fourth was who clears a file somebody else attached when the
-task has to go, and the owner settled it the same day — the paragraph above. Counted here, not
-remembered.)
+**Two** things, named so they are open questions rather than gaps somebody discovers while building.
+(This said four earlier on 2026-10-08 and three later that day. The fourth was who clears a file somebody
+else attached when the task has to go, and the owner settled it the same day — the paragraph above. The
+third was which upload shape is used, and the owner settled that on 9 October 2026: the browser uploads
+straight to Storage as the signed-in person. Counted here each time, not remembered.)
 
-- **Which of the two upload shapes above is used**, and what an Edge Function will accept as a body. The
-  **where** is decided — server code, before the file is accepted — and the **how** is not.
 - **What removes a person's files when their account is deleted.** The task half is settled above, and
   this half is **a requirement of Build it 26** rather than of this one — the owner's decision of
   2026-10-08, held by [#235](https://github.com/build-once/team-tasks/issues/235). Whose job it is to walk

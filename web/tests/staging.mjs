@@ -34,6 +34,11 @@
 // missing setting is reported BY NAME. Statuses and server-sent bodies are
 // shown, because that is what the tests assert on.
 
+// Buffer is a global in Node, and is imported by name anyway: it is what the
+// file fixtures below are, and a named import says where it comes from. Still no
+// package -- `node:buffer` is a built-in, so `npm test` installs nothing.
+import { Buffer } from "node:buffer";
+
 // ---------------------------------------------------------------------------
 // The guard -- run at import, before any network call
 // ---------------------------------------------------------------------------
@@ -129,6 +134,7 @@ const BASE = `https://${STAGING_HOST}`;
 const AUTH_URL = `${BASE}/auth/v1`;
 const REST_URL = `${BASE}/rest/v1`;
 const FUNCTIONS_URL = `${BASE}/functions/v1`;
+const STORAGE_URL = `${BASE}/storage/v1`;
 
 const PUBLISHABLE_KEY = settings.STAGING_SUPABASE_PUBLISHABLE_KEY;
 
@@ -304,6 +310,218 @@ export async function callFunction(name, { accessToken, body }) {
   }
   return { status: response.status, text, json };
 }
+
+// ---------------------------------------------------------------------------
+// Files in the `attachments` bucket (Build it 23 part 2, issue #242)
+// ---------------------------------------------------------------------------
+//
+// Four requests, each one carrying the caller's own session and nothing more.
+// There is no secret key here and there is none anywhere in this folder: the
+// whole point of the tests that use these is that the three POLICIES on
+// storage.objects decide, and a service key "entirely bypass[es] RLS policies"
+// (https://supabase.com/docs/guides/storage/security/access-control), so a test
+// written with one would prove nothing about them.
+//
+// accessToken may be null, which is the signed-out caller: the publishable key
+// and no Authorization header at all.
+//
+// THE ENDPOINTS, read off Supabase's own self-hosting reference and already
+// written out in scripts/staging/build-it-23-attachment-checks.mjs:
+//
+//   POST   {url}/storage/v1/object/{bucket}/{path}    upload
+//   GET    {url}/storage/v1/object/{bucket}/{path}    download
+//   DELETE {url}/storage/v1/object/{bucket}/{path}    delete
+//   POST   {url}/storage/v1/object/list/{bucket}      body {prefix,limit}
+//
+// AND WHY EVERY REFUSAL HERE IS READ BY ITS CODE RATHER THAN ITS STATUS. The
+// owner's staging run of 8 October 2026 found Storage answering HTTP 400 with
+// the real status inside the body -- `{"statusCode":"404", ...,
+// "code":"NoSuchBucket"}` -- so the HTTP line is a weak signal. The error CODE
+// in the body is what the error-codes page names
+// (https://supabase.com/docs/guides/storage/debugging/error-codes) and is what
+// these tests assert on.
+
+export const BUCKET = "attachments";
+
+// A real 1x1 PNG, so an accepted upload is a file a browser could draw rather
+// than a few bytes that happen to be allowed. Base64 so there is no binary in
+// this repository.
+export const PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/WMmxY8AAAAASUVORK5CYII=",
+  "base64",
+);
+
+// An SVG, which is the whole reason the bucket names its six types instead of
+// saying `image/*`: an SVG is a document and it can carry script. This one
+// carries a comment where a script would go -- a test does not need a payload to
+// prove a refusal, and a committed payload is a thing somebody has to explain.
+export const SVG_BYTES = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg"><!-- refused on purpose --></svg>',
+  "utf8",
+);
+
+// 5 MB as the bucket has it: 5 * 1024 * 1024. The migration spells 5242880.
+export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+/** One byte over, which is the smallest thing that can be refused for its size. */
+export const oversizeBytes = () => Buffer.alloc(MAX_FILE_BYTES + 1);
+
+function storageHeaders(accessToken, contentType) {
+  const headers = { apikey: PUBLISHABLE_KEY };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (contentType) headers["Content-Type"] = contentType;
+  return headers;
+}
+
+// What every one of the four returns: the status, the body as text, and the body
+// parsed when it is JSON. `refused` is set only when the server said no -- a body
+// in a shape these helpers did not expect is NOT a refusal and must never be
+// counted as one (AGENTS.md rule 8).
+function storageAnswer(status, text) {
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status, text, json, refused: status < 200 || status >= 300 };
+}
+
+/**
+ * Upload one file.
+ *
+ * `contentType` IS SET BY THE CALLER, ALWAYS, and that is the finding Build it 23
+ * part 2 turns on rather than a tidiness: Supabase works the declared type out
+ * from the extension unless it is overridden, and the owner's staging run of
+ * 9 October 2026 showed it does NOT map `.heic` to `image/heic`. So the app sets
+ * the type from its own table, and these tests send the type the same way for the
+ * same reason.
+ */
+export async function storageUpload(path, bytes, contentType, accessToken = null) {
+  let response;
+  try {
+    response = await fetch(`${STORAGE_URL}/object/${BUCKET}/${path}`, {
+      method: "POST",
+      headers: storageHeaders(accessToken, contentType),
+      body: bytes,
+    });
+  } catch (cause) {
+    return { error: `could not reach Storage (${cause.message})` };
+  }
+  return storageAnswer(response.status, await response.text());
+}
+
+/**
+ * List one task's folder.
+ *
+ * TWO ANSWERS ARE A REFUSAL AND THEY ARE DIFFERENT THINGS, so both are reported
+ * rather than blurred: a 4xx, or a 200 with an empty array because no policy
+ * matched a row. Supabase's own access-control page says only that listing "may"
+ * want a different SELECT policy from reading, so which shape staging gives is
+ * something the tests report rather than require.
+ */
+export async function storageList(prefix, accessToken = null) {
+  let response;
+  try {
+    response = await fetch(`${STORAGE_URL}/object/list/${BUCKET}`, {
+      method: "POST",
+      headers: storageHeaders(accessToken, "application/json"),
+      body: JSON.stringify({ prefix, limit: 100 }),
+    });
+  } catch (cause) {
+    return { error: `could not reach Storage (${cause.message})` };
+  }
+
+  const answer = storageAnswer(response.status, await response.text());
+  // The names in the answer, relative to the prefix, so a test can ask whether
+  // its own file is among them without knowing the shape of a row.
+  answer.names = Array.isArray(answer.json)
+    ? answer.json.map((row) => row?.name).filter((name) => typeof name === "string")
+    : null;
+  return answer;
+}
+
+/**
+ * Download one file. The bytes are what a test decides on, and they are never
+ * printed -- a file's contents are not something a public run log should carry,
+ * whatever they are. A test compares lengths and bytes.
+ */
+export async function storageDownload(path, accessToken = null) {
+  let response;
+  try {
+    response = await fetch(`${STORAGE_URL}/object/${BUCKET}/${path}`, {
+      method: "GET",
+      headers: storageHeaders(accessToken),
+    });
+  } catch (cause) {
+    return { error: `could not reach Storage (${cause.message})` };
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return {
+    status: response.status,
+    refused: response.status !== 200,
+    byteLength: bytes.length,
+    sameAs: (other) => bytes.equals(Buffer.isBuffer(other) ? other : Buffer.from(other)),
+    // The body as text ONLY when it is small and the request failed, which is
+    // when it is a JSON refusal rather than a file.
+    text: response.status !== 200 && bytes.length < 2048 ? bytes.toString("utf8") : "",
+  };
+}
+
+/**
+ * Delete one file.
+ *
+ * THROUGH THE STORAGE API AND NEVER WITH SQL. "Deleting objects via a SQL query
+ * will not remove the object from the bucket and will result in the object being
+ * orphaned"
+ * (https://supabase.com/docs/guides/storage/management/delete-objects) -- so a
+ * cleanup that went through PostgREST would leave the bytes behind, paid for and
+ * unreachable, which is exactly what the owner's "leftover files are not
+ * acceptable" decision forbids.
+ *
+ * NOTHING IS READ OUT OF THE ANSWER'S BODY, AND THAT IS DELIBERATE. The obvious
+ * thing to read would be a row count -- "deleted" against "matched nothing" --
+ * the way `Prefer: return=representation` buys that for every write in `rest`
+ * above. It is not available here and the shortcut would be wrong twice over:
+ *
+ *   * this endpoint answers `{"message":"Successfully deleted"}`, which is not a
+ *     count of anything (seen on staging, and the fixture in
+ *     scripts/staging/build-it-23-attachment-checks.mjs is that body verbatim);
+ *   * and the JS client's own `remove`, which takes a list and IS typed as
+ *     answering with the rows it deleted, documents its response as
+ *     `{"data": [], "error": null}` for a successful delete of one named file
+ *     (web/node_modules/@supabase/storage-js/dist/index.mjs). So an empty array
+ *     is not evidence of anything either.
+ *
+ * So a test decides on the STATUS and on reading the folder back, which is what
+ * every test in this file does about every write anyway.
+ */
+export async function storageDelete(path, accessToken = null) {
+  let response;
+  try {
+    response = await fetch(`${STORAGE_URL}/object/${BUCKET}/${path}`, {
+      method: "DELETE",
+      headers: storageHeaders(accessToken),
+    });
+  } catch (cause) {
+    return { error: `could not reach Storage (${cause.message})` };
+  }
+
+  return storageAnswer(response.status, await response.text());
+}
+
+/**
+ * How a storage answer is described in a log line or an assertion message.
+ *
+ * THE STATUS AND THE CODE, NEVER THE WHOLE BODY, and never the path. The reason
+ * is the one `describeAnswer` in the test file gives about an email address, and
+ * one more that is specific to this bucket: docs/plan.md forbids a file name in
+ * an error report, because a name is free text somebody's phone chose. A run log
+ * in this repository is public, and an assertion message is printed on failure.
+ */
+export const describeStorage = (answer) =>
+  `HTTP ${answer.status} code=${JSON.stringify(answer.json?.code ?? answer.json?.error ?? null)}`;
 
 // ---------------------------------------------------------------------------
 // Sessions

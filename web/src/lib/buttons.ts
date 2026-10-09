@@ -53,6 +53,14 @@ export const BUTTON_IDS = {
   taskMove: "task_move",
   taskDelete: "task_delete",
 
+  // A file on a task (Build it 23, issue #242). TWO, not three: attaching a
+  // file is not a form submission at all -- the bytes go from the browser
+  // straight to Storage -- so there is nothing for an identifier to travel to.
+  // See the note in web/src/app/components/ActButton.tsx about the two buttons
+  // in this app that are not that component, and why.
+  fileOpen: "file_open",
+  fileDelete: "file_delete",
+
   // My teams
   teamCreate: "team_create",
   nameSave: "name_save",

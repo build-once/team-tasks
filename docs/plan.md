@@ -469,7 +469,7 @@ so the whole set is in one view, the way "Daily limits on what costs money" abov
 | Whether files may be left behind | **No. Not acceptable.** Deleting a task **deletes its files first** and is **refused if they cannot be removed**; and **the database refuses to delete a task that still has files**. Removing a person's files when an account is deleted is **a requirement of Build it 26** |
 | That a renamed file can get through | **Accepted as written.** The app promises the refusal and promises nothing about contents |
 | That the limits do not keep this inside the egress allowance | **Recorded as written, and no egress limit is built now** |
-| **Which image types, exactly** | **Six named types and no wildcard: JPEG, PNG, WebP, GIF, HEIC and PDF.** The ninth decision, and the only one that came from the migration's review rather than from this section: `image/*` would have admitted `image/svg+xml`, and an SVG can carry script. **HEIC is the owner's addition** — it was proposed rather than assumed, and allowed the same day |
+| **Which image types, exactly** | **Six named types in the bucket and no wildcard: JPEG, PNG, WebP, GIF, HEIC and PDF.** The ninth decision, and the only one that came from the migration's review rather than from this section: `image/*` would have admitted `image/svg+xml`, and an SVG can carry script. **HEIC is the owner's addition** — it was proposed rather than assumed, and allowed the same day. **AND THE OWNER TOOK IT BACK OFF THE APP ON 9 OCTOBER 2026**, after a HEIC photograph failed through the app and the cause was not found: the bucket still permits the type and the app offers **five** of the six. "A HEIC photograph does not work, and the app says so" below is the record |
 
 **The fifth row is the one that changed this section most**, and it is worth saying why before the detail:
 this plan's habit is to write a gap down and leave it ([#204](https://github.com/build-once/team-tasks/issues/204),
@@ -524,16 +524,17 @@ limit" ([Storage file limits](https://supabase.com/docs/guides/storage/uploads/f
 2026-10-08).
 
 **And "images" is a NAMED LIST, not a wildcard. Decided 2026-10-08, after the coach's review of the
-migration, and the owner added one type to it.** Six types are accepted and nothing else is:
+migration, and the owner added one type to it.** The bucket accepts six types and nothing else; **the app
+offers five of those six**, and the row that differs is the last one before the PDF:
 
-| Accepted | Why it is on the list |
-|---|---|
-| `image/jpeg` | the camera default almost everywhere |
-| `image/png` | screenshots, and anything with sharp edges |
-| `image/webp` | what a phone browser often produces when it re-encodes a photo |
-| `image/gif` | it costs nothing to accept, and people have them |
-| `image/heic` | iPhone photographs. **The owner's addition, 8 October 2026** — see below |
-| `application/pdf` | the form, the receipt, the letter |
+| In the bucket | Offered by the app | Why it is on the list |
+|---|---|---|
+| `image/jpeg` | yes | the camera default almost everywhere |
+| `image/png` | yes | screenshots, and anything with sharp edges |
+| `image/webp` | yes | what a phone browser often produces when it re-encodes a photo |
+| `image/gif` | yes | it costs nothing to accept, and people have them |
+| `image/heic` | **NO — 9 October 2026** | iPhone photographs. The owner's addition of 8 October; **it failed through the app the next day and the owner decided not to pursue it.** The bucket still permits it; the app refuses it before anything is sent. See "A HEIC photograph does not work, and the app says so" below |
+| `application/pdf` | yes | the form, the receipt, the letter |
 
 **Everything else is refused, and `image/svg+xml` is the reason the list exists.** The first version of
 this said "images and PDFs" and the bucket was given `image/*`, which would have accepted an SVG. **An SVG
@@ -543,22 +544,72 @@ origin, fetched by whoever clicked it — out of a file nobody read before it wa
 the appendix already marks as the most sensitive row in its table. The wildcard was a convenience that
 widened the one row of this plan with the least known contents, and it is gone.
 
-**HEIC is on the list because the owner put it there, and the order matters.** The review's words were:
-"say in `docs/plan.md` that other image types, including SVG and HEIC, are refused. If the owner wants
-HEIC for phone photos, that is the owner's call; propose it, do not add it." It was proposed and the
-owner's answer the same day was to allow it. So an iPhone photograph is accepted without the person having
-to convert it first, which for a group of volunteers taking photos on phones is the difference between the
-feature working and the feature looking broken.
+**HEIC went on the bucket's list because the owner put it there, and the order matters.** The review's
+words were: "say in `docs/plan.md` that other image types, including SVG and HEIC, are refused. If the
+owner wants HEIC for phone photos, that is the owner's call; propose it, do not add it." It was proposed
+and the owner's answer the same day was to allow it — **the intention being** that an iPhone photograph
+would be accepted without the person having to convert it first, which for a group of volunteers taking
+photos on phones is the difference between the feature working and the feature looking broken. **That
+intention has not been delivered**, which is the subsection below; the paragraph is kept in the past tense
+it belongs in rather than rewritten, because the reason the owner wanted it is still the reason somebody
+should want it.
 
-**Two neighbours of HEIC are NOT on the list**, and that is the limit of what was asked rather than a
+**Two neighbours of HEIC were never on the list**, and that is the limit of what was asked rather than a
 reading of it: `image/heif` and `image/heic-sequence`. The owner said HEIC, which is what a phone's
-settings screen calls the format; nobody has been asked about the sibling media types. Both are refused,
-which is the fail-closed direction, and adding either is one migration. The "Unverified" list below
-carries it, together with the thing that decides whether the HEIC entry works at all: **whether Supabase
-declares a `.heic` file as `image/heic`**, which no page read says.
+settings screen calls the format; nobody has been asked about the sibling media types. Both are refused by
+the bucket and by the app, which is the fail-closed direction. The "Unverified" list below carries it.
+
+### A HEIC photograph does not work, and the app says so
+
+**Decided by the owner on 9 October 2026, and this subsection is the whole of what is known.** It is kept
+apart from the list above because the list records what was *decided* on 8 October and this records what
+*happened* the next day — and the two are not the same thing.
+
+**First, the finding that was supposed to make it work.** The owner's staging run that morning answered a
+question this plan had carried as not confirmed: **Supabase does not declare a `.heic` file as
+`image/heic`.** A `.heic` name with no content type set by the caller is refused with `InvalidMimeType`,
+so an iPhone photograph was refused by the very list it had just been added to. The answer was for the app
+to set the content type itself, from one table in `web/src/lib/attachments.ts` keyed by the file's
+extension, and that table was written for exactly this.
+
+**Then the owner tried a HEIC photograph through the app, and it failed anyway.** On the pull request's
+preview, from a **Windows PC** rather than a phone, signed in with the staging accounts. Every other step
+of that check list passed.
+
+**What is known is very little, and the gaps are the point:**
+
+- it failed;
+- **what the screen said was not recorded**;
+- so **whether the fault is in the app's upload path or in the bucket is not established.** The staging
+  script's check that the bucket accepts `image/heic` when the caller declares it has not been run since
+  it was rewritten, and that one run would halve the question.
+
+**The owner's decision: not to pursue it now.** HEIC is an edge case for this project.
+
+**So the app stopped saying it works, and that is all this change did.** `image/heic` came off the app's
+own list, off the file chooser, and out of every sentence on screen. **A `.heic` file now gets the plain
+"that kind of file can't be attached" message** — the same answer a `.zip` gets, refused by the app before
+anything is sent. That is the honest answer: nobody knows why it failed, so the app claims nothing about
+it either way. [#246](https://github.com/build-once/team-tasks/issues/246) records what was seen, what was
+not, and the one run that would tell the two possible faults apart.
+
+**AND THE BUCKET STILL PERMITS IT.** `image/heic` is still in `allowed_mime_types` on the `attachments`
+row, untouched, so **the app's list and the bucket's differ by exactly one type**. That is deliberate:
+
+- **changing the bucket means a migration**, applied to staging and to production, to narrow something
+  that is not the known fault — and nobody has shown the bucket is at fault;
+- nothing can reach the bucket except through the app, which no longer offers the type, so the wider list
+  admits nothing in practice;
+- and leaving it keeps the cheap test available: if the bucket still accepts the type when a caller
+  declares it, the fault is in this app's path, which is where to look.
+
+The difference is **asserted by name** rather than tolerated — `scripts/screen-state-check.mjs` requires
+the app's list to be a subset of the bucket's and the one type on the bucket's side to be `image/heic`. So
+a later change that quietly dropped PNG goes red, and so does one that puts HEIC back without #246's
+evidence.
 
 **What this does not change: the refusal is still about the declared type and never about the contents.**
-The section below says so in full, and naming six types instead of a wildcard does not move that line one
+The section below says so in full, and naming types instead of a wildcard does not move that line one
 inch — it only makes the set of things the app has agreed to serve back smaller and nameable.
 
 **Three files per task, and 100 MB per person in total. Both confirmed by the owner on 2026-10-08**, after
@@ -1042,7 +1093,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **The migration exists and is applied nowhere**; no screen, no upload path and no file. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload, and **six named types only — JPEG, PNG, WebP, GIF, HEIC, PDF — with no wildcard, so no SVG** | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
+| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
@@ -1161,16 +1212,20 @@ can open it — never about what is inside.
 - **Five minutes, not an hour.** The shortest link that still works on a slow phone. A link is a
   credential while it lives, so its life is the thing to keep small — and it is the only control there
   is, because a signed link cannot be called back.
-- **Six named types and 5 MB**, so the bucket cannot quietly become a file share. And the limit is
-  **stated for what it is**: Storage checks the type the upload *declares*, so a renamed file gets
-  through, and the app promises the refusal rather than the contents.
+- **A named list of types, and 5 MB**, so the bucket cannot quietly become a file share — six types in
+  the bucket, five offered by the app. And the limit is **stated for what it is**: Storage checks the type
+  the upload *declares*, so a renamed file gets through, and the app promises the refusal rather than the
+  contents.
 - **No wildcard, added 2026-10-08 after the migration's review.** This bullet said "two types" and the
   bucket was given `image/*`, which collects **more** than it has to: it would have accepted
   `image/svg+xml`, a document that can carry script, served back from this project's own address. Naming
   the six types is the reduction — and it is the only one in this list that was found by somebody reading
   the code rather than by writing the plan, which is an argument for the review and not against the plan.
   **HEIC was then added on purpose, by the owner**, because an iPhone photograph is the commonest thing
-  this feature exists for; that widens the list by one named type and not by a class.
+  this feature exists for; that widens the list by one named type and not by a class. **And on 9 October
+  2026 the APP stopped offering that one**, after a HEIC photograph failed through it and the cause was
+  not found — so the app now collects one type fewer than the bucket allows, which is a reduction nobody
+  intended and is recorded rather than celebrated ([#246](https://github.com/build-once/team-tasks/issues/246)).
 - **The audience is the task's, not a new one.** No sharing, no link to send somebody, no "anyone with
   the link" setting. A file is visible to exactly the people the task is visible to, and a suspended
   person is refused — so attachments add **no new answer** to "who can see what", which is feature 5's
@@ -1448,29 +1503,70 @@ it rather than a reason to recount.
   **reading those is Build it 25** — the owner's decision of 2026-10-08.
   [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
   know it is done. No figure is written here until somebody has read the page.
-- **Unverified — "Files attached to a task" is now a migration and is APPLIED NOWHERE.** The sentence
-  this replaces was written for Build it 23 part 0, documents only, and said "**There is no bucket**, no
-  storage rule, no migration, no screen, no code and no package". The middle of that stopped being true
-  later the same day. Taken one at a time:
+- **"Files attached to a task": APPLIED TO BOTH PROJECTS, PROVED ON STAGING, AND THE SCREEN DEPLOYED
+  NOWHERE. Rewritten 2026-10-09 (issue #242).** The first sentence of this entry said "**is APPLIED
+  NOWHERE**", and the one before that, written for Build it 23 part 0, said "**There is no bucket**, no
+  storage rule, no migration, no screen, no code and no package". Each was true when it was written and
+  neither is now. The paragraphs below are kept in the order things happened, because this entry is the
+  record of that rather than only of where it has got to.
 
   - **The migration exists**: `supabase/migrations/20261008191804_attachments_bucket.sql` (issue #237) —
     the bucket row, the three policies on `storage.objects`, the two counted limits, and the trigger that
-    refuses to delete a task with files. **It has been applied nowhere**: not local, not staging, not
-    production. Rule 19, and the owner was not asked to apply it in the session that wrote it.
-  - **Nothing else exists.** No screen, no Edge Function, no client code, no package, and **no upload
-    path at all** — so nothing in this repository can put a file in the bucket or draw one, and **no file
-    has ever been uploaded to any project**. Supabase Storage is still the empty, unused thing
-    `docs/architecture.md` has called it since the start.
-  - **What the proof is, and is not.** `evidence/build-it-23-attachments-bucket.md` is four throwaway
-    local PostgreSQL databases, with every rule attacked as the task's creator, a team member, an
-    outsider, a suspended member and signed out. **Its `storage` schema is a stand-in the assistant
+    refuses to delete a task with files. **On the day it was written it had been applied nowhere**: not
+    local, not staging, not production. Rule 19, and the owner was not asked to apply it in that session.
+  - **What the local proof is, and is not.** `evidence/build-it-23-attachments-bucket.md` is four
+    throwaway local PostgreSQL databases, with every rule attacked as the task's creator, a team member,
+    an outsider, a suspended member and signed out. **Its `storage` schema is a stand-in the assistant
     wrote**: the column names are Supabase's and cited, every type is a choice, and
-    `storage.foldername()` is not there at all. So the rules are proved against PostgreSQL, not against
-    Supabase Storage — and **the bucket's own 5 MB and type limits are not proved at all**, because
-    nothing in PostgreSQL enforces them.
-  - **And the facts about Supabase Storage** in that section still come from the pages cited there, read
-    on 2026-10-08 with no connector and no browser — which is how Supabase describes the service, not
-    something observed in this project.
+    `storage.foldername()` is not there at all. So the rules are proved there against PostgreSQL, not
+    against Supabase Storage — and **the bucket's own 5 MB and type limits are not proved there at all**,
+    because nothing in PostgreSQL enforces them.
+
+  **AND ALL THREE OF THOSE STOPPED BEING THE WHOLE STORY ON 9 OCTOBER 2026 (issue #242).** The paragraphs
+  above are kept because they are what was true when the migration was written, and this is what has
+  happened since. Four stages, and they are four different things:
+
+  - **APPLIED TO STAGING, AND READ BACK.** The owner ran `supabase db push` from PR #241's branch on
+    9 October 2026 (CLI 2.75.0, one migration listed), which answers #239's first question — the role
+    `db push` connects as may insert into `storage.buckets` and create policies on `storage.objects`. The
+    coach read it back the same day through the staging read-only connector: 11 migrations, newest
+    `20261008191804`; the bucket private with the 5 MB and the six types; three policies, each `to
+    authenticated`; the trigger present; `attachments_may_add` executable by `authenticated` and not by
+    `anon`; 0 objects.
+  - **APPLIED TO PRODUCTION, AND NOT READ BACK.** `.github/workflows/migrate-production.yml` ran on the
+    merge of PR #241 — run
+    [37922812469](https://github.com/build-once/team-tasks/actions/runs/37922812469), whose "Apply
+    migrations to production" step succeeded. **Nothing on production has been looked at**: not the bucket
+    row, not the policies, not the privileges. A green workflow run says the statements ran, not what they
+    left behind, which is the distinction the AI-consent entry above makes at length.
+    [#243](https://github.com/build-once/team-tasks/issues/243) holds the read.
+  - **PROVED AGAINST THE REAL SERVICE, ON STAGING.** The owner ran
+    `scripts/staging/build-it-23-attachment-checks.mjs` before the apply — 35 PASS, 12 FAIL, 1 UNVERIFIED,
+    no bucket — and after it: **49 PASS, 2 FAIL, 0 UNVERIFIED**. The pair is what makes the second run
+    mean something. Seen in it: Alice's upload; Carol listing, opening and getting a signed link that
+    opens with no key and no session; Bob and a signed-out caller refused all five actions; a made-up task
+    id and a top-level path refused; 5242881 bytes refused; an executable and an SVG refused; the fourth
+    file on a task refused; replace and move refused even for the uploader; Carol's delete refused; and
+    the task's own deletion refused with 23503 while three files sat on it. **The two FAILs were defects
+    in that script** rather than in the rules, and both are fixed in #242.
+  - **AND THE SCREEN IS BUILT, DEPLOYED NOWHERE, AND CHECKED ONCE BY THE OWNER.** The files panel on My
+    tasks: a task's files, Open and Delete on each, the upload box, and the line about what is inside a
+    photograph. It reaches production when a pull request merges and Vercel builds it.
+
+    **The owner checked it on 9 October 2026**, on the pull request's preview, from a **Windows PC** and
+    signed in with the staging accounts. **Every step passed except attaching a HEIC photograph** — which
+    is why the app no longer offers that type; see "A HEIC photograph does not work, and the app says so"
+    above and [#246](https://github.com/build-once/team-tasks/issues/246). The sentence this replaces said
+    "**Nobody has opened it in a browser**", which was true for about an hour.
+
+    **What is still not done: a check on a phone**, which is the device `docs/plan.md` says this app is
+    for, and any screenshot. The assistant has opened nothing in a browser and ran nothing against
+    staging. What this repository shows by itself is 286 pure-function checks and 15 access-rule tests
+    that run against staging in CI on every pull request.
+
+  **None of the staging or production work above was done or seen by the assistant.** The applies are the
+  owner's, the connector reads are the coach's, the script runs are the owner's, and the production run's
+  step conclusions were read with `gh run view --json`. Nobody writing this opened a dashboard.
 - **Decided, so no longer open — the five decisions and two acceptances this section carried when it was
   written on 2026-10-08, and the eighth question that writing them down produced.** Three files per task;
   100 MB per person, **enforced on the server at upload**; one line beside the upload box about what is
@@ -1528,13 +1624,47 @@ it rather than a reason to recount.
   content sniffing or an actual upload of a deliberately misnamed file to staging.
 - **Not confirmed — whether `storage.objects` records the file's declared type, and where.** Presumably in
   `metadata` beside the size; no page read on 2026-10-08 says so, and presumably is not a citation.
-- **Not confirmed — whether Supabase declares a `.heic` file as `image/heic`, which is what decides
-  whether the owner's HEIC decision works at all.** The declared type comes from the extension unless the
-  caller overrides it, and **no page read on 2026-10-08 says which extensions map to which types.** If
-  `.heic` maps to something else — or to nothing — an iPhone photograph is refused, loudly, and the answer
-  is either a `contentType` set on the upload or a longer list. The same question applies to `.heif` and
-  to `.webp`. One upload of each settles it, and
-  [#239](https://github.com/build-once/team-tasks/issues/239) asks for exactly that.
+- **CONFIRMED BY TRYING, 2026-10-09, AND THE ANSWER IS NO — Supabase does NOT declare a `.heic` file as
+  `image/heic`.** This entry asked whether it did, said it was "what decides whether the owner's HEIC
+  decision works at all", and asked for one upload to settle it
+  ([#239](https://github.com/build-once/team-tasks/issues/239)). The owner's staging run of 9 October 2026
+  is that upload: **a `.heic` name with no `contentType` set by the caller is refused with
+  `InvalidMimeType`.** So an iPhone photograph — the commonest thing this feature exists for, and the
+  whole reason the owner added HEIC to the list on 8 October — was refused by the very bucket that had
+  been widened to accept it.
+
+  **The answer this entry predicted was the one taken, and then it did not work.**
+  `web/src/lib/attachments.ts` holds one table from extension to type, and
+  `web/src/app/tasks/AttachFile.tsx` declares the type from it on every upload. **It is read off the
+  file's NAME and never off the browser's own guess**, which matters twice over: a browser that does not
+  recognise `.heic` reports an empty type, which is exactly the case that failed, and a browser's answer
+  is chosen by whatever is uploading. None of that changed what the app promises — a renamed file still
+  gets through, and the app still promises the refusal and never the contents.
+
+  **AND IT STILL FAILED. Later on 9 October 2026 the owner tried a HEIC photograph through the app, from
+  a Windows PC, and it did not attach.** What the screen said was not recorded, so **whether the fault is
+  in the app's path or in the bucket is not established**. The owner decided not to pursue it: HEIC is an
+  edge case for this project. So **the app no longer offers `image/heic` at all**, and a `.heic` file gets
+  the ordinary wrong-type sentence; **the bucket still permits the type**, untouched, because narrowing it
+  would be a migration against something nobody has shown to be at fault. "A HEIC photograph does not
+  work, and the app says so" above is the record, and
+  [#246](https://github.com/build-once/team-tasks/issues/246) holds it with the one run that would halve
+  the question.
+
+  **So this entry's own question is answered and the thing it was answered FOR is not.** Supabase does not
+  map the extension — that stands. Whether a HEIC photograph can be attached through this app is a
+  different question, it has been tried once, and the answer was no.
+
+  **The staging script's section 14 still asks about the BUCKET, and that is still worth asking.** It is
+  two checks rather than one probe: a `.heic` name with no content type must be **refused for its type**,
+  and the same name with `image/heic` set must be **accepted**. The expectation of the first was reversed,
+  which the owner agreed to (rule 20). Neither has been run since they were written, and 14b is now the
+  cheapest thing in the project that would tell the two possible faults apart.
+
+  **Still not confirmed, and smaller than it was: `.heif` and `.webp`.** `.webp` is on this app's own
+  table, so what Supabase would have made of the extension no longer decides anything for it. `.heif` is
+  refused by the bucket and by the app in any case — see the entry below about the two neighbours nobody
+  has been asked about.
 - **Decided, so no longer open — whether the bucket takes the `image/*` wildcard.** This list carried it
   as "not confirmed" for part of 2026-10-08, and the question is now moot rather than answered: the coach's
   review of the migration asked for the types to be named instead, because the wildcard would have
@@ -1542,7 +1672,17 @@ it rather than a reason to recount.
   wildcard**, and nothing in this project needs to know any more.
 - **And two media types that are refused because nobody has been asked about them**: `image/heif` and
   `image/heic-sequence`. The owner's answer named HEIC; these are its neighbours, and a file declaring
-  either is refused. Adding one is a one-line migration if a phone turns out to produce it.
+  either is refused by the bucket and by the app. **There is no point asking about them while HEIC itself
+  does not work** ([#246](https://github.com/build-once/team-tasks/issues/246)) — they are the same format
+  family, so whatever is wrong with one is the likeliest thing to be wrong with the others.
+- **A THIRD SOURCE ON `last_accessed_at`, read 2026-10-09, and it does not settle the question.** The
+  installed client declares the field: `FileObject` in
+  `web/node_modules/@supabase/storage-js/dist/index.d.mts` has
+  `/** @deprecated Last access timestamp (null for folders) */ last_accessed_at: string | null`. So a
+  listing's answer has the field in its type and the client calls it deprecated — which is **not** the same
+  as the column existing in a real project, and is not the same as its being maintained. It is a reason to
+  think the column is or was there, and it is read off a type declaration rather than off a table. The
+  entry below stands, and the step that settles it is unchanged.
 - **Not confirmed — whether `storage.objects` has a `last_accessed_at` column.** [The Storage
   Schema](https://supabase.com/docs/guides/storage/schema/design) does not list one; the [self-hosting
   object reference](https://supabase.com/docs/reference/self-hosting-storage/get-object-info) shows one in

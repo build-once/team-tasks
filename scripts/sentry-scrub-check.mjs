@@ -50,6 +50,7 @@ const MODULE_PATH = resolve(HERE, "..", "web", "src", "lib", "sentry-scrub.ts");
 const {
   DETAIL_REMOVED,
   EMAIL_REMOVED,
+  FILE_NAME_REMOVED,
   INPUT_REMOVED,
   KEY_REMOVED,
   QUERY_REMOVED,
@@ -452,6 +453,205 @@ check(
   "the same input gives the same answer on the second call -- no state carried in a regex",
   scrubText(`${ADDRESS} and ${ADDRESS}`),
   scrubText(`${ADDRESS} and ${ADDRESS}`),
+);
+
+// ------------------------------------------ scrubText: a stored file's name
+//
+// Build it 23 part 2, issue #242. docs/plan.md puts a file name on the list of
+// things that must never reach an error report: "A file name is exactly that
+// kind of free text -- somebody's phone chose it, or somebody typed it, and
+// `scan-of-the-letter-from-my-doctor.pdf` is a sentence about a person."
+//
+// WHAT THESE CHECKS ARE ABOUT, which is not quite what the other rules' are.
+// The plan is explicit that the primary defence is this app's own code: "So the
+// rule is on this app's own code, not on the scrub: a storage error is reported
+// with its code and the operation, never with the path or the name."
+// web/src/lib/attachment-store.ts and web/src/app/tasks/AttachFile.tsx are that
+// code, and neither logs, throws or reports a path -- both read a status and an
+// error code and nothing else.
+//
+// THIS RULE IS THE NET UNDER CODE THIS APP DID NOT WRITE: the Supabase client's
+// own error messages, and a failed `fetch` quoting the URL it called. It works
+// where a shape rule normally cannot because it does not match the NAME, which
+// has no shape -- it matches the PATH, `<task id>/<file name>`, which is a
+// construct in the same way `DETAIL:` is.
+console.log("\nscrubText -- a stored file's path, which carries somebody's file name");
+
+// A file name that is a sentence about a person, which is the plan's own
+// example of why this is not a shape problem. Invented here, like everything
+// else in this file.
+const TELLING_NAME = "scan-of-the-letter-from-my-doctor.pdf";
+
+check(
+  "A STORED OBJECT'S PATH: the task id stays, the file name goes",
+  scrubText(`${TEAM_ID}/${TELLING_NAME}`),
+  `${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "with the bucket in front of it, which is schema and stays",
+  scrubText(`attachments/${TEAM_ID}/${TELLING_NAME}`),
+  `attachments/${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "A NAME WITH SPACES IN IT, which is an ordinary file name and not an edge case",
+  scrubText(`${TEAM_ID}/my holiday photo.jpg`),
+  `${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "a name that is itself an address: it goes with the rest of the name, before the address rule ever sees it",
+  scrubText(`${TEAM_ID}/${ADDRESS}.pdf`),
+  `${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "A STORAGE URL: the host and the endpoint stay, the path goes",
+  scrubText(
+    `fetch failed: https://example.supabase.co/storage/v1/object/attachments/${TEAM_ID}/${TELLING_NAME}`,
+  ),
+  `fetch failed: https://example.supabase.co/storage/v1/object/attachments/${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "inside a JSON body, where it stops at the closing quote and the rest of the body survives",
+  scrubText(`{"name":"${TEAM_ID}/${TELLING_NAME}","size":1234}`),
+  `{"name":"${TEAM_ID}/${FILE_NAME_REMOVED}","size":1234}`,
+);
+check(
+  "inside brackets, where it stops at the closing bracket",
+  scrubText(`removed (${TEAM_ID}/${TELLING_NAME}) from the bucket`),
+  `removed (${TEAM_ID}/${FILE_NAME_REMOVED}) from the bucket`,
+);
+check(
+  "a CAPITALISED task id is still a task id -- Storage is not asked to agree about case",
+  scrubText(`${TEAM_ID.toUpperCase()}/${TELLING_NAME}`),
+  `${TEAM_ID.toUpperCase()}/${FILE_NAME_REMOVED}`,
+);
+// TWO PATHS IN ONE BARE SENTENCE: the first match runs to the end of the line,
+// so it takes the second with it. Both names are gone, which is the only thing
+// that matters, and the second task id goes too -- which is a small loss of the
+// useful half. The expectation here records what the rule DOES rather than what
+// would be tidiest, because the alternative is a rule that stops at a space and
+// leaks every file name with a space in it.
+check(
+  "two paths in one bare sentence: the first match takes the second with it, so both names go",
+  scrubText(`${TEAM_ID}/one.png and ${USER_ID}/two.pdf`),
+  `${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "two paths in a JSON body, where the quotes keep them apart, and BOTH task ids survive",
+  scrubText(`{"a":"${TEAM_ID}/one.png","b":"${USER_ID}/two.pdf"}`),
+  `{"a":"${TEAM_ID}/${FILE_NAME_REMOVED}","b":"${USER_ID}/${FILE_NAME_REMOVED}"}`,
+);
+
+// ---- and the things it must NOT reach -----------------------------------
+//
+// A uuid on its own is most of what makes a report useful -- "which task" --
+// and the whole reason the 40-character rule below is set where it is. This
+// rule must not undo that.
+check(
+  "A BARE TASK ID IS LEFT ALONE: nothing follows it, so there is no name to remove",
+  scrubText(`task ${TEAM_ID} could not be deleted`),
+  `task ${TEAM_ID} could not be deleted`,
+);
+check(
+  "a task id at the very end of a message is left alone",
+  scrubText(`refused for ${TEAM_ID}`),
+  `refused for ${TEAM_ID}`,
+);
+check(
+  "a task id with a slash and NOTHING after it is left alone -- an empty name is not a name",
+  scrubText(`${TEAM_ID}/`),
+  `${TEAM_ID}/`,
+);
+check(
+  "a path in the middle of an ordinary sentence about a team keeps the team id",
+  scrubText(`/rest/v1/tasks?id=eq.${TEAM_ID}`),
+  `/rest/v1/tasks?id=eq.${TEAM_ID}`,
+);
+check(
+  "something that is nearly a uuid is not one, so nothing is removed",
+  scrubText("abcd-1234/photo.jpg"),
+  "abcd-1234/photo.jpg",
+);
+
+// ---- what it costs, recorded rather than avoided -------------------------
+//
+// The rule runs to a quote, a bracket or a newline, NOT to whitespace, because a
+// file name can contain a space. So a path in the middle of a bare sentence
+// takes the rest of the sentence with it. That is the direction worth being
+// wrong in -- more is removed, never less -- and it is written down as a check
+// so nobody meets it as a surprise.
+check(
+  "OVER-REACH, ON PURPOSE: a path in a bare sentence takes the rest of the sentence",
+  scrubText(`could not upload ${TEAM_ID}/photo.jpg to the bucket`),
+  `could not upload ${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+check(
+  "a newline ends it, so only one line is lost",
+  scrubText(`could not upload ${TEAM_ID}/photo.jpg\nTry again.`),
+  `could not upload ${TEAM_ID}/${FILE_NAME_REMOVED}\nTry again.`,
+);
+
+check(
+  "scrubbing a path twice changes nothing the second time",
+  scrubText(scrubText(`${TEAM_ID}/${TELLING_NAME}`)),
+  scrubText(`${TEAM_ID}/${TELLING_NAME}`),
+);
+// AND THE PLACEHOLDER ITSELF SURVIVES A SECOND PASS, which is what idempotence
+// rests on here: `[file name removed]` contains a space and a bracket but no
+// uuid-then-slash, so the rule cannot match its own output.
+check(
+  "the placeholder is not itself a path, so a third pass changes nothing either",
+  scrubText(`${TEAM_ID}/${FILE_NAME_REMOVED}`),
+  `${TEAM_ID}/${FILE_NAME_REMOVED}`,
+);
+
+// ---- through scrubEvent, which is the only route anything really takes ----
+console.log("\nscrubEvent -- a file's name, by every route into an event");
+
+check(
+  "a path in the message",
+  scrubEvent({ message: `Storage refused ${TEAM_ID}/${TELLING_NAME}` }),
+  { message: `Storage refused ${TEAM_ID}/${FILE_NAME_REMOVED}` },
+);
+check(
+  "a path in an exception value, which is where a client's own error arrives",
+  scrubEvent({
+    exception: {
+      values: [{ type: "StorageApiError", value: `new row violates row-level security policy for ${TEAM_ID}/${TELLING_NAME}` }],
+    },
+  }),
+  {
+    exception: {
+      values: [{ type: "StorageApiError", value: `new row violates row-level security policy for ${TEAM_ID}/${FILE_NAME_REMOVED}` }],
+    },
+  },
+);
+check(
+  "a path in request.url, which is where a failed fetch puts it",
+  scrubEvent({
+    request: {
+      url: `https://example.supabase.co/storage/v1/object/attachments/${TEAM_ID}/${TELLING_NAME}`,
+    },
+  }),
+  {
+    request: {
+      url: `https://example.supabase.co/storage/v1/object/attachments/${TEAM_ID}/${FILE_NAME_REMOVED}`,
+    },
+  },
+);
+check(
+  "a path in a tag value",
+  scrubEvent({ tags: { where: `${TEAM_ID}/${TELLING_NAME}` } }),
+  { tags: { where: `${TEAM_ID}/${FILE_NAME_REMOVED}` } },
+);
+// A DATABASE ERROR ABOUT A FILE goes through the DETAIL rule first and loses the
+// whole lot, which is the stronger answer and worth having a check for: the two
+// rules do not fight.
+check(
+  "and a Postgres error quoting a path loses it to the DETAIL rule first",
+  scrubText(
+    `null value in column "name" violates not-null constraint\nDETAIL: Failing row contains (${TEAM_ID}/${TELLING_NAME}).`,
+  ),
+  `null value in column "name" violates not-null constraint\nDETAIL: ${DETAIL_REMOVED}`,
 );
 
 // -------------------------------------------------------------------- scrubUrl

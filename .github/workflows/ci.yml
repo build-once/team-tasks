@@ -202,7 +202,27 @@ jobs:
     env:
       EXPECTED_TASKS_FILTER_CHECKS: "47"
       EXPECTED_PASSWORD_RESET_CHECKS: "84"
-      EXPECTED_SENTRY_SCRUB_CHECKS: "95"
+      # 95 -> 119 WITH BUILD IT 23 PART 2 (issue #242). Twenty-four checks over
+      # one new rule: a stored file's path. docs/plan.md puts a file name on
+      # Sentry's "must never be sent" list, and says in the same breath why a
+      # scrub cannot normally catch one -- "a pattern scrub cannot recognise free
+      # text that no known phrase introduces". A NAME has no shape; the PATH it
+      # lives at does, because every object in the attachments bucket is at
+      # `<task id>/<file name>`. So the rule matches the construct, keeps the
+      # task id -- which is what makes a report useful -- and takes the half
+      # somebody's phone wrote.
+      #
+      # Three of the twenty-four exist because the first version of the rule was
+      # WRONG and these checks caught it: it matched its own output, growing a
+      # bracket per pass, so scrubText stopped being idempotent -- and the same
+      # string really does reach that function twice, once as an exception value
+      # and once inside the message built from it. Two more record a deliberate
+      # over-reach rather than hiding it: a path in a bare sentence takes the rest
+      # of the line, because the alternative is a rule that stops at a space and
+      # leaks every file name with a space in it.
+      #
+      # Seen to fail: with the rule removed, sixteen of them go red.
+      EXPECTED_SENTRY_SCRUB_CHECKS: "119"
       # 110 -> 158 with Build it 21 (issue #211). Forty-eight checks over
       # web/src/lib/consent.ts and the two files that read the setting: the three
       # states and every shape of nothing, "Saved" only after a read-back, the
@@ -229,7 +249,67 @@ jobs:
       #
       # It is also the first coverage web/src/lib/suggestions.ts has had from this
       # script: before this change nothing here read that module at all.
-      EXPECTED_SCREEN_STATE_CHECKS: "182"
+      # 182 -> 277 WITH BUILD IT 23 PART 2 (issue #242), and 277 -> 286 with its
+      # HEIC follow-up, which the paragraph after this one covers. Ninety-five over
+      # web/src/lib/attachments.ts and the three files that use it, and the first
+      # group of them is the one worth having:
+      #
+      # THE NUMBERS AND THE SIX TYPES ARE READ OUT OF THE MIGRATION'S OWN SQL and
+      # compared with the module's. The database is the control -- the bucket row
+      # holds the 5 MB and the types, and public.attachments_may_add() counts the
+      # three-per-task and the 100 MB -- so every number on the screen side is a
+      # COPY, kept only so a person reads "Each file can be up to 5 MB" instead of
+      # `EntityTooLarge`. A drifted copy means a screen promising a limit the
+      # database does not keep, and nothing else would notice.
+      #
+      # The rest: which content type a file's name gets (`.heic` -> image/heic is
+      # the line the whole browser upload exists for, after the owner's staging
+      # run of 9 Oct showed a .heic name refused without one); what a name is
+      # rebuilt as, so it cannot add a path segment and move a file to another
+      # task; which of eleven sentences a refusal gets, from a status and a code
+      # that are never drawn; that NOT ONE sentence carries a word Supabase chose,
+      # a status, a code or a company; that the two sentences with a number in
+      # them interpolate it from the constant; and that no service-role key or
+      # signed upload URL appears in the upload path, which is the whole of issue
+      # #240 in one check.
+      #
+      # Two of the ninety-five exist because they caught themselves being wrong:
+      # a search for the wildcard found it in the migration's own PROSE explaining
+      # why it is not used, so the check now slices the bucket's array out of the
+      # statement -- only the statement decides anything.
+      #
+      # And two are about an ORDER rather than a value: deleting a task reads whose
+      # task it is BEFORE it touches storage. Clearing first for everybody is safe
+      # and says the wrong thing -- a team mate would be told "its files could not
+      # be removed first", which is true and conceals that the task was never
+      # theirs to delete.
+      #
+      # 277 -> 286 WITH THE HEIC FOLLOW-UP of 9 Oct 2026 (issue #246). The owner
+      # tried a HEIC photograph through the app, from a Windows PC, and it failed;
+      # the cause was not found and the owner decided not to pursue it. So the app
+      # stopped offering `image/heic` -- and the BUCKET still permits it, because
+      # narrowing a bucket means a migration against something nobody has shown to
+      # be at fault.
+      #
+      # So nine checks, and the two shapes of them are both about not lying:
+      #
+      #   * THE TWO LISTS DIFFER BY ONE TYPE, ASSERTED BY NAME. The app's list must
+      #     be a subset of the bucket's, and the one type on the bucket's side must
+      #     be `image/heic`. A subset check alone would pass just as happily if
+      #     somebody dropped PNG; an equality check would fail the moment the app
+      #     is honest about something the bucket allows. The named difference is
+      #     what is actually true, so that is what is written down -- and it is the
+      #     gate a later "turn HEIC back on" has to come through.
+      #   * AND NO SENTENCE NAMES A TYPE THE APP DOES NOT ACCEPT, derived from
+      #     ACCEPTED_TYPES rather than written out. This is the one that mattered:
+      #     `FILE_WRONG_TYPE` read "JPEG, PNG, WebP, GIF, HEIC or PDF", so with
+      #     HEIC off the list the screen would have named a HEIC photograph as
+      #     accepted IN THE VERY MESSAGE REFUSING ONE.
+      #
+      # Written before the code and seen to fail: eight of the nine were red
+      # against the unchanged app, each for its own reason.
+      # evidence/build-it-23-attachments-screen.md section 9.4 has the run.
+      EXPECTED_SCREEN_STATE_CHECKS: "286"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and
@@ -397,7 +477,19 @@ jobs:
       # read, so it needs no key, no account and no network, the same as the four
       # beside it. The staging run itself is NOT here and cannot be -- it needs the
       # staging URL and all three test accounts, and it uploads about 5 MB.
-      EXPECTED_ATTACHMENT_CASES: "97"
+      #
+      # 97 -> 105 -> 107 WITH BUILD IT 23 PART 2 (issue #242), which fixes the two
+      # defects the owner's staging runs of 9 Oct 2026 found in the script itself.
+      # Six of the ten new cases are HEIC, where ONE PROBE BECAME TWO CHECKS with
+      # the expectation of the first REVERSED -- a `.heic` name with no content
+      # type is refused, and the owner agreed to that change (AGENTS.md rule 20).
+      # The other four are the leak check: section 15 reported a signed link in a
+      # kept body when none had been printed, because a scrub applied when an
+      # answer arrives cannot catch a credential born in that answer. One of the
+      # four reproduces the old order and requires FAIL; the rest drive
+      # readStorageAnswer, which is the one place the order now lives -- remove
+      # the registration from it and two of them go red, which was seen.
+      EXPECTED_ATTACHMENT_CASES: "107"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -723,10 +815,45 @@ jobs:
 
           # -r recursive, -a treat every file as text so nothing is skipped for
           # looking binary, -n line numbers, -o print ONLY the matched token.
-          # -o matters for safety: it prints "sb_secret_" and not the key that
-          # follows it, so a real leak cannot be copied out of this public log.
+          # -o matters for safety: it prints the prefix and ONE character of
+          # what follows, not the key, so a real leak cannot be copied out of
+          # this public log.
+          #
+          # ONE CHARACTER AFTER THE PREFIX, AND THE OWNER AUTHORISED THAT CHANGE
+          # ON 9 OCTOBER 2026 (Build it 23 part 2, issue #242). AGENTS.md rule 5
+          # reserves every change to this folder to the owner and forbids any
+          # that skips or weakens a check, so what it does and does not change is
+          # written out here rather than left to a diff:
+          #
+          #   WHY IT HAD TO CHANGE. Build it 23 part 2 uploads a file from the
+          #   browser, as the signed-in person, so that the INSERT policy on
+          #   storage.objects is evaluated and the two counted limits in
+          #   public.attachments_may_add() are reached -- issue #240 is the
+          #   argument, and an upload made with the service-role key would be
+          #   evaluated against no policy at all. That puts
+          #   @supabase/supabase-js in the browser bundle for the first time,
+          #   and THE LIBRARY ITSELF CONTAINS THE LITERAL: it ships
+          #   `e.startsWith("sb_publishable_")||e.startsWith("sb_secret_")`, a
+          #   test for which kind of key a string is. Seen on this branch: the
+          #   build put it in .next/static/chunks and the old pattern matched it.
+          #
+          #   WHY THIS IS PRECISION AND NOT A WEAKENING. A key is the prefix
+          #   FOLLOWED BY the key, so every real one -- inlined from an env var,
+          #   written in a source file, pasted into a comment -- is still
+          #   matched: `"sb_secret_AbC123..."` has a letter after the underscore.
+          #   The library's literal is the prefix followed by a quote, which is
+          #   not a key and never was. The set of real keys this catches is
+          #   unchanged; the set of non-keys it catches is smaller by one.
+          #
+          #   WHAT IT COSTS, stated rather than discovered: a key of the prefix
+          #   and NOTHING else would now pass. That is not a key, it is the
+          #   prefix -- it grants nothing, because there is no secret in it.
+          #
+          #   `service_role` IS UNTOUCHED, and deliberately: that half has no
+          #   false positive to fix, and the narrower the change the easier it is
+          #   to agree with.
           set +e
-          hits=$(grep -ranoE 'sb_secret_|service_role' .next/static)
+          hits=$(grep -ranoE 'sb_secret_[A-Za-z0-9]|service_role' .next/static)
           status=$?
           set -e
 
@@ -784,7 +911,27 @@ jobs:
       # must not fail this job; a run that tested FEWER things than it used to
       # has lost coverage, and a run that tested nothing is not a pass. The
       # number was counted from the test file's own TAP summary.
-      EXPECTED_APP_TESTS: "25"
+      # 25 -> 40 WITH BUILD IT 23 PART 2 (issue #242). Fifteen new tests over the
+      # three policies on `storage.objects`, and NOT ONE existing test changed:
+      # Alice attaches a file to her team task and it is listed back; Carol can
+      # list it and open it byte for byte; Bob cannot list, open or delete it; a
+      # signed-out stranger with the publishable key cannot do any of those
+      # three; a file one byte over 5 MB is refused FOR ITS SIZE and an SVG FOR
+      # ITS TYPE -- the code in the body, not the status, because Storage was seen
+      # to wrap the real status inside it; the task cannot be deleted while the
+      # file is on it, and deletes once it is gone.
+      #
+      # WHY HERE AND NOT ONLY IN THE HAND-RUN STAGING SCRIPT, which asks more of
+      # the same bucket: that script is run by the owner before and after an
+      # apply, and these run on every pull request. They are the only thing in
+      # this repository that would notice a later change quietly opening the
+      # bucket.
+      #
+      # One file of 70 bytes is stored and removed again; two more uploads are
+      # attempted and refused on purpose, one of them 5 MB, which is nearly all of
+      # what a run now sends. The after() hook removes files BEFORE tasks,
+      # because the database refuses to delete a task that still has one.
+      EXPECTED_APP_TESTS: "40"
       STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
       STAGING_ALICE_PASSWORD: ${{ secrets.STAGING_ALICE_PASSWORD }}

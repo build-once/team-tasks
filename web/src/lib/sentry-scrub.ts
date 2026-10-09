@@ -51,6 +51,13 @@ export const QUERY_REMOVED = "?[query removed]";
 export const VALUES_REMOVED = "[values removed]";
 export const DETAIL_REMOVED = "[detail removed]";
 export const INPUT_REMOVED = "[input removed]";
+export const FILE_NAME_REMOVED = "[file name removed]";
+
+// The 8-4-4-4-12 of a uuid, written once. A task id is one, and it is the first
+// segment of every path in the `attachments` bucket -- which is what lets the
+// file-name rule below match on a construct rather than on a name.
+const UUID_SHAPE =
+  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
 // The text rules, in the order they are applied. Order matters: the broad
 // "any long run of token characters" rule at the end would otherwise swallow
@@ -132,6 +139,76 @@ const TEXT_RULES: ReadonlyArray<{ readonly find: RegExp; readonly put: string }>
   {
     find: /invalid input syntax for type ([a-z0-9_ [\]]+): "[\s\S]*"/g,
     put: `invalid input syntax for type $1: "${INPUT_REMOVED}"`,
+  },
+
+  // ---- A STORED FILE'S NAME (Build it 23, issue #242) ---------------------
+  //
+  // THIS RULE IS THE ONE EXCEPTION TO THE PARAGRAPH AT THE TOP OF THIS FILE,
+  // and it is worth saying why it works when that paragraph says a shape rule
+  // cannot catch free text.
+  //
+  // docs/plan.md puts a file name on the "must never be sent" list, for exactly
+  // the reason it gives about its own limits: "A pattern scrub cannot recognise
+  // free text that no known phrase introduces, so error messages written by
+  // this app must never include task text, names or addresses. So the rule is on
+  // this app's own code, not on the scrub: a storage error is reported with its
+  // code and the operation, never with the path or the name."
+  //
+  // A FILE NAME IS FREE TEXT -- `scan-of-the-letter-from-my-doctor.pdf` is a
+  // sentence about a person, and nothing about its shape says so. BUT THE PATH
+  // IT LIVES AT IS NOT FREE TEXT. Every object in the `attachments` bucket is at
+  // `<task id>/<file name>`, which is how every rule in
+  // 20261008191804_attachments_bucket.sql decides which task a file belongs to.
+  // A uuid followed by a slash is a construct, in the same way `DETAIL:` is a
+  // construct -- so this rule matches on the construct and takes everything
+  // after it, whatever shape it has.
+  //
+  // THE TASK ID IS KEPT. It is 36 characters of hex and hyphens, it is not a
+  // name, an address or a credential, and "which task" is most of what makes a
+  // report useful -- the same argument the 40-character cut-off below is chosen
+  // for. What goes is the half a person's phone wrote.
+  //
+  // IT TAKES SPACES AND RUNS TO A QUOTE OR A BRACKET, not to whitespace, because
+  // `my holiday photo.jpg` is an ordinary file name. The cost is that it can
+  // over-reach: "could not upload <id>/a.jpg to the bucket" loses " to the
+  // bucket" as well. That is the direction worth being wrong in -- more is
+  // removed, never less -- and it is the same trade the three Postgres rules
+  // above make by being greedy.
+  //
+  // THE BUCKET'S NAME IN FRONT OF IT IS COVERED WITHOUT A RULE OF ITS OWN:
+  // `attachments/<id>/<name>` still has the uuid-then-slash in it, so the match
+  // begins at the uuid and `attachments/` survives, which is schema rather than
+  // anybody's data.
+  //
+  // AND THIS IS NOT INSTEAD OF THE CODE BEING CAREFUL. Nothing in
+  // web/src/lib/attachment-store.ts or web/src/app/tasks/AttachFile.tsx logs,
+  // throws or reports a path -- both read a status and an error code and nothing
+  // else. This rule is the net under code this app did not write: the Supabase
+  // client's own error messages, a failed `fetch` quoting the URL it called.
+  // AND IT MUST NOT MATCH ITS OWN OUTPUT, which is the lookahead and is not a
+  // nicety: scrubText is documented above as idempotent, and the same string
+  // really does reach this file twice -- once as an exception value and once
+  // inside the message built from it.
+  //
+  // Without the lookahead it is not. `[file name removed]` contains a `[`,
+  // which a file name may contain too (`photo[1].jpg`), so `[` cannot be
+  // excluded from the class without leaking the half of a name after one. The
+  // rule therefore matched `[file name removed` on a second pass, stopped at
+  // the `]`, and put its placeholder back in front of the old `]` --
+  // `…/[file name removed]]`, growing a bracket per pass. Found by the
+  // idempotence checks in scripts/sentry-scrub-check.mjs, which is what they
+  // are for.
+  //
+  // THE REGEXP IS BUILT RATHER THAN WRITTEN OUT so that the placeholder appears
+  // once. A lookahead spelling it a second time would be a copy that could
+  // drift, and the drift would be silent -- the rule would simply stop being
+  // idempotent again.
+  {
+    find: new RegExp(
+      `(${UUID_SHAPE})\\/(?!${FILE_NAME_REMOVED.replace(/[[\]]/g, "\\$&")})[^"'\`)\\]\\n]+`,
+      "g",
+    ),
+    put: `$1/${FILE_NAME_REMOVED}`,
   },
 
   // ---- Then the shape rules -----------------------------------------------

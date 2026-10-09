@@ -1449,16 +1449,99 @@ migrations in this repository is the way to check any line of this file.
 
 ## Appendix B. Record of the staging apply
 
-**Empty. Nothing has been applied to staging.** When the owner applies it, the apply and the read-back
-belong here, as `evidence/build-it-22-usage-counts.md` appendix B records its own. The read-back that
-matters most is the one section 10's second bullet names: that the bucket row and the three policies are
-really there, and that `authenticated` holds SELECT, INSERT and DELETE on `storage.objects` while `anon`
-holds nothing it can use. [#239](https://github.com/build-once/team-tasks/issues/239) carries the
-queries.
+**FILLED IN 2026-10-09.** It said "**Empty. Nothing has been applied to staging.**" until then. The
+record below is the coach's, copied verbatim from
+[their comment on PR #241](https://github.com/build-once/team-tasks/pull/241) — the comment itself asks
+for exactly that: "To be copied into the evidence file by the next pull request." That next pull request
+is Build it 23 part 2 ([#242](https://github.com/build-once/team-tasks/issues/242)), and this is the copy.
 
-**And the after-the-apply run of the staging script belongs here too**, beside the before-run in section
-9a. That pair is what the coach's review asked for, and the before half is the only half that exists.
-What the after-run has to turn green, in the order the script reports it:
+**NONE OF IT WAS DONE OR SEEN BY THE ASSISTANT.** The apply is the owner's `supabase db push`; the
+read-back is the coach's, through the staging read-only connector; both script runs are the owner's. The
+assistant ran nothing against staging in the session that copied this, and rule 19 permits it no `db
+push` anywhere.
+
+### B.1 The coach's record, verbatim
+
+> **Record of the staging apply and runs (coach, comment only), 9 Oct 2026.** To be copied into the
+> evidence file by the next pull request.
+>
+> - Owner chose to allow HEIC (told to Claude Code, 8 Oct).
+> - Run 1, before the apply, `scripts/staging/build-it-23-attachment-checks.mjs`: 35 PASS, 12 FAIL,
+>   1 UNVERIFIED (owner's totals line; no bucket).
+> - Owner: `supabase db push` on staging from this branch, CLI 2.75.0; it listed one migration,
+>   `20261008191804_attachments_bucket.sql`, and printed "Finished supabase db push." This answers #239's
+>   first question: the push may write `storage.buckets` and create policies on `storage.objects`.
+> - Coach, staging read-only connector, after the apply: 11 migrations, newest `20261008191804`; bucket
+>   `attachments` private, limit 5242880, types `image/jpeg, image/png, image/webp, image/gif, image/heic,
+>   application/pdf`; three policies on `storage.objects` (SELECT, INSERT, DELETE), each to `authenticated`
+>   only; trigger `tasks_refuse_delete_with_files` present; `attachments_may_add` executable by
+>   `authenticated`, not `anon`; 0 objects.
+> - Run 2, after the apply: **49 PASS, 2 FAIL, 0 UNVERIFIED.** Seen against the real Storage service:
+>   - Alice uploads to her team task; Carol lists, opens and gets a signed link; the link opens with no
+>     key and no session.
+>   - Bob: list returns 0 entries; open, sign, upload and delete are refused.
+>   - Signed out with the publishable key only, and with no credentials at all: all five actions refused.
+>   - A made-up task ID and a top-level path: refused.
+>   - 5242881 bytes: refused (`EntityTooLarge`). An executable and an SVG: refused (`InvalidMimeType`).
+>   - Files 2 and 3 stored; file 4 refused.
+>   - Replace and move by the uploader: refused.
+>   - Carol deleting a file she did not upload on a task she did not create: refused.
+>   - Deleting the task with three files on it: 409 (23503).
+>   - Alice deleted the three files, then both tasks.
+> - Coach's read afterwards: 0 objects in the bucket, neither of the run's tasks left.
+>
+> The two FAILs, neither a fault in the rules:
+>
+> 1. **Section 14, the HEIC probe.** A `.heic` name with no content type is refused: Storage does not
+>    declare it as `image/heic`. So the upload path must set the content type itself or iPhone photos are
+>    refused. A finding for part 2, and the probe should become two checks: refused without a type,
+>    accepted with `image/heic` set.
+> 2. **Section 15, "no … signed link reached a printed line".** The check says a signed link is in a body
+>    the run kept or printed. I read the owner's pasted output: no link is printed. So the script is
+>    keeping the sign response before the link is registered for scrubbing, or the check is judging its
+>    own kept copy. A script defect to fix before this check means anything. The link was valid for 300
+>    seconds on a file since deleted.
+>
+> Also: the output has no section 5.
+>
+> Not seen: two uploads at the same moment against the real service; the 100 MB per-person limit; a
+> suspended person; anything through a screen.
+>
+> No blocking findings in the migration. Merge is the owner's decision; the script fixes ride with part 2,
+> where the script runs again.
+
+### B.2 What that record settles, and what it does not
+
+**The table below this appendix's introduction asked what the after-run had to turn green.** Reading the
+record against it: sections 2, 3, 4, 9, 10 and 13 all did. Section 14 did not, and **that is the one row
+whose expectation was wrong rather than unmet** — it said "the answer either way is news", and the answer
+turned out to be that the owner's HEIC decision does **not** work through the extension alone.
+
+**Three things came out of those two FAILs, and all three are in part 2** (#242):
+
+| The finding | What it became |
+|---|---|
+| A `.heic` name with no content type is refused | **The app sets the content type itself**, from one table keyed by the file's extension (`web/src/lib/attachments.ts`). Section 14 is now two checks — refused without a type, accepted with `image/heic` — and the owner agreed to that change of expectation (rule 20) |
+| Section 15 reported a link in a kept body and no link was printed | **The coach's first reading was right.** A scrub applied when an answer arrives cannot catch a credential that is BORN in that answer: the sign response was kept, scrubbed against the placeholders as they then were, before the link in it was registered. `readStorageAnswer` now registers from the bytes and then reads them, and a selftest case reproduces the old order and requires FAIL |
+| The output has no section 5 | It was a check and never a section: the signed-link open sat inside section 4's `else` and printed no heading. It has one now, and keeps the number 5 so every section below it keeps the number these two runs referred to |
+
+**And what the record itself says is NOT seen, which this appendix does not improve on**: two uploads at
+the same moment against the real service, the 100 MB per-person limit, a suspended person, and anything
+through a screen. The first two are proved only on the local sandbox (section 7); the third is proved
+only there too; the fourth is what part 2's own evidence file is about, and it is not proved anywhere by
+a person looking at a browser.
+
+**PRODUCTION HAS THE MIGRATION AND HAS NEVER BEEN LOOKED AT.**
+`.github/workflows/migrate-production.yml` ran on the merge of PR #241 — run
+[37922812469](https://github.com/build-once/team-tasks/actions/runs/37922812469), whose "Apply migrations
+to production" step succeeded, read with `gh run view --json`. No bucket row, no policy and no privilege
+has been read back there, and a green workflow run says the statements ran rather than what they left
+behind. [#243](https://github.com/build-once/team-tasks/issues/243) holds that read.
+
+### B.3 What the after-run had to turn green, written before it happened
+
+Kept as it was written, because the row for section 14 is the interesting one: it is where this document
+expected news and got a finding instead.
 
 | Section | What must change from FAIL to PASS |
 |---|---|
