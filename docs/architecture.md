@@ -380,10 +380,20 @@ not stop the second ask — it stops the twenty-first.
 
 ## `attachments`, its rules, and how a browser gets a signed link
 
-Added 2026-10-08 for Build it 23 (`docs/plan.md` → "Files attached to a task"), **when nothing is built**:
-no bucket, no rule, no migration, no screen, no code, and no file ever uploaded to either project. This
-is the shape, agreed before anything is typed, which is what the top of this file says the whole document
-is for. The Supabase facts in it are cited from the pages named in `docs/plan.md`, read on 2026-10-08.
+Added 2026-10-08 for Build it 23 (`docs/plan.md` → "Files attached to a task"), **when nothing was
+built**: no bucket, no rule, no migration, no screen, no code, and no file ever uploaded to either
+project. This is the shape, agreed before anything is typed, which is what the top of this file says the
+whole document is for. The Supabase facts in it are cited from the pages named in `docs/plan.md`, read on
+2026-10-08.
+
+**What exists as of later the same day: the migration, and nothing else.**
+`supabase/migrations/20261008191804_attachments_bucket.sql` (issue #237) holds the bucket row, the three
+policies on `storage.objects`, the two counted limits and the trigger that refuses to delete a task with
+files. It is **applied nowhere** — not local, not staging, not production — and proved only on throwaway
+local PostgreSQL databases (`evidence/build-it-23-attachments-bucket.md`). There is still **no screen, no
+Edge Function, no client code and no upload path**, so nothing in this repository can put a file in the
+bucket or draw one, and **no file has ever been uploaded to any project.** `docs/environments.md` is
+where the applied-or-not record lives.
 
 ### The bucket
 
@@ -398,7 +408,15 @@ already checked. A public bucket would make every rule below decoration, which i
 the point this file makes about the publishable key: the key is safe only because RLS is on.
 
 **Two restrictions live on the bucket itself**, so they hold whoever is uploading and whatever screen they
-came from: **images and PDFs only**, and **5 MB**.
+came from: **six named types only — `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/heic`
+and `application/pdf`** — and **5 MB**.
+
+**The types are named rather than admitted by `image/*`, decided 2026-10-08 after the migration's
+review**, and the reason belongs here as well as in `docs/plan.md` because it is about this document's own
+subject: the wildcard would have accepted `image/svg+xml`, and an SVG is a document that can carry script.
+Arrow (13) below hands a browser a signed link to **this project's own Supabase address**, so an SVG
+served through it would be script running from this app's origin, out of a file nobody read before it was
+stored. **HEIC is the owner's addition** the same day, for iPhone photographs.
 
 **And here is the honest limit of that, because it decides what the app may claim.** Supabase checks the
 type the upload *declares*, and the declared type comes from the file's extension or from a `contentType`
@@ -473,9 +491,30 @@ is one sentence and it settles the thing this section could not settle when it w
 
 The reason is the one this file gives about every counted limit in this app. A per-person total is a **sum
 across rows the caller may not be able to see**, and so is the three-per-task — the same shape as "at most
-3 teams per person" and "at most 20 pending invitations per team", neither of which a row-level policy can
-express, because the rule would have to count the caller's other rows. A limit checked only in a form is
-not a limit, because a form can be bypassed.
+3 teams per person" and "at most 20 pending invitations per team". A limit checked only in a form is not a
+limit, because a form can be bypassed.
+
+**One sentence of this is corrected, 8 October 2026, and the decision above is not.** This paragraph read
+"neither of which a row-level policy can express, because the rule would have to count the caller's other
+rows", and the row for arrow (14) says the same: "A row-level rule on `storage.objects` can say 'this file
+belongs to a task you may see'; it cannot say 'and you are under your 100 MB'." **That is true of a policy
+expression evaluated as the caller, and not true of a policy that calls a `security definer` function** —
+which is how `is_active()` already reads a table the app has no privilege on at all.
+`supabase/migrations/20261008191804_attachments_bucket.sql` does exactly that: `attachments_may_add()`
+counts both limits as its owner, the `INSERT` policy calls it, and
+`evidence/build-it-23-attachments-bucket.md` section 7 is both limits refusing — including twenty and
+forty simultaneous uploads held to three, with the same test seen to fail when the two advisory-lock lines
+are removed.
+
+**So the limits are now in the database as well, and the owner's decision stands unchanged, because of
+the sentence above about service keys.** "Service keys entirely bypass RLS policies", so in the
+through-a-function upload shape **no policy on `storage.objects` is evaluated at all** and the database's
+count is not reached. An upload made that way also has no `owner_id` — "When using the `service_key` to
+create a resource, the owner will not be set"
+([Ownership](https://supabase.com/docs/guides/storage/security/ownership), read 2026-10-08) — so it
+belongs to nobody's 100 MB and nobody but the task's creator can delete it. The server-side count is
+therefore still required, and these two facts are an argument for the **signed upload URL** shape over the
+through-a-function one, which the next section leaves open.
 
 **So uploading is now the mirror image of reading, which is worth stating because the two look alike and
 are not:**
@@ -529,11 +568,20 @@ is the whole problem — so the link has to be made rather than inherited, and i
 every path goes through it.
 
 **The consequence worth drawing out: it makes a Build it 26 requirement self-enforcing.** Deleting an
-account cascades to that person's `tasks`, so a refusal on `tasks` would refuse the account deletion too
-while any of those tasks still has a file. The intention "remove their files as well" stops being
-something anybody has to remember. **Not confirmed** — whether such a refusal fires on a cascade the way
-it fires on a direct delete has been neither read nor tried, and nothing of this is built. If it does not,
-the requirement stands and is simply no longer enforced here.
+account cascades to that person's `tasks`, so a refusal on `tasks` refuses the account deletion too while
+any of those tasks still has a file. The intention "remove their files as well" stops being something
+anybody has to remember.
+
+**Confirmed on 8 October 2026, by trying.** This paragraph said "**Not confirmed** — whether such a
+refusal fires on a cascade the way it fires on a direct delete has been neither read nor tried, and
+nothing of this is built." The refusal is now built — a `before delete` row trigger on `public.tasks`,
+`supabase/migrations/20261008191804_attachments_bucket.sql` section 7 — and
+`evidence/build-it-23-attachments-bucket.md` section 8.5 is the run: deleting the `auth.users` row is
+refused, and the error carries the cascade's own statement
+(`DELETE FROM ONLY "public"."tasks" WHERE $1 = "owner_id"`) as its context, which is what says the
+refusal came from inside the cascade rather than from something else. **On a local PostgreSQL 17.10
+sandbox, not on Supabase**, and with a two-column stand-in for `auth.users` — so what is established is
+a property of PostgreSQL, which is the right place for it to be a property of.
 
 **And the reason nothing here needs a privileged delete path, which is the quiet virtue of the owner's
 decision of 2026-10-08.** This section first said it created a case it could not resolve: with only the
@@ -740,7 +788,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | **Mobile app** | `docs/plan.md` says a web app that works well in a phone browser, and "no app store, no native app". A phone browser is not a mobile app; nothing to draw. |
 | **Payments** | On the plan's not-yet list. The app is free for six volunteers. No payments means no webhook, no entitlement check, and no card data anywhere — a large amount of risk simply absent. |
 | **Webhooks** | A webhook is a message *in* from an outside service. Nothing sends you one: no payments, and the app does not need Resend's delivery reports. Adding one would mean signature checking, which is a real job. |
-| **File storage** | **No longer left out, as of 8 Oct 2026.** This row used to read: "File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes." This is what "for when this changes" looks like: the plan was changed first (`docs/plan.md` → "Files attached to a task"), and the bucket, its rules and arrow (13) are above. **Still nothing built** — no bucket, no rule, no file. And the warning in the old sentence is the reason the section above exists: buckets *do* have their own rules, so the rules on `storage.objects` are written to **ask** the task rules rather than restate them. What is left out *inside* it is deliberate: the bucket is private, there is no sharing and no "anyone with the link" setting, nothing goes to Sentry or to Anthropic, and no file name may appear in an error report. |
+| **File storage** | **No longer left out, as of 8 Oct 2026.** This row used to read: "File attachments are on the not-yet list. Supabase Storage exists in your project but stays unused and empty. Worth knowing that buckets have their **own** access rules — a locked database does not lock your files — for when this changes." This is what "for when this changes" looks like: the plan was changed first (`docs/plan.md` → "Files attached to a task"), and the bucket, its rules and arrow (13) are above. **The migration exists and is applied nowhere** (#237, 8 Oct 2026); there is no screen, no upload path and no file. And the warning in the old sentence is the reason the section above exists: buckets *do* have their own rules, so the rules on `storage.objects` are written to **ask** the task rules rather than restate them. What is left out *inside* it is deliberate: the bucket is private, there is no sharing and no "anyone with the link" setting, nothing goes to Sentry or to Anthropic, and no file name may appear in an error report. |
 | **AI or other outside services** | **No longer left out, as of 7 Oct 2026.** This row used to read: "'An AI helper' is on the not-yet list. No model is called, so no prompt, no token bill, and no third party receiving task text." All three halves of that sentence stop being true when Build it 20's code lands — a model *is* called, there *is* a token bill, and a third party *does* receive one task's text. The plan was changed first (`docs/plan.md` → "Suggest subtasks"), and the box and arrow (12) are on the map above. Still nothing installed. What is left out *inside* it is deliberate: no name, no user ID, no team name, no second task, and no production key until the consent setting lands in Build it 21. |
 | **Monitoring** | No longer empty: **Sentry** was chosen on 5 Oct 2026 and is drawn on the map, still with nothing installed. What is left out *inside* it is deliberate: no session replay, no performance tracing, and no request or response bodies — the three Sentry features that would carry task text, addresses and tokens out of this project. |
 

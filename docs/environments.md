@@ -35,7 +35,8 @@ a dashboard or connected to either database.
 |---|---|---|
 | Everything up to and including `20261006095847_invitation_status.sql` | applied | applied — `migrate-production` has run on every merge to `main` since Build it 6 |
 | `20261007204900_ai_suggestions_consent.sql` | **applied 8 Oct 2026**, by the owner from the `feat/ai-consent-migration-206` branch. Read back by the coach the same day: 9 migrations recorded, newest `20261007204900`; `ai_suggestions_enabled` default false and not null; `ai_suggestions_changed_at` nullable with no default; `my_ai_suggestions()` present and `security definer`; trigger `profiles_stamp_ai_suggestions` present. `evidence/build-it-21-ai-consent-migration.md` appendix B holds it | **applied 8 Oct 2026**, by `.github/workflows/migrate-production.yml` when PR #210 merged — run [37743591469](https://github.com/build-once/team-tasks/actions/runs/37743591469), whose "Apply migrations to production" step succeeded. **And read back the same day** by the coach through the production read-only connector: 9 migrations, newest `20261007204900`; both columns present, default off; `my_ai_suggestions()` present; `anon` and `authenticated` hold **no** table-level SELECT or UPDATE on `profiles`; `service_role` holds SELECT and **not** UPDATE; no profile rows. `evidence/production-log.md`, 8 Oct, holds it — and that read is what settles what the statements left behind, which a green workflow run cannot. *(The workflow step's own log output was never read: the command used to read it was refused by the guard — `db-remote-write`, matching the literal text of a remote push inside a search pattern — and was not retried.)* |
-| `20261008115900_usage_counts.sql` | **not applied.** The owner has not applied it, and was not asked to in the session that wrote it. Proved only on a throwaway local PostgreSQL sandbox — `evidence/build-it-22-usage-counts.md` | **not applied.** It reaches production when the owner merges its pull request and `migrate-production` runs, and not before |
+| `20261008115900_usage_counts.sql` | **not applied.** The owner has not applied it, and was not asked to in the session that wrote it. Proved only on a throwaway local PostgreSQL sandbox — `evidence/build-it-22-usage-counts.md`. **This row disagrees with that file's appendix B**, which records the owner applying it to staging on 8 Oct 2026 and the coach reading it back. Neither claim was checked in the session that noticed the disagreement; [#238](https://github.com/build-once/team-tasks/issues/238) holds it | **not applied.** It reaches production when the owner merges its pull request and `migrate-production` runs, and not before. **Also disagrees with `evidence/build-it-22-usage-counts.md` appendix B** — see the staging cell and #238 |
+| `20261008191804_attachments_bucket.sql` | **not applied.** The owner has not applied it, and was not asked to in the session that wrote it. Proved only on four throwaway local PostgreSQL sandbox databases — `evidence/build-it-23-attachments-bucket.md`. **It is the first migration in this repository that touches the `storage` schema**, so whether the role `db push` connects as may insert into `storage.buckets` and create policies on `storage.objects` is **unverified**, and is the most likely way the apply fails ([#239](https://github.com/build-once/team-tasks/issues/239)) | **not applied.** It reaches production when the owner merges its pull request and `migrate-production` runs, and not before |
 
 **And where the server functions stand, which is a different question and is answered differently.**
 Migrations and functions do not travel together: production gets every function on a merge to `main`,
@@ -603,7 +604,9 @@ that one process, and nothing writes them to disk.
 
 The names the scripts expect, as they are read in the code today:
 
-**Five** scripts read them today, and `scripts/staging/` holds all five:
+**Eight** scripts read them today, and `scripts/staging/` holds all eight. **This said "five" and listed
+five until 2026-10-08**, when the eighth was added and the count was checked by listing the directory
+rather than trusting the sentence; the three rows in the middle had been missing since Build it 18.
 
 | Short name | File | What it checks | Does it write? |
 |---|---|---|---|
@@ -612,12 +615,20 @@ The names the scripts expect, as they are read in the code today:
 | `tasks` | `build-it-15-checks.mjs` | the team **task** rules | **yes** — it creates tasks and deletes them again by id at the end of the run |
 | `doors` | `build-it-16-checks.mjs` | the three Edge Functions refuse a token that is present but not genuine, refuse somebody who does not own the team, and answer 404 for a team that does not exist | no — every request it sends is one a function must refuse, and the forged ones carry an empty body |
 | `suspend` | `build-it-16-suspend-checks.mjs` | the three Edge Functions refuse a **suspended** caller, and still answer an active one normally (issue #133) | no — every body it sends is one each function refuses on its own merits, so there is nothing to create |
+| `status` | `build-it-18-invitation-status-checks.mjs` | the deployed `invite-member` writes down what happened to an invitation's email, and the team's owner can read it | **yes** — one invitation, to one fixed plus-address, and **it cannot be deleted from the script**: `invitations` has no delete policy, so the owner removes the row by hand. The statement is printed at the end of every run |
+| `ai` | `build-it-20-ai-checks.mjs` | the deployed `suggest-subtasks`: what it sends, the consent setting, and today's limit | **yes**, and **it is the only one that COSTS MONEY** — metered requests to Anthropic. It creates a task and deletes it again |
+| `files` | `build-it-23-attachment-checks.mjs` | the rules on the `attachments` bucket: who may read, list, sign, upload and delete, the bucket's own 5 MB and six named types, three files per task, that nothing may be replaced or renamed, and that a task cannot be deleted while a file is on it | **yes** — two tasks and up to four files, **all removed at the end**, and a judgement that lists both prefixes to prove it. One run sends about **5 MB**, nearly all of it the one deliberately oversized upload the 5 MB check needs. **Run it before `supabase db push` and after**: before, it must fail |
 
 `suspend` needs one of `--expect-suspended` or `--expect-active`, and will not run without one: only
 the owner can add or remove a row in `account_status`, so the script has to be told which state it is
 looking at. Its own file explains the whole sequence, including the two SQL statements. `doors` takes
 one optional extra name, `EXPIRED_ACCESS_TOKEN`, and says UNVERIFIED for that one check when it is
 not set.
+
+**`files` reads all six account names and `ALICE_TEAM_ID`** — it is the only one that signs in as all
+three people and creates a task in a team, so the "Read by" column below is not exhaustive for it. Five
+of the eight have a `--selftest` that needs none of these and is run by CI: `doors`, `suspend`, `status`,
+`ai` and `files`.
 
 | Variable | Read by | What it is |
 |---|---|---|

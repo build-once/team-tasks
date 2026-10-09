@@ -456,7 +456,8 @@ project, and they are opened through a link that **expires after 5 minutes**.
 **Decided 2026-10-08, and this section was written before those decisions rather than after them.** It
 went to the owner with **five** open decisions and two things to accept or reject, all seven came back
 settled the same day, and **writing them down produced an eighth question that the owner then settled
-too** — the one in the "who may delete" row. Each is recorded in its place below; they are gathered here
+too** — the one in the "who may delete" row. **A ninth followed from the migration's review**, later the
+same day, and it is the last row. Each is recorded in its place below; they are gathered here
 so the whole set is in one view, the way "Daily limits on what costs money" above gathers its nine.
 
 | | Decided |
@@ -468,6 +469,7 @@ so the whole set is in one view, the way "Daily limits on what costs money" abov
 | Whether files may be left behind | **No. Not acceptable.** Deleting a task **deletes its files first** and is **refused if they cannot be removed**; and **the database refuses to delete a task that still has files**. Removing a person's files when an account is deleted is **a requirement of Build it 26** |
 | That a renamed file can get through | **Accepted as written.** The app promises the refusal and promises nothing about contents |
 | That the limits do not keep this inside the egress allowance | **Recorded as written, and no egress limit is built now** |
+| **Which image types, exactly** | **Six named types and no wildcard: JPEG, PNG, WebP, GIF, HEIC and PDF.** The ninth decision, and the only one that came from the migration's review rather than from this section: `image/*` would have admitted `image/svg+xml`, and an SVG can carry script. **HEIC is the owner's addition** — it was proposed rather than assumed, and allowed the same day |
 
 **The fifth row is the one that changed this section most**, and it is worth saying why before the detail:
 this plan's habit is to write a gap down and leave it ([#204](https://github.com/build-once/team-tasks/issues/204),
@@ -520,6 +522,44 @@ knows who attached the file.
 the limit can't exceed 50 MB" globally, and a bucket's own limit "can't be higher than this global
 limit" ([Storage file limits](https://supabase.com/docs/guides/storage/uploads/file-limits), read
 2026-10-08).
+
+**And "images" is a NAMED LIST, not a wildcard. Decided 2026-10-08, after the coach's review of the
+migration, and the owner added one type to it.** Six types are accepted and nothing else is:
+
+| Accepted | Why it is on the list |
+|---|---|
+| `image/jpeg` | the camera default almost everywhere |
+| `image/png` | screenshots, and anything with sharp edges |
+| `image/webp` | what a phone browser often produces when it re-encodes a photo |
+| `image/gif` | it costs nothing to accept, and people have them |
+| `image/heic` | iPhone photographs. **The owner's addition, 8 October 2026** — see below |
+| `application/pdf` | the form, the receipt, the letter |
+
+**Everything else is refused, and `image/svg+xml` is the reason the list exists.** The first version of
+this said "images and PDFs" and the bucket was given `image/*`, which would have accepted an SVG. **An SVG
+is not a picture, it is a document, and it can carry script.** A file in this bucket is opened through a
+signed link to the project's own Supabase address, so an SVG would be script running from this app's own
+origin, fetched by whoever clicked it — out of a file nobody read before it was stored, which is the thing
+the appendix already marks as the most sensitive row in its table. The wildcard was a convenience that
+widened the one row of this plan with the least known contents, and it is gone.
+
+**HEIC is on the list because the owner put it there, and the order matters.** The review's words were:
+"say in `docs/plan.md` that other image types, including SVG and HEIC, are refused. If the owner wants
+HEIC for phone photos, that is the owner's call; propose it, do not add it." It was proposed and the
+owner's answer the same day was to allow it. So an iPhone photograph is accepted without the person having
+to convert it first, which for a group of volunteers taking photos on phones is the difference between the
+feature working and the feature looking broken.
+
+**Two neighbours of HEIC are NOT on the list**, and that is the limit of what was asked rather than a
+reading of it: `image/heif` and `image/heic-sequence`. The owner said HEIC, which is what a phone's
+settings screen calls the format; nobody has been asked about the sibling media types. Both are refused,
+which is the fail-closed direction, and adding either is one migration. The "Unverified" list below
+carries it, together with the thing that decides whether the HEIC entry works at all: **whether Supabase
+declares a `.heic` file as `image/heic`**, which no page read says.
+
+**What this does not change: the refusal is still about the declared type and never about the contents.**
+The section below says so in full, and naming six types instead of a wildcard does not move that line one
+inch — it only makes the set of things the app has agreed to serve back smaller and nameable.
 
 **Three files per task, and 100 MB per person in total. Both confirmed by the owner on 2026-10-08**, after
 the arithmetic, and the arithmetic is kept as written:
@@ -593,12 +633,21 @@ somebody's odd file in their own team rather than anything arriving from outside
 not accepted is a vaguer promise**: "images and PDFs only" stays in the plan *because* the paragraph
 underneath it says what it means.
 
+**And naming the six types rather than saying `image/*` is what this paragraph bought, added
+2026-10-08.** It is worth joining up, because the two decisions are about the same sentence from opposite
+ends. This paragraph says the app cannot promise anything about a file's **contents**; the named list in
+"Limits" above is about the **set of declared types the app agrees to serve back at all**. Since a file is
+served back under the type it was stored as, that set is the whole of what the app has promised to hand a
+browser and ask it to render — so it is the one half of this that *can* be made small, and `image/*` was
+making it large by accident. Neither decision rescues the other: a JPEG that is really something else
+still gets through, and the list still cannot stop it.
+
 **So what the app will and will not promise:**
 
-- **It will promise** that an upload declaring anything other than an image or a PDF is refused, and that
+- **It will promise** that an upload declaring anything other than those six types is refused, and that
   one over 5 MB is refused — both by Storage, not by a screen.
-- **It will not promise** that what is in the bucket is really an image or really a PDF. It cannot, and
-  saying so here is cheaper than somebody inferring it later from the words "images and PDFs only".
+- **It will not promise** that what is in the bucket is really a JPEG, a PNG, a WebP, a GIF, a HEIC or a
+  PDF. It cannot, and saying so here is cheaper than somebody inferring it later from a list of types.
 - **It will not promise that opening a file is safe**, which is the consequence that actually matters. A
   file comes back to a browser with the type it was stored under, so a browser can be asked to render a
   stranger's bytes as a picture or a PDF. The people who can open a file are the small set in the next
@@ -760,10 +809,15 @@ question has no yes for anybody. Only the operator, in the dashboard, could see 
 thing about the decision. Deleting an account cascades to that person's `tasks` rows — so if the database
 refuses to delete a task that still has files, **deleting an account is refused too** while any of those
 tasks has one. The intention "we should remove their files as well" stops being something anybody has to
-remember and becomes something they cannot get past. **Not confirmed**: nobody has built or tried this,
-and whether a refusal fires on a cascade the way it fires on a direct delete is a question about Postgres
-that this plan has not answered by reading or by trying. If it turns out not to, the Build it 26
-requirement is still a requirement and is simply no longer self-enforcing.
+remember and becomes something they cannot get past. **Confirmed later the same day, by trying.** This
+paragraph said "**Not confirmed**: nobody has built or tried this, and whether a refusal fires on a
+cascade the way it fires on a direct delete is a question about Postgres that this plan has not answered
+by reading or by trying." It has now been built — the trigger in
+`supabase/migrations/20261008191804_attachments_bucket.sql` — and tried:
+`evidence/build-it-23-attachments-bucket.md` section 8.5 shows the account deletion refused, with the
+cascade's own statement as the error's context. **On a local PostgreSQL sandbox, and the migration is
+applied nowhere**, so it is a property of PostgreSQL rather than something seen on Supabase. The
+"Unverified" list below carries both caveats.
 
 **And what "refused" can now mean has narrowed, which is the second thing the rights decision bought.**
 Before it, the most likely reason a file could not be removed was **permission** — somebody else's file
@@ -988,7 +1042,7 @@ free text that could contain absolutely anything.
 | One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
-| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Nothing exists**: no bucket, no rule, no code. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
+| A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments` *(proposed)*, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **The migration exists and is applied nowhere**; no screen, no upload path and no file. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload, and **six named types only — JPEG, PNG, WebP, GIF, HEIC, PDF — with no wildcard, so no SVG** | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 
@@ -1107,9 +1161,16 @@ can open it — never about what is inside.
 - **Five minutes, not an hour.** The shortest link that still works on a slow phone. A link is a
   credential while it lives, so its life is the thing to keep small — and it is the only control there
   is, because a signed link cannot be called back.
-- **Two types and 5 MB**, so the bucket cannot quietly become a file share. And the limit is **stated for
-  what it is**: Storage checks the type the upload *declares*, so a renamed file gets through, and the
-  app promises the refusal rather than the contents.
+- **Six named types and 5 MB**, so the bucket cannot quietly become a file share. And the limit is
+  **stated for what it is**: Storage checks the type the upload *declares*, so a renamed file gets
+  through, and the app promises the refusal rather than the contents.
+- **No wildcard, added 2026-10-08 after the migration's review.** This bullet said "two types" and the
+  bucket was given `image/*`, which collects **more** than it has to: it would have accepted
+  `image/svg+xml`, a document that can carry script, served back from this project's own address. Naming
+  the six types is the reduction — and it is the only one in this list that was found by somebody reading
+  the code rather than by writing the plan, which is an argument for the review and not against the plan.
+  **HEIC was then added on purpose, by the owner**, because an iPhone photograph is the commonest thing
+  this feature exists for; that widens the list by one named type and not by a class.
 - **The audience is the task's, not a new one.** No sharing, no link to send somebody, no "anyone with
   the link" setting. A file is visible to exactly the people the task is visible to, and a suspended
   person is refused — so attachments add **no new answer** to "who can see what", which is feature 5's
@@ -1387,13 +1448,29 @@ it rather than a reason to recount.
   **reading those is Build it 25** — the owner's decision of 2026-10-08.
   [#219](https://github.com/build-once/team-tasks/issues/219) holds it, with what to read and how we will
   know it is done. No figure is written here until somebody has read the page.
-- **Unverified — "Files attached to a task" describes nothing that exists.** Added 2026-10-08 for Build
-  it 23 part 0, documents only. **There is no bucket**, no storage rule, no migration, no screen, no code
-  and no package; **no file has ever been uploaded to any project**, and Supabase Storage is still the
-  empty, unused thing `docs/architecture.md` has called it since the start. Every sentence in that section
-  is a decision about what will be built, and the facts about Supabase Storage in it come from the pages
-  cited there — read on 2026-10-08, with no connector and no browser used — which is how Supabase
-  describes the service, not something observed in this project.
+- **Unverified — "Files attached to a task" is now a migration and is APPLIED NOWHERE.** The sentence
+  this replaces was written for Build it 23 part 0, documents only, and said "**There is no bucket**, no
+  storage rule, no migration, no screen, no code and no package". The middle of that stopped being true
+  later the same day. Taken one at a time:
+
+  - **The migration exists**: `supabase/migrations/20261008191804_attachments_bucket.sql` (issue #237) —
+    the bucket row, the three policies on `storage.objects`, the two counted limits, and the trigger that
+    refuses to delete a task with files. **It has been applied nowhere**: not local, not staging, not
+    production. Rule 19, and the owner was not asked to apply it in the session that wrote it.
+  - **Nothing else exists.** No screen, no Edge Function, no client code, no package, and **no upload
+    path at all** — so nothing in this repository can put a file in the bucket or draw one, and **no file
+    has ever been uploaded to any project**. Supabase Storage is still the empty, unused thing
+    `docs/architecture.md` has called it since the start.
+  - **What the proof is, and is not.** `evidence/build-it-23-attachments-bucket.md` is four throwaway
+    local PostgreSQL databases, with every rule attacked as the task's creator, a team member, an
+    outsider, a suspended member and signed out. **Its `storage` schema is a stand-in the assistant
+    wrote**: the column names are Supabase's and cited, every type is a choice, and
+    `storage.foldername()` is not there at all. So the rules are proved against PostgreSQL, not against
+    Supabase Storage — and **the bucket's own 5 MB and type limits are not proved at all**, because
+    nothing in PostgreSQL enforces them.
+  - **And the facts about Supabase Storage** in that section still come from the pages cited there, read
+    on 2026-10-08 with no connector and no browser — which is how Supabase describes the service, not
+    something observed in this project.
 - **Decided, so no longer open — the five decisions and two acceptances this section carried when it was
   written on 2026-10-08, and the eighth question that writing them down produced.** Three files per task;
   100 MB per person, **enforced on the server at upload**; one line beside the upload box about what is
@@ -1419,12 +1496,19 @@ it rather than a reason to recount.
   own task, the deletion runs as the person asking, permitted by a database rule rather than by code
   acting on somebody's behalf. Nothing in the plan now asks for a delete that carries the service-role
   key. **Nothing is built**, so this is a property of the design rather than of anything observed.
-- **Not confirmed — whether a refusal to delete a task that still has files also fires on a cascade.**
-  The Build it 26 requirement is made self-enforcing by the expectation that deleting an account, which
-  cascades to that person's tasks, would be refused the same way a direct delete is. That is a question
-  about Postgres this plan has answered neither by reading nor by trying, and nothing of it is built. If
-  it turns out not to fire, the Build it 26 requirement stands and is simply no longer enforced by the
-  database.
+- **Confirmed by trying, 2026-10-08 — a refusal to delete a task that still has files DOES fire on a
+  cascade.** This entry said it was "a question about Postgres this plan has answered neither by reading
+  nor by trying, and nothing of it is built". The refusal is now built — the trigger in
+  `supabase/migrations/20261008191804_attachments_bucket.sql` — and
+  `evidence/build-it-23-attachments-bucket.md` section 8.5 is the run: deleting the `auth.users` row is
+  refused, and the error carries the cascade's own statement as its context, which is what says the
+  refusal came from inside the cascade rather than from somewhere else. **So deleting an account is
+  refused while any of that person's tasks still has a file, and the Build it 26 requirement
+  ([#235](https://github.com/build-once/team-tasks/issues/235)) is self-enforcing rather than
+  aspirational.** Two caveats that remain: it was tried on a local PostgreSQL 17.10 sandbox with a
+  two-column stand-in for `auth.users`, and **the migration is applied nowhere** — so what is established
+  is a property of PostgreSQL, which is the right place for it to be a property of, and not something
+  observed on Supabase.
 - **A requirement of Build it 26, not of this one — removing a person's files when their account is
   deleted.** The owner's decision of 2026-10-08. Nothing about it is designed here, deliberately: whose
   job it is to walk a person's tasks and clear their files is Build it 26's question.
@@ -1444,6 +1528,21 @@ it rather than a reason to recount.
   content sniffing or an actual upload of a deliberately misnamed file to staging.
 - **Not confirmed — whether `storage.objects` records the file's declared type, and where.** Presumably in
   `metadata` beside the size; no page read on 2026-10-08 says so, and presumably is not a citation.
+- **Not confirmed — whether Supabase declares a `.heic` file as `image/heic`, which is what decides
+  whether the owner's HEIC decision works at all.** The declared type comes from the extension unless the
+  caller overrides it, and **no page read on 2026-10-08 says which extensions map to which types.** If
+  `.heic` maps to something else — or to nothing — an iPhone photograph is refused, loudly, and the answer
+  is either a `contentType` set on the upload or a longer list. The same question applies to `.heif` and
+  to `.webp`. One upload of each settles it, and
+  [#239](https://github.com/build-once/team-tasks/issues/239) asks for exactly that.
+- **Decided, so no longer open — whether the bucket takes the `image/*` wildcard.** This list carried it
+  as "not confirmed" for part of 2026-10-08, and the question is now moot rather than answered: the coach's
+  review of the migration asked for the types to be named instead, because the wildcard would have
+  admitted `image/svg+xml`, and they are. **Nobody ever established whether the column accepts a
+  wildcard**, and nothing in this project needs to know any more.
+- **And two media types that are refused because nobody has been asked about them**: `image/heif` and
+  `image/heic-sequence`. The owner's answer named HEIC; these are its neighbours, and a file declaring
+  either is refused. Adding one is a one-line migration if a phone turns out to produce it.
 - **Not confirmed — whether `storage.objects` has a `last_accessed_at` column.** [The Storage
   Schema](https://supabase.com/docs/guides/storage/schema/design) does not list one; the [self-hosting
   object reference](https://supabase.com/docs/reference/self-hosting-storage/get-object-info) shows one in
