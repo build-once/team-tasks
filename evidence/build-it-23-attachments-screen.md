@@ -21,19 +21,23 @@ established flow for this repository and not a step anybody took specially; it i
 "nothing touched staging" would otherwise read as a claim about the whole change rather than about my own
 commands.
 
-**AND NOBODY HAS OPENED THIS SCREEN IN A BROWSER.** There is no screenshot in this file and no run of the
-app. What the pull request asks the owner to check on a phone is listed in it, and section 7 below says
-what that leaves unproved — which is most of what a person would call "does it work".
+**THE OWNER HAS OPENED THIS SCREEN ONCE, FROM A WINDOWS PC, AND ONE THING ON IT FAILED.** That is section
+9, added in the follow-up commit of 9 October 2026: every step of the check list passed except attaching a
+HEIC photograph, and the app no longer offers that type
+([#246](https://github.com/build-once/team-tasks/issues/246)). The sentence here said "**nobody has opened
+this screen in a browser**", which was true when it was written. **Still true: no phone, and no
+screenshot of anything** — and the assistant has opened nothing at all.
 
 | | Run here? | What it proves |
 |---|---|---|
 | `tsc --noEmit`, `eslint`, `next build` | **yes** | it compiles, and the bundle is clean |
-| `scripts/screen-state-check.mjs` | **yes**, 277 checks | the numbers, the types, the sentences, and the migration's SQL agreeing with all three |
+| `scripts/screen-state-check.mjs` | **yes**, 286 checks | the numbers, the types, the sentences, and the migration's SQL agreeing with all three |
 | `scripts/sentry-scrub-check.mjs` | **yes**, 119 checks | a stored file's path does not survive a scrub |
 | `scripts/staging/build-it-23-attachment-checks.mjs --selftest` | **yes**, 107 cases | the two fixed defects, and that both fixes can fail |
 | the same script against **staging** | **no** — the owner's step | the bucket's own limits, and the HEIC finding, against the real service |
 | `web/tests/access-rules.test.mjs` | **not by me — BY CI, AGAINST STAGING, and all 40 passed.** Section 5.4 | the three policies, both sides of each |
-| the screen in a browser | **no** | everything a person would call working |
+| the screen in a browser | **not by me — ONCE BY THE OWNER, on a Windows PC.** Section 9 | seven of eight steps; **the HEIC step failed** |
+| the screen on a **phone** | **no** | the device this app is for, and the layout nobody has seen |
 
 **THE THIRD ROW CHANGED AFTER THIS FILE WAS WRITTEN, and it is the most important line in it.** It said
 "**no** — it signs in to staging", which was true of me and not of the pull request: the `app-tests` job
@@ -50,7 +54,7 @@ pure function.
 |---|---|
 | **New** | `web/src/lib/attachments.ts` (pure: the numbers, the content-type table, every sentence), `web/src/lib/attachment-store.ts` (the four storage requests, each as the signed-in person), `web/src/app/tasks/AttachFile.tsx` (the upload box — the only client component in this app) |
 | **Changed** | `web/src/app/tasks/page.tsx` (the files panel, the count on the row, the banners), `web/src/app/tasks/actions.ts` (`openFile`, `deleteFile`, and `deleteTask` clearing files first), `web/src/lib/tasks.ts` (three new link keys, `TASK_HAS_FILES_CODE`), `web/src/lib/buttons.ts` (two button ids), `web/src/lib/sentry-scrub.ts` (one rule), `web/src/app/components/ActButton.tsx` (a comment that was wrong), `web/src/app/tasks/tasks.module.css` |
-| **Tests and checks** | 15 new tests in `web/tests/access-rules.test.mjs` and the storage helpers they need in `web/tests/staging.mjs`; 95 new checks in `scripts/screen-state-check.mjs`; 24 in `scripts/sentry-scrub-check.mjs`; 10 new selftest cases and two defect fixes in `scripts/staging/build-it-23-attachment-checks.mjs` |
+| **Tests and checks** | 15 new tests in `web/tests/access-rules.test.mjs` and the storage helpers they need in `web/tests/staging.mjs`; 104 new checks in `scripts/screen-state-check.mjs` (95 with the screen, 9 more with the HEIC follow-up); 24 in `scripts/sentry-scrub-check.mjs`; 10 new selftest cases and two defect fixes in `scripts/staging/build-it-23-attachment-checks.mjs` |
 | **NO MIGRATION** | Nothing in this change touches the database's shape. Everything it needs — the bucket, the three policies, the two counted limits, the trigger — was applied on 9 October 2026 |
 | **One authorised change to a CI check** | section 3 |
 
@@ -222,7 +226,7 @@ can never pass.
 | | What it requires |
 |---|---|
 | 14a | a `.heic` name with no content type is **refused**, and refused carrying `InvalidMimeType` — so a refusal by row-level security instead is a FAIL, because then the type list was never reached |
-| 14b | the same bytes under a `.heic` name **with `image/heic` set by the caller** are **accepted** — which is what the app's own upload path does |
+| 14b | the same bytes under a `.heic` name **with `image/heic` set by the caller** are **accepted** — the BUCKET's answer. *(This row said "which is what the app's own upload path does". It no longer does: the owner tried a HEIC photograph through the app later the same day and it failed. §9 below.)* |
 
 **It is not a loosening**, which is what rule 20 is about. The old judgement was recording an unanswered
 question; these two assert more than it did, and 14a would turn red if a future Supabase started mapping
@@ -267,7 +271,7 @@ imported. It is in this file because a compile error nobody mentions reads as a 
 
 ```
 $ node scripts/screen-state-check.mjs
-277 of 277 checks passed.
+286 of 286 checks passed.
 exit=0                                         (182 before this change)
 
 $ node scripts/sentry-scrub-check.mjs
@@ -428,7 +432,7 @@ All four are **floors** except the button count, which is an equality on purpose
 | Setting | Was | Now | Why |
 |---|---|---|---|
 | `EXPECTED_APP_TESTS` | 25 | **40** | 15 new access-rule tests over the three storage policies |
-| `EXPECTED_SCREEN_STATE_CHECKS` | 182 | **277** | 95 over `attachments.ts` and the three files that use it |
+| `EXPECTED_SCREEN_STATE_CHECKS` | 182 | **286** | 104 over `attachments.ts` and the three files that use it |
 | `EXPECTED_SENTRY_SCRUB_CHECKS` | 95 | **119** | 24 over the file-path rule |
 | `EXPECTED_ATTACHMENT_CASES` | 97 | **107** | 6 HEIC, 4 the leak fix |
 | the button count, in `screen-state-check.mjs` | 17 | **19** | `file_open` and `file_delete`. **Two, not three**: the Attach is `type="button"` with an onClick, because no form is posted |
@@ -446,16 +450,18 @@ The honest list, and it is longer than the one above. **Section 5.4 took the thr
 they are now seen refusing the right people against the real service — and everything below is what that
 run did not reach.
 
-1. **Nobody has opened the screen.** No browser, no screenshot, no phone. Every sentence in
-   `docs/claims.md` §2e is checked as a **string in a module**, and that one is really drawn where the
-   check says is a question for the diff and for a person looking at it. The pull request asks the owner
-   to check eight things on a phone and says so. **The test run proves the RULES and says nothing about
-   the SCREEN**, which is the distinction to hold on to: it makes its requests with `fetch`, not through
-   anything in `web/src/app`.
-1a. **AND NO HEIC PHOTOGRAPH HAS BEEN UPLOADED BY THIS APP'S OWN PATH.** The tests send a PNG. The
-   finding that made the content-type table necessary came from the staging script, and the check that
-   holds it — section 14b — has not been run since it was written. **This is the single most likely thing
-   in the change to be wrong**, and it is first on the phone list for that reason.
+1. **NO PHONE.** This item said "**Nobody has opened the screen**" until the owner did, on a Windows PC —
+   section 9. The device the app is actually for is still unchecked, and the files panel's layout on a
+   narrow screen is the part nobody has looked at. There is no screenshot of any of it. **The test run in
+   5.4 proves the RULES and says nothing about the SCREEN**, which is the distinction to hold on to: it
+   makes its requests with `fetch`, not through anything in `web/src/app`.
+1a. **AND THE HEIC WARNING IN THIS ITEM CAME TRUE.** It said: "no HEIC photograph has been uploaded by
+   this app's own path … **this is the single most likely thing in the change to be wrong**, and it is
+   first on the phone list for that reason." The owner tried one and **it failed** — section 9.3. The app
+   has stopped offering the type and [#246](https://github.com/build-once/team-tasks/issues/246) records
+   what was seen and what was not. **The cause is still unknown**, which is what keeps this on the list
+   rather than taking it off: one staging run of section 14 would say whether the bucket or this app's
+   path is at fault.
 2. **The 100 MB per person has never refused anybody, anywhere.** It is proved on the local sandbox
    (part 1, section 7.2) and the owner's staging run did not fill it. So `FILE_NO_ROOM` is a sentence
    nobody has ever seen.
@@ -497,7 +503,145 @@ app did not write ever quotes one.
 **And the rules under all of that have now been seen working against the real service**, by CI, on
 staging: 40 tests and 0 failures, with Alice's upload accepted and read back, Carol opening the file byte
 for byte, Bob and a signed-out stranger refused all three, the bucket refusing 5,242,881 bytes and an SVG
-by name, and the task refusing to be deleted while a file sat on it. **What has NOT been seen is anybody
-using the screen** — no browser, no phone, no HEIC photograph and no 100 MB. The two things that would
-settle most of what is left are a staging run of the script and a person with a phone, and both are the
-owner's step.
+by name, and the task refusing to be deleted while a file sat on it.
+
+**AND THE OWNER HAS SINCE USED THE SCREEN, AND ONE THING ON IT DID NOT WORK.** The paragraph that stood
+here said "**What has NOT been seen is anybody using the screen**", which was true for about an hour.
+Section 9 below is the record: every step of the check list passed except attaching a HEIC photograph, and
+the app no longer offers that type. **Still not seen: a phone**, which is the device this app is for.
+
+---
+
+## 9. The owner's screen check, and the HEIC failure
+
+**Added in the follow-up commit of 9 October 2026.** The record below is the coach's, copied verbatim from
+[their comment on PR #245](https://github.com/build-once/team-tasks/pull/245) — the comment itself asks
+for that: "To be copied into the evidence file by the next pull request."
+
+**None of it was done or seen by the assistant.** The check is the owner's, on the pull request's Vercel
+preview, from a Windows PC, signed in with the staging accounts.
+
+### 9.1 The coach's record, verbatim
+
+> **Record of the owner's screen check (coach, comment only), 9 Oct 2026.** To be copied into the evidence
+> file by the next pull request.
+>
+> - Owner, on the pull request's preview, from a PC (not a phone), signed in with the staging accounts:
+>   reported that every step of the check list passed except one.
+> - **Failed: attaching a HEIC photo.** What the screen said was not recorded. So the content-type table
+>   did not make a `.heic` file work through the app's own upload path on the owner's Windows PC. Section
+>   14b of the staging script (accepted when `image/heic` is set) has not been run by the owner since it
+>   was rewritten, so whether the fault is in the app's path or in the bucket is not known.
+> - Owner's decision: not to spend time on it now; HEIC is an edge case for this project.
+> - Not done: any check on a real phone; the staging script after its two fixes.
+>
+> Consequence to settle in a follow-up: the bucket allows `image/heic` and the plan says a HEIC photo
+> works. Until it does, the app should not say or imply that it does.
+
+### 9.2 What passed, and the limit of that
+
+**Seven of the eight steps on the pull request's phone list**, by the owner's report rather than by
+anything in this repository: attaching a photo and seeing it listed back; opening it; deleting it; the
+fourth-file refusal; a wrong type refused in words; deleting a task with a file on it; and Carol seeing
+and opening a file she may not delete.
+
+**What that is worth, said plainly: it is a report, not an observation.** There is no screenshot, the
+owner's own words were "all passed except one", and nobody has recorded what any individual screen said.
+It is the first evidence in this whole build that a person has used the feature, and it is thinner than
+the test run in section 5.4.
+
+**And it was a PC, not a phone.** `docs/plan.md` says what this app is for — "a web app that works well
+in a phone's browser. The organiser checks it on their phone each morning" — so the device that matters
+most is the one still unchecked. The files panel's layout on a narrow screen is the thing nobody has
+looked at.
+
+### 9.3 The HEIC failure, and what this commit did about it
+
+**Not a fix.** The app stopped claiming the type works:
+
+| | |
+|---|---|
+| **What is known** | a HEIC photograph did not attach through the app, from a Windows PC, on 9 Oct 2026 |
+| **What is NOT known** | what the screen said, and therefore **whether the fault is in the app's upload path or in the bucket** |
+| **The owner's decision** | not to pursue it now; HEIC is an edge case for this project |
+| **What changed** | `image/heic` is off the app's list, off the file chooser, and out of every sentence on screen and in `docs/claims.md` and `docs/plan.md`. A `.heic` file gets the plain wrong-type message — the same answer a `.zip` gets |
+| **What did NOT change** | the bucket. `image/heic` is still in `allowed_mime_types`, so the two lists differ by exactly one type |
+| **Where it is recorded** | [#246](https://github.com/build-once/team-tasks/issues/246), with the one staging run that would halve the question |
+
+**Why the bucket was left alone**, because "we removed it from one place and not the other" reads like an
+oversight and is not one:
+
+- **changing the bucket means a migration**, applied to staging and to production, to narrow something
+  that has not been shown to be at fault;
+- nothing reaches the bucket except through the app, which no longer offers the type;
+- and leaving it keeps the cheap test available — section 14b of the staging script says whether the
+  bucket accepts `image/heic` when a caller declares it, and that answer tells the two possible faults
+  apart.
+
+**The difference is asserted by name rather than tolerated.** `scripts/screen-state-check.mjs` requires
+the app's list to be a subset of the bucket's and the one type on the bucket's side to be `image/heic`. A
+later change that quietly dropped PNG goes red; so does one that puts HEIC back without #246's evidence.
+
+### 9.4 Checks first, and seen to fail
+
+The owner asked for the checks before the code, and that is the order they were written in. **Nine new or
+changed checks in `scripts/screen-state-check.mjs` section 10**, run against the unchanged code first:
+
+```
+$ node scripts/screen-state-check.mjs
+FAIL  AND THE BUCKET ALLOWS EXACTLY ONE TYPE THE APP DOES NOT OFFER: image/heic, which failed through the app and is not fixed
+          expected ["image/heic"]
+          got      []
+FAIL  so the app offers five, named, with no wildcard and no SVG
+          expected [5,false,false]
+          got      [6,false,false]
+FAIL  HEIC and the two neighbours nobody has been asked about are all absent from the APP's list
+          expected [false,false,false]
+          got      [true,false,false]
+FAIL  and it offers NO .heic and no image/heic, so the chooser does not hold one out
+          expected [false,false]
+          got      [true,false]
+FAIL  A .heic PHOTOGRAPH IS REFUSED: it failed through the app and is not fixed
+          expected null
+          got      "image/heic"
+FAIL  and in capitals, as a camera writes it, so neither spelling slips through
+          expected null
+          got      "image/heic"
+FAIL  A HEIC PHOTOGRAPH gets the ordinary wrong-type answer, before anything is sent
+          expected {"ok":false,"outcome":"wrongtype"}
+          got      {"ok":true,"contentType":"image/heic","storedAs":"IMG-0042.heic"}
+FAIL  and the word HEIC appears in no sentence on screen at all
+          expected []
+          got      ["That kind of file can't be attached. Photos and PDFs only — JPEG, PNG, WebP, GIF, HEIC or PDF."]
+
+278 of 286 checks passed.
+8 FAILED
+exit=1
+```
+
+**The last one is the whole reason this follow-up is more than a one-line edit.** With HEIC off the list
+and the sentence left alone, the screen would have named a HEIC photograph as accepted **in the very
+message refusing one**. So the check is derived from `ACCEPTED_TYPES` rather than written out: every type
+the app accepts must be named in the wrong-type sentence, and no type it does not accept may appear in
+that or any other sentence. Change the list and the check decides whether the sentence still agrees.
+
+Then the code, and the same command:
+
+```
+$ node scripts/screen-state-check.mjs
+286 of 286 checks passed.
+exit=0
+```
+
+**And everything else still green** after it: `tsc --noEmit` exit 0, `eslint` exit 0, `npm run build`
+exit 0 with the bundle scan clean, the attachment selftest 107 cases / 0 wrong, `sentry-scrub-check`
+119 of 119.
+
+### 9.5 What is still not settled, after all of it
+
+1. **Why a HEIC photograph fails.** One staging run of section 14 would halve it. #246.
+2. **A phone.** Nothing on any screen of this feature has been seen on the device the app is for.
+3. **The staging script after its two fixes** — the owner's record says so in as many words, and the
+   whole point of those fixes was to make its run mean something.
+4. And the four from section 7 that none of this touched: the 100 MB, two simultaneous uploads against
+   the real service, a suspended person against the bucket, and a production read-back (#243).

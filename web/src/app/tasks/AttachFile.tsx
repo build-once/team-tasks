@@ -47,14 +47,20 @@
 // name is web/src/lib/attachments.ts's `storedName`, which rebuilds it out of
 // characters that cannot add a path segment.
 //
-// THE CONTENT TYPE IS SET BY THIS APP AND NOT BY THE BROWSER, which is the
-// finding that made this component necessary rather than merely convenient. The
-// owner's staging run of 9 October 2026 showed a `.heic` name with no content
-// type refused with `InvalidMimeType` -- Supabase works the type out from the
-// extension and does not map `.heic` to `image/heic`. So an iPhone photograph,
-// the commonest thing this feature exists for, was refused by the very bucket
-// that was widened to accept it. TYPE_BY_EXTENSION is the fix and the one place
-// it lives.
+// THE CONTENT TYPE IS SET BY THIS APP AND NOT BY THE BROWSER. Supabase works the
+// declared type out from the file's extension unless the caller overrides it, and
+// nothing read says which extensions it maps -- so every type would otherwise be
+// a guess about somebody else's table. `TYPE_BY_EXTENSION` in
+// web/src/lib/attachments.ts is this app's own answer and the one place it lives.
+//
+// THAT TABLE WAS WRITTEN FOR HEIC, AND HEIC IS NO LONGER ON IT. The owner's
+// staging run of 9 October 2026 found that Supabase does not map `.heic`, which
+// is what the table was for; the owner then tried a HEIC photograph **through
+// this component**, from a Windows PC, and it failed anyway. The cause was not
+// found and the owner decided not to pursue it. So the app stopped offering the
+// type -- a `.heic` file now gets the ordinary wrong-type sentence -- while the
+// bucket still permits it. attachments.ts has the whole reasoning beside the
+// table, and issue #246 has what would settle it.
 //
 // NOTHING IS REPORTED TO ERROR REPORTING FROM HERE, and no file name ever could
 // be. docs/plan.md puts a file name on Sentry's "must never be sent" list,

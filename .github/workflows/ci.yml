@@ -249,7 +249,8 @@ jobs:
       #
       # It is also the first coverage web/src/lib/suggestions.ts has had from this
       # script: before this change nothing here read that module at all.
-      # 182 -> 277 WITH BUILD IT 23 PART 2 (issue #242). Ninety-five checks over
+      # 182 -> 277 WITH BUILD IT 23 PART 2 (issue #242), and 277 -> 286 with its
+      # HEIC follow-up, which the paragraph after this one covers. Ninety-five over
       # web/src/lib/attachments.ts and the three files that use it, and the first
       # group of them is the one worth having:
       #
@@ -282,7 +283,33 @@ jobs:
       # and says the wrong thing -- a team mate would be told "its files could not
       # be removed first", which is true and conceals that the task was never
       # theirs to delete.
-      EXPECTED_SCREEN_STATE_CHECKS: "277"
+      #
+      # 277 -> 286 WITH THE HEIC FOLLOW-UP of 9 Oct 2026 (issue #246). The owner
+      # tried a HEIC photograph through the app, from a Windows PC, and it failed;
+      # the cause was not found and the owner decided not to pursue it. So the app
+      # stopped offering `image/heic` -- and the BUCKET still permits it, because
+      # narrowing a bucket means a migration against something nobody has shown to
+      # be at fault.
+      #
+      # So nine checks, and the two shapes of them are both about not lying:
+      #
+      #   * THE TWO LISTS DIFFER BY ONE TYPE, ASSERTED BY NAME. The app's list must
+      #     be a subset of the bucket's, and the one type on the bucket's side must
+      #     be `image/heic`. A subset check alone would pass just as happily if
+      #     somebody dropped PNG; an equality check would fail the moment the app
+      #     is honest about something the bucket allows. The named difference is
+      #     what is actually true, so that is what is written down -- and it is the
+      #     gate a later "turn HEIC back on" has to come through.
+      #   * AND NO SENTENCE NAMES A TYPE THE APP DOES NOT ACCEPT, derived from
+      #     ACCEPTED_TYPES rather than written out. This is the one that mattered:
+      #     `FILE_WRONG_TYPE` read "JPEG, PNG, WebP, GIF, HEIC or PDF", so with
+      #     HEIC off the list the screen would have named a HEIC photograph as
+      #     accepted IN THE VERY MESSAGE REFUSING ONE.
+      #
+      # Written before the code and seen to fail: eight of the nine were red
+      # against the unchanged app, each for its own reason.
+      # evidence/build-it-23-attachments-screen.md section 9.4 has the run.
+      EXPECTED_SCREEN_STATE_CHECKS: "286"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and

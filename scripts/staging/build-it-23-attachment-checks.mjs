@@ -882,13 +882,20 @@ export function judgeHeicWithoutContentType(answer, what) {
       verdict: PASS,
       detail:
         `HTTP ${answer.status} ${INVALID_MIME} -- refused. Supabase does not declare a` +
-        ` .heic name as image/heic, which is why the app sets the content type itself`,
+        ` .heic name as image/heic, which is why this app sets the content type for` +
+        ` every upload. It did not make HEIC work all the same -- issue #246`,
     },
   ];
 }
 
-// 14b. With `image/heic` set by the caller: it must be accepted. This is the one
-// that proves the app's upload path works for an iPhone photograph.
+// 14b. With `image/heic` set by the caller: it must be accepted.
+//
+// WHAT A PASS HERE DOES AND DOES NOT MEAN, since the owner's screen check of
+// 9 October 2026. It means THE BUCKET accepts the type when a caller declares
+// it. It does NOT mean a person can attach a HEIC photograph: one was tried
+// through the app that day and failed, the cause was not found, and the app no
+// longer offers the type (issue #246). A pass here says the fault is on this
+// app's side of the line, which is the useful half of an unanswered question.
 export function judgeHeicWithContentType(answer, what) {
   if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
 
@@ -2994,8 +3001,28 @@ try {
   // settled issue #239's HEIC question -- a .heic name with no content type is
   // refused -- and agreed to this change of expectation. The notes above
   // judgeHeicWithoutContentType say what changed and why it is not a loosening.
+  //
+  // AND THIS SECTION IS NOW THE MOST USEFUL THING IN THE SCRIPT, for a reason
+  // that has nothing to do with what it was written for. Later the same day the
+  // owner tried a HEIC photograph THROUGH THE APP, from a Windows PC, and it
+  // failed; what the screen said was not recorded, so nobody knows whether the
+  // fault is in the app's upload path or in the bucket. The app has since
+  // stopped offering `image/heic` at all, and the bucket still permits it
+  // (issue #246).
+  //
+  // SO 14b IS THE CHEAPEST THING THAT WOULD HALVE THAT QUESTION:
+  //
+  //   14b ACCEPTED -> the bucket is fine, and the fault is in the app's path.
+  //   14b REFUSED  -> the bucket does not accept image/heic even when the caller
+  //                   declares it, whatever allowed_mime_types says, and
+  //                   narrowing the bucket in a migration becomes the honest fix
+  //                   rather than a guess.
+  //
+  // Neither has been run since they were written. These two checks ask about the
+  // BUCKET and say nothing about the app, which is the distinction to hold on to
+  // when reading a green 14b: it does not mean a person can attach a HEIC photo.
   console.log("14. HEIC: refused without a content type, accepted with image/heic set");
-  console.log("    (the finding of the owner's staging run, 9 Oct 2026, and issue #239)");
+  console.log("    (the BUCKET's behaviour -- the app no longer offers the type at all, issue #246)");
   if (!UUID_PATTERN.test(personalTaskId)) {
     record([{ what: "the two HEIC checks", verdict: UNVERIFIED, detail: "the personal task was not created" }]);
   } else {
@@ -3026,7 +3053,7 @@ try {
     record(
       judgeHeicWithContentType(
         heic,
-        "the same name WITH image/heic set by the caller is accepted -- what the app does",
+        "the same name WITH image/heic set by the caller is accepted -- the BUCKET's answer, which the app no longer relies on",
       ),
     );
     if (heic.status === 200) {

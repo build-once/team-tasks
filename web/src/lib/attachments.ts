@@ -78,33 +78,24 @@ export const MAX_BYTES_PER_PERSON = 100 * 1024 * 1024;
 export const LINK_SECONDS = 300;
 
 // ---------------------------------------------------------------------------
-// The six types, and the extension each one arrives under
+// The five types this app offers, and the extension each one arrives under
 // ---------------------------------------------------------------------------
 //
-// THIS TABLE IS THE ONE THING IN THIS FILE THAT CHANGES WHAT GETS THROUGH, and
-// it is here because of what the owner's staging run of 9 October 2026 found.
+// THIS TABLE IS THE ONE THING IN THIS FILE THAT CHANGES WHAT GETS THROUGH.
 //
 // Supabase: "By default, Supabase Storage determines content type from the file
 // extension. You can override this with the `contentType` option"
 // (https://supabase.com/docs/guides/storage/uploads/standard-uploads, read
-// 2026-10-08). docs/plan.md carried as NOT CONFIRMED whether that default maps
-// `.heic` to `image/heic`, and issue #239 asked for one upload to settle it.
+// 2026-10-08). So THIS APP SETS THE CONTENT TYPE ITSELF, from this table, by the
+// file's extension -- and never from the browser's own guess. Two reasons:
 //
-// IT DOES NOT. A `.heic` name with no content type set by the caller is refused
-// with `InvalidMimeType` -- the owner's run, recorded in
-// evidence/build-it-23-attachments-bucket.md. So an iPhone photograph, which is
-// the commonest thing this feature exists for and the reason HEIC is on the
-// bucket's list at all, would be refused by the very bucket that was widened to
-// accept it.
-//
-// So THIS APP SETS THE CONTENT TYPE ITSELF, from this table, by the file's
-// extension -- and never from the browser's own guess. Two reasons it is the
-// extension and not `file.type`:
-//
-//   * a browser that does not recognise .heic reports an empty type, which is
-//     exactly the case that failed;
+//   * THIS APP DECIDES, rather than depending on which extensions Supabase
+//     happens to map. Nothing read says what that mapping is for any extension,
+//     so each of the five would otherwise be a guess about somebody else's
+//     table.
 //   * `file.type` is chosen by whatever is uploading, so trusting it would put
-//     the decision back in the place docs/plan.md already says it cannot live.
+//     the decision back in the place docs/plan.md already says it cannot live --
+//     and a browser that does not recognise an extension reports an empty type.
 //
 // AND IT DOES NOT MAKE THE REFUSAL ANY STRONGER, which is worth saying because
 // setting the type looks like taking the bucket's job over. It is not: the type
@@ -114,35 +105,81 @@ export const LINK_SECONDS = 300;
 // whose name this app does not recognise is refused HERE, with a sentence,
 // instead of being sent and refused out there with a code.
 //
-// TWO NEIGHBOURS OF HEIC ARE DELIBERATELY ABSENT: `image/heif` and
-// `image/heic-sequence`. The owner's answer named HEIC, and the bucket's own
-// list does not hold either, so a file declaring one would be refused by
-// Supabase anyway -- this table refusing it first is the same answer, sooner and
-// in words.
+// ---------------------------------------------------------------------------
+// HEIC IS NOT ON THIS LIST, AND THE BUCKET STILL ALLOWS IT
+// ---------------------------------------------------------------------------
+//
+// THE OWNER'S DECISION OF 9 OCTOBER 2026, and the one thing in this file whose
+// history matters more than its contents.
+//
+// `heic: "image/heic"` was HERE, and this table existed because of it: the
+// owner's staging run that morning found that Supabase does not map a `.heic`
+// extension, so an iPhone photograph was refused by the very bucket the owner
+// had widened to accept it, and setting the type by hand was the answer.
+//
+// IT DID NOT WORK. The owner then tried a HEIC photograph **through the app**,
+// from a Windows PC, and it failed. What the screen said was not recorded, and
+// **nobody established whether the fault was in this app's path or in the
+// bucket** -- the staging script's check that the bucket accepts `image/heic`
+// when the caller sets it has not been run since it was rewritten. The owner
+// decided not to spend time on it: HEIC is an edge case for this project.
+//
+// SO THE APP STOPPED SAYING IT WORKS. That is the whole of this change. A `.heic`
+// file now gets the ordinary wrong-type sentence -- the same answer a `.zip`
+// gets -- which is honest, because nobody here knows why it failed and the app
+// therefore claims nothing about it.
+//
+// AND THE BUCKET WAS DELIBERATELY LEFT ALONE. `image/heic` is still in
+// `allowed_mime_types` on the `attachments` row, so the two lists differ by
+// exactly one type. Three reasons, and the first is the one that decided it:
+//
+//   * CHANGING THE BUCKET MEANS A MIGRATION, applied to staging and to
+//     production, to narrow something that is not the known fault. Nobody has
+//     shown the bucket is at fault, and a migration is the most expensive way to
+//     act on a guess.
+//   * nothing can reach the bucket except through this app, which no longer
+//     offers the type -- so the wider list admits nothing in practice.
+//   * and it leaves the thing that would actually settle this cheap to do: one
+//     staging run of the script's section 14b says whether the bucket accepts
+//     `image/heic`, and if it does, the fault is in this path. Issue #246 has
+//     that as a table -- which answer means which fault -- and it is the issue to
+//     read before changing anything here.
+//
+// scripts/screen-state-check.mjs section 10 asserts that difference BY NAME
+// rather than tolerating it: the app's list must be a subset of the bucket's,
+// and the one type on the bucket's side must be `image/heic`. So a later change
+// that quietly dropped PNG would be caught, and so would one that put HEIC back
+// without the evidence.
+//
+// TWO NEIGHBOURS WERE NEVER ON EITHER LIST: `image/heif` and
+// `image/heic-sequence`. The owner's answer of 8 October named HEIC alone, and
+// the bucket's own array holds neither.
 export const TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
   gif: "image/gif",
-  heic: "image/heic",
   pdf: "application/pdf",
 };
 
 /**
- * The six accepted types, in the migration's own order.
+ * The five types this app offers, in the bucket's own order.
  *
- * Six types and seven extensions: `.jpg` and `.jpeg` are both `image/jpeg`.
+ * Five types and six extensions: `.jpg` and `.jpeg` are both `image/jpeg`.
  * Named one by one, with no wildcard -- `image/*` would admit `image/svg+xml`,
  * and an SVG is a document that can carry script, served back from this
  * project's own address.
+ *
+ * FIVE, NOT THE BUCKET'S SIX. The bucket also allows `image/heic`; this app does
+ * not offer it, for the reason set out above. The difference is asserted by name
+ * in `scripts/screen-state-check.mjs` rather than merely permitted.
  */
 export const ACCEPTED_TYPES: ReadonlyArray<string> = [
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/gif",
-  "image/heic",
   "application/pdf",
 ];
 
@@ -381,9 +418,23 @@ export const PER_PERSON_WORDS = `${MAX_BYTES_PER_PERSON / (1024 * 1024)} MB`;
 export const FILE_TOO_BIG =
   `That file is too big. Each file can be up to ${MAX_FILE_WORDS}.`;
 
-/** Refused here: this app does not accept that kind of file. */
+/**
+ * Refused here: this app does not accept that kind of file.
+ *
+ * IT NAMES EXACTLY THE TYPES THE APP OFFERS, and that is not decoration -- it is
+ * the sentence the HEIC follow-up of 9 October 2026 existed to fix. It read
+ * "JPEG, PNG, WebP, GIF, HEIC or PDF" while HEIC was on the list, and when HEIC
+ * came off it would have been a screen naming a HEIC photograph as accepted
+ * **immediately after refusing one** -- the worst shape of wrong message, because
+ * it names the very thing the person just tried.
+ *
+ * So `scripts/screen-state-check.mjs` derives the test from `ACCEPTED_TYPES`
+ * rather than reading this string: every type the app accepts must be named
+ * here, and no type it does not accept may appear in this or any other sentence.
+ * Change the list and the check decides whether this still agrees with it.
+ */
 export const FILE_WRONG_TYPE =
-  "That kind of file can't be attached. Photos and PDFs only — JPEG, PNG, WebP, GIF, HEIC or PDF.";
+  "That kind of file can't be attached. Photos and PDFs only — JPEG, PNG, WebP, GIF or PDF.";
 
 /** Refused by the database: the task already has its three. */
 export const FILE_TOO_MANY =

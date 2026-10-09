@@ -1459,14 +1459,20 @@ check(
   ACCEPTED_TYPES.filter((type) => count(BUCKET_MIGRATION, `'${type}'`) === 0),
   [],
 );
+// Five since the HEIC follow-up of 9 October 2026, where it was six. KEPT
+// ALONGSIDE the near-identical check further down rather than merged into it, and
+// the difference is the method: this one searches the migration's whole text for
+// each type, and the one below slices the bucket's `array[...]` out of the insert
+// statement. The second is stricter; the first would survive a change that broke
+// the slicing. Neither is the other's copy.
 check(
-  "six of them, named, with no wildcard and no SVG",
+  "five of them, named, with no wildcard and no SVG",
   [
     ACCEPTED_TYPES.length,
     ACCEPTED_TYPES.some((type) => type.includes("*")),
     ACCEPTED_TYPES.includes("image/svg+xml"),
   ],
-  [6, false, false],
+  [5, false, false],
 );
 // THE BUCKET'S OWN ARRAY, sliced out of the insert statement rather than
 // searched for in the whole file -- which is what this check caught about itself
@@ -1485,55 +1491,123 @@ check(
   [count(TYPE_ARRAY, "image/*"), count(TYPE_ARRAY, "image/svg+xml")],
   [0, 0],
 );
+const BUCKET_TYPES = TYPE_ARRAY.split(",")
+  .map((line) => line.trim().replace(/'/g, ""))
+  .filter((type) => type !== "")
+  .sort();
+
 check(
-  "the array holds exactly the six this app accepts, and nothing else",
-  TYPE_ARRAY.split(",")
-    .map((line) => line.trim().replace(/'/g, ""))
-    .filter((type) => type !== "")
-    .sort(),
-  ACCEPTED_TYPES.slice().sort(),
+  "the bucket's array still holds six types -- nothing in this change touches it",
+  BUCKET_TYPES.length,
+  6,
+);
+
+// ---- THE APP OFFERS FEWER TYPES THAN THE BUCKET ALLOWS, ON PURPOSE -------
+//
+// This check used to require the two lists to be EQUAL, and it is the thing the
+// HEIC follow-up changed (9 October 2026). The owner tried a HEIC photograph
+// through the app on a Windows PC and it failed; the cause was not found and the
+// owner decided not to spend time on it. So the app stopped offering HEIC, and
+// the bucket -- which still permits it -- was deliberately left alone, because
+// changing a bucket means a migration and nobody has established that the fault
+// is in the bucket.
+//
+// SO THE TWO LISTS NOW DIFFER BY EXACTLY ONE TYPE, AND THAT IS ASSERTED RATHER
+// THAN TOLERATED. A subset check alone would pass just as happily if somebody
+// quietly dropped PNG, and an equality check would fail the moment the app is
+// honest about something the bucket allows. What is actually true is a named
+// difference, so that is what is written down: the app's list is a subset, and
+// the one type on the bucket's side of the line is `image/heic`.
+//
+// Which also means this check is what a future "let us turn HEIC back on" has to
+// come through -- and the issue filed with that follow-up is what says what would
+// have to be true first.
+check(
+  "every type this app offers is one the bucket allows",
+  ACCEPTED_TYPES.filter((type) => !BUCKET_TYPES.includes(type)),
+  [],
 );
 check(
-  "the two neighbours of HEIC nobody has been asked about are accepted by neither",
+  "AND THE BUCKET ALLOWS EXACTLY ONE TYPE THE APP DOES NOT OFFER: image/heic, which failed through the app and is not fixed",
+  BUCKET_TYPES.filter((type) => !ACCEPTED_TYPES.includes(type)),
+  ["image/heic"],
+);
+check(
+  "so the app offers five, named, with no wildcard and no SVG",
   [
+    ACCEPTED_TYPES.length,
+    ACCEPTED_TYPES.some((type) => type.includes("*")),
+    ACCEPTED_TYPES.includes("image/svg+xml"),
+  ],
+  [5, false, false],
+);
+check(
+  "HEIC and the two neighbours nobody has been asked about are all absent from the APP's list",
+  [
+    ACCEPTED_TYPES.includes("image/heic"),
     ACCEPTED_TYPES.includes("image/heif"),
     ACCEPTED_TYPES.includes("image/heic-sequence"),
-    count(BUCKET_MIGRATION, "'image/heif'"),
-    count(BUCKET_MIGRATION, "'image/heic-sequence'"),
   ],
-  [false, false, 0, 0],
+  [false, false, false],
 );
 check(
-  "every extension this app knows maps to one of the six, and nothing else",
+  "and the two neighbours are absent from the bucket as well -- only HEIC itself was ever added there",
+  [count(BUCKET_MIGRATION, "'image/heif'"), count(BUCKET_MIGRATION, "'image/heic-sequence'")],
+  [0, 0],
+);
+check(
+  "every extension this app knows maps to one of the five, and nothing else",
   Object.values(TYPE_BY_EXTENSION).filter((type) => !ACCEPTED_TYPES.includes(type)),
   [],
 );
 check(
-  "and every one of the six is reachable from some extension -- an accepted type nothing can produce would be decoration",
+  "and every one of the five is reachable from some extension -- an accepted type nothing can produce would be decoration",
   ACCEPTED_TYPES.filter(
     (type) => !Object.values(TYPE_BY_EXTENSION).includes(type),
   ),
   [],
 );
 check(
-  "the file chooser offers the extensions and the types, so a phone's camera roll and a desktop dialogue both filter",
+  "the file chooser offers the extensions and the types, so a desktop dialogue and a camera roll both filter",
   [
-    ACCEPT_ATTRIBUTE.includes(".heic"),
-    ACCEPT_ATTRIBUTE.includes("image/heic"),
+    ACCEPT_ATTRIBUTE.includes(".jpg"),
+    ACCEPT_ATTRIBUTE.includes("image/jpeg"),
     ACCEPT_ATTRIBUTE.includes("svg"),
   ],
   [true, true, false],
 );
+// AND IT OFFERS NO HEIC EITHER, which is the half that decides what a person
+// sees: a file chooser that still listed `.heic` would put the photograph in
+// front of them and then refuse it after they picked it.
+check(
+  "and it offers NO .heic and no image/heic, so the chooser does not hold one out",
+  [ACCEPT_ATTRIBUTE.includes("heic"), ACCEPT_ATTRIBUTE.includes("heif")],
+  [false, false],
+);
 
-// ---- contentTypeFor: the finding this feature turns on -------------------
+// ---- contentTypeFor: which type a name gets, and which gets none ---------
 //
-// The owner's staging run of 9 October 2026: a `.heic` name with NO content type
-// is refused with InvalidMimeType, because Supabase works the type out from the
-// extension and does not map that one. So this app sets the type itself, and
-// `.heic` -> image/heic is the single most important line in the module.
+// WHY THE APP STILL SETS THE TYPE AT ALL, now that the HEIC reason is gone. The
+// owner's staging run of 9 October 2026 found that Supabase works the declared
+// type out from the extension and does not map `.heic` -- which is why this
+// table was written. HEIC has since been dropped from the app's list, so that is
+// no longer the reason, and two others remain:
+//
+//   * THIS APP DECIDES, rather than depending on which extensions Supabase
+//     happens to map. Nothing read says what that mapping is for any extension,
+//     so every one of the five would otherwise be a guess.
+//   * AND A NAME THIS APP DOES NOT KNOW IS REFUSED HERE, IN WORDS, before 5 MB
+//     is sent over somebody's connection and refused out there with a code.
+//
+// So the table stays, with one row fewer.
 console.log("\n10a. which content type a file's name gets");
-check("A .heic PHOTOGRAPH, which is what this is all for", contentTypeFor("IMG_0042.heic"), "image/heic");
-check("and in capitals, as a camera may write it", contentTypeFor("IMG_0042.HEIC"), "image/heic");
+// A .heic PHOTOGRAPH IS REFUSED BY THIS APP, and this is the check the follow-up
+// of 9 October 2026 turns on. It asserted `image/heic` until then. The owner
+// tried one through the app from a Windows PC, it failed, the cause was not
+// found, and the owner decided not to fix it now -- so the app stopped saying it
+// works. The bucket still permits the type; the app no longer offers it.
+check("A .heic PHOTOGRAPH IS REFUSED: it failed through the app and is not fixed", contentTypeFor("IMG_0042.heic"), null);
+check("and in capitals, as a camera writes it, so neither spelling slips through", contentTypeFor("IMG_0042.HEIC"), null);
 check("both spellings of a JPEG", [contentTypeFor("a.jpg"), contentTypeFor("a.jpeg")], ["image/jpeg", "image/jpeg"]);
 check("a screenshot", contentTypeFor("Screenshot 2026-10-09.png"), "image/png");
 check("a PDF", contentTypeFor("receipt.pdf"), "application/pdf");
@@ -1545,7 +1619,7 @@ check(
   null,
 );
 check("an executable", contentTypeFor("tool.exe"), null);
-check("HEIF and HEIC-sequence, which nobody has been asked about", [contentTypeFor("a.heif"), contentTypeFor("a.heics")], [null, null]);
+check("HEIF and HEIC-sequence, which nobody was ever asked about", [contentTypeFor("a.heif"), contentTypeFor("a.heics")], [null, null]);
 check("no extension at all", contentTypeFor("photograph"), null);
 check("a trailing dot, so no extension", contentTypeFor("photo."), null);
 check("a leading dot, so no name", contentTypeFor(".png"), null);
@@ -1714,8 +1788,17 @@ check("an empty file, which is what a cancelled chooser leaves", checkBeforeSend
 check("a type this app does not accept", checkBeforeSending({ name: "a.svg", size: 10 }), { ok: false, outcome: "wrongtype" });
 check(
   "and a good one comes back with the type to declare and the name to store",
+  checkBeforeSending({ name: "IMG 0042.jpg", size: 2048 }),
+  { ok: true, contentType: "image/jpeg", storedAs: "IMG-0042.jpg" },
+);
+// A HEIC PHOTOGRAPH IS REFUSED BEFORE ANYTHING IS SENT, which is the whole point
+// of the follow-up: a person gets the plain sentence rather than a 5 MB upload
+// and a storage code. It is the same answer as a `.zip`, which is honest --
+// nobody here knows why it failed, so the app claims nothing about it.
+check(
+  "A HEIC PHOTOGRAPH gets the ordinary wrong-type answer, before anything is sent",
   checkBeforeSending({ name: "IMG 0042.heic", size: 2048 }),
-  { ok: true, contentType: "image/heic", storedAs: "IMG-0042.heic" },
+  { ok: false, outcome: "wrongtype" },
 );
 
 // ---- the sentences ------------------------------------------------------
@@ -1729,6 +1812,61 @@ check(
   ],
   [0, FILE_OUTCOMES.slice().sort().join(","), FILE_OUTCOMES.slice().sort().join(",")],
 );
+// ---- NO SENTENCE NAMES A TYPE THE APP DOES NOT ACCEPT -------------------
+//
+// The reason this exists, and it is the follow-up of 9 October 2026 rather than
+// a general principle somebody thought of in advance: `FILE_WRONG_TYPE` listed
+// "JPEG, PNG, WebP, GIF, HEIC or PDF", and when HEIC came off the list that
+// sentence became a screen telling somebody a HEIC photograph is accepted,
+// immediately after refusing one. The worst kind of wrong message: it names the
+// very thing the person just tried.
+//
+// SO IT IS DERIVED FROM THE LIST RATHER THAN WRITTEN OUT. The word for each
+// accepted type must appear in the wrong-type sentence, and the word for every
+// type the app does NOT accept must not. Change the list and this check decides
+// whether the sentence still agrees with it -- which is what nobody noticed
+// needed doing when the list changed.
+//
+// EVERY SENTENCE IS CHECKED, not only that one: the eleven in the map, plus the
+// line about photographs and the line about who can open a file. A type named in
+// any of them is a claim about what works.
+const TYPE_WORDS = {
+  "image/jpeg": "JPEG",
+  "image/png": "PNG",
+  "image/webp": "WebP",
+  "image/gif": "GIF",
+  "image/heic": "HEIC",
+  "application/pdf": "PDF",
+};
+const EVERY_SENTENCE = [
+  ...FILE_OUTCOMES.map((outcome) => FILE_SENTENCES[outcome]),
+  PHOTO_METADATA_LINE,
+  WHO_CAN_SEE_FILES,
+];
+check(
+  "the wrong-type sentence names every type the app DOES accept",
+  ACCEPTED_TYPES.filter(
+    (type) => !FILE_SENTENCES.wrongtype.includes(TYPE_WORDS[type]),
+  ),
+  [],
+);
+check(
+  "AND NO SENTENCE ANYWHERE NAMES A TYPE THE APP DOES NOT ACCEPT -- which is what HEIC was doing",
+  Object.entries(TYPE_WORDS)
+    .filter(([type]) => !ACCEPTED_TYPES.includes(type))
+    .flatMap(([, word]) =>
+      EVERY_SENTENCE.filter((sentence) =>
+        sentence.toUpperCase().includes(word.toUpperCase()),
+      ).map(() => word),
+    ),
+  [],
+);
+check(
+  "and the word HEIC appears in no sentence on screen at all",
+  EVERY_SENTENCE.filter((sentence) => /heic|heif/i.test(sentence)),
+  [],
+);
+
 check(
   "the five the owner asked for by name are all there and all different",
   new Set(
