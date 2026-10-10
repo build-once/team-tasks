@@ -104,12 +104,28 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |       no workflow_dispatch, in the supabase-production environment.   |
    |       READS: the whole production DATABASE through                    |
    |              PRODUCTION_SUPABASE_DB_URL -- *** SECRET ***             |
-   |              and every FILE in the attachments bucket, which needs    |
-   |              a credential that DOES NOT EXIST YET -- see below.       |
+   |              and every FILE in the attachments bucket, through a      |
+   |              SUPABASE S3 ACCESS KEY - owner's decision, 10 Oct:       |
+   |              PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID and                 |
+   |              PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY                 |
+   |              *** SECRET ***. NEVER the service-role key: that one     |
+   |              can write to tasks, and a backup must not.               |
    |       ENCRYPTS on the runner, with BACKUP_PASSPHRASE                  |
    |              *** SECRET ***, and only then                            |
    |       WRITES: the encrypted file to R2, with BACKUP_STORAGE_KEY and   |
    |              BACKUP_STORAGE_SECRET -- *** SECRET ***                  |
+   |              to BACKUP_STORAGE_ENDPOINT, a VARIABLE and not a         |
+   |              secret - and NOT in this repository: it embeds the       |
+   |              Cloudflare account id, and this repository is public.    |
+   |       ON FAILURE: the run goes RED and OPENS A GITHUB ISSUE, the      |
+   |              way drift-check.yml does, as well as GitHub's own        |
+   |              failure email. Decided 10 Oct. A silent backup job       |
+   |              manufactures confidence rather than losing data.         |
+   |                                                                       |
+   |  OLD COPIES: removed by an R2 LIFECYCLE RULE at 14 days, never by     |
+   |  the job. A 13-day BUCKET LOCK is PROPOSED beside it, which would     |
+   |  stop ANYTHING deleting or overwriting a copy younger than that -     |
+   |  a stolen storage key, a broken workflow, and the owner too.          |
    |                                                                       |
    |  CLOUDFLARE HOLDS CIPHERTEXT ONLY. Opening a copy needs BOTH the      |
    |  storage key AND the passphrase. The passphrase is in the owner's     |
@@ -763,10 +779,45 @@ has to take both as near the same moment as it can and **say in the file which i
 on restore, a row without a file is a file the app offers and cannot open, and a file without a row is
 bytes nobody can reach.
 
-### The credential the bucket half needs, which does not exist ([#254](https://github.com/build-once/team-tasks/issues/254))
+### The credential the bucket half needs — DECIDED 2026-10-10: a Supabase S3 access key
 
-**Neither secret in that environment can read a file's bytes.** This is worth being exact about, because
-"the pipeline already has production credentials" is the easy wrong answer:
+**The owner decided on 2026-10-10: a Supabase S3 access key for the production project, held as GitHub
+environment secrets in `supabase-production`, accepted with the cost set out below — and never the
+service-role key.** That closes
+[#254](https://github.com/build-once/team-tasks/issues/254) and the paragraphs below are kept in the shape
+the question was put in, because the reason the easy answer was wrong is the reason this one is right.
+
+**The two secret names the workflow will expect**, which are new and are a naming choice rather than
+something the owner specified:
+
+| Secret | What it is |
+|---|---|
+| `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | the access key ID half |
+| `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | the secret half |
+
+**Why `PRODUCTION_SUPABASE_*` and not `BACKUP_*`**, which is where the three Cloudflare-side secrets sit:
+this repository prefixes a credential by **which project it reaches**, because `docs/environments.md`'s
+first rule after the four is "Separate projects, separate keys. Never reuse a key between them." This one
+reaches the **production Supabase project** and would be a disaster pointed at staging, so the name says
+so. The `BACKUP_*` three are Cloudflare's two plus a passphrase — they belong to the backup rather than to
+a Supabase project.
+
+**What that key reaches, in one sentence a reviewer can check, because it is wider than the bucket.**
+Supabase's own words: such keys "provide full access to all S3 operations across all buckets and bypass
+RLS policies", and are "meant to be used only on the server"
+([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10). So:
+**every bucket in the production project, with every row-level rule on `storage.objects` bypassed.**
+There is one bucket today, which makes that a smaller reach in practice than in principle — and a second
+bucket added later is inside this key's reach without anybody doing anything, which is the thing to
+remember rather than the thing to be alarmed by.
+
+**And the one thing it cannot do, which is why it was chosen: it cannot write to `tasks`.** A backup
+credential that could change the thing it is backing up is a credential with no upside and a long reach.
+That is the whole argument against the alternative, below.
+
+**Neither existing secret in that environment can read a file's bytes**, which is what the decision was
+needed for. Worth being exact about, because "the pipeline already has production credentials" is the easy
+wrong answer:
 
 - **`PRODUCTION_SUPABASE_DB_URL`** reaches the database, which holds `storage.objects` — the path, the
   size, the uploader, the timestamps — and **not one byte of any file**. The rows are metadata, which is
@@ -777,19 +828,21 @@ bytes nobody can reach.
   also careful to say about this token's real reach — and using it that way would be a backup job that
   works by deploying code to production, which is not a design anybody should accept.
 
-**So something has to be added, and the shape of it is a decision at the top of the pull request.** The
-option this document would propose, with its cost stated rather than buried: a **Supabase S3 access key**
-for the production project, as two more environment secrets. Supabase's own warning about them is the
-whole of the cost — "S3 access keys provide full access to all S3 operations across all buckets and bypass
-RLS policies" and they are "meant to be used only on the server"
-([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10). That
-is a credential as powerful as the service-role key over Storage, held by a GitHub Actions job.
+**So something had to be added, and the decision above is what was added.**
 
-**What it is not, and must not become: the production service-role key in GitHub Actions secrets.** That
-would be a value reaching every row of every table *and* every file, in a store whose whole current
-justification is that it holds deploy credentials and no run-time app key — a sentence this file states
-twice. If the choice ends up being between a Storage-only key and the service-role key, it is the
-Storage-only key, and the reason is one line: **it cannot write to `tasks`.**
+**What it is not, and the owner refused it by name: the production service-role key in GitHub Actions
+secrets.** That would be a value reaching every row of every table *and* every file, in a store whose
+whole current justification is that it holds deploy credentials and no run-time app key — a sentence this
+file states twice. The choice was between a Storage-only key and the service-role key, and it is the
+Storage-only key, for the reason given above: **it cannot write to `tasks`.**
+
+**One claim this file must not make, now the key exists.** The "Where secrets live" row of "The parts"
+below says GitHub Actions secrets hold a deploy credential "and nothing else". With two Supabase S3
+secrets, three `BACKUP_*` secrets and a storage endpoint variable in that environment, **that sentence is
+true only if "deploy credential" is read as "a credential CI uses rather than a run-time app key"** — which
+is the honest reading and is not the reading somebody skimming will take. It is on
+[#255](https://github.com/build-once/team-tasks/issues/255) with the rest of the secrets bookkeeping,
+because the fix is one list in `docs/secrets.md` rather than six sentences in six places.
 
 ### Where it writes, and what Cloudflare actually holds
 
@@ -800,11 +853,27 @@ Europe (WEUR), public development URL disabled and no custom domain — the owne
 the `supabase-production` environment.
 
 **The endpoint is an S3-compatible address of the shape
-`https://<cloudflare account id>.r2.cloudflarestorage.com`, and its value is deliberately not written in
-this repository.** It embeds the Cloudflare account ID, and `evidence/production-log.md`'s header refuses
-to write the production project reference for the same reason; this repository is public. It belongs in a
-GitHub environment variable beside the secrets, the way `PRODUCTION_SITE_URL` already does for the site
-address.
+`https://<cloudflare account id>.r2.cloudflarestorage.com`, and its value goes in a GitHub environment
+VARIABLE and not in this repository — the owner's decision of 2026-10-10.** The variable the workflow will
+expect is **`BACKUP_STORAGE_ENDPOINT`**, in the `supabase-production` environment, exactly as
+`PRODUCTION_SITE_URL` already holds the site address. The reason is the one
+`evidence/production-log.md`'s header gives for the production project reference: the value embeds the
+Cloudflare account ID, it is an identifier of that kind, and this repository is public. **It is a variable
+rather than a secret** because an endpoint is not a credential — and `migrate-production.yml`'s own
+comment says what follows from that: "variables are **NOT** masked", so it must never be echoed either.
+
+**The bucket's name, `team-tasks-backups`, is NOT a setting** — it is written in these documents already,
+it is not an identifier of the account, and the workflow names it directly. One fewer thing for somebody
+to set wrongly.
+
+**And a 13-day Bucket Lock is proposed over the whole bucket**, which is `docs/plan.md`'s section and is
+**not accepted yet**. Its consequence for this document is one sentence and it is a good one: a lock
+"prevent[s] the deletion and overwriting of objects"
+([Bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/), read 2026-10-10), and
+changing one needs a token that can "edit bucket configuration" — which **Object Read & Write**, the
+scope the job's token has, is not described as allowing. So **the job would be able to write a copy and
+not to destroy one**, which is the property a backup credential should have and which nothing about the
+token itself gives it.
 
 **Cloudflare holds ciphertext and nothing else**, which is the difference between this new company and the
 two outside services on this map that receive the app's data: Sentry would hold readable error reports and
@@ -818,20 +887,47 @@ and no copy can ever be opened.** That makes it the most valuable string in this
 service-role key, for a reason this file has not had to state before: **a leaked key can be rotated and a
 lost passphrase cannot be recovered.**
 
+### How a failed run reaches a person — DECIDED 2026-10-10
+
+**A failed run OPENS A GITHUB ISSUE, as `.github/workflows/drift-check.yml` already does, in addition to
+GitHub's own failure email.** The owner's decision of 2026-10-10. Both, not either: the email reaches a
+person on the day, and the issue is still there next week when the email has been scrolled past. **A
+backup job that quietly stopped manufactures confidence rather than losing data**, which is why this got
+a decision rather than a default.
+
+**It copies a pattern this repository already runs rather than inventing one**, and `drift-check.yml` is
+the file to copy it from. What that job does, read off it in this session:
+
+| | |
+|---|---|
+| Permissions | `permissions: {}` at the workflow level, and `contents: read` **plus `issues: write`** on the one job |
+| No duplicates | it matches an **open issue by exact title** — `gh issue list --state open --search 'Database drift in:title'`, then `select(.title == "Database drift")` — and **comments on it** rather than opening a second. Its own comment says why the exact match is done in the script: "search matches words, not titles" |
+| The body | written to a file under `$RUNNER_TEMP` and passed with `gh issue create --body-file` (rule 12) |
+
+So the backup job gets its own fixed title — **"Backup did not run"** is the proposal, and the title is the
+thing that must not drift, because it is what stops thirty issues in a month. **Two things have to be true
+of the body**, and they are the two that are true of the run log: it **names what failed and when**, and
+it carries **no row, no path, no file name and no part of any secret** — an issue on a public repository is
+as public as the log.
+
+**What it does not catch**, and `drift-check.yml` names the same trap in its own header: a workflow that
+is **not running at all** has no failed run to report. GitHub disables scheduled workflows in a public
+repository after 60 days of no activity, so "it has been quiet for two months" is a state neither the
+email nor the issue reaches.
+
 ### What this section does NOT decide
 
-Four things, named so they are open questions rather than gaps somebody finds while building. All four are
-at the top of the pull request.
+**One thing, and one proposal — down from four, counted here against the list this section carried before
+the owner's decisions of 2026-10-10.** The three that have gone are the credential
+([#254](https://github.com/build-once/team-tasks/issues/254), closed by the decision above), the two
+targets, and the retention window; the failure notification was the fourth and is the section immediately
+above.
 
-- **The credential for the bucket half**, above — [#254](https://github.com/build-once/team-tasks/issues/254).
-  Nothing can be built until it is settled.
-- **The two targets** — how much data we are willing to lose, and how long we are willing to be down.
-  `docs/backups.md` proposes a day and a few hours and says what today's answers are against them.
-- **The retention window and how old copies are removed.** `docs/plan.md` proposes 14 days by an R2
-  lifecycle rule, so the job never deletes anything.
-- **How a failed run reaches a person.** A backup job that quietly stopped manufactures confidence, so
-  this matters more than it sounds. The two shapes already in this repository are GitHub's own failure
-  email and `drift-check.yml`'s habit of opening an issue.
+- **Still open: whether the 13-day Bucket Lock is accepted.** `docs/plan.md` has it as a proposal with the
+  one thing that keeps it one — nobody has established whether an R2 lock rule can be removed or shortened
+  once set.
+- **Still not built: the workflow.** Everything in this section is a shape, which is what the top of this
+  file says the whole document is for, and **Build it 24 part 1 is where it becomes a file.**
 
 And the six facts this section's citations do **not** cover are gathered in
 [#256](https://github.com/build-once/team-tasks/issues/256), two of which decide what gets built:

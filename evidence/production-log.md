@@ -515,7 +515,50 @@ project's URL or keys, and nothing here says whether either changed.
 **What none of these rows touches: the bucket's own rules on production.**
 [#243](https://github.com/build-once/team-tasks/issues/243) asks for the bucket row, the three
 policies and their privileges to be read back on production, and this read was of the migration
-record. #243 stays open.
+record. **The bucket's own settings were read a day earlier** — the `2026-10-09` section above — and
+**the last two of #243's six questions were read later on this day**, which is the section below.
+
+### Later on 2026-10-10: the last two of #243's six, read on production
+
+**Where this comes from.** A **coach comment on
+[PR #257](https://github.com/build-once/team-tasks/pull/257)**, dated 2026-10-10T08:58:56Z, read with
+`gh pr view 257 --json comments` in this session. The read is the coach's, through the **production
+read-only connector**. **The assistant has no production access of any kind, opened no dashboard and used
+no connector**, and has verified nothing in it. This pull request's own instructions forbid the connector
+and the browser.
+
+**Why it is its own subsection rather than a row in the table above.** That table is the owner's actions,
+from the owner's words. This is the coach's read, and mixing the two sources in one table is how a log
+stops being able to say who did what.
+
+| Time (UTC) | Who | What | Why | Result |
+|---|---|---|---|---|
+| On or before 08:58:56 | The coach (claude.ai), via the production read-only connector | One read of **`relrowsecurity` on `storage.objects` and the execute rights on four functions — settings only, no row contents** | Answer the two questions [#243](https://github.com/build-once/team-tasks/issues/243) left and [#253](https://github.com/build-once/team-tasks/issues/253) was opened for: whether the three policies are actually being applied, and whether the helper functions are reachable by the wrong role | > `storage.objects` has row-level security **on** (`relrowsecurity = true`). So the three policies do filter. Execute rights: `attachments_may_add(text, text)`, `attachments_task_id(text)` and `attachments_file_bytes(text)` are executable by `authenticated` and **not** by `anon`; `attachments_lock_key(text, uuid)` is executable by **neither** (it is called only from inside `attachments_may_add`, which is `security definer`). |
+
+**What it settles, and it is the one that could have made the 9 October read meaningless.**
+[#243](https://github.com/build-once/team-tasks/issues/243)'s own words were: "With RLS off, a permissive
+policy admits nothing extra because nothing is being filtered: every signed-in caller would reach every
+object." So "three policies, each `to authenticated`" was confirmed on the 9th and said nothing about
+whether anything was applying them. **It is on.** Three policies and a filter, not three policies and a
+decoration.
+
+**And the function privileges, which are what the two counted limits rest on.** The migration's own
+statements are `supabase/migrations/20261008191804_attachments_bucket.sql` lines 288–290, 346–348,
+400–403 and 626–628; this read is those statements having taken effect on production. **It reports more
+than #243 asked for**: #243 named two functions and the coach read four, adding `attachments_task_id` and
+`attachments_file_bytes` — the two the `SELECT` and `INSERT` policies call to read a path and a size.
+
+**One sliver of #243's question 4 is not in those words, and it is named rather than rounded up.** #243
+asked for `attachments_lock_key` to be **false for all three** of `anon`, `authenticated` and
+`service_role`. The coach's "executable by neither" covers the two roles named beside it. **`service_role`
+is not named in the read.** What stands in its place is the migration's own line 403,
+`revoke execute on function public.attachments_lock_key(text, uuid) from service_role;`, plus the
+observed fact that the same revoke pattern took effect for `anon` and `authenticated` on this project —
+which is reasoning from a statement and a neighbouring read, not a read of that privilege. It is the
+smallest thing in this file, and it is written down rather than quietly absorbed into "answered".
+
+**So #253 is answered and closed**, and `docs/environments.md`'s production cell for that migration says
+what both reads found rather than what has not been read.
 
 ---
 

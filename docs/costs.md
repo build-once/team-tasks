@@ -209,6 +209,15 @@ row and unlike Sentry's, the figures were read from the vendor's own page on tha
   six people. The backups section below has the arithmetic, including the **headcount at which it stops**
   — which turns out to be lower than the headcount Supabase's own storage allowance runs out at, and is
   therefore the number to remember.
+- **Neither a lifecycle rule nor a bucket lock has a price on the pages read.** The pricing page lists
+  storage, Class A, Class B and egress and nothing else, and neither the
+  [Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) nor the
+  [Bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/) page names a charge — read
+  2026-10-10. **Not confirmed rather than free**, which is a distinction this page keeps elsewhere. What a
+  lock *would* cost if it were ever set wrongly is **storage**: an object under lock cannot be deleted, so
+  if the lifecycle rule were removed or broken, copies would accumulate and could not be cleared for the
+  lock's duration. At a penny and a half a gigabyte-month that is pennies, and it is the mechanism rather
+  than the money to notice.
 - **Egress out of R2 is free**, which is the one place this choice makes something cheaper rather than
   dearer: downloading a copy for a restore drill costs nothing at Cloudflare. **What is not free is the
   Supabase egress the job spends reading the files every night**, and that is the finding in the backups
@@ -627,12 +636,13 @@ deleted the same day, never staging and never production**. What a project costs
 | A 4-hour drill | 4 × $0.01344 | **$0.054** |
 | A whole day, project deleted that evening | 24 × $0.01344 | **$0.323** |
 
-**So the money is not the question. Which organisation it runs in is**, and it is a decision for the owner
-rather than this page's to take:
+**So the money was never the question. Which organisation it runs in was, and the owner decided on
+2026-10-10: the Pro organisation.** The three options are kept as they were put, because the one chosen is
+also the one that costs money and the reason is worth being able to re-read:
 
 | Option | Cost | What is wrong with it |
 |---|---|---|
-| **A temporary project in the Pro organisation** — what this page would recommend | about **5 to 35 cents** per drill | Nothing, beyond remembering to delete it. The hourly billing means a forgotten project quietly becomes ~$10 a month, which is the only trap |
+| **A temporary project in the Pro organisation — CHOSEN, 2026-10-10** | about **5 to 33 cents** per drill | Nothing, beyond remembering to delete it. The hourly billing means a forgotten project quietly becomes ~$10 a month, which is the only trap — so **deleting the project is part of the drill** rather than tidying up afterwards |
 | **A temporary project in the free staging organisation** | **$0** — the Free plan's own limit is "Limit of 2 active projects" per organisation ([Pricing](https://supabase.com/pricing), read 2026-10-10), and staging is one of the two | **It puts production's real data in the organisation staging lives in**, and the coding assistant holds keys for that organisation's other project. `docs/environments.md`'s rule is "Production data is never copied to local or staging", and this is the letter of it kept while the spirit is not |
 | **A local PostgreSQL sandbox**, the way migrations are already proved in this project | **$0** | It restores the **database** and cannot test the two halves that matter most: **signing in**, and **the files**. Useful as a first pass on the dump, not as the drill |
 
@@ -749,6 +759,10 @@ question does not get re-asked from scratch.
   rule and no restore drill**, so nothing has been stored, nothing has been read and no allowance has been
   touched. The **14-copy window is a proposal**, not a decision, and every figure in that section moves
   with it.
+- **Not confirmed — whether an R2 lifecycle rule or a bucket lock rule is charged for.** The pricing page
+  lists four things and neither of those two is among them; neither feature's own page names a price. The
+  backups section says "not confirmed" rather than "free", and the only cost either could produce is
+  storage that a lock stops anybody clearing.
 - **Not read — whether Cloudflare R2 offers a spend cap, a stop-at-quota switch, or usage alerts.** Its
   row above says so. The pricing page was read on 2026-10-10 and gives the free tier and the rates; no page
   about billing controls was read, and none is linked. It matters less than it would elsewhere, because the

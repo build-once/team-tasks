@@ -8,6 +8,15 @@ Written 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/
 against commit `cb58926`. **Documents only. Nothing in this file is built**: there is no backup
 workflow, no copy has ever been made, and no restore has ever been tried.
 
+**The owner settled seven decisions later the same day**, and they are recorded where each belongs rather
+than in a list at the top: the two targets below; the retention window and the restore drill's
+organisation; the credential the job reads the bucket with; what happens when a run fails; that the R2
+token stays as it is; and that the storage endpoint goes in a GitHub environment variable rather than in
+this repository. **One proposal came back out of that** — a 13-day R2 Bucket Lock, which the owner asked
+for and has not yet accepted (`docs/plan.md`). And the decisions produced a list of things somebody has to
+go and set by hand, which is "What the owner must set by hand" below. **None of those settings has been
+made or seen by anybody writing this page.**
+
 **Where the facts in it come from, because the three kinds are not equally good.**
 
 - **Vendor documentation**, read on 2026-10-10 with WebFetch — no connector and no browser — and cited
@@ -23,13 +32,13 @@ Related: `docs/plan.md` → "A nightly copy of production, held by another compa
 what it means for people's data; `docs/architecture.md` → "The nightly copy" is the shape of the job;
 `docs/costs.md` → "Backups: what the nightly copy and a restore drill cost" is the money.
 
-## The two targets, for the owner to confirm
+## The two targets — CONFIRMED by the owner, 2026-10-10
 
-These are the numbers everything below is measured against, and **neither is agreed yet.** They are
-written here first because a backup with no target is a backup nobody can call adequate or
-inadequate.
+These are the numbers everything below is measured against. They were written as proposals and **the owner
+confirmed both on 10 October 2026: at most one day of data lost, and at most a few hours down.** They are
+first on the page because a backup with no target is a backup nobody can call adequate or inadequate.
 
-| Target | Proposed | What it means in practice |
+| Target | Confirmed | What it means in practice |
 |---|---|---|
 | **How much data we are willing to lose** | **at most one day** | If production is destroyed at 23:00, we accept losing what changed since the last nightly copy. For six volunteers ticking off jobs, that is at worst a day's ticks and a day's new tasks — re-typable. A file attached that day is **not** re-typable, which is the one place this target is uncomfortable |
 | **How long we are willing to be down** | **at most a few hours** | From "production is gone" to "the six can sign in and see their tasks again". Not minutes: there is one owner, no on-call, and the app is a to-do list for a volunteer group |
@@ -107,12 +116,15 @@ whole database and of every file in the `attachments` bucket, encrypted on GitHu
 goes anywhere, written to a private Cloudflare R2 bucket named `team-tasks-backups`.** Cloudflare is a
 new company holding this app's data, and it holds it **only in encrypted form**.
 
-**And one thing stops it being buildable today: nothing in production's GitHub environment can read a
-file's bytes.** `PRODUCTION_SUPABASE_DB_URL` reaches the database, which holds the file *metadata* and
-not the files; `PRODUCTION_SUPABASE_ACCESS_TOKEN` is scoped to Edge Functions. So the bucket half needs a
-credential that does not exist, and which one it should be is the owner's decision —
-[#254](https://github.com/build-once/team-tasks/issues/254), with the options and what each reaches.
-`docs/architecture.md` → "The nightly copy" has the detail.
+**What it reads production with, decided by the owner on 2026-10-10.** This paragraph said the design was
+not buildable because nothing in production's GitHub environment can read a file's bytes —
+`PRODUCTION_SUPABASE_DB_URL` reaches the database, which holds the file *metadata* and not the files, and
+`PRODUCTION_SUPABASE_ACCESS_TOKEN` is scoped to Edge Functions. **The answer is a Supabase S3 access key
+for the production project**, as two GitHub environment secrets, **accepted with its stated cost** —
+Supabase's own words, that such keys "provide full access to all S3 operations across all buckets and
+bypass RLS policies" — **and never the service-role key, because that one can write to `tasks`.** That
+closes [#254](https://github.com/build-once/team-tasks/issues/254).
+`docs/architecture.md` → "The nightly copy" has the two secret names and what the key reaches.
 
 **Three things it is not.** It is not a replacement for Supabase's own daily backups — those stay, and
 they are the faster route back for the database alone. It is not PITR; the window is still about a day.
@@ -135,6 +147,72 @@ because it does not meet all of them:
 
 So #248 is **answered in substance and not closed**, and the half that keeps it open is one bullet in a
 file this pull request may not touch.
+
+## What the owner must set by hand, and the exact names the workflow will expect
+
+**The owner's decisions of 10 October 2026 turned into a list of things somebody has to go and do.** None
+of it can be done from this repository, none of it can be done by the coding assistant (rules 1, 10 and
+19), and **not one item below has been set or seen by anybody writing this page.** It is written down
+because a decision that lives only in a pull request is a decision nobody can act on later.
+
+**Read the names as fixed.** A workflow reads a secret by its exact name, and a GitHub secret that was
+deleted, renamed or never created **expands to an empty string rather than raising an error** —
+`migrate-production.yml` has a whole step and a long comment about exactly that. A typo here is a backup
+job that runs and encrypts nothing.
+
+### GitHub → Settings → Environments → `supabase-production`
+
+| Name | Kind | Status | What it is |
+|---|---|---|---|
+| `BACKUP_STORAGE_KEY` | secret | **set 10 Oct 2026**, owner-reported | the R2 token's access key id |
+| `BACKUP_STORAGE_SECRET` | secret | **set 10 Oct 2026**, owner-reported | the R2 token's secret |
+| `BACKUP_PASSPHRASE` | secret | **set 10 Oct 2026**, owner-reported | what the copy is encrypted with. **The password manager holds the only readable copy** — see the section below |
+| `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | secret | **TO SET** | the Supabase S3 access key's id, for reading the bucket |
+| `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | secret | **TO SET** | its secret half |
+| `BACKUP_STORAGE_ENDPOINT` | **variable, not a secret** | **TO SET** | the R2 S3 endpoint, `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** |
+
+**The two `PRODUCTION_SUPABASE_S3_*` names are a naming choice rather than something the owner specified**,
+and the reasoning is in `docs/architecture.md`: this repository prefixes a credential by **which project it
+reaches**, because `docs/environments.md`'s rule is "Separate projects, separate keys. Never reuse a key
+between them." Change them if you would rather, in both places, before part 1 is written.
+
+**Nothing else in GitHub needs changing, and one thing specifically does not.** A scheduled workflow runs
+on the default branch, and `.github/workflows/drift-check.yml` **already** runs on a schedule in this same
+environment and reaches its secrets — its run [37936434092](https://github.com/build-once/team-tasks/actions/runs/37936434092)
+succeeded on a schedule on 9 October 2026. So the environment's deployment-branch rule already permits
+this shape, read off a run rather than assumed. The `issues: write` permission the failure notification
+needs lives in the **workflow file**, which is Build it 24 part 1 and not a setting.
+
+### Cloudflare → R2 → `team-tasks-backups`
+
+| What | Status | The exact thing |
+|---|---|---|
+| The bucket | **done 10 Oct 2026**, owner-reported | private, region **Western Europe (WEUR)**, public development URL **disabled**, no custom domain. The coach saw that settings page |
+| The API token | **done 10 Oct 2026**, owner-reported | `team-tasks-backup-job`, **Object Read & Write**, limited to that bucket. **Left as it is**, by the owner's decision of 10 Oct |
+| **An object lifecycle rule** | **TO SET** | **delete objects at 14 days**, whole bucket, no prefix. This is what enforces retention — `docs/plan.md`'s decision of 10 Oct is that **the job never deletes anything** |
+| **A bucket lock rule** | **PROPOSED, awaiting the owner** | Age condition, **`maxAgeSeconds` 1123200** — 13 days — whole bucket. `docs/plan.md` has what it buys and the one thing that keeps it a proposal. **If it is taken, set a one-day Age first and watch a delete be refused**, because nothing read says a lock can be removed or shortened |
+| The endpoint | **TO COPY** | into `BACKUP_STORAGE_ENDPOINT` above. Not into this repository |
+
+**Both rules need a token or a dashboard session that can edit bucket configuration**, which the backup
+job's token is not: the lock page asks for "An API token with permissions to edit R2 bucket
+configuration", and the scope described as allowing "edit bucket configuration" is **Admin Read & Write**
+([R2 API tokens](https://developers.cloudflare.com/r2/api/tokens/), read 2026-10-10). **That is the
+point rather than an inconvenience** — the job can write a copy and cannot change the rules that protect
+it.
+
+### Supabase → the production project
+
+| What | Status | The exact thing |
+|---|---|---|
+| **An S3 access key** | **TO CREATE** | generated from the project's S3 configuration page ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), then its two halves into the two GitHub secrets above. **Know what it reaches before creating it**: "full access to all S3 operations across all buckets", with row-level security bypassed |
+| **The Spend Cap** | **TO SET**, and it is not strictly a backup setting | Production went on Pro on 10 Oct, so the organisation can bill and nobody has set or seen the Cap ([#250](https://github.com/build-once/team-tasks/issues/250)). It belongs on this list because **the nightly copy is the biggest new consumer of the egress that Cap governs** — `docs/costs.md` puts the worst case at 18.6 GB a month |
+
+### And one thing to check rather than set
+
+**That `BACKUP_PASSPHRASE` really is in the password manager.** It is the one value on this page that
+cannot be re-issued, a GitHub secret cannot be read back, and **a passphrase that was generated, pasted
+into GitHub, and not saved anywhere else is already lost** — it just has not been noticed yet. The section
+below is the whole argument.
 
 ## The one thing that cannot be recovered: the passphrase
 
@@ -198,9 +276,12 @@ fail — which is what `evidence/restore-tested.md` is for and why that file doe
    second target and nothing else is.
 6. The temporary project is **deleted**, and that is recorded too.
 
-**Which organisation the temporary project goes in is a decision for the owner**, and it is at the top
-of the pull request, because the two answers cost different things and have different smells. See
-`docs/costs.md` → "Backups: what the nightly copy and a restore drill cost".
+**Which organisation the temporary project goes in: the Pro one — the owner's decision of 2026-10-10.**
+Not the free organisation staging lives in, which would have cost nothing and allows a second project, and
+which would have put production's real data in the organisation the coding assistant holds keys for. The
+Pro organisation bills by the hour, so a drill is **5 to 33 cents** and a project somebody forgets to
+delete is about **$10 a month** — which is why step 6 above is part of the drill rather than tidying up
+afterwards. `docs/costs.md` → "A restore drill" has the three options as they were put and the arithmetic.
 
 ## What the job may read, and what stops it keeping or printing any of it
 
@@ -215,7 +296,7 @@ and the controls on it are worth listing one by one rather than summarising.
 | **The plaintext dump outlives the job** | It is written to the runner's own temporary directory, never to the checkout, and the runner is destroyed when the job ends. Nothing is written into the repository, so nothing can be committed by accident |
 | **A secret is printed, or ends up in a process list** | Every secret arrives through `env:` and is **never interpolated into a command line** — the pattern the three existing production jobs use, with the reasoning written beside them. The passphrase is passed to the encryption tool on **standard input or a file descriptor**, never as an argument |
 | **A pull request runs it** | It is on a `schedule` trigger with **no `pull_request` and no `workflow_dispatch`**, and it uses the `supabase-production` **environment**, so the secrets are reachable only by the workflow the owner means to run. `permissions: {}` at the top, `contents: read` on the job, exactly as the production workflow does |
-| **It fails quietly and nobody notices for a month** | **A silent backup job is worse than none**, because it manufactures confidence. No `continue-on-error`, and the run must go red on any failure. **How a red run reaches a person is an open decision** at the top of the pull request — GitHub's own failure email, or an issue opened by the job the way `drift-check.yml` already does |
+| **It fails quietly and nobody notices for a month** | **A silent backup job is worse than none**, because it manufactures confidence. No `continue-on-error`, and the run must go red on any failure — **and then it OPENS A GITHUB ISSUE, as `drift-check.yml` already does, as well as GitHub's own failure email** (the owner's decision of 2026-10-10). Both, because the email reaches a person on the day and the issue is still there next week. The body names what failed and when and carries **no row, no path, no file name and no part of a secret** — an issue on a public repository is as public as the log. `docs/architecture.md` has the pattern it copies, down to the exact-title match that stops thirty issues in a month. **What neither catches** is the workflow not running at all, which GitHub does to a quiet public repository after 60 days |
 | **It encrypts to nothing** — a missing or empty passphrase, so the file lands readable or the upload lands empty | Each of the three secrets gets its **own** "is it set and non-empty" step before anything runs, printing **only the name** — exactly the shape `migrate-production.yml` uses and explains, for exactly the reason it gives: a deleted or renamed GitHub secret expands to an empty string rather than raising an error |
 
 **And the honest cost, stated rather than left to be noticed.** For the few minutes the job runs,
@@ -269,17 +350,35 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   `BACKUP_STORAGE_KEY`, `BACKUP_STORAGE_SECRET` and `BACKUP_PASSPHRASE` in the `supabase-production`
   GitHub environment. **Nobody writing this opened the Cloudflare or GitHub dashboard**, and nothing in
   this repository can show what either is set to.
-- **Not confirmed — that the R2 token cannot delete.** "Object Read & Write" is the permission the owner
-  reported, and on the reading here that **includes delete**, which matters because the retention proposal
-  deliberately puts expiry in a lifecycle rule so the job never needs to delete anything. Whether R2
-  offers a write-without-delete permission at all was **not read**. If it does, the token is wider than it
-  needs to be.
-- **Not confirmed — the S3 endpoint value is deliberately not in this repository.** The owner gave it in
-  chat. It embeds the Cloudflare account ID, and this repository's own habit is to keep an identifier of
-  that kind out: `evidence/production-log.md`'s header refuses to write the production project reference
-  for precisely this reason. So what is written here is its **shape** —
-  `https://<cloudflare account id>.r2.cloudflarestorage.com` — and the value belongs in a GitHub
-  environment variable beside the secrets. **That is a judgement, and it is at the top of the pull request
-  for the owner to overrule.**
+- **Not confirmed, and now the thing standing between a proposal and a decision — whether an R2 bucket
+  lock rule can be removed or shortened once set.** The page read on 2026-10-10 says what a lock prevents,
+  for how long, over which objects, and that it beats a lifecycle rule. It carries **no statement that a
+  rule can be undone, and no warning that it cannot.** A lock that anybody could shorten would be a weak
+  promise, so expecting it to be hard is reasonable and is not evidence. **Settle it the cheap way**: set a
+  one-day Age, try a delete, watch it refuse, and see whether the rule can then be taken off.
+- **Read off two pages rather than stated by either — that the backup job's token cannot change a lock or
+  a lifecycle rule.** The lock page asks for "An API token with permissions to edit R2 bucket
+  configuration"; the tokens page gives **Admin Read & Write** as the scope allowing "edit bucket
+  configuration", and **Object Read & Write** — the job's scope — as only "the ability to read, write, and
+  list objects in specific buckets". **Neither page says in one sentence that an Object-scoped token is
+  refused.** Same care as `docs/plan.md` takes about `owner_id`.
+- **A CORRECTION, 2026-10-10 — whether the R2 token can delete an object is NOT established.** This list
+  said earlier the same day that "Object Read & Write … on the reading here **includes delete**". Nobody
+  established that: the tokens page describes the scope as "read, write, and list objects" and **does not
+  say whether "write" includes deleting one.** The owner's decision to leave the token alone and look at a
+  lock instead is what makes it not matter — a lock stops a delete **and an overwrite** whatever the token
+  can do.
+- **Decided, so no longer open — the S3 endpoint goes in a GitHub environment variable.** This list
+  carried it as a judgement for the owner to overrule, and the owner's decision of 2026-10-10 is that it
+  stays out of the repository. The variable is `BACKUP_STORAGE_ENDPOINT`; the reason is the one
+  `evidence/production-log.md`'s header gives for the production project reference, and this repository is
+  public.
+- **Still owner-reported and unseen: every setting on the by-hand list above**, including the three
+  secrets already set. **Nobody writing this opened the Cloudflare, GitHub or Supabase dashboard**, and
+  nothing in this repository can show what any of them is set to. The three marked "set 10 Oct" are the
+  owner's word; the five marked **TO SET** or **TO CREATE** have not been done as far as anybody writing
+  this knows.
 - **Nothing in this file has been built or run.** No workflow, no copy, no restore, no evidence file. The
-  arithmetic in `docs/costs.md` is arithmetic on a design.
+  arithmetic in `docs/costs.md` is arithmetic on a design. **The decisions of 10 October changed what is
+  undecided, not what exists** — and the one-line test for this whole page is unchanged: **no copy of
+  production has ever been made.**

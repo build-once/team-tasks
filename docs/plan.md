@@ -1092,29 +1092,88 @@ Rules 1 and 10 already say the assistant has no production access; this says the
 one new artefact that *is* production data in a file, so nobody has to reason it out from the general
 rule.
 
-### How long copies are kept, and how old ones are removed — PROPOSED, for the owner to decide
+### How long copies are kept, and how old ones are removed — DECIDED 2026-10-10
 
-**Nothing here is decided.** Every other retention decision in this plan was the owner's — the
-invitation's 7 days, the usage count's 7 days — and this one is offered the same way, with the
-arithmetic, so the answer is a choice rather than a default.
+**Decided by the owner on 2026-10-10: 14 daily copies, removed by a Cloudflare R2 object lifecycle rule
+and never by the job.** This section was written as a proposal the day before and is kept in the shape it
+was argued in — the reasons, and the two options not taken — because that is how every other retention
+decision in this plan is recorded: the invitation's 7 days and the usage count's 7 days both keep their
+alternatives.
 
-**Proposed: 14 daily copies, removed by a Cloudflare R2 object lifecycle rule and never by the job.**
-
-| The proposal | Why |
+| The decision | Why |
 |---|---|
 | **14 days** | It is twice Supabase's own window for the database — "Pro Plan projects can access the last 7 days of daily backups" — and a fortnight covers a holiday, which is the realistic shape of "nobody noticed for a while" in a volunteer group of six. It is the shortest window that still answers "it was already wrong a week ago" |
 | **Removed by a lifecycle rule, not by the job** | R2 can delete on its own: "you can create an object lifecycle rule to delete objects after 90 days", and a rule "can specify which prefix you would like it to apply to" ([Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/), read 2026-10-10). So the **job never deletes anything** — and retention cannot drift, because it is not a step anybody can forget or a script anybody can break. It is the same preference as the usage count's window being part of the statement that counts, reached a different way |
 | **And the window is "14 days, plus up to a day"** | Cloudflare's own words: "Objects will typically be removed from a bucket within 24 hours of the `x-amz-expiration` value." So a copy can live a fifteenth day. Stated rather than rounded away, because the deletion consequence below is measured in exactly this number |
 
-**The two not proposed**, kept so the question is not re-argued from scratch later:
+**The two not taken**, kept so the question is not re-argued from scratch later:
 
-| Not proposed | Why not |
+| Not taken | Why not |
 |---|---|
 | **7 days**, matching Supabase | Collects least, which is this plan's bias. But both windows then end at the same moment, so a problem that is a week old has no copy from before it anywhere — and the storage it saves is free either way |
 | **Keep a weekly or monthly one for longer** | The usual shape, and wrong here. A copy older than a fortnight is a copy of a volunteer's task list from last month: of almost no use for recovery, and a month of somebody's data held past the point anybody would look at it. **If the owner wants it, this is the line to come back to**, and the deletion consequence below gets correspondingly worse |
 
 **It costs nothing on Cloudflare's free tier at the plan's group size**, and `docs/costs.md` has the
 arithmetic, the quotas as published, and the headcount at which it stops being free.
+
+### And a 13-day Bucket Lock beside it — PROPOSED 2026-10-10, for the owner to decide
+
+**The owner decided on 2026-10-10 to leave the R2 token as it is** — `team-tasks-backup-job`, Object Read
+& Write, limited to this bucket — **and asked instead what an R2 Bucket Lock rule does and, if it prevents
+deletion and overwriting until an age, for a 13-day lock to be proposed alongside the 14-day lifecycle
+rule.** It does, and here it is.
+
+**What Cloudflare says it does**, read on 2026-10-10 from
+[Bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/) and cited rather than
+remembered:
+
+| | Cloudflare's own words |
+|---|---|
+| What it prevents | "Bucket locks prevent the deletion **and overwriting** of objects in an R2 bucket for a specified period — or indefinitely." |
+| How long for | Three kinds of condition: an **Age** (the page's own example is `"condition": {"type": "Age","maxAgeSeconds": 604800}`, which is 7 days), a date to retain until, or indefinite |
+| Which objects | "Each rule specifies which objects it covers (via prefix)", "Rules without prefix apply to all objects", and — the sentence that matters for a bucket that already has copies in it — "Rules apply to both new and existing objects in the bucket." |
+| How many | "A bucket lock configuration can include up to 1,000 rules." |
+| **What happens when it meets the lifecycle rule** | "Bucket lock rules take precedence over lifecycle rules. For example, if a lifecycle rule attempts to delete an object at 30 days but a bucket lock rule requires it be retained for 90 days, the object will not be deleted until the 90-day requirement is met." |
+
+**So: a 13-day Age lock — `maxAgeSeconds` 1,123,200 — alongside the 14-day lifecycle rule.**
+
+**Why 13 and not 14, which is the whole of the arithmetic.** The last row above is the reason. A lock
+takes precedence over a lifecycle rule, so a 14-day lock against a 14-day deletion asks the two
+conditions to be satisfied at the same instant — and retention is not a thing to bet on a tie. **13 gives
+a full day of margin and costs a day of immutability**, which is the right way round: the lock is there
+for the twelve days after a copy is written, not for the hour before it expires.
+
+**What it buys, and it is more than a narrower token would have.** For **13 of a copy's roughly 14-day
+life, nothing can delete or overwrite it** — not the backup job, not a mistake in a later version of the
+workflow, not somebody who has taken the storage key. That last one is the case worth naming: **a stolen
+`BACKUP_STORAGE_KEY` is a key that can read the copies and cannot destroy them**, which is exactly the
+protection narrowing the token was reaching for. And it is **strictly stronger**, because a
+write-without-delete permission would still permit *overwriting* a copy with rubbish, and this does not.
+
+**And the backup job cannot change the lock.** Editing a lock needs "An API token with permissions to
+edit R2 bucket configuration" (the lock page), and the permission that carries that is **Admin Read &
+Write**, described as allowing "the ability to create, list, and delete buckets, **edit bucket
+configuration**, read, write, and list objects, …" ([R2 API
+tokens](https://developers.cloudflare.com/r2/api/tokens/), read 2026-10-10), where **Object Read &
+Write** — what the job's token has — is described only as "the ability to read, write, and list objects
+in specific buckets". *That last comparison is read off two pages rather than stated by either*, which is
+the same care `docs/plan.md` already takes about `owner_id`: the Object scope's description does not
+mention bucket configuration, and the Admin scope's does.
+
+**What it costs, and the first of the two is the reason this is a proposal and not a decision:**
+
+- **It may not be undoable.** **Not confirmed**: the lock page read on 2026-10-10 carries **no statement
+  that a rule can be removed or shortened**, and no warning that it cannot. A lock is a promise about
+  immutability, so a mechanism that let anybody shorten it would be a weak promise — which is a reason to
+  expect it is hard rather than evidence that it is. **So a wrong rule may be unfixable for its own
+  duration.** The cheap way round that is to set a **short** Age first — a day — see that it refuses a
+  delete, and only then set 13.
+- **Nobody can purge a copy early, including the owner.** That is the point of it and it is also a real
+  loss, and the deletion section below now says so rather than leaving it to be discovered.
+
+**It is proposed for the whole bucket rather than a prefix**, because everything in `team-tasks-backups`
+is a backup and there is nothing in it that should be deletable sooner. If copies are ever given a prefix,
+the rule gains the same prefix as the lifecycle rule and the two stay in step.
 
 ### What this means for deletion, which is the part a person would care about
 
@@ -1140,6 +1199,20 @@ It does not recall what was already sent, and it cannot."
 this app, so there is nothing to attach that sentence to yet. What this section adds is that when there
 is, the sentence is not optional.
 
+**AND THE PROPOSED 13-DAY LOCK MAKES THAT WINDOW A FLOOR AS WELL AS A CEILING, which is the one thing
+about it worth arguing over.** Without a lock, "up to about a fortnight" is how long the copies *happen*
+to keep something — and if somebody ever asked for their data to be gone sooner, the owner could delete
+the copies by hand. **With a 13-day lock, nobody can**, the owner included: that is what a lock is. So the
+fortnight stops being an outer bound and becomes a promise in both directions, and the sentence Build it
+26 has to write is "for up to about a fortnight" rather than "we will clear them if you ask".
+
+**That is the trade, stated plainly: a copy that cannot be destroyed by a stolen key is also a copy that
+cannot be destroyed for somebody who asks.** The reason this plan leans the first way is the shape of the
+risk at six volunteers — the realistic threat to a backup is a mistake or a leaked key, and nothing in
+this app's life so far has produced an erasure request — but it is the owner's call, it is why the lock is
+a proposal rather than written in as decided, and **this paragraph is the one to come back to the first
+time somebody asks.**
+
 ### The restore drill
 
 **A copy nobody has restored is a belief about a copy**, so the drill is part of this and not a later
@@ -1149,6 +1222,12 @@ may happen and what never leaves.
 - **Into a new temporary project, created for the drill and deleted the same day.** Not kept in case it
   is useful: a second live copy of production's data is a second thing to protect and nobody is watching
   it.
+- **In the Pro organisation, decided by the owner on 2026-10-10.** Not the free organisation staging lives
+  in, which would have been £0 and allows a second project — because that puts production's real data in
+  the organisation the coding assistant has keys for, and the rule in the bullet below is not a rule you
+  keep to the letter and break in spirit. The Pro organisation's compute is **hourly**, so a drill costs
+  **5 to 33 cents** and a forgotten project costs about $10 a month: `docs/costs.md` has both figures, and
+  **deleting the project is part of the drill rather than tidying up afterwards.**
 - **Never into production**, which rules 1 and 10 forbid anyway.
 - **Never into staging.** This is the one that needs saying out loud, because staging is the convenient
   answer. `docs/environments.md`'s own rule is "Production data is never copied to local or staging", and
@@ -1187,19 +1266,44 @@ listed rather than summarised because a summary is where one of them goes missin
 - **No pull request can run it.** A `schedule` trigger only, no `workflow_dispatch`, and the
   `supabase-production` environment, so a branch cannot reach the credentials.
 
+**And what it reads production with, decided by the owner on 2026-10-10.** The database half uses
+`PRODUCTION_SUPABASE_DB_URL`, which already exists. The files half needed a credential that did not, and
+the answer is **a Supabase S3 access key for the production project, held as GitHub environment secrets in
+`supabase-production` and nowhere else** — **accepted with its stated cost**, which is Supabase's own
+sentence about such keys: they "provide full access to all S3 operations across all buckets and bypass RLS
+policies" ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read
+2026-10-10). **And never the service-role key**, which was the alternative and is refused for one reason:
+that one can write to `tasks`. A backup credential should not be able to change the thing it is backing
+up. `docs/architecture.md` → "The nightly copy" has the detail and the two secret names.
+
 **And the cost that none of those removes.** For the few minutes the job runs, **production's entire
 database — every address, every task, every password hash — is in plaintext on a machine this project
 does not own.** That is true of any copy made this way; it is why the encryption happens on the runner
 rather than after the upload, and why the job does as little as possible between the dump and the
 encryption. It is stated here rather than in a footnote because it is the real price of the design.
 
-**A silent failure is the other thing to design against, and it is not solved here.** A backup job that
-quietly stopped would manufacture confidence rather than lose data, which is worse. The run must go red,
-and **how a red run reaches a person is an open decision for the owner** — GitHub's own failure email, or
-an issue opened by the job the way `.github/workflows/drift-check.yml` already does. Related: GitHub
-disables scheduled workflows in a public repository "when no repository activity has occurred in 60 days"
+**A silent failure is the other thing to design against, and it is now decided.** A backup job that
+quietly stopped would manufacture confidence rather than lose data, which is worse. **Decided by the owner
+on 2026-10-10: a failed run OPENS A GITHUB ISSUE, the way `.github/workflows/drift-check.yml` already
+does, in addition to GitHub's own failure email.** Both, not either — the email is what reaches a person
+on the day, and the issue is what is still there a week later when the email has been scrolled past.
+
+**Which means it follows a pattern that already exists in this repository rather than inventing one**, and
+that is most of why it is the right answer. `drift-check.yml` runs on a schedule, holds
+`issues: write` beside `contents: read`, writes its report to a file and passes it with
+`gh issue create --body-file` (rule 12), and **matches an open issue by exact title so a daily failure
+comments on one issue instead of opening thirty.** The backup job does the same, with its own fixed
+title. Two things have to be true of what the issue says, and they are the same two that are true of
+every other sentence in this design: **it names what failed and when**, and **it carries no row, no path,
+no file name and no part of any secret** — because an issue on a public repository is as public as the
+run log.
+
+Related, and not solved by any of that: GitHub disables scheduled workflows in a public repository "when
+no repository activity has occurred in 60 days"
 ([Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
-read 2026-10-10), so "nothing has run for two months" is a state this design can reach.
+read 2026-10-10), so **"nothing has run for two months" is a state this design can reach** — and it is a
+state in which there is no failed run to open an issue about. `drift-check.yml`'s own comment names the
+same trap: "If this check goes quiet, that is the first thing to look at."
 
 ## Deliberately not in the first version
 
@@ -1347,7 +1451,7 @@ free text that could contain absolutely anything.
 | A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
-| **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **NOTHING IS BUILT**: no workflow, no copy has ever been made, and no restore has ever been tried. The bucket, the token and the three GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **PROPOSED, not decided: 14 days, removed by a Cloudflare R2 object lifecycle rule rather than by the job** — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. The owner's to settle | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
+| **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **NOTHING IS BUILT**: no workflow, no copy has ever been made, and no restore has ever been tried. The bucket, the token and the three GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
 
 ## Collecting less — decided
 
@@ -1523,11 +1627,16 @@ whether anybody can print it.**
   which is the same line the restore drill draws.
 - **A private bucket with no public URL and no custom domain**, so nothing in it is reachable by address —
   the same reduction as the `attachments` bucket's, for the same reason.
-- **Fourteen days, removed by a lifecycle rule rather than by anybody remembering.** PROPOSED, not decided.
-  This is deliberately the same move as the usage count's 7-day window being part of the statement that
-  counts: a retention period nobody enforces is not a retention period. And it is the **only** number in
-  this list that bounds how long a deleted thing survives, which is what makes it the one to argue about
-  rather than wave through.
+- **Fourteen days, removed by a lifecycle rule rather than by anybody remembering.** Decided by the owner
+  on 2026-10-10. This is deliberately the same move as the usage count's 7-day window being part of the
+  statement that counts: a retention period nobody enforces is not a retention period. And it is the
+  **only** number in this list that bounds how long a deleted thing survives, which is what makes it the
+  one that was argued about rather than waved through.
+- **And a 13-day Bucket Lock, PROPOSED 2026-10-10, which is the one item on this list that collects
+  MORE rather than less.** It would make a copy undeletable and un-overwritable for 13 days — so a stolen
+  storage key could read the copies and not destroy them, and **nobody could clear a copy early, the owner
+  included.** It is on this list because leaving it off would be the kind of silence this list exists to
+  prevent: every other bullet here reduces, and this one knowingly does not.
 - **No artifact, and nothing printed.** The plaintext never leaves the runner and the run log carries names,
   sizes and statuses and nothing else — which matters more here than anywhere else in this plan, because
   this repository is public and the thing passing through is every row of everything.
@@ -2029,14 +2138,31 @@ second rests entirely on one passphrase.
 - **"A nightly copy of production": NOTHING IS BUILT AND NO COPY HAS EVER BEEN MADE.** Added 2026-10-10
   for Build it 24 part 0. There is **no workflow**, no encrypted file anywhere, no object in
   `team-tasks-backups`, no lifecycle rule, no restore drill and no evidence file. The section is a design
-  and the arithmetic in `docs/costs.md` is arithmetic on a design. **Three of its decisions are still
-  open and are listed at the top of that pull request**: the two targets, the retention window and how it
-  is removed, and how a failed run reaches a person. **And one thing stops it being buildable at all:
-  nothing in production's GitHub environment can read a file's bytes, so the bucket half needs a
-  credential that does not exist** — [#254](https://github.com/build-once/team-tasks/issues/254), which
-  carries the options and what each of them reaches. Six facts these sections cite nothing for are
-  gathered in [#256](https://github.com/build-once/team-tasks/issues/256), and the three new secrets being
-  in no document is [#255](https://github.com/build-once/team-tasks/issues/255).
+  and the arithmetic in `docs/costs.md` is arithmetic on a design. **Rewritten later the same day**, when
+  the owner settled the decisions: this entry said "**Three of its decisions are still open**" and named
+  the targets, the retention window and the failure notification, and all three are now taken — with the
+  credential, the restore drill's organisation, the token and the endpoint beside them.
+  `docs/backups.md` → "What the owner must set by hand" is the list of what those decisions now require
+  somebody to do, and **not one of those settings has been made or seen by anybody writing this.**
+  **What is still open is one proposal and one blocker**: the **13-day Bucket Lock**, which the owner
+  asked to be proposed and has not accepted; and the fact that **nothing is deployed, because the
+  workflow has not been written** — Build it 24 part 1. Six vendor facts these sections cite nothing for
+  are gathered in [#256](https://github.com/build-once/team-tasks/issues/256), and the new secrets being
+  in no secrets document is [#255](https://github.com/build-once/team-tasks/issues/255).
+- **Not confirmed — whether an R2 Bucket Lock rule can be removed or shortened once it is set.** The page
+  read on 2026-10-10 says what a lock prevents, for how long, over which objects, and that it beats a
+  lifecycle rule; it carries **no statement that a rule can be undone, and no warning that it cannot**.
+  That is the one thing standing between the 13-day lock being a proposal and being a decision, because a
+  lock set wrongly may be unfixable for its own duration. The cheap way to settle it is to set a **one-day**
+  Age first, try a delete, and watch it refuse.
+- **Read off two pages rather than stated by either — that the backup job's token cannot change the
+  lock.** The lock page says editing one needs "An API token with permissions to edit R2 bucket
+  configuration"; the tokens page gives **Admin Read & Write** as the scope that allows "edit bucket
+  configuration" and gives **Object Read & Write** — the job's scope — as only "the ability to read, write,
+  and list objects in specific buckets". Neither page says in one sentence that an Object-scoped token is
+  refused. **And on the same reading, whether "write" includes deleting an object is not stated anywhere
+  read**, which is a correction to what this list said earlier on 2026-10-10: it claimed the token
+  "includes delete". Nobody established that, and the lock is what makes it not matter.
 - **Owner-reported, not seen by anybody writing this — the Cloudflare bucket, the token and the three
   secrets.** A private R2 bucket `team-tasks-backups` in **Western Europe (WEUR)**, public development URL
   **disabled**, **no custom domain** (the coach saw that settings page); an R2 API token named
@@ -2059,14 +2185,18 @@ second rests entirely on one passphrase.
   that can encrypt with a passphrase and something that can write to an S3-compatible endpoint, both
   present on `ubuntu-latest`, because rule 17 makes installing one the owner's decision. **Neither has
   been checked.**
-- **Not confirmed — whether the R2 token can delete, and whether a narrower permission exists.** "Object
-  Read & Write" is what the owner reported, and on the reading here that includes delete. The retention
-  proposal deliberately leaves deletion to a lifecycle rule so the job never needs it; whether R2 offers a
-  write-without-delete permission at all **was not read**.
-- **Deliberately not written down — the R2 S3 endpoint's full value.** The owner gave it in chat. It
-  embeds the Cloudflare account ID, and this repository's own habit is to keep an identifier of that kind
-  out of its files: `evidence/production-log.md`'s header refuses to write the production project reference
-  for exactly this reason, and the repository is public. So what is recorded is its **shape** —
-  `https://<cloudflare account id>.r2.cloudflarestorage.com` — with the value belonging in a GitHub
-  environment variable beside the three secrets. **That is a judgement rather than a rule, and it is at
-  the top of the pull request for the owner to overrule.**
+- **Decided, so no longer open — the R2 token stays as it is.** This list carried it on 2026-10-10 as
+  "whether the R2 token can delete, and whether a narrower permission exists", and said that on the
+  reading here "Object Read & Write" includes delete. **The owner decided the same day to leave the token
+  alone and to look at a Bucket Lock instead**, which is the better answer and not merely the easier one:
+  a lock stops a delete **and an overwrite** whatever the token can do, where a narrower permission would
+  only have stopped the delete. The claim about what the token can do is corrected two bullets above —
+  nobody established it.
+- **Decided, so no longer open — the R2 S3 endpoint goes in a GitHub environment variable and not in this
+  repository.** The owner's decision of 2026-10-10, which is what this list carried as a judgement for the
+  owner to overrule. So what is written here is its **shape** —
+  `https://<cloudflare account id>.r2.cloudflarestorage.com` — and the value lives in
+  `BACKUP_STORAGE_ENDPOINT` in the `supabase-production` environment, the way `PRODUCTION_SITE_URL`
+  already holds the site address. The reason is the one `evidence/production-log.md`'s header gives for
+  the production project reference: it is an identifier of that kind, and this repository is public.
+  **Not set yet** — it is on `docs/backups.md`'s by-hand list.
