@@ -475,6 +475,207 @@ export function sendableHeaders(signed) {
 }
 
 // ---------------------------------------------------------------------------
+// Putting a file back with the content type it had
+// ---------------------------------------------------------------------------
+//
+// THE REASON THIS EXISTS. The owner's first restore drill, 10 October 2026,
+// got through the completeness checks and the database and then stopped:
+//
+//     the restored bucket: PUT answered HTTP 415, code InvalidMimeType
+//
+// The `attachments` bucket allows six named types and nothing else, and the
+// restore was sending each file with no type the bucket accepts. So the
+// comparison -- the only part of a drill that proves anything -- never ran.
+//
+// What the bucket allows, from `allowed_mime_types` on its row in
+// `supabase/migrations/20261008191804_attachments_bucket.sql`. That migration
+// is the authority; this constant is a copy of it, and proof.mjs reads the
+// migration's own SQL and requires the two to agree, the way
+// scripts/screen-state-check.mjs already does for the app's copy.
+export const BUCKET_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "application/pdf"];
+
+// SIX EXTENSIONS AND ONE MORE THAN THE APP OFFERS, deliberately.
+// `web/src/lib/attachments.ts` maps six extensions to five types: it dropped
+// `heic` on 9 October 2026 because a HEIC photograph failed through the app
+// (#246). **This map keeps it**, and the distinction is the whole point:
+//
+//   the app's list is about what may be ADDED. This one is about what may be
+//   PUT BACK.
+//
+// A HEIC file the bucket already holds is a file somebody's data depends on;
+// refusing to restore it because the app would no longer accept a new one
+// would be losing data to tidiness. The bucket still permits the type.
+export const TYPE_BY_EXTENSION = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  heic: "image/heic",
+  pdf: "application/pdf",
+};
+
+// Where a file's content type comes from, in order, and WHY THE ORDER IS THIS
+// ONE -- which matters because the owner has two copies already and wants them
+// restorable without making a third:
+//
+//   1. THE MANIFEST. Copies made from now on record each file's content type,
+//      read off the `content-type` header Supabase Storage answered with when
+//      the backup read the file. That is the type the file actually had.
+//      TODAY'S TWO COPIES DO NOT HAVE IT -- they were made before this change.
+//   2. THE STORAGE RECORD INSIDE THE DUMP. `storage.objects.metadata` is a
+//      JSON blob, and if it carries a `mimetype` (or `contentType`), that is
+//      the service's own record of the type. **IT IS NOT CONFIRMED THAT IT
+//      DOES**: `docs/plan.md` has carried "the declared type is not confirmed
+//      ... presumably in `metadata` beside the size, and presumably is not a
+//      citation" since 8 October, and the Supabase page read again on
+//      2026-10-10 shows an example whose metadata holds only `{"size": 1234}`.
+//      So this is looked for, used when found, and never relied on.
+//   3. THE FILE'S EXTENSION. Not a guess, and this is the step that makes
+//      today's copies restorable: the app set the type FROM THE EXTENSION in
+//      the first place -- `web/src/lib/attachments.ts` exists for exactly that,
+//      after the owner's staging run found Supabase would not do it. So
+//      reproducing it here reproduces how the type was decided, rather than
+//      inventing one.
+//   4. NOTHING. Then the file is not uploaded and the restore STOPS, before
+//      sending anything, with a count and no path. A 415 at this point is what
+//      the drill already hit; refusing first is the same answer in a sentence
+//      somebody can act on.
+//
+// A type that is not one the bucket allows is treated as no type at all, for
+// the same reason: sending it would be refused, and saying so first is better.
+export function contentTypeFor({ manifestType, storageType, path }) {
+  const allowed = (type) => (typeof type === "string" && BUCKET_ALLOWED_TYPES.includes(type.trim().toLowerCase()) ? type.trim().toLowerCase() : undefined);
+
+  const fromManifest = allowed(manifestType);
+  if (fromManifest) return { type: fromManifest, source: "the manifest" };
+
+  const fromStorage = allowed(storageType);
+  if (fromStorage) return { type: fromStorage, source: "the storage record in the dump" };
+
+  const extension = /\.([A-Za-z0-9]+)$/.exec(String(path ?? ""));
+  const fromExtension = extension ? allowed(TYPE_BY_EXTENSION[extension[1].toLowerCase()]) : undefined;
+  if (fromExtension) return { type: fromExtension, source: "the file's extension" };
+
+  return { type: undefined, source: "nowhere" };
+}
+
+// Reads the content types out of a plain-text pg_dump, by finding the COPY
+// block for `storage.objects` and pulling the `name` and `metadata` columns.
+// Returns a Map of object name -> type, which may be empty -- and an empty
+// answer is a normal one, not a failure, because nothing confirms that
+// `metadata` carries a type at all.
+//
+// Why parse the dump rather than restore first and query: because this has to
+// work for copies that already exist, and because the type is needed BEFORE
+// the file is uploaded.
+//
+// It reads the column ORDER off the COPY line rather than assuming it: a dump
+// writes `COPY storage.objects (id, bucket_id, name, owner, metadata, ...)`,
+// and the column list is whatever that project had.
+export function parseStorageObjectTypes(dumpText) {
+  const types = new Map();
+  const text = String(dumpText ?? "");
+  const start = /^COPY\s+"?storage"?\.\s*"?objects"?\s*\(([^)]*)\)\s+FROM\s+stdin;\s*$/im.exec(text);
+  if (!start) return types;
+  const columns = start[1].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  const nameAt = columns.indexOf("name");
+  const metadataAt = columns.indexOf("metadata");
+  if (nameAt === -1 || metadataAt === -1) return types;
+
+  const body = text.slice(start.index + start[0].length);
+  for (const line of body.split("\n")) {
+    if (line === "\\." || line.startsWith("\\.")) break;
+    if (line === "") continue;
+    const fields = line.split("\t");
+    if (fields.length <= Math.max(nameAt, metadataAt)) continue;
+    const name = unescapeCopyField(fields[nameAt]);
+    const metadata = unescapeCopyField(fields[metadataAt]);
+    if (!name || metadata === "\\N") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(metadata);
+    } catch {
+      continue;
+    }
+    const type = parsed?.mimetype ?? parsed?.mimeType ?? parsed?.contentType ?? parsed?.content_type;
+    if (typeof type === "string" && type !== "") types.set(name, type);
+  }
+  return types;
+}
+
+// A COPY field escapes tab, newline and backslash. Nothing here prints a
+// field; they are compared with the manifest's paths and read for a type.
+function unescapeCopyField(field) {
+  return String(field ?? "").replace(/\\(.)/g, (whole, char) => (char === "t" ? "\t" : char === "n" ? "\n" : char === "r" ? "\r" : char === "\\" ? "\\" : whole));
+}
+
+// ---------------------------------------------------------------------------
+// Which of psql's errors are the ones a restore is supposed to produce
+// ---------------------------------------------------------------------------
+//
+// THE DRILL SAW "psql exited 0 with 573 ERROR line(s)" and carried on, because
+// a count on its own cannot tell a harmless error from a fatal one. 573 is the
+// number ONE drill saw, restoring into a project that already had this
+// repository's 11 migrations applied -- it is not a constant, and treating it
+// as one would be a check that breaks every time a migration is added.
+//
+// WHAT IS STABLE IS THE KINDS. Replaying a dump into a project that already
+// has the schema produces errors that all say some version of "that is already
+// there" or "that is not yours to change"; anything else is a real failure
+// hiding in a crowd. So every ERROR line is classified, the counts per kind are
+// printed, and **an unexpected kind fails the run**.
+//
+// NOTHING OF THE TEXT IS EVER PRINTED. Not the statement, not the detail, not
+// the message. psql's DETAIL for a unique-violation quotes the row's key, and
+// the ERROR line for some faults quotes a value -- so what comes out of here is
+// a kind, a count, and nothing else. The run keeps psql's own output in the
+// temporary directory when it fails, which is the place to read it: on the
+// owner's machine, not in a log.
+export const EXPECTED_PSQL_ERROR_KINDS = [
+  // Replaying a schema the project already has.
+  { kind: "already exists", test: /already exists/i },
+  // THE SAME THING, SAID DIFFERENTLY, and it is its own kind because this
+  // classifier found it rather than anybody predicting it: replaying
+  // `ALTER TABLE … ADD CONSTRAINT … PRIMARY KEY` onto a table that already has
+  // one does not say "already exists", it says this. Measured on a throwaway
+  // PostgreSQL 17.10 on 2026-10-10 -- one line per table, so the owner's drill
+  // of 47 tables would have had 47 of them, and the first version of this
+  // check would have failed a restore that was fine.
+  { kind: "a primary key the table already has", test: /multiple primary keys for table .* are not allowed/i },
+  // Supabase owns its managed schemas and roles; a dump tries to set owners
+  // and privileges on them and is refused. Expected, and not ours to fix.
+  { kind: "not the owner", test: /must be owner of|must be member of role|permission denied/i },
+  // A second run over tables whose rows are already there. This is what makes
+  // a stopped restore safe to run again -- see the comment in
+  // restore-backup.mjs -- and it is the one kind that is expected for TWO
+  // different reasons, which is said out loud rather than glossed: on a first
+  // run it should not happen, and this classifier cannot tell the two runs
+  // apart. The comparison at the end is what still decides.
+  { kind: "row already restored", test: /duplicate key value violates unique constraint|violates unique constraint/i },
+  // An extension, event trigger or publication a dump cannot create here.
+  { kind: "not supported here", test: /must be superuser|is not allowed|unrecognized configuration parameter|no schema has been selected/i },
+];
+
+export function classifyPsqlErrors(stderr) {
+  const counts = new Map();
+  let total = 0;
+  let unexpected = 0;
+  for (const raw of String(stderr ?? "").split("\n")) {
+    const line = raw.trim();
+    // psql writes `psql:file:line: ERROR:  …`. DETAIL, HINT, CONTEXT and
+    // STATEMENT lines are deliberately NOT counted and never read: they are
+    // where a row's values appear.
+    if (!/^(psql:[^ ]*\s*)?ERROR:/i.test(line)) continue;
+    total++;
+    const match = EXPECTED_PSQL_ERROR_KINDS.find((candidate) => candidate.test.test(line));
+    if (match) counts.set(match.kind, (counts.get(match.kind) || 0) + 1);
+    else unexpected++;
+  }
+  return { total, unexpected, byKind: [...counts.entries()].map(([kind, count]) => ({ kind, count })) };
+}
+
+// ---------------------------------------------------------------------------
 // What an object store said "no" for, in one word
 // ---------------------------------------------------------------------------
 //

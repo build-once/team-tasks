@@ -20,6 +20,29 @@
 // Nothing in this script can enforce that -- it does what its settings say --
 // so the settings are the thing to read twice.
 //
+// RUNNING IT TWICE AGAINST THE SAME PROJECT IS SAFE, and a restore that
+// stopped part-way is exactly when somebody will. What a second run does:
+//
+//   THE FILES: a PUT to the same key REPLACES the object. Same key, same
+//   bytes, same type -- so the bucket ends up with the same number of objects
+//   it would have had, never two of anything, and a file that was half-written
+//   by an interrupted run is simply written again. The SHA-256 comparison at
+//   the end checks every one of them on every run.
+//
+//   THE ROWS: the dump's `COPY` for a table whose rows are already there is
+//   refused by the primary key, so **nothing is duplicated**. What it does NOT
+//   do is repair a table that was half-filled when the first run stopped: that
+//   table's COPY fails as a whole and it keeps the rows it has. That is a real
+//   limit and it is stated rather than hidden -- **the comparison is what
+//   catches it**, because a table whose count does not match the manifest is
+//   reported by name. If that happens, drop the temporary project and restore
+//   into a fresh one; it costs pennies (docs/costs.md) and is the honest fix.
+//
+//   THE ERROR COUNT: a second run produces MORE expected errors than the
+//   first, because every already-restored table adds a unique-violation. Those
+//   are a classified kind, so they do not fail the run -- see
+//   EXPECTED_PSQL_ERROR_KINDS in lib.mjs, which says plainly what that costs.
+//
 // Usage:
 //   node scripts/backup/restore-backup.mjs --latest --check-only
 //   node scripts/backup/restore-backup.mjs --key <object key>
@@ -59,7 +82,22 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { checkCopy, decrypt, looksEncrypted, pgEnvFromUrl, readContainer, scanDumpLine, sha256, DUMP_PATH, MANIFEST_PATH, OBJECT_PREFIX } from "./lib.mjs";
+import {
+  checkCopy,
+  classifyPsqlErrors,
+  contentTypeFor,
+  decrypt,
+  looksEncrypted,
+  parseStorageObjectTypes,
+  pgEnvFromUrl,
+  readContainer,
+  scanDumpLine,
+  sha256,
+  BUCKET_ALLOWED_TYPES,
+  DUMP_PATH,
+  MANIFEST_PATH,
+  OBJECT_PREFIX,
+} from "./lib.mjs";
 import { Store } from "./s3.mjs";
 
 const args = process.argv.slice(2);
@@ -192,22 +230,46 @@ async function main() {
   // ON_ERROR_STOP is deliberately OFF. A dump of a Supabase database replayed
   // into a new Supabase project tries to create things the new project already
   // has, and each of those is an error that does not matter. What matters is
-  // whether the rows and the files came back, which is the comparison below --
-  // so the errors are counted, reported as a number, and the OUTPUT IS NOT
-  // PRINTED, because psql's error text quotes the statement that failed and a
-  // statement can carry a row.
+  // whether the rows and the files came back, which is the comparison below.
+  //
+  // VERBOSITY=terse, which is new and is not cosmetic: terse keeps psql to the
+  // primary message and drops DETAIL, HINT and CONTEXT -- and DETAIL is where a
+  // unique-violation quotes the row's key. So the lines this reads are the ones
+  // least likely to carry data, and it still prints none of them.
   const logFile = join(work, "psql.log");
-  const restore = spawnSync(psql, ["--no-psqlrc", "--quiet", "--file", dumpFile, "--output", logFile], {
+  const restore = spawnSync(psql, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", dumpFile, "--output", logFile], {
     env: { ...process.env, ...pgEnv, PGCONNECT_TIMEOUT: "30" },
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
   });
-  const errorLines = `${restore.stderr || ""}`.split("\n").filter((l) => /^(psql:.*)?ERROR/i.test(l.trim())).length;
   writeFileSync(join(work, "psql-stderr.log"), restore.stderr || "");
-  say(
-    `psql exited ${restore.status} with ${errorLines} ERROR line(s). Its output is deliberately not printed; it is kept in the temporary directory ONLY if this run fails, ` +
-      "and the path is named at the end if so.",
-  );
+
+  // THE COUNT WAS NOT A CHECK, AND NOW THE KINDS ARE. The drill of 10 October
+  // 2026 printed "psql exited 0 with 573 ERROR line(s)" and carried on, because
+  // a number cannot tell a harmless error from a fatal one.
+  //
+  // WHAT IS NORMAL. Restoring into a fresh Supabase project that already has
+  // this repository's 11 migrations applied, the owner's drill saw **573**
+  // ERROR lines. That figure is what ONE drill saw and is deliberately NOT
+  // asserted anywhere: it moves with every migration added and with whatever
+  // Supabase ships in a new project. What is stable is that every one of them
+  // should say some version of "that is already there" or "that is not yours to
+  // change" -- so the kinds are counted, and an unexpected kind FAILS.
+  const errors = classifyPsqlErrors(restore.stderr);
+  const breakdown = errors.byKind.length ? errors.byKind.map((e) => `${e.count} ${e.kind}`).join(", ") : "none";
+  say(`psql exited ${restore.status} with ${errors.total} ERROR line(s): ${breakdown}. None of the text is printed.`);
+  if (errors.unexpected > 0) {
+    fail(
+      `${errors.unexpected} of psql's ${errors.total} ERROR line(s) are NOT of a kind a restore is supposed to produce, so this restore is not one to rely on. ` +
+        "Their text is deliberately not printed -- psql's output can quote a row. It is kept in the working directory, whose path is named at the end of this run, " +
+        "and that is the place to read it: your own machine, not a log. docs/restore-runbook.md step 4 says what the expected kinds are.",
+    );
+  } else if (errors.total > 0) {
+    say(
+      `All ${errors.total} are of expected kinds -- replaying a schema the project already has, or being refused ownership of Supabase's own objects. ` +
+        "For reference the first drill saw 573; the number is not a check and is not asserted.",
+    );
+  }
 
   // --- 6. the files into the new project's bucket ---------------------------
   const target = new Store({
@@ -218,10 +280,49 @@ async function main() {
     secretAccessKey: setting("RESTORE_S3_SECRET_ACCESS_KEY"),
     label: "the restored bucket",
   });
-  for (const file of manifest.storage.files) {
-    await target.put(file.path, packed.read(OBJECT_PREFIX + file.path));
+  // EVERY FILE GOES BACK WITH THE CONTENT TYPE IT HAD, and this is the fault
+  // the first drill found: without a type the bucket accepts, the upload is
+  // refused with `415 InvalidMimeType` and the comparison -- the only part that
+  // proves anything -- never runs.
+  //
+  // Where the type comes from, in order, is contentTypeFor() in lib.mjs: the
+  // manifest for copies made from 2026-10-10 onward, the storage record inside
+  // the dump if it carries one, then the file's extension -- which is how the
+  // app assigned the type in the first place, not a guess. The counts per
+  // source are printed, because on today's two copies that is the only way to
+  // find out which source actually answered.
+  const storageTypes = parseStorageObjectTypes(dump.toString("utf8"));
+  const planned = manifest.storage.files.map((file) => ({
+    file,
+    ...contentTypeFor({ manifestType: file.contentType, storageType: storageTypes.get(file.path), path: file.path }),
+  }));
+  const bySource = new Map();
+  for (const item of planned) bySource.set(item.source, (bySource.get(item.source) || 0) + 1);
+  say(`Content types: ${[...bySource.entries()].map(([source, count]) => `${count} from ${source}`).join(", ") || "no files"}.`);
+
+  // REFUSED BEFORE ANYTHING IS SENT. A file with no type the bucket accepts
+  // would be refused by the bucket anyway; saying so first turns a 415 into a
+  // sentence, and leaves the bucket as it was.
+  const untyped = planned.filter((item) => !item.type);
+  if (untyped.length > 0) {
+    fail(
+      `${untyped.length} of ${planned.length} file(s) have no content type the bucket accepts, so NOTHING was uploaded. No path is printed. ` +
+        `The bucket allows ${BUCKET_ALLOWED_TYPES.join(", ")} and nothing else. A copy made from 2026-10-10 onward records each file's type; ` +
+        "an older one falls back to the storage record in the dump and then to the file's extension, so a file whose name has no extension this app ever accepted lands here. " +
+        "docs/restore-runbook.md step 4, 'Every file goes back with the content type it had', says what to do about it.",
+    );
+    return;
   }
-  say(`Put ${manifest.storage.files.length} file(s) back.`);
+
+  for (const { file, type } of planned) {
+    // A SECOND RUN OVER THE SAME PROJECT IS SAFE HERE, which is the other half
+    // of what the drill asked for: a PUT to the same key with the same bytes
+    // REPLACES the object rather than adding one, so re-running cannot
+    // double anything and cannot half-write a file. The checksum comparison
+    // below is what proves it each time.
+    await target.put(file.path, packed.read(OBJECT_PREFIX + file.path), { contentType: type });
+  }
+  say(`Put ${planned.length} file(s) back, each with the content type it had.`);
 
   // --- 7. compare, which is the only part that proves anything -------------
   const FIELD = String.fromCharCode(31);

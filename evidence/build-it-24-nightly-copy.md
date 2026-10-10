@@ -698,3 +698,156 @@ production is touched:
 **And the preflight may now fail where the PUT used to**, which would be the fastest possible answer: a
 listing and an upload differ by the method, a body and a content type, so a refused listing says the
 fault was never about the upload at all.
+
+---
+
+## 13. Two copies of production exist, and the first restore drill found a fault
+
+**Added 2026-10-10. THE ANSWER TO THE 403 WAS `AccessDenied`** — a permission fault, not a signing one,
+and the error code said so in one word on the very next run. The owner then fixed the credential, made
+two copies, and started the first restore drill, which stopped at the files.
+
+**Everything below is the owner's, read by the assistant from public run logs and from the owner's own
+account of the drill. The assistant started nothing, holds no credential, and has never seen a backup
+file. There is no row, no name and no path in this section** — the counts and sizes are what the runs
+printed, which is by design all they print.
+
+### The five runs, and the two copies
+
+| Time (UTC) | Run | What it said | Copy? |
+|---|---|---|---|
+| 12:04 | [38050647011](https://github.com/build-once/team-tasks/actions/runs/38050647011) | `PUT answered HTTP 403. No response body is printed.` | no |
+| 12:42 | [38052929979](https://github.com/build-once/team-tasks/actions/runs/38052929979) | **`PUT answered HTTP 403, code AccessDenied`** | no |
+| 12:45 | [38053157387](https://github.com/build-once/team-tasks/actions/runs/38053157387) | the same, `code AccessDenied` | no |
+| **12:56** | [38053779159](https://github.com/build-once/team-tasks/actions/runs/38053779159) | **`Done in 7s: 1 copy, 47 table(s), 0 file(s), 138272 bytes stored.`** | **yes** |
+| **15:07** | [38062308294](https://github.com/build-once/team-tasks/actions/runs/38062308294) | **`Done in 26s: 1 copy, 47 table(s), 1 file(s), 1309392 bytes stored.`** | **yes** |
+
+**THE ERROR CODE EARNED ITS KEEP IN THREE MINUTES.** Section 12 of this file ends with a table of what
+each possible code would mean. The next run printed `AccessDenied`, which that table reads as "the
+credential is real and is not allowed — the R2 token's scope, or which bucket it is limited to", and
+**that is the one of the three candidates that needed no code change at all**. The preflight passing
+while the PUT was refused is the case section 12 predicted in those words: "a listing and an upload
+differ by the method, a body and a content type, so if the listing is refused the fault is not about the
+upload at all" — here the listing was *allowed*, which pointed straight at the write permission.
+
+**The second copy is the one that matters for the files.** The 15:07 run is the first to find anything in
+the bucket: `The attachments bucket holds 1 object(s). No path is printed.` / `Read 1 file(s), 1178671
+bytes in total.` So production's one attached file is in a copy, and `docs/backups.md`'s map cell that
+said the files were lost "everything, permanently" is no longer true.
+
+### The drill, as far as it got
+
+The owner restored the **newest copy** — 47 tables, 269 rows, 1 file of 1,178,671 bytes — into a **new
+temporary project with this repository's 11 migrations already applied.**
+
+| Step | Result |
+|---|---|
+| The copy downloads, is encrypted, decrypts | **PASS** — all three completeness checks |
+| **The deliberate test**: open it with the wrong passphrase | **REFUSED**, as it must be |
+| `--check-only` | **PASS** |
+| The database into the new project | `psql exited 0 with 573 ERROR line(s)` — and the run carried on |
+| The files into the new project's bucket | **`the restored bucket: PUT answered HTTP 415, code InvalidMimeType`** |
+| The comparison | **NEVER RAN** |
+
+**So the drill is unfinished and `evidence/restore-tested.md` is deliberately NOT created.** Creating it
+would satisfy `restore-tested` in `checklist/launch.json` by existing, and nothing has been restored end
+to end. [#249](https://github.com/build-once/team-tasks/issues/249) stays open.
+
+### What was wrong, and the four things that changed
+
+**The `attachments` bucket allows six named types and nothing else** — that is `allowed_mime_types` on
+its row, decided on 8 October and the reason an SVG cannot get in. The restore was sending each file with
+**no type the bucket accepts**, so Storage refused it exactly as it is supposed to.
+
+**1. Every file goes back with the content type it had.** From the first of these that answers, with the
+counts per source printed:
+
+| | |
+|---|---|
+| the **manifest** | copies made from 2026-10-10 onward record each file's type, read off the header Storage answered with when the backup took it. **The backup now does this** |
+| the **storage record in the dump** | `storage.objects.metadata`, *if* it carries a `mimetype`. **Nothing documents that it does** — the Supabase page read again today shows metadata holding only `{"size": 1234}` — so it is looked for and never relied on |
+| the **file's extension** | **this is what makes today's two copies restorable without making a third.** Not a guess: `web/src/lib/attachments.ts` exists because Supabase would not map an extension to a type, so the app set the type FROM the extension in the first place. This reproduces that decision |
+| **nothing** | then **no file is uploaded at all** and the run stops, naming how many and no path |
+
+Seven extensions, one more than the app offers: `heic` is kept, because `image/heic` is still in the
+bucket and **a file already stored is a file somebody's data depends on.** The app's list is about what
+may be added; this one is about what may be put back.
+
+**2. psql's error count was never a check, and the kinds are now.** 573 is what one drill saw restoring
+into a project with 11 migrations applied; it is recorded here and **asserted nowhere**, because it moves
+with every migration added. Every ERROR line is classified, the counts per kind printed, and an
+unexpected kind **fails the run** — with none of the text printed, and `VERBOSITY=terse` so psql drops
+the DETAIL line where a unique violation quotes the row's key.
+
+**AND WRITING THAT CHECK FOUND A KIND NOBODY HAD PREDICTED**, in CI, before the owner's next drill:
+
+```
+$ node <scratch>/twice.mjs        # a made-up table, dumped and replayed twice
+--- replay 2: psql exit 0, 3 stderr line(s)
+    ERROR:  relation "t" already exists
+    ERROR:  duplicate key value violates unique constraint "t_pkey"
+    ERROR:  multiple primary keys for table "t" are not allowed
+```
+
+**That third line does not say "already exists"**, and there is **one per table** — so a 47-table
+restore has 47 of them, and the first version of this check would have failed a restore that was fine.
+It is now its own kind, with that measurement in the comment beside it.
+
+**3. A restore that stopped part-way is safe to run again**, which matters because this one stopped.
+`docs/restore-runbook.md` step 4 has the table; the honest part is what a second run does **not** do:
+a `COPY` into a half-filled table fails as a whole and that table keeps the rows it has. **The
+comparison is what catches it**, and the answer then is a fresh project, not another re-run.
+
+**4. The CI stand-in now holds the bucket's six types.** It could not have caught this before — nothing
+in it cared what a PUT declared, which its own header admitted. Now a PUT of a type the bucket does not
+allow is refused with **415 `InvalidMimeType`**, and the drill's own fault is reproducible:
+
+```
+PASS  SEEN TO FAIL: THE DRILL'S OWN FAULT: a file sent with a type the bucket does not allow is refused -- "the restored bucket: PUT answered HTTP 415, code InvalidMimeType. Nothing else from the response is printed." -- which is the 415 the restore walked into, now reproducible in CI.
+PASS  SEEN TO FAIL: and the sentence in the response's Message element is not repeated: the code is the whole of what comes out.
+```
+
+### The runs
+
+```
+$ node scripts/backup/proof.mjs --pure-only
+119 PASS, 0 FAIL.
+
+$ BACKUP_PROOF_DB_URL="postgresql://postgres@127.0.0.1:55433/postgres" \
+  BACKUP_PSQL=".../PostgreSQL/17/bin/psql" BACKUP_PG_DUMP=".../PostgreSQL/17/bin/pg_dump" \
+  node scripts/backup/proof.mjs
+...
+PASS  every file went back with the type the manifest recorded, which is what the owner's first drill did not do.
+PASS  file 1 of 3 is in the restored bucket AS A image/jpeg, not as whatever the upload felt like.
+--- and running the restore AGAIN over the same project changes nothing
+PASS  a second restore of the same copy into the same project exits 0.
+PASS  the restored bucket still holds THREE objects, not six: a PUT to the same key replaces it.
+PASS  and all three still match the copy's checksums after being written twice.
+PASS  every table still has the row count the copy recorded -- the rows were not duplicated.
+PASS  and the second run's extra psql errors are classified as `row already restored` rather than failing it.
+--- a copy made BEFORE the type was recorded, which is both of today's
+PASS  a copy with NO types in its manifest -- today's two -- still restores (exit 0).
+PASS  and the three types came from the files' EXTENSIONS, which is how the app assigned them in the first place.
+PASS  with the bytes still matching, so the owner's existing copies are restorable without making a new one.
+...
+PASS  SEEN TO FAIL: A FILE WHOSE TYPE IS NOWHERE: the restore is refused (exit 1) instead of being refused by the bucket one file at a time.
+PASS  SEEN TO FAIL: and it says so before sending anything, naming no path.
+PASS  SEEN TO FAIL: and the restored bucket is untouched: not one of that copy's files was uploaded.
+...
+193 PASS, 0 FAIL.
+
+exit code: 0
+```
+
+**156 → 193 locally; the CI floor goes 159 → 196.** And the second-run case earned its place twice over:
+it was the thing that went red when the error classifier was missing a kind.
+
+### What is still not done
+
+- **No restore has finished.** The next drill is what settles it, and
+  `evidence/restore-tested.md` stays absent until one does.
+- **Whether `storage.objects.metadata` carries a type at all is still not confirmed** — the restore
+  prints which source answered, so the next drill's log settles it in passing.
+- **The lifecycle rule still does not exist** ([#259](https://github.com/build-once/team-tasks/issues/259)),
+  so the two copies that now exist will not expire.
+- **Nothing here was run against production, staging, R2 or the drill project by the assistant.**

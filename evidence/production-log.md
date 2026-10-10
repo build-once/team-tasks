@@ -637,7 +637,34 @@ works** — that bucket listing is a signed S3 request to a real service, accept
 changes the 403 bought; the cause of the 403 is **not established**, and the next run will name it.
 
 **The failure job did what it is for**: it opened [#266](https://github.com/build-once/team-tasks/issues/266)
-without a word about what failed, and **that issue stays open until a later run succeeds.**
+without a word about what failed.
+
+### Four more backup runs the same day, and TWO COPIES OF PRODUCTION NOW EXIST
+
+**Read from the public run logs and `gh run list --json` by the assistant, in the session that fixed what
+the drill found. The owner started every one of them; the assistant started none, holds none of their
+credentials, and has never seen a backup file.** All four are reads of production — `pg_dump` and one
+signed `ListObjectsV2` — and write only to Cloudflare.
+
+| Time (UTC) | Who | What | Why | Result |
+|---|---|---|---|---|
+| 12:42 and 12:45 | **The owner**, by `workflow_dispatch` on `main` | The nightly copy, twice. Read-only against production | Trying the fix for the 403 | **Read everything; the upload was refused both times — `403, code AccessDenied`.** The code is the fix from [#267](https://github.com/build-once/team-tasks/pull/267) doing its work: a permission fault named in one word. No copy |
+| **12:56** | **The owner**, the same way | The nightly copy | The credential corrected | **A COPY. 47 tables, 0 files, 138,272 bytes stored, read back and verified** |
+| **15:07** | **The owner**, the same way | The nightly copy | A second, after the first attached file existed in production | **A COPY WITH A FILE IN IT. 47 tables, 1 file of 1,178,671 bytes, 1,309,392 bytes stored** |
+
+**What those two rows change, and it is the first thing in this log to close a gap rather than open one.**
+Production's database and its one attached file are now in an encrypted copy at Cloudflare.
+[#248](https://github.com/build-once/team-tasks/issues/248) — "the files are not backed up" — is answered
+in fact and not only in a document, and `docs/backups.md`'s map cell that read "everything, permanently"
+has been rewritten.
+
+**What they do not change.** No row of data was printed, named or kept by anybody; the copies are
+ciphertext and the assistant cannot open them and has not been offered one. **And nothing has been
+restored**: the owner's first drill of the 15:07 copy got the database into a new project and was then
+refused by the bucket — `415 InvalidMimeType` — so the comparison never ran.
+`evidence/build-it-24-nightly-copy.md` section 13 is the record, and
+[#266](https://github.com/build-once/team-tasks/issues/266) **stays open until a run succeeds end to
+end**, which is what it is for.
 
 ---
 

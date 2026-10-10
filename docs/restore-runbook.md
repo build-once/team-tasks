@@ -142,9 +142,68 @@ came back with what the copy said it held**.
 
 **Expect errors from `psql`, and expect the run to pass anyway.** A dump of a Supabase database replayed
 into another Supabase project tries to create things the new project already has — roles, extensions,
-schemas — and each of those is an error that does not matter. The run reports how many there were and
-does not print them, because psql's error text quotes the statement that failed and a statement can
-carry a row. What decides whether the restore worked is the comparison, not the noise.
+schemas — and each of those is an error that does not matter. What decides whether the restore worked is
+the comparison, not the noise.
+
+### What `psql`'s error count means, and which errors now fail the run
+
+**The first drill saw `psql exited 0 with 573 ERROR line(s)`** restoring into a fresh project with this
+repository's 11 migrations already applied. **That figure is not a constant and is not asserted
+anywhere**: it moves with every migration added and with whatever Supabase ships in a new project. A
+count cannot tell a harmless error from a fatal one, which is why the first drill carried on past it.
+
+**What is stable is the KINDS.** Every ERROR line is now classified, the counts per kind are printed, and
+**an unexpected kind fails the run**. The expected kinds, from `EXPECTED_PSQL_ERROR_KINDS` in
+`scripts/backup/lib.mjs`:
+
+| Kind | What it is |
+|---|---|
+| `already exists` | the schema is already there — a table, type, function, policy, trigger, extension |
+| `a primary key the table already has` | the same thing said differently. **One line per table**, so a 47-table restore has 47 — and it does *not* say "already exists", which is why it is its own kind |
+| `not the owner` | Supabase owns its managed schemas; a dump tries to set owners and privileges on them and is refused. Not yours to fix |
+| `row already restored` | a unique-key violation, which is what a **second run** over already-restored tables produces |
+| `not supported here` | something a dump cannot create in a managed project |
+
+**Nothing of the text is printed** — not the statement, not the detail, not the message. psql's DETAIL
+for a unique violation quotes the row's key. What you get is a kind, a count, and nothing else; the run
+is also given `VERBOSITY=terse`, which drops DETAIL and CONTEXT altogether.
+
+**If it reports unexpected errors, the run fails and the working directory is kept**, with its path named
+at the end. **That is where to read them: your own machine, not a log.** Delete it when you are done — it
+holds the database in plaintext.
+
+### What a second run does, if the first one stopped part-way
+
+**It is safe, and it is not a repair.** You will want this, because the first drill stopped at the
+upload.
+
+| | |
+|---|---|
+| **The files** | A `PUT` to the same key **replaces** the object — same bytes, same type. Never two of anything, and a half-written file is simply written again. Every file's SHA-256 is checked on every run |
+| **The rows** | The dump's `COPY` into a table whose rows are already there is **refused by the primary key, so nothing is duplicated**. What it does **not** do is finish a table that was half-filled when the first run stopped: that table's `COPY` fails as a whole and it keeps the rows it has |
+| **The errors** | More than the first run — every already-restored table adds a `row already restored`. Those are an expected kind, so they do not fail it |
+| **So** | **If the comparison names a table whose count does not match, do not keep re-running.** Delete the temporary project and restore into a fresh one. It costs pennies (`docs/costs.md`) and it is the honest fix |
+
+### Every file goes back with the content type it had
+
+**This is what the first drill found.** It reached `PUT answered HTTP 415, code InvalidMimeType`, because
+the restore sent each file with no type the `attachments` bucket accepts — and the bucket allows six
+named types and nothing else. The comparison, which is the only part that proves anything, never ran.
+
+The type now comes from the first of these that answers, and the run **prints the counts per source** so
+you can see which one did:
+
+| | |
+|---|---|
+| **1. The manifest** | Copies made from **10 October 2026 onward** record each file's content type, read off the header Storage answered with when the backup took it |
+| **2. The storage record in the dump** | `storage.objects.metadata` *if* it carries a `mimetype`. **Nothing documents that it does** — the Supabase page shows metadata holding only `{"size": 1234}` — so this is looked for and never relied on |
+| **3. The file's extension** | **This is what restores the two copies made before the manifest carried types.** Not a guess: the app set the type from the extension in the first place (`web/src/lib/attachments.ts`), so this reproduces how the type was decided |
+| **4. Nothing** | Then **no file is uploaded at all** and the run stops, naming how many and no path. A 415 would have been the same answer one file at a time; this one is a sentence you can act on |
+
+**If it stops there**, the file's name has an extension this app never accepted. The six it knows are
+`.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.heic` and `.pdf` — one more than the app offers today,
+because `image/heic` is still in the bucket and a file already stored is a file somebody's data depends
+on. Anything else needs a decision from the owner, not a guess from a script.
 
 A good run ends with:
 
