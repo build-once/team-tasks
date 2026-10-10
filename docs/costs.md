@@ -9,6 +9,15 @@
 > is a setting that only means anything on an account that can be billed. Whether a payment method is
 > on that account has not been checked by anybody writing this. Nothing is installed and no call has
 > ever been made, so nothing has been spent yet.
+>
+> **And no longer true of Supabase either, as of 2026-10-10.** The owner moved the production project
+> into an organisation on the **Pro** plan that day (`evidence/production-log.md`), which is what
+> `docs/plan.md`'s Budget always said would happen before real users arrive — so production **can now
+> bill**, the Spend Cap exists for it, and **nobody has set or seen it**. Two sections of this page were
+> written against the Free plan's quotas and have not been reworked:
+> [#250](https://github.com/build-once/team-tasks/issues/250) holds that, and nothing on this page is
+> changed for it here beyond this paragraph and the egress note in the backups section below, because the
+> figures it needs are read off a dashboard only the owner can open.
 
 What each service charges for, and whether it can be made to *stop* rather than just
 warn you. Written 2026-09-27 by reading each vendor's own billing documentation on that
@@ -37,6 +46,7 @@ said £0/month while building until 2026-10-07, when the Claude API — which ha
 | **Resend** — email (not set up yet) | Yes. Free: 3,000 emails/month and 100/day. Paid plans add pay-as-you-go overage (~$0.90 per 1,000 on Pro) | **A vendor-set cap, not one you choose.** Overage is capped at **5× your plan's monthly quota** by default, then sending pauses until the next cycle. Lowering that figure requires contacting support | Yes — quota alerts by email as you approach and exceed the quota | [Pricing](https://resend.com/pricing) · [Account quotas and limits](https://resend.com/docs/knowledge-base/account-quotas-and-limits) |
 | **Sentry** — error reports (chosen 2026-10-05, not installed) | **NOT CONFIRMED.** Whether the free plan is metered at all, what allowance of error reports it carries, and whether going past that allowance drops the extra reports or starts charging — none of it has been read. It must come from Sentry's own pricing page; no figure is written here from memory | **NOT CONFIRMED** — whether the free plan can bill at all, and whether Sentry offers a spend cap or a "stop at quota" switch, has not been read | **NOT CONFIRMED** — whether quota-warning emails exist, and at what percentages | **NOT READ — Sentry's own pricing page, and its documentation on event quotas and data retention.** No link is given: a URL written from memory is a guess (rule 15). Find them from the vendor's site, paste the exact pages here, and fill this row in |
 | **Anthropic Claude API** — the AI helper (chosen 2026-10-07, not installed) | **Yes, per token, and there is no free plan.** Claude Haiku 4.5 is listed at **$1 / MTok input and $5 / MTok output** on [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), read 2026-10-07 | **Yes, and it stops rather than warns — the strongest control of any service on this page.** A spend limit you set yourself is enforced: "When usage reaches a spend limit you set, requests return HTTP 400 with error type `invalid_request_error`." Limits can be set **per workspace**, which is what the Team Tasks workspace is for. The owner reports setting **5 USD a month**; that figure has not been seen in a dashboard here | **Not confirmed.** The pages read on 2026-10-07 describe what happens when a limit is *reached*, not any notification threshold. The owner reports notifications at **1** and **3** dollars; nothing read here confirms the feature exists or fires | [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · [Rate limits → Spend limits](https://platform.claude.com/docs/en/api/rate-limits#spend-limits) · [Setting your own spend limit](https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit) |
+| **Cloudflare R2** — where the nightly copy is kept (chosen 2026-10-10, nothing built) | **Yes, above the free tier**, and the free tier is generous for this: **10 GB-month of storage, 1 million Class A and 10 million Class B operations a month**, with **data transfer out free** across all storage classes. Past it, Standard storage is **$0.015 / GB-month**, Class A **$4.50 / million** and Class B **$0.36 / million** ([R2 pricing](https://developers.cloudflare.com/r2/pricing/), read 2026-10-10) | **NOT CONFIRMED** — whether Cloudflare offers a spend cap or a stop-at-quota switch was **not read** on 2026-10-10, and no page is cited for it. Whether a payment method is on the account has **not been checked**. What *is* known is that the usage this design can generate is far below the free tier at this group's size — see the backups section below for the headcount at which that stops being true | **NOT CONFIRMED** — whether usage alerts exist, and at what thresholds | [R2 pricing](https://developers.cloudflare.com/r2/pricing/) · [Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) |
 | **Domain registrar** — not chosen | **UNSURE** — depends entirely on the registrar. Domains are normally a fixed annual fee, not metered | **UNSURE** — and a spending cap is usually not applicable to a fixed annual fee | **UNSURE** | **UNSURE — no registrar chosen, so there is no documentation to link.** Fill this row in once one is picked |
 
 ## Notes per service
@@ -186,6 +196,41 @@ Unlike the Sentry row, the figures here were read from the vendor's own pages on
 - **Whether a payment method is on the Anthropic account has not been checked**, and a spend limit
   implies one. Check it in the Console before trusting the banner at the top of this page for this
   service.
+
+### Cloudflare R2
+
+Added 2026-10-10, when the owner chose R2 for the nightly copy (`docs/plan.md` → "A nightly copy of
+production, held by another company"; `docs/backups.md` is the map of what it covers). Like the Anthropic
+row and unlike Sentry's, the figures were read from the vendor's own page on that date.
+
+- **Nothing is built, so nothing has been stored and nothing can be billed today.** No workflow, no copy,
+  no object in the bucket. The bucket itself exists, by the owner's report of 10 October 2026.
+- **The free tier is the ceiling that matters here, and this design sits well inside it** at the plan's
+  six people. The backups section below has the arithmetic, including the **headcount at which it stops**
+  — which turns out to be lower than the headcount Supabase's own storage allowance runs out at, and is
+  therefore the number to remember.
+- **Neither a lifecycle rule nor a bucket lock has a price on the pages read.** The pricing page lists
+  storage, Class A, Class B and egress and nothing else, and neither the
+  [Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) nor the
+  [Bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/) page names a charge — read
+  2026-10-10. **Not confirmed rather than free**, which is a distinction this page keeps elsewhere. What a
+  lock *would* cost if it were ever set wrongly is **storage**: an object under lock cannot be deleted, so
+  if the lifecycle rule were removed or broken, copies would accumulate and could not be cleared for the
+  lock's duration. At a penny and a half a gigabyte-month that is pennies, and it is the mechanism rather
+  than the money to notice.
+- **Egress out of R2 is free**, which is the one place this choice makes something cheaper rather than
+  dearer: downloading a copy for a restore drill costs nothing at Cloudflare. **What is not free is the
+  Supabase egress the job spends reading the files every night**, and that is the finding in the backups
+  section.
+- **The failure mode past the free tier is a charge, not a stop** — unlike Vercel Hobby's 30-day wait,
+  GitHub's block with no card on file, Resend's no-overage-on-free and Supabase Free's grace period.
+  **Reading the "Hard spending cap?" column of the table above in this session, R2 is the only free tier on
+  this page whose overrun is a bill**, and the bill is **pennies at any size this app will be**: $0.015 a
+  GB-month means every gigabyte over the free ten costs about a penny and a half. (Anthropic also bills,
+  and it has no free tier at all, so it is a different shape of thing.)
+- **Whether a spend cap or an alert exists was not read**, which is the gap in its row above, and it is
+  smaller than it looks for exactly the reason in the bullet before this one. Still worth filling in before
+  a payment method goes on the account.
 
 ### Domain registrar
 
@@ -475,6 +520,144 @@ than one nobody revisits:
 If any of those arrives, this paragraph is the one to come back to, and the gap to design against is a
 per-person cap on opening files — which does not exist today and is not being built.
 
+## Backups: what the nightly copy and a restore drill cost
+
+Added 2026-10-10 for Build it 24 part 0 (`docs/plan.md` → "A nightly copy of production, held by another
+company"; `docs/backups.md` is the map of what is covered and what is not). **Documents only: there is no
+workflow, no copy has ever been made, no object exists in the bucket, and no restore has ever been tried.**
+Every figure below is read from a provider's page on that date and cited, or marked not confirmed.
+
+**Three things could cost something here, and which of the three it is will surprise you.** Keeping the
+copies is **free**. The restore drill costs **pennies**, because it creates a project. And **reading the
+files out of Supabase every night is the expensive one** — on the Free plan it would have been impossible,
+and it is affordable only because production moved to Pro **two days** after the attachments arithmetic was
+written against the free quota.
+
+### Supabase's paid plan, which production is now on
+
+**Production moved into a Pro organisation on 10 October 2026** (`evidence/production-log.md`), which
+`docs/plan.md`'s Budget has always planned for — "about $25 a month". Supabase's own page gives Pro as
+**"from $25/month"** ([Pricing](https://supabase.com/pricing), read 2026-10-10), and the Supabase row above
+already notes that **compute is excluded from the Spend Cap**, so that figure bills whatever the Cap says.
+**Staging stays on the free plan in its own organisation**, so nothing below applies to it — and the free
+plan's own line about backups is "Not included", which is the whole reason that page tells free projects
+to export for themselves.
+
+**What the move changes for this page beyond the backups**: the attachments egress arithmetic above was
+worked against the Free plan's 5 GB, and the sentence "the Free plan cannot generate overage charges" is
+no longer true of production. [#250](https://github.com/build-once/team-tasks/issues/250) holds that
+rework, and the one part of it that belongs here is immediately below, because the nightly copy makes it
+worse rather than better.
+
+### Keeping the copies: free at this group's size, and the number to remember is SEVEN
+
+Three inputs, all of them already decided or published:
+
+- **100 MB per person**, the plan's per-person attachment total, confirmed by the owner on 2026-10-08.
+- **Six people**, the plan's group size, and **31 days**, the longest month.
+- **14 nightly copies**, which is **PROPOSED and not decided** — `docs/plan.md` says so, and the number
+  below moves with it.
+- **A GB read as 1,000 MB**, the same conservative convention the attachments section above uses, because
+  neither page says which it means.
+
+| Line | Calculation | Result |
+|---|---|---|
+| One copy, worst case — the files | 6 × 100 MB | **600 MB** |
+| One copy — the database | — | **not measured, and small.** Production has no accounts, no tasks and no objects today, so a dump is schema and almost nothing else. Even full, seven tables of task text for six volunteers are dominated by the 600 MB above. **No figure is written here** |
+| **14 copies kept** | 14 × 600 MB | **8,400 MB — 8.4 GB** |
+| Against R2's free 10 GB-month | 8.4 vs 10 | **inside it, with 1.6 GB spare** |
+| 7 copies instead of 14 | 7 × 600 MB | **4.2 GB — 42% of the free tier** |
+| **People 14 copies allow inside the free tier** | 10,000 ÷ 14 ÷ 100 | **7.14, so SEVEN** |
+| Eight people, 14 copies | 8 × 100 × 14 | 11,200 MB — **over by 1.2 GB**, costing 1.2 × $0.015 = **about 2 cents a month** |
+| Ten people, 14 copies | 10 × 100 × 14 | 14,000 MB — over by 4 GB, **about 6 cents a month** |
+| **Cost at the plan's six people** | inside the free tier | **$0** |
+
+**So the number to remember is seven, and it is lower than the ten this page already had.** The
+attachments section above found that the 100 MB each fills Supabase's whole 1 GB at **ten** people. Keeping
+fourteen nightly copies of the same files fits **seven** and not eight. That is the first ceiling in this project
+that the *backup* hits before the *thing being backed up* does — and it is worth stating because the
+instinct is the other way round, that a backup is cheaper than the original. **It is not: it is fourteen
+originals.**
+
+**And going past it is a charge, not a stop**, which is the other reversal. Everywhere else on this page
+the free-tier failure mode is something stopping. R2 bills. **At about two cents a month for the eighth
+person it is not a risk to design against** — it is a fact to know before somebody is surprised by a
+Cloudflare invoice for the first time.
+
+### Reading the files every night: THIS is the expensive line, and it is Supabase's
+
+**The job downloads every file in the bucket every night**, and that is **Supabase egress**, which the
+attachments section above measures and which the nightly copy was not part of when that section was
+written.
+
+| Line | Calculation | Result |
+|---|---|---|
+| One night's read, worst case | 6 × 100 MB | **600 MB of Supabase egress** |
+| One month | 600 MB × 31 | **18,600 MB — 18.6 GB** |
+| Against the **Free** plan's 5 GB a month | 18.6 vs 5 | **3.7 times the entire allowance** |
+| Against the **Pro** plan's 250 GB a month | 18.6 vs 250 | **7.4% of it** |
+| Egress out of **R2**, for a restore | free across all storage classes | **$0** |
+
+**Read that table in the order it happened.** On 8 October this would have been impossible: 18.6 GB
+against a 5 GB free allowance, on top of an egress budget the same section already found too tight for
+people merely *opening* files. **Production moving to Pro on 10 October is what makes it affordable**, and
+it is pure luck of timing rather than planning — the transfer was about the $25 and the Spend Cap, and
+nobody weighed it against a backup job that did not exist yet. At 7.4% of Pro's 250 GB it is comfortable.
+**Staging could not carry this job at all**, which is one more reason it runs against production only.
+
+**The obvious saving, named and not designed: copy only what is new or changed.** An incremental copy would
+cut almost all of that read, because an attachment never changes once uploaded — the plan has no replace
+and no update policy. What it costs is that **a single night's copy stops being a complete copy**, so a
+restore needs the chain, and a broken link in the chain is a class of failure a full copy cannot have.
+**Not proposed here**, and this paragraph is the one to come back to if the egress figure ever matters.
+
+**And one thing that is not confirmed and would change the table above entirely**: whether Supabase meters
+a read made with an **S3 access key** as egress at all. The Unverified list already carries the same gap
+about uploads. If it is not metered, this whole section's cost is zero; if it is, the table stands. Nothing
+read on 2026-10-10 says which.
+
+### A restore drill: pennies, and the decision is which organisation it runs in
+
+A restore needs somewhere to restore *to*, and `docs/plan.md` says that is **a new temporary project,
+deleted the same day, never staging and never production**. What a project costs:
+
+- **Compute is hourly.** "Compute is charged by the hour, meaning you are charged for the exact number of
+  hours that a project is running", and "If a project runs for part of an hour, you are still charged for
+  the full hour."
+- **The smallest size is Micro, at `$0.01344` an hour (~$10 a month)**, and on a paid organisation there is
+  no cheaper tier: "in paid organizations, Nano Compute are billed at the same price as Micro Compute."
+- **The Pro plan's compute credit is already spent.** "Paid plans include $10 in Compute Credits, which
+  cover one project running on the Micro/Nano Compute size" — one project, and production is it. "Each
+  project you launch increases your monthly Compute costs."
+  (All four quotes: [Manage your usage → Compute](https://supabase.com/docs/guides/platform/manage-your-usage/compute), read 2026-10-10.)
+
+| Drill, in the Pro organisation | Calculation | Cost |
+|---|---|---|
+| A 4-hour drill | 4 × $0.01344 | **$0.054** |
+| A whole day, project deleted that evening | 24 × $0.01344 | **$0.323** |
+
+**So the money was never the question. Which organisation it runs in was, and the owner decided on
+2026-10-10: the Pro organisation.** The three options are kept as they were put, because the one chosen is
+also the one that costs money and the reason is worth being able to re-read:
+
+| Option | Cost | What is wrong with it |
+|---|---|---|
+| **A temporary project in the Pro organisation — CHOSEN, 2026-10-10** | about **5 to 33 cents** per drill | Nothing, beyond remembering to delete it. The hourly billing means a forgotten project quietly becomes ~$10 a month, which is the only trap — so **deleting the project is part of the drill** rather than tidying up afterwards |
+| **A temporary project in the free staging organisation** | **$0** — the Free plan's own limit is "Limit of 2 active projects" per organisation ([Pricing](https://supabase.com/pricing), read 2026-10-10), and staging is one of the two | **It puts production's real data in the organisation staging lives in**, and the coding assistant holds keys for that organisation's other project. `docs/environments.md`'s rule is "Production data is never copied to local or staging", and this is the letter of it kept while the spirit is not |
+| **A local PostgreSQL sandbox**, the way migrations are already proved in this project | **$0** | It restores the **database** and cannot test the two halves that matter most: **signing in**, and **the files**. Useful as a first pass on the dump, not as the drill |
+
+**One more cost, and it is the one nobody budgets: the owner's time.** The drill is the owner's from start
+to finish — `docs/plan.md` says the coach and the coding assistant never receive a backup file — and its
+whole purpose is to produce a wall-clock number for "how long are we down". That number has never been
+measured ([#249](https://github.com/build-once/team-tasks/issues/249)).
+
+### No change to the £30 ceiling
+
+At the plan's six people the nightly copy adds **£0**: R2's free tier covers the storage, R2's egress is
+free, and the Supabase egress it spends is 7.4% of a Pro allowance already being paid for. The restore
+drill is pennies per run and is a deliberate spend rather than a surprise. `docs/plan.md`'s Budget says the
+same thing in one paragraph.
+
 ## Unverified
 
 These are gaps in this page, not findings. Resolved items are listed at the end so the same
@@ -566,6 +749,37 @@ question does not get re-asked from scratch.
   is written anywhere.
 - **Not confirmed — whether a GB in those two Supabase quotas is 1,000 MB or 1,024 MB.** Neither page
   says. The arithmetic uses 1,000, which understates the room rather than overstating it.
+- **The five backup gaps below are gathered, with the ones in `docs/plan.md`, in
+  [#256](https://github.com/build-once/team-tasks/issues/256)** — six questions with what to read or try
+  for each and how somebody else can tell it is settled, the same way
+  [#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones. **The S3-egress
+  one is the most expensive unknown on this page.**
+- **Unverified — the whole backups section is arithmetic on a design, and NOTHING IS BUILT.** Added
+  2026-10-10 for Build it 24 part 0. There is **no workflow, no copy, no object in the bucket, no lifecycle
+  rule and no restore drill**, so nothing has been stored, nothing has been read and no allowance has been
+  touched. The **14-copy window is a proposal**, not a decision, and every figure in that section moves
+  with it.
+- **Not confirmed — whether an R2 lifecycle rule or a bucket lock rule is charged for.** The pricing page
+  lists four things and neither of those two is among them; neither feature's own page names a price. The
+  backups section says "not confirmed" rather than "free", and the only cost either could produce is
+  storage that a lock stops anybody clearing.
+- **Not read — whether Cloudflare R2 offers a spend cap, a stop-at-quota switch, or usage alerts.** Its
+  row above says so. The pricing page was read on 2026-10-10 and gives the free tier and the rates; no page
+  about billing controls was read, and none is linked. It matters less than it would elsewhere, because the
+  worst case this design generates is **cents** — but R2 **bills** past the free tier rather than stopping,
+  which makes it the only service on this page where the free-tier failure mode is a charge.
+- **Not checked — whether the Cloudflare account has a payment method on file.** As with Sentry and
+  Anthropic, the banner at the top of this page was written of four other services.
+- **Not confirmed — whether Supabase meters a Storage read made with an S3 access key as egress.** The
+  nightly copy's 18.6 GB a month rests entirely on it being metered. **If it is not, that whole line costs
+  zero**; if it is, the table stands. This is the same shape of gap as the upload entry below it and is the
+  more expensive of the two.
+- **Not measured — how big a database dump of production is.** The backups section deliberately writes no
+  figure: production has no accounts, no tasks and no objects today, and nobody has run a dump. The files
+  dominate the total at any size this app will be, which is why the arithmetic is built on them.
+- **Not priced — Supabase's Point-in-Time Recovery add-on**, which is the thing that would close the
+  one-day window the daily backups leave. `docs/backups.md` quotes Supabase describing it; no price for it
+  was read on 2026-10-10 and none is written anywhere in this repository.
 - **All five attachment gaps above are gathered in
   [#231](https://github.com/build-once/team-tasks/issues/231)**, with what to read or try for each and
   how somebody else can tell it is settled, alongside the ones that live in `docs/plan.md`.
@@ -601,6 +815,11 @@ service, the authoritative place is the billing settings page of the real accoun
    limit is set to 5 USD, note which usage tier the organisation is on, and check whether a payment
    method is on file. While you are there, look for whether notifications at 1 and 3 dollars exist as a
    setting at all — nothing read on 2026-10-07 says they do.
-7. **Registrar** → record the renewal price, not the introductory price.
+7. **Cloudflare** → the R2 bucket's own usage page → read the stored size against the **10 GB-month** free
+   tier and the operation counts against the **1 million / 10 million**, and check whether a payment method
+   is on the account. While you are there, look for whether a spend cap or a usage alert exists as a
+   setting at all — nothing read on 2026-10-10 says it does. **And confirm the lifecycle rule is actually
+   there**, because it is what makes the retention window real rather than intended.
+8. **Registrar** → record the renewal price, not the introductory price.
 
 Do that before real users arrive, alongside `docs/launch-check.md`.

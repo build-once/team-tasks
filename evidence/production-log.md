@@ -346,6 +346,69 @@ whatever the setting says.
 
 ---
 
+## 2026-10-09
+
+**Recorded on 10 Oct 2026, a day late, and that is a fault in this file rather than in the read.** Rule 19
+says every production action goes here **in the same session it happened**; this one happened on 9 October
+and is written on the 10th, from the record the coach left in a pull-request comment. It is **not
+backdated**: the date above is the day of the read, and this paragraph is when it was written down. The
+reason it is here now is that the owner asked for it in this session so that
+[#243](https://github.com/build-once/team-tasks/issues/243) could be closed, and #243 asks for the read to
+be recorded in this file.
+
+**Where this entry comes from.** The **"Coach review" comment on
+[PR #245](https://github.com/build-once/team-tasks/pull/245)**, dated 2026-10-09T14:39:37Z, read with
+`gh pr view 245 --json comments` in this session. The record is the coach's, through the **production
+read-only connector**; **the assistant has no production access of any kind, opened no dashboard and used
+no connector**, and has verified nothing in it. This pull request's own instructions forbid the connector
+and the browser, as #211's did.
+
+**On the time.** The comment carries a timestamp and the read does not. What is known is that the read
+happened on or before 2026-10-09T14:39:37Z, which is when the comment was posted, and after the merge of
+PR #241 put the migration on production that morning.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| On or before 14:39:37 UTC — no time given for the read itself | The coach (claude.ai), via the production read-only connector | One read of **the `attachments` bucket's settings, its policies, one trigger and a count — no row contents** | Answer [#243](https://github.com/build-once/team-tasks/issues/243): the attachments migration was applied to production by the pipeline and **nothing had been read back**, so a green workflow run was the only evidence that the bucket is private and the three policies exist | > **Production (answers #243), read-only connector, 9 Oct:** 11 migrations, newest `20261008191804`; bucket `attachments` private, limit 5242880, the six named types; three policies on `storage.objects` (SELECT, INSERT, DELETE), each to `authenticated`; trigger `tasks_refuse_delete_with_files` present; 0 objects. No row contents read. |
+
+**What it settles, which is what the workflow run could not say.**
+`.github/workflows/migrate-production.yml` run
+[37922812469](https://github.com/build-once/team-tasks/actions/runs/37922812469) reported "Apply migrations
+to production: success", and #243's whole argument is that a green run says the statements ran and not what
+they left behind. Four of its six questions are now answered off production itself:
+
+- **the bucket is private, with the 5 MB limit and the six named types** — #243's question 2, and the one
+  the migration's own words call the difference between rules and decoration: "A public bucket would make
+  every rule in that migration decoration";
+- **three policies on `storage.objects`, SELECT, INSERT and DELETE, each `to authenticated`** — question 3,
+  including its "and **no UPDATE policy**", which three-and-only-three answers: nothing in this design
+  overwrites a file;
+- **the trigger `tasks_refuse_delete_with_files` is there** — question 5, which is what makes "no orphaned
+  files" a property of the database;
+- **0 objects in the bucket** — question 6, which is expected and worth having: nobody has signed up to
+  production and the files panel is deployed nowhere, so a non-zero count would have been the finding.
+
+**TWO OF #243's SIX QUESTIONS ARE NOT ANSWERED BY THIS READ**, and they are named here rather than left for
+somebody to notice that the list is short:
+
+- **Question 1: whether `storage.objects` has row-level security switched on.** #243 asks for
+  `select relrowsecurity from pg_class where oid = 'storage.objects'::regclass` to come back **true**, and
+  this record does not report it. It matters for the reason #243 gives: the migration deliberately does not
+  switch RLS on, because that is a Supabase-managed table, so **with RLS off the three policies filter
+  nothing and every signed-in caller reaches every object**. Three policies existing is not the same fact.
+- **Question 4: the two function privileges.** `attachments_may_add(text, text)` executable by
+  `authenticated` and **not** by `anon`; `attachments_lock_key(text, uuid)` executable by **nobody**. The
+  staging read-back checked the first of those; this production read reports neither, and they are what the
+  two counted limits rest on.
+
+**Neither gap is a reason to doubt what the read did say**, and neither is small enough to paper over —
+which is why #243 is closed on the four it answers and
+[#253](https://github.com/build-once/team-tasks/issues/253) holds the two it does not. The
+honest summary: **production's bucket is private with the right limits and the right three policies, and
+whether anything is actually filtering them has not been read.**
+
+---
+
 ## 2026-10-10
 
 **The first entry in this file that is not a read.** Production was moved into a different
@@ -452,7 +515,50 @@ project's URL or keys, and nothing here says whether either changed.
 **What none of these rows touches: the bucket's own rules on production.**
 [#243](https://github.com/build-once/team-tasks/issues/243) asks for the bucket row, the three
 policies and their privileges to be read back on production, and this read was of the migration
-record. #243 stays open.
+record. **The bucket's own settings were read a day earlier** — the `2026-10-09` section above — and
+**the last two of #243's six questions were read later on this day**, which is the section below.
+
+### Later on 2026-10-10: the last two of #243's six, read on production
+
+**Where this comes from.** A **coach comment on
+[PR #257](https://github.com/build-once/team-tasks/pull/257)**, dated 2026-10-10T08:58:56Z, read with
+`gh pr view 257 --json comments` in this session. The read is the coach's, through the **production
+read-only connector**. **The assistant has no production access of any kind, opened no dashboard and used
+no connector**, and has verified nothing in it. This pull request's own instructions forbid the connector
+and the browser.
+
+**Why it is its own subsection rather than a row in the table above.** That table is the owner's actions,
+from the owner's words. This is the coach's read, and mixing the two sources in one table is how a log
+stops being able to say who did what.
+
+| Time (UTC) | Who | What | Why | Result |
+|---|---|---|---|---|
+| On or before 08:58:56 | The coach (claude.ai), via the production read-only connector | One read of **`relrowsecurity` on `storage.objects` and the execute rights on four functions — settings only, no row contents** | Answer the two questions [#243](https://github.com/build-once/team-tasks/issues/243) left and [#253](https://github.com/build-once/team-tasks/issues/253) was opened for: whether the three policies are actually being applied, and whether the helper functions are reachable by the wrong role | > `storage.objects` has row-level security **on** (`relrowsecurity = true`). So the three policies do filter. Execute rights: `attachments_may_add(text, text)`, `attachments_task_id(text)` and `attachments_file_bytes(text)` are executable by `authenticated` and **not** by `anon`; `attachments_lock_key(text, uuid)` is executable by **neither** (it is called only from inside `attachments_may_add`, which is `security definer`). |
+
+**What it settles, and it is the one that could have made the 9 October read meaningless.**
+[#243](https://github.com/build-once/team-tasks/issues/243)'s own words were: "With RLS off, a permissive
+policy admits nothing extra because nothing is being filtered: every signed-in caller would reach every
+object." So "three policies, each `to authenticated`" was confirmed on the 9th and said nothing about
+whether anything was applying them. **It is on.** Three policies and a filter, not three policies and a
+decoration.
+
+**And the function privileges, which are what the two counted limits rest on.** The migration's own
+statements are `supabase/migrations/20261008191804_attachments_bucket.sql` lines 288–290, 346–348,
+400–403 and 626–628; this read is those statements having taken effect on production. **It reports more
+than #243 asked for**: #243 named two functions and the coach read four, adding `attachments_task_id` and
+`attachments_file_bytes` — the two the `SELECT` and `INSERT` policies call to read a path and a size.
+
+**One sliver of #243's question 4 is not in those words, and it is named rather than rounded up.** #243
+asked for `attachments_lock_key` to be **false for all three** of `anon`, `authenticated` and
+`service_role`. The coach's "executable by neither" covers the two roles named beside it. **`service_role`
+is not named in the read.** What stands in its place is the migration's own line 403,
+`revoke execute on function public.attachments_lock_key(text, uuid) from service_role;`, plus the
+observed fact that the same revoke pattern took effect for `anon` and `authenticated` on this project —
+which is reasoning from a statement and a neighbouring read, not a read of that privilege. It is the
+smallest thing in this file, and it is written down rather than quietly absorbed into "answered".
+
+**So #253 is answered and closed**, and `docs/environments.md`'s production cell for that migration says
+what both reads found rather than what has not been read.
 
 ---
 
