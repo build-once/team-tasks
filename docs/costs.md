@@ -739,6 +739,11 @@ question does not get re-asked from scratch.
   is written anywhere.
 - **Not confirmed — whether a GB in those two Supabase quotas is 1,000 MB or 1,024 MB.** Neither page
   says. The arithmetic uses 1,000, which understates the room rather than overstating it.
+- **The five backup gaps below are gathered, with the ones in `docs/plan.md`, in
+  [#256](https://github.com/build-once/team-tasks/issues/256)** — six questions with what to read or try
+  for each and how somebody else can tell it is settled, the same way
+  [#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones. **The S3-egress
+  one is the most expensive unknown on this page.**
 - **Unverified — the whole backups section is arithmetic on a design, and NOTHING IS BUILT.** Added
   2026-10-10 for Build it 24 part 0. There is **no workflow, no copy, no object in the bucket, no lifecycle
   rule and no restore drill**, so nothing has been stored, nothing has been read and no allowance has been

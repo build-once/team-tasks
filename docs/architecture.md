@@ -763,7 +763,7 @@ has to take both as near the same moment as it can and **say in the file which i
 on restore, a row without a file is a file the app offers and cannot open, and a file without a row is
 bytes nobody can reach.
 
-### The credential the bucket half needs, which does not exist
+### The credential the bucket half needs, which does not exist ([#254](https://github.com/build-once/team-tasks/issues/254))
 
 **Neither secret in that environment can read a file's bytes.** This is worth being exact about, because
 "the pipeline already has production credentials" is the easy wrong answer:
@@ -823,7 +823,8 @@ lost passphrase cannot be recovered.**
 Four things, named so they are open questions rather than gaps somebody finds while building. All four are
 at the top of the pull request.
 
-- **The credential for the bucket half**, above. Nothing can be built until it is settled.
+- **The credential for the bucket half**, above — [#254](https://github.com/build-once/team-tasks/issues/254).
+  Nothing can be built until it is settled.
 - **The two targets** — how much data we are willing to lose, and how long we are willing to be down.
   `docs/backups.md` proposes a day and a few hours and says what today's answers are against them.
 - **The retention window and how old copies are removed.** `docs/plan.md` proposes 14 days by an R2
@@ -831,6 +832,11 @@ at the top of the pull request.
 - **How a failed run reaches a person.** A backup job that quietly stopped manufactures confidence, so
   this matters more than it sounds. The two shapes already in this repository are GitHub's own failure
   email and `drift-check.yml`'s habit of opening an issue.
+
+And the six facts this section's citations do **not** cover are gathered in
+[#256](https://github.com/build-once/team-tasks/issues/256), two of which decide what gets built:
+whether a Supabase backup includes the `auth` schema at all, and whether a Storage read made with an S3
+access key is metered as egress.
 
 And two things it does **not** leave open, because they are not choices: **no artifact is ever uploaded**
 (on a public repository that is a downloadable copy of production's database), and **the log carries names,

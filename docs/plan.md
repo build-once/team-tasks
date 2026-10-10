@@ -2031,7 +2031,12 @@ second rests entirely on one passphrase.
   `team-tasks-backups`, no lifecycle rule, no restore drill and no evidence file. The section is a design
   and the arithmetic in `docs/costs.md` is arithmetic on a design. **Three of its decisions are still
   open and are listed at the top of that pull request**: the two targets, the retention window and how it
-  is removed, and how a failed run reaches a person.
+  is removed, and how a failed run reaches a person. **And one thing stops it being buildable at all:
+  nothing in production's GitHub environment can read a file's bytes, so the bucket half needs a
+  credential that does not exist** — [#254](https://github.com/build-once/team-tasks/issues/254), which
+  carries the options and what each of them reaches. Six facts these sections cite nothing for are
+  gathered in [#256](https://github.com/build-once/team-tasks/issues/256), and the three new secrets being
+  in no document is [#255](https://github.com/build-once/team-tasks/issues/255).
 - **Owner-reported, not seen by anybody writing this — the Cloudflare bucket, the token and the three
   secrets.** A private R2 bucket `team-tasks-backups` in **Western Europe (WEUR)**, public development URL
   **disabled**, **no custom domain** (the coach saw that settings page); an R2 API token named

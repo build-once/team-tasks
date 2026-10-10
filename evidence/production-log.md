@@ -402,7 +402,8 @@ somebody to notice that the list is short:
   two counted limits rest on.
 
 **Neither gap is a reason to doubt what the read did say**, and neither is small enough to paper over —
-which is why #243 is closed on the four it answers with a follow-up issue holding the two it does not. The
+which is why #243 is closed on the four it answers and
+[#253](https://github.com/build-once/team-tasks/issues/253) holds the two it does not. The
 honest summary: **production's bucket is private with the right limits and the right three policies, and
 whether anything is actually filtering them has not been read.**
 
