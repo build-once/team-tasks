@@ -680,6 +680,134 @@ jobs:
             exit 1
           fi
 
+  # THE NIGHTLY COPY, RUN END TO END WITH NO REAL DATA: issue #258, Build it 24
+  # part 1. The thing .github/workflows/backup-production.yml does every night
+  # against production is done here against a throwaway PostgreSQL seeded with
+  # made-up accounts, tasks and storage records, and a stand-in for both object
+  # stores -- back up, encrypt, upload, verify, download, decrypt, restore,
+  # compare.
+  #
+  # WHY IT IS WORTH A JOB OF ITS OWN. A backup is the one piece of code whose
+  # failure is invisible until the day it matters, and whose success cannot be
+  # checked by looking at production (rules 1 and 10 forbid it, and nobody
+  # should be restoring production to find out). So the only honest place to
+  # exercise it is a world made of made-up data, and the only honest time is
+  # every pull request.
+  #
+  # AND IT IS SEEN TO FAIL. The five things issue #258 names each have a case
+  # that must come out FAIL before the run is allowed to pass: the accounts
+  # left out of the dump, a file missing from the copy, the copy uploaded
+  # unencrypted, the wrong passphrase, and a secret or a row appearing in the
+  # log. Those are the lines beginning "PASS  SEEN TO FAIL:".
+  #
+  # NO CREDENTIAL OF ANY KIND. Every setting the scripts read is a made-up
+  # value invented in scripts/backup/proof.mjs, pointing at 127.0.0.1. This job
+  # names no environment, holds no secret, and reaches no Supabase project,
+  # staging or production. It cannot: the script refuses a database URL whose
+  # host is not this machine.
+  #
+  # ubuntu-24.04 RATHER THAN ubuntu-latest, because this job and the nightly
+  # one must run on the same image for the versions below to mean anything.
+  #
+  # AND IT USES POSTGRESQL 17, NOT THE IMAGE'S OWN 16. The image carries 16.15
+  # (its README, read 2026-10-10) and **production is PostgreSQL 17.6** -- the
+  # coach's read through the production read-only connector on that date. So
+  # this job installs the 17 client AND a 17 server with the very same script
+  # the nightly job uses, `scripts/backup/install-pg17.sh`. That is the coach's
+  # requirement from the review of PR #265, and the reason is sharp: against a
+  # 16 server, the "seen to fail with a 16 client" case below would pass for
+  # the wrong reason, because a 16 client against a 16 server is fine.
+  backup-proof:
+    name: Nightly copy, end to end on made-up data (backup, encrypt, restore, compare)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # A FLOOR, not an equality, as the counting jobs above. Counted from the
+      # script's own output on 2026-10-10:
+      # evidence/build-it-24-nightly-copy.md has the runs.
+      #
+      # 114 -> 127 AFTER THE COACH'S REVIEW OF PR #265, which answered #262:
+      # production is PostgreSQL 17.6, so the client has to be 17 and the proof
+      # has to run against a 17 server. Thirteen checks: eight over the
+      # version judgement itself (including the real 16-against-17 pair that
+      # would have stopped the first run), two that assert this job's own
+      # premise -- that the server really is major 17 and the client matches it
+      # -- and three that run the refusal END TO END with the image's own
+      # 16.15 binary.
+      #
+      # THOSE LAST THREE ARE WHY THIS NUMBER IS 127 AND NOT 124. On a machine
+      # with only one PostgreSQL the script prints UNVERIFIED for them and
+      # counts nothing, which is what a local run on Windows does. Here the
+      # 16 client is on the image, so they run -- and this floor is what makes
+      # them run, because the job goes red if they are skipped.
+      EXPECTED_BACKUP_CHECKS: "127"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      # THE SAME SCRIPT THE NIGHTLY JOB RUNS, with --with-server so this one
+      # gets a version 17 SERVER as well as the version 17 client. That is the
+      # coach's requirement from the review of PR #265, and the reason for it
+      # is exact: production is PostgreSQL 17.6, and a proof run against the
+      # image's own 16 server would exercise a pair of versions the nightly job
+      # will never see -- and would make the "seen to fail with a 16 client"
+      # case pass for the wrong reason, because a 16 client against a 16 server
+      # is fine. One script, so the proof and the job cannot drift apart.
+      - name: Install the PostgreSQL 17 client and server, pinned and verified
+        run: sh scripts/backup/install-pg17.sh --with-server
+      - name: Create and start the version 17 cluster, and read its port rather than guess it
+        run: |
+          set -euo pipefail
+          # THE CLUSTER IS CREATED EXPLICITLY, and the first version of this
+          # step did not do that and failed: installing `postgresql-17` on this
+          # image creates NO cluster. `pg_lsclusters` listed only "16 main",
+          # and `pg_ctlcluster 17 main start` answered "specified cluster '17
+          # main' does not exist" -- the runner image turns the automatic
+          # creation off, which is the same reason its own 16 server is `down`
+          # until a job starts it. So the cluster is made here rather than
+          # hoped for, and the step is idempotent so a re-run is harmless.
+          if ! pg_lsclusters -h | awk '$1 == "17" && $2 == "main" { found = 1 } END { exit !found }'; then
+            sudo pg_createcluster 17 main --start
+          fi
+          sudo pg_ctlcluster 17 main start || true
+          pg_lsclusters
+          # The PORT depends on what the image already had configured: 5432
+          # belongs to the image's own 16 cluster, so 17/main lands on 5433.
+          # It is READ rather than assumed, because a wrong guess here would
+          # point the proof at the 16 server and quietly prove the wrong thing.
+          port="$(pg_lsclusters -h | awk '$1 == "17" && $2 == "main" { print $3 }')"
+          if [ -z "$port" ]; then
+            echo "::error::No PostgreSQL 17 cluster is configured, so the nightly copy could not be exercised against the version production runs. That is UNVERIFIED, not a pass (AGENTS.md rule 8)."
+            exit 1
+          fi
+          # The runner user is not `postgres`, and Ubuntu's default pg_hba uses
+          # peer authentication for local connections -- so a password is set
+          # for the loopback connection the proof makes. It is the word
+          # "postgres", in a throwaway cluster, on a machine that is destroyed
+          # when this job ends; it is not a secret and is deliberately written
+          # in the open, like the placeholder settings in app-build above.
+          sudo -u postgres "$BACKUP_PSQL" --port "$port" -c "ALTER USER postgres PASSWORD 'postgres'"
+          echo "BACKUP_PROOF_DB_URL=postgresql://postgres:postgres@127.0.0.1:$port/postgres" >> "$GITHUB_ENV"
+          "$BACKUP_PSQL" --version
+          openssl version
+      - name: Back up, encrypt, upload, verify, download, decrypt, restore, compare
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/backup-proof.log"
+          node scripts/backup/proof.mjs | tee "$log"
+          count=$(grep -c '^PASS ' "$log" || true)
+          : "${count:=0}"
+          echo "backup-proof: counted $count PASS lines; at least $EXPECTED_BACKUP_CHECKS expected."
+          if [ "$count" -lt "$EXPECTED_BACKUP_CHECKS" ]; then
+            echo "::error::backup-proof ran $count checks, fewer than the $EXPECTED_BACKUP_CHECKS expected. Either the script lost checks or the end-to-end half did not run -- and a backup nobody exercised is a belief about a backup. Restore them, or lower the expected number on purpose and say why."
+            exit 1
+          fi
+
   # The full test suite on Windows and macOS. The jobs above run on Linux.
   # This caught (and now guards against) path bugs that only show up off Linux.
   other-os:
@@ -1016,7 +1144,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, other-os, secret-scan, app-build, app-tests]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, backup-proof, other-os, secret-scan, app-build, app-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -1024,7 +1152,8 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "14"
+          # 14 -> 15 with Build it 24 part 1 (issue #258): backup-proof.
+          EXPECTED_JOBS: "15"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"

@@ -102,10 +102,24 @@ scrapers watch new public commits for exactly that.
   `SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are also there, but nobody sets them: Supabase
   pre-populates both, and `withSupabase` reads them. The secret key bypasses every row-level security
   rule, which is why no function ever writes it into a file or a log.
-- **GitHub Actions secrets**, for deploy credentials. Three exist, all used only by
-  `.github/workflows/migrate-production.yml`. They live in the **`supabase-production` environment**,
-  not in the repository's Actions secrets — **Settings → Environments → supabase-production**, with
-  deployment branches limited to `main`.
+- **GitHub Actions secrets**, for credentials CI uses. **Eight exist, plus three plain variables**, all
+  in the **`supabase-production` environment** — **Settings → Environments → supabase-production**, with
+  deployment branches limited to `main`, and not in the repository's Actions secrets.
+
+  **This bullet said "Three exist, all used only by `migrate-production.yml`" until 2026-10-10**, and the
+  nightly copy of production ([#258](https://github.com/build-once/team-tasks/issues/258)) is what made
+  that wrong: it added five more settings and a second workflow that reads them. The count and the list
+  below are the fix for the first half of
+  [#255](https://github.com/build-once/team-tasks/issues/255); the section **"Every setting production
+  needs"** at the end of this file is the fix for its second and worse half, which is that nothing
+  anywhere listed what production needs in order to be stood up again.
+
+  **One sentence this file and `docs/architecture.md` both used to lean on is now true only on a careful
+  reading**: that GitHub Actions secrets hold "deploy credentials and nothing else". A backup passphrase
+  is not a deploy credential and it is not a run-time app key either. What is still true, and is the thing
+  that sentence was protecting, is that **no key the running app uses is here**: the service-role key, the
+  Resend key and the Anthropic key live only in Supabase's own function settings. The right reading is
+  "credentials CI uses, never a run-time app key", and that is how it is written above.
 
   **Why an environment and not repository secrets.** A repository secret is readable by a workflow
   running on *any* branch, and a workflow file is just a file in the branch — so anyone who can push a
@@ -131,12 +145,47 @@ scrapers watch new public commits for exactly that.
     account settings, and nothing but Edge Functions through the Management API.
   - `PRODUCTION_SUPABASE_PROJECT_REF` — names the project to deploy to. Not a credential on its own;
     kept secret to keep the production project id out of the repository. Used by `deploy-functions`
-    and by `smoke-test`, which builds the function URLs from it.
+    and by `smoke-test`, which builds the function URLs from it — and, since 2026-10-10, by the nightly
+    copy, which builds the Storage endpoint from it.
 
-  **The same environment also holds one plain variable, not a secret**, under *Environment variables*:
-  `PRODUCTION_SITE_URL`, the production home page address that the `smoke-test` job fetches expecting
-  200. It grants nothing, so it is not in the list above. It is still never printed: GitHub masks
-  secrets in run logs but **not** variables, and this repository's run logs are public. See
+  **And five added on 2026-10-10 for the nightly copy** (`docs/plan.md` → "A nightly copy of production,
+  held by another company"), read only by `.github/workflows/backup-production.yml`:
+
+  - `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` and `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` — a Supabase
+    **S3 access key** for the production project, which is how the job reads the bytes of every attached
+    file. **Know what it reaches**: Supabase's own words are that such keys "provide full access to all
+    S3 operations across all buckets and bypass RLS policies"
+    ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10).
+    The owner accepted that cost on 2026-10-10 **rather than using the service-role key**, for one
+    reason: this one cannot write to `tasks`, and a backup credential should not be able to change the
+    thing it is backing up.
+  - `BACKUP_STORAGE_KEY` and `BACKUP_STORAGE_SECRET` — the Cloudflare R2 API token
+    (`team-tasks-backup-job`, **Object Read & Write**, limited to the `team-tasks-backups` bucket) that
+    the copy is written with. **Holding both gets you the encrypted files and nothing readable.**
+  - `BACKUP_PASSPHRASE` — what each copy is encrypted with, on the runner, before it leaves.
+    **THIS IS THE ONE VALUE IN THIS PROJECT THAT CANNOT BE RE-ISSUED.** A GitHub secret cannot be read
+    back once set, so the **owner's password manager holds the only readable copy in existence**. If it
+    is lost, every copy in that bucket becomes bytes — not openable by the owner, by Cloudflare, or by
+    anybody, with no reset and no support request that helps. It is therefore the most valuable string
+    here, ahead of the service-role key, because a leaked key can be rotated and a lost passphrase
+    cannot be recovered. `docs/backups.md` → "The one thing that cannot be recovered" is the argument in
+    full.
+
+  **The same environment also holds three plain variables, not secrets**, under *Environment variables*:
+
+  - `PRODUCTION_SITE_URL` — the production home page address that the `smoke-test` job fetches expecting
+    200.
+  - `BACKUP_STORAGE_ENDPOINT` — the R2 S3 endpoint, of the shape
+    `https://<cloudflare account id>.r2.cloudflarestorage.com`. A variable because an endpoint is not a
+    credential, and **not in this repository** because the value embeds the Cloudflare account id and
+    this repository is public (the owner's decision of 2026-10-10).
+  - `PRODUCTION_SUPABASE_S3_REGION` — the production project's region, which S3 request signing needs.
+    Supabase's page says to use "the region value displayed on the S3 configuration page", so it cannot
+    be guessed or derived, and the job stops naming this variable rather than signing with a region it
+    made up.
+
+  None of the three grants anything, so none is in the list above. **All three are still never printed:**
+  GitHub masks secrets in run logs but **not** variables, and this repository's run logs are public. See
   `docs/environments.md` → *One environment variable, which is not a secret*.
 
   The sentence above about "an automated actor that can push branches is coming" is no longer about
@@ -207,6 +256,77 @@ scrapers watch new public commits for exactly that.
 Never in a committed file, never in a commit message, never in an issue or pull request, never in
 chat. `.env.example` holds names with empty values and nothing else. See `docs/environments.md`.
 
+## Every setting production needs, and where each one comes from again
+
+Added 2026-10-10 for [#255](https://github.com/build-once/team-tasks/issues/255), whose second and
+older complaint was that **nothing in this repository listed which secrets production needs at all.**
+`docs/backups.md`'s map puts it in one sentence: "**What is missing is not a copy but a list** — nothing
+in this repository enumerates which secrets production needs, so 'set them again' rests on somebody
+remembering."
+
+**Why a list and not a backup.** Secrets are deliberately **not** in the nightly copy, and that is
+correct: a backup of a secret is another copy of a secret. The consequence is that standing production
+up again needs a list of **names and sources** — which is free, carries no value, and did not exist.
+This is it.
+
+**NAMES AND SOURCES ONLY. No value of any kind is in this table, or anywhere in this repository**
+(rule 7). Nineteen settings, counted here by reading the four groups below.
+
+### Supabase → the production project → Edge Functions secrets
+
+Five, and the app cannot send an invitation without the first three.
+
+| Name | Where it comes from again | If it is lost |
+|---|---|---|
+| `EMAIL_API_KEY` | Resend → API Keys → a new key with sending limited to `notify.raj-dhonota.com` | Re-issue, then revoke the old one |
+| `EMAIL_FROM` | A decision, not a credential: the address invitations come from | Re-type it |
+| `APP_URL` | The production site's own `https` address | Re-type it |
+| `EMAIL_DELIVERY` | Exactly `live`, and nothing else is accepted | Re-type it |
+| `AI_API_KEY` | Anthropic Console → the **Team Tasks** workspace. **Production has none on purpose** until `docs/plan.md`'s three preconditions are met | Re-issue |
+
+`SUPABASE_URL` and `SUPABASE_SECRET_KEYS` are in that settings page too and **nobody sets them**:
+Supabase pre-populates both. The secret key is re-issued from the project's own API Keys page if it ever
+has to be, which also invalidates the old one everywhere.
+
+### GitHub → Settings → Environments → `supabase-production`
+
+Eight secrets and three variables, listed with what each reaches in "Where secrets are allowed to live"
+above. Where each comes from again:
+
+| Name | Where it comes from again |
+|---|---|
+| `PRODUCTION_SUPABASE_DB_URL` | Supabase → the project → Settings → Database → the **Session pooler** string, password percent-encoded |
+| `PRODUCTION_SUPABASE_ACCESS_TOKEN` | Supabase account → Access Tokens → a **scoped** token, production project, **Edge Functions Read-write** only. See "Rotating the access token" below |
+| `PRODUCTION_SUPABASE_PROJECT_REF` | The project's own reference, from its dashboard URL |
+| `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | Supabase → the project → Storage → S3 configuration → a new access key |
+| `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | Shown once, when that key is created. Not readable afterwards — make a new key instead |
+| `BACKUP_STORAGE_KEY` | Cloudflare → R2 → API tokens → a new **Object Read & Write** token for `team-tasks-backups` |
+| `BACKUP_STORAGE_SECRET` | Shown once, when that token is created |
+| **`BACKUP_PASSPHRASE`** | **NOWHERE. IT CANNOT BE RE-ISSUED.** The owner's password manager holds the only readable copy; a GitHub secret cannot be read back. Generating a new one does not open the old copies — it only means tonight's copy can be opened and the fortnight of copies before it cannot. **If it is lost, say so immediately and treat every existing copy as gone** |
+| `PRODUCTION_SITE_URL` *(variable)* | The production home page address |
+| `BACKUP_STORAGE_ENDPOINT` *(variable)* | Cloudflare → R2 → the bucket's S3 API address, `https://<account id>.r2.cloudflarestorage.com` |
+| `PRODUCTION_SUPABASE_S3_REGION` *(variable)* | Supabase → the project → Storage → S3 configuration, the region shown there |
+
+### GitHub → Settings → Environments → `claude`
+
+Three, for level 2, listed in full above: `APP_ID` (a variable), `APP_PRIVATE_KEY` and
+`CLAUDE_CODE_OAUTH_TOKEN`. All three are re-issuable — the first two from the `team-tasks-claude` GitHub
+app's settings, the third from Claude.
+
+### Vercel → the team-tasks project
+
+Two, both **public** values and neither a secret: `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, scoped to Production, plus `NEXT_PUBLIC_SENTRY_DSN` when error
+reporting is installed. All from the project they point at. `docs/environments.md` → "Every setting the
+app uses" is the table.
+
+### What is NOT on this list, and is not missing
+
+**Everything set in a dashboard rather than in a settings page**: Auth redirect URLs and Site URL, the
+email templates, the Spend Cap, the organisation. `docs/backups.md` carries that as **not confirmed** —
+nobody has walked production's settings pages against this repository — and `docs/restore-runbook.md`
+step 7 says a restore drill is the moment to find out and write it down.
+
 ## If a real key is ever found
 
 In this order, and do not skip the first step:
@@ -229,6 +349,20 @@ In this order, and do not skip the first step:
      check which project leaked and rotate only that one; rotating both is harmless, rotating the
      wrong one leaves the leak live.
    - **A payment key** — that provider's dashboard. None exists yet.
+   - **`PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY`** — Supabase → the project →
+     Storage → S3 configuration → make a new access key, put both halves in the
+     **supabase-production** environment, then revoke the old one. **Treat a leak of this as a leak of
+     every attached file**: the key reads all buckets and bypasses row-level security.
+   - **`BACKUP_STORAGE_KEY` / `BACKUP_STORAGE_SECRET`** — Cloudflare → R2 → API tokens → a new
+     **Object Read & Write** token for `team-tasks-backups`, then revoke the old one. Whoever held the
+     old pair could **download every copy**, which is only as bad as the passphrase is safe — and a
+     13-day Bucket Lock, if the owner takes it (`docs/plan.md`), is what stops them destroying one.
+   - **`BACKUP_PASSPHRASE`** — **this one cannot be rotated in the ordinary sense, and that is the
+     whole point of it.** Setting a new one means tonight's copy uses it and **every copy already in the
+     bucket still needs the old one**. So if the passphrase leaks: set a new one, keep the old one safe
+     in the password manager until the last copy encrypted with it has expired (about a fortnight), and
+     treat everything in that bucket as readable by whoever has the leaked value for as long as they
+     also hold a storage key. Rotating the **storage** key is therefore the faster half of the fix.
 2. **Work out the exposure.** How long was it live, was the repository public at the time, and does
    the provider offer usage logs for the period?
 3. **Then, and only then, consider the history.** Rewriting it with `git filter-repo` changes every

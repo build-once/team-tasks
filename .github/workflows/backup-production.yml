@@ -1,0 +1,282 @@
+# backup-production.yml -- takes ONE encrypted copy of production every night
+# and writes it to Cloudflare R2. It changes nothing in production.
+#
+# docs/plan.md -> "A nightly copy of production, held by another company" is the
+# decision and what it means for people's data.
+# docs/architecture.md -> "The nightly copy" is the shape of the job.
+# docs/backups.md is the map of what is covered and what is not, and the list of
+# settings somebody has to go and create by hand.
+# docs/restore-runbook.md is how a copy is opened and put back.
+#
+# WHY IT EXISTS, in one line. Supabase's own daily backups cover the database
+# and NOT the files: "Database backups do not include objects you store via the
+# Storage API, as the database only includes metadata about these objects"
+# (https://supabase.com/docs/guides/platform/backups, read 2026-10-10). So the
+# one thing in this app nobody can retype is the one thing nothing backed up.
+# Issue #248 is that gap and this job is the answer to it.
+#
+# ---------------------------------------------------------------------------
+# THIS IS THE MOST POWERFUL THING IN THIS REPOSITORY'S CI
+#
+# A copy of everything is a read of everything: there is no narrower version of
+# a backup. Every other path in this project is narrowed by design -- a policy
+# decides one row, a function checks one caller, a signed link opens one file.
+# This reads all of it, including the accounts and their password hashes. The
+# controls are listed one by one rather than summarised, because a summary is
+# where one of them goes missing:
+#
+#   1. NO ARTIFACT, EVER. actions/upload-artifact is not used anywhere in this
+#      file. On a public repository an uploaded dump is a downloadable copy of
+#      production's whole database. This is the easy mistake and the worst one.
+#   2. NOTHING IS PRINTED BUT NAMES, COUNTS, SIZES AND STATUSES. No row, no
+#      table's row count, no file name, no path, no response body, no command
+#      line, and no `set -x`. Run logs on this repository are public, because
+#      the repository is. scripts/backup/proof.mjs scans a whole real run's log
+#      for a secret, an address, a connection string, a dump line and a made-up
+#      row, and fails if it finds one.
+#   3. THE PLAINTEXT NEVER TOUCHES THE CHECKOUT. The dump is written under
+#      $RUNNER_TEMP, the script deletes that directory when it ends, and the
+#      runner is destroyed after. Nothing is left for a later step to commit.
+#   4. ONLY THE ENCRYPTED FILE LEAVES. The encryption happens on the runner,
+#      before the upload, which is what makes "Cloudflare holds it in encrypted
+#      form only" true rather than hopeful.
+#   5. SECRETS ARRIVE THROUGH env: AND ARE NEVER ON A COMMAND LINE. The
+#      passphrase is read from the environment inside Node and passed in
+#      memory; the database password reaches pg_dump through libpq's own PG*
+#      variables, so no argument ever carries it.
+#   6. EVERY SETTING IS CHECKED BY NAME FIRST. A GitHub secret or variable that
+#      was deleted, renamed or never created expands to an EMPTY STRING rather
+#      than raising an error -- migrate-production.yml has a whole step and a
+#      long comment about exactly that. Each check prints only the NAME.
+#   7. NO PULL REQUEST CAN RUN IT. There is no `pull_request` trigger, and the
+#      job names the `supabase-production` environment, whose deployment
+#      branches are limited to `main` (checked on 2026-10-02, recorded in
+#      drift-check.yml's header). A manual run started from a branch therefore
+#      gets no secrets at all and stops at the first check saying which one is
+#      empty.
+#
+# AND THE COST NONE OF THEM REMOVES, stated here rather than in a footnote: for
+# the few minutes this runs, production's entire database -- every address,
+# every task, every password hash -- is in plaintext on a machine this project
+# does not own. That is true of any copy made this way. It is why the
+# encryption happens on the runner rather than after the upload, and why the
+# job does as little as possible between the dump and the encryption.
+#
+# ---------------------------------------------------------------------------
+# WHY THERE IS A workflow_dispatch, WHEN THE PLAN SAID THERE WOULD NOT BE
+#
+# docs/plan.md and docs/architecture.md were written on 2026-10-10 saying
+# "a `schedule` trigger only, no `workflow_dispatch`", under the heading "No
+# pull request can run it". Issue #258 -- the owner's, and later -- asks for
+# this job to run "nightly on a schedule and by hand", so the trigger is here.
+#
+# The reason the plan gave is kept rather than overridden, because the thing it
+# was protecting is protected by something stronger than the absence of a
+# trigger: the ENVIRONMENT. A pull request cannot run this with or without
+# workflow_dispatch (there is no pull_request trigger), and a manual run from
+# any branch but `main` is handed no secrets by the environment's branch
+# policy, so it stops at the first check. That is exactly the shape
+# drift-check.yml already runs in, and it is why "by hand" costs nothing here.
+# The pull request for #258 flags the change, and the two documents are
+# corrected in it.
+#
+# ---------------------------------------------------------------------------
+# WHAT HAPPENS WHEN IT FAILS, AND THE ONE THING THAT CATCHES NOTHING
+#
+# A silent backup job manufactures confidence, which is worse than losing data.
+# So a failure does two things (the owner's decision of 2026-10-10): the run
+# goes RED, which is what GitHub emails about, and a second job OPENS AN ISSUE
+# titled exactly "Backup did not run" -- or comments on the open one, so a bad
+# fortnight is one issue and not fourteen. That job is deliberately separate
+# and names NO environment, so it holds not one of the backup secrets: the
+# thing that writes to the public issue tracker cannot read the passphrase.
+#
+# What neither catches: this workflow not running at all. "In a public
+# repository, scheduled workflows are automatically disabled when no repository
+# activity has occurred in 60 days"
+# (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows,
+# read 2026-10-10), and a job that never starts has no failure to report.
+# drift-check.yml names the same trap. If the backup bucket goes quiet, that is
+# the first thing to look at.
+
+name: backup-production
+
+on:
+  # 01:23 UTC, nightly. Not on the hour: GitHub's own page says "The `schedule`
+  # event can be delayed during periods of high loads of GitHub Actions
+  # workflow runs. High load times include the start of every hour." Nothing
+  # here needs a particular minute -- the window this copy promises is "about a
+  # day" either way.
+  schedule:
+    - cron: "23 1 * * *"
+  # So the owner can take a copy on the day -- before a risky migration, say --
+  # rather than waiting for tonight. See the header for why this is safe.
+  workflow_dispatch:
+
+# Default for the whole workflow: no permissions at all.
+permissions: {}
+
+# One copy at a time, and a run in progress is never cancelled: a half-finished
+# copy is the thing this job exists to avoid, and two runs would also race on
+# the "is there already an open issue?" question below.
+concurrency:
+  group: backup-production
+  cancel-in-progress: false
+
+jobs:
+
+  copy:
+    name: Copy production to the backup bucket
+    # PINNED BY VERSION rather than ubuntu-latest, because this job depends on
+    # what is on the image: PostgreSQL 16.15's client programs. The image's own
+    # README is where that number comes from, read 2026-10-10:
+    # https://github.com/actions/runner-images -> images/ubuntu/Ubuntu2404-Readme.md
+    runs-on: ubuntu-24.04
+    environment: supabase-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      # One step, every name, and NOTHING BUT THE NAMES is printed. Each value
+      # arrives through env:; the test branches on it without echoing it -- not
+      # the value, and not its length either. Whitespace counts as empty,
+      # matching web/src/lib/env.ts and every other settings check here.
+      #
+      # It is one step rather than nine because this job needs all nine and a
+      # person fixing it wants the whole list at once, not the first one again
+      # tomorrow night.
+      - name: Every setting this job needs must be present
+        env:
+          PRODUCTION_SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
+          PRODUCTION_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+          PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID }}
+          PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY }}
+          PRODUCTION_SUPABASE_S3_REGION: ${{ vars.PRODUCTION_SUPABASE_S3_REGION }}
+          BACKUP_STORAGE_ENDPOINT: ${{ vars.BACKUP_STORAGE_ENDPOINT }}
+          BACKUP_STORAGE_KEY: ${{ secrets.BACKUP_STORAGE_KEY }}
+          BACKUP_STORAGE_SECRET: ${{ secrets.BACKUP_STORAGE_SECRET }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -u
+          missing=""
+          for name in PRODUCTION_SUPABASE_DB_URL PRODUCTION_SUPABASE_PROJECT_REF \
+                      PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY \
+                      PRODUCTION_SUPABASE_S3_REGION BACKUP_STORAGE_ENDPOINT \
+                      BACKUP_STORAGE_KEY BACKUP_STORAGE_SECRET BACKUP_PASSPHRASE; do
+            value="${!name-}"
+            if [ -z "${value//[[:space:]]/}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These settings are missing or empty, so NOTHING was read and no copy was made:$missing. Set them at Settings -> Environments -> supabase-production; docs/environments.md lists every one of them, says which are secrets and which are variables, and where each is re-issued from. If this was a manual run from a branch other than main, that is the cause: the environment releases its secrets to main only. No value is printed by this workflow."
+              exit 1
+          fi
+          echo "All nine settings are present. No value is printed."
+
+      # THE RUNNER'S OWN CLIENT IS THE WRONG ONE, and this step is what fixes
+      # it. The ubuntu-24.04 image carries PostgreSQL 16.15; **production is
+      # PostgreSQL 17.6**, read through the production read-only connector by
+      # the coach on 10 October 2026 (evidence/production-log.md). `pg_dump`
+      # refuses to dump a server newer than itself, so with the image's client
+      # this job would stop at make-backup.mjs' own version check every night
+      # and copy nothing. Issue #262.
+      #
+      # The owner approved installing a client on 10 Oct 2026 (rule 17). The
+      # script this calls holds the whole proposal and the reasoning: the
+      # PostgreSQL project's own apt repository, its signing key verified
+      # against a pinned SHA-256 **and** a pinned fingerprint before it is
+      # trusted, the major version pinned in the package name, and then
+      # `pg_dump --version` checked to be 17 before this job reads anything.
+      # It also writes BACKUP_PG_DUMP and BACKUP_PSQL, so the scripts use the
+      # client it installed rather than whichever one is first on PATH.
+      #
+      # The SAME script runs in ci.yml's backup-proof job, with --with-server,
+      # so the copy is proved against the version of PostgreSQL it will meet.
+      - name: Install the PostgreSQL 17 client, pinned and verified
+        run: sh scripts/backup/install-pg17.sh
+
+      # The whole job, in one script. Everything it prints is a name, a count,
+      # a size or a status -- see control 2 in the header.
+      #
+      # BACKUP_TMPDIR is $RUNNER_TEMP: outside the checkout, so nothing
+      # unencrypted can be committed by a later step, and gone when the runner
+      # is destroyed. The script removes it itself as well.
+      - name: Copy the database and every attached file, encrypt, upload, verify
+        env:
+          PRODUCTION_SUPABASE_DB_URL: ${{ secrets.PRODUCTION_SUPABASE_DB_URL }}
+          PRODUCTION_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_SUPABASE_PROJECT_REF }}
+          PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID }}
+          PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY }}
+          PRODUCTION_SUPABASE_S3_REGION: ${{ vars.PRODUCTION_SUPABASE_S3_REGION }}
+          BACKUP_STORAGE_ENDPOINT: ${{ vars.BACKUP_STORAGE_ENDPOINT }}
+          BACKUP_STORAGE_KEY: ${{ secrets.BACKUP_STORAGE_KEY }}
+          BACKUP_STORAGE_SECRET: ${{ secrets.BACKUP_STORAGE_SECRET }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_TMPDIR: ${{ runner.temp }}
+        run: node scripts/backup/make-backup.mjs
+
+  # Runs ONLY when the copy failed, and holds NO BACKUP SECRET: it names no
+  # environment, so none of the nine values above is in reach of the job that
+  # writes to a public issue tracker. The only credential it has is GitHub's
+  # own job token, with issues: write.
+  #
+  # It copies drift-check.yml's pattern rather than inventing one, down to the
+  # exact-title match -- `gh issue list --search` matches WORDS, not titles, so
+  # an issue called "Backup did not run yesterday either" would come back from
+  # the search and must not be treated as the one. `| first // empty` takes the
+  # lowest-numbered real match and prints nothing when there is none.
+  #
+  # The body comes from a FILE (rule 12) and carries no row, no path, no file
+  # name and no part of any secret -- an issue on a public repository is as
+  # public as the run log.
+  report-failure:
+    name: Open or comment the "Backup did not run" issue
+    needs: copy
+    if: failure()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or comment the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STARTED: ${{ github.event.repository.updated_at }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/backup-failure.md"
+          {
+            echo "**Last night's copy of production did not happen.**"
+            echo
+            echo "- Run: $RUN_URL"
+            echo "- Started by: ${GITHUB_EVENT_NAME}"
+            echo "- Workflow: .github/workflows/backup-production.yml"
+            echo
+            echo "Nothing about what failed is repeated here, on purpose: this issue is public, so it carries no row, no path, no file name and no part of any secret. The run log above says which step stopped and why, in the same terms."
+            echo
+            echo "**What it means.** There is no copy for this date. Supabase's own daily backups still cover the database; they do NOT cover the attachments bucket (#248), so the files have no copy for as long as this keeps failing."
+            echo
+            echo "**Where to start.** docs/backups.md -> \"What the owner must set by hand\" is the settings list, and docs/restore-runbook.md says what a copy is supposed to look like. The likeliest causes, in order: a setting that was renamed or expired; pg_dump on the runner being older than production's Postgres; the R2 token or the Supabase S3 key being revoked."
+            echo
+            echo "This issue is commented on, not duplicated, while it stays open."
+          } > "$body"
+          existing="$(gh issue list --state open --search 'Backup did not run in:title' \
+            --json number,title --jq '[.[] | select(.title == "Backup did not run") | .number] | first // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+            echo "Commented on the open \"Backup did not run\" issue #$existing rather than opening a second one."
+          else
+            gh issue create --title "Backup did not run" --body-file "$body"
+          fi

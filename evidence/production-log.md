@@ -562,10 +562,55 @@ what both reads found rather than what has not been read.
 
 ---
 
+### Last on 10 Oct 2026 — the PostgreSQL version, the region, and the Spend Cap
+
+**Added in the session that built Build it 24 part 1
+([#258](https://github.com/build-once/team-tasks/issues/258)).** The first row is the **coach's**, through
+the production read-only connector, quoted in the coach's review of
+[PR #265](https://github.com/build-once/team-tasks/pull/265); the other two are the **owner's**, from
+their own words and their own screenshot in that session. **The assistant (Claude Code) ran none of them,
+opened no dashboard and used no connector**, and has verified nothing below. The instructions for this
+pull request forbade the connector and the browser, and rules 1 and 10 forbid the rest.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| No time given — before the coach's review of PR #265, which quotes it | The coach (claude.ai), via the production read-only connector | **One read of `server_version` — one setting, no row contents** | [#262](https://github.com/build-once/team-tasks/issues/262): the nightly copy's `pg_dump` refuses a server newer than itself, and nobody had read which PostgreSQL production runs | **`server_version` = 17.6** |
+| No time given | **The owner**, in the Supabase dashboard — **read-only** | Read the production project's **region**, and gave the assistant a **screenshot** of it | The nightly copy was about to be built without anybody knowing where either end of it is | Production's database is in **West US (Oregon), `us-west-2`** |
+| No time given | **The owner**, in the Supabase dashboard — **A CHANGE, NOT A READ.** The second writing action in this file | **Enabled the Spend Cap on the `DHTA Ltd` organisation** | [#250](https://github.com/build-once/team-tasks/issues/250): production went onto a billable plan that morning and the Cap had not been set | **The Spend Cap is enabled** |
+
+**What the first row settles, and it changed what got built.** The runner image carries PostgreSQL
+**16.15** — observed in CI run
+[38045409343](https://github.com/build-once/team-tasks/actions/runs/38045409343), not read off
+documentation — and `pg_dump` refuses to dump a server newer than itself. So **the first nightly copy
+would have stopped at its own version check and copied nothing, every night.** It would have failed
+legibly, because the script asks the database its version before it dumps; it would have copied nothing
+all the same. The owner approved installing a client, and `scripts/backup/install-pg17.sh` is it, with
+the PostgreSQL repository's signing key verified against a pinned SHA-256 **and** a pinned fingerprint
+before it is trusted. **#262 is closed by it.** **Rule 19 does not come into this**: nothing is installed
+*on* production — the client goes on a GitHub runner — and rule 17 makes a tool the owner's decision,
+which is the approval that was given.
+
+**One setting read, one setting read, one setting changed, and nothing else.** `server_version` is a
+server setting; the region is a project setting; the Cap is a billing control. **Not one of the three
+rows read, wrote or deleted a row of anybody's data**, which is the sentence the section below rests on.
+
+**The screenshot is the only one anywhere in this log, and it is not in this repository.** It was given
+to the assistant in chat and read; the *fact* is written down here and the image is not committed —
+the same treatment the production project reference gets, for the same reason.
+
+**And the third row is the first thing in this log to be written to production by anybody since the
+transfer.** It is a billing setting rather than data, and it is the control `docs/costs.md` calls the
+strongest of any service here. It answers **part** of #250: what that issue still holds is the Cap's
+figures recorded on the costs page, that page's stale "nothing can bill us" sentences, and the fact that
+**compute is excluded from the Cap**, so about $25 a month bills whatever the Cap says.
+
+---
+
 ## What has been written to production, and by whom
 
-**One entry in this file changed something: the transfer on 10 Oct 2026, by the owner, in the
-dashboard.** Every other entry is a read. Three things stay true, and they are the three this section
+**TWO entries in this file changed something, both on 10 Oct 2026, both by the owner in the dashboard:
+the transfer between organisations, and enabling the Spend Cap.** Every other entry is a read. (This
+said "One entry" until the Cap was enabled later the same day.) Three things stay true, and they are the three this section
 has always been for:
 
 - **The assistant has never run a production command of any kind**, and rule 19's one permission —
@@ -575,4 +620,5 @@ has always been for:
   or deleted by anybody recorded here.
 - **Nothing has changed production's schema outside the pipeline.** Every migration reached it through
   `.github/workflows/migrate-production.yml` on a merge to `main`, which is what rule 10 asks for. The
-  transfer moved the project between organisations; it did not apply a statement.
+  transfer moved the project between organisations and enabling the Spend Cap changed a billing setting;
+  **neither applied a statement**, and neither touched a row.

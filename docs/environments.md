@@ -18,7 +18,7 @@ running service unless it says so. See "What is not filled in yet, and why" at t
 | **Database project name** | **None.** There is no local database; local development points at the staging project | `teamtasks-staging` — a Supabase project in a **separate free organisation**, and **it stayed there on 10 Oct 2026** when production moved | `teamtasks-production` — a Supabase project in the **`DHTA Ltd` organisation, on the Pro plan** (about $25/month). **Moved there by the owner on 10 Oct 2026**, which is the day this stopped being an intention: it had read "a Pro organisation" since this file was written, from `docs/stack.md`'s decision B rather than from anything done. `evidence/production-log.md`, 10 Oct, is the record — and so is the spending control nobody has set yet ([#250](https://github.com/build-once/team-tasks/issues/250)) |
 | **Where its keys are kept** | `web/.env.local`, never committed (`web/.gitignore` ignores `.env*`). It holds the **staging** project URL and publishable key and nothing else — no secret key ever sits on the laptop. See the note on variable names at the end | The two public values in the Vercel project's environment settings, **scoped to Preview only**; the secret keys (service-role, Resend) only in Supabase Edge Functions secrets — never in Vercel | **Set since Build it 6**: the two public values in the Vercel project's environment settings, **scoped to Production**, pointing at the production project — the same split as staging with **different values**. Production keys never go on a laptop in a plain file, never into chat, and never to the AI assistant |
 | **What data it holds** | No data of its own — it reads and writes the staging project's fake seed data | Fake seed data only, plus the Alice / Bob / Carol test accounts. No backups — the free plan has none, so keep nothing here you would mind losing. **That claim is now in doubt** rather than settled: production had daily backups while it was still on a free plan, which is [#247](https://github.com/build-once/team-tasks/issues/247) | Real people's data: the volunteers' email addresses, nicknames, team names and task text listed in the appendix of `docs/plan.md`. **Backed up daily — the database, and not the files.** On 10 Oct 2026 the owner read Database → Backups: **seven daily physical backups, 3 to 9 October, each around 12:20 UTC**, and the page's own statement that **Storage objects are not included**. So the `attachments` bucket is **outside** these backups ([#248](https://github.com/build-once/team-tasks/issues/248)), and **no restore has ever been tried** — the page's "Restore to new project" option is marked Beta ([#249](https://github.com/build-once/team-tasks/issues/249)) |
-| **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`**, plus the migration job in `.github/workflows/migrate-production.yml`, which runs on a push to `main` and nothing else. No hand-editing in a dashboard, and the AI assistant never touches it |
+| **Who or what may change it** | The owner and the AI assistant, directly — and because local points at staging, what they change lands in the **staging** database | The owner and the AI assistant, through the change flow — branch, pull request, checks, merge | **Only the automatic deploy from `main`**, plus the migration job in `.github/workflows/migrate-production.yml`, which runs on a push to `main` and nothing else. No hand-editing in a dashboard, and the AI assistant never touches it. **And one thing that CHANGES nothing and READS everything**, added 2026-10-10: `.github/workflows/backup-production.yml` takes a nightly encrypted copy of the whole database and every attached file. It is the most powerful thing in this repository's CI and it writes to Cloudflare, never to production — `docs/backups.md` has the controls on it one by one |
 
 ## Where each migration has been applied
 
@@ -329,10 +329,19 @@ person reaches Vercel's own sign-in rather than the app. That is why the Carol a
 `evidence/invitations.md` were all done from the owner's own browser, and it is a limit on what can be
 tested on staging at all — not a fault.
 
-The secrets in the whole system are not the app's: they belong to the deploy pipeline, and there are
-**three**, all in the **`supabase-production` GitHub environment** and used only by
-`.github/workflows/migrate-production.yml`. None is in `.env.example`, in Vercel, on the laptop, or in
+The secrets in the whole system are not the app's: they belong to CI, and there are **eight**, all in
+the **`supabase-production` GitHub environment**, used by `.github/workflows/migrate-production.yml`,
+`.github/workflows/drift-check.yml` and — since 2026-10-10 —
+`.github/workflows/backup-production.yml`. None is in `.env.example`, in Vercel, on the laptop, or in
 this document.
+
+**This paragraph said "three ... used only by `migrate-production.yml`" until 2026-10-10**, and the
+nightly copy of production ([#258](https://github.com/build-once/team-tasks/issues/258)) is what made it
+wrong: five more settings and a third workflow that reads them. The list below is the whole of what that
+environment holds, which is half of what
+[#255](https://github.com/build-once/team-tasks/issues/255) asked for; the other half — **every setting
+production needs in order to be stood up again, with where each comes from** — is one list in
+`docs/secrets.md` → "Every setting production needs", so that there is one list and not three.
 
 **Where they live, exactly: Settings → Environments → `supabase-production`**, whose deployment
 branches are limited to `main`, with no reviewers and no wait timer. They are deliberately **not**
@@ -351,7 +360,16 @@ these and is not used by this workflow.
 |---|---|---|
 | **`PRODUCTION_SUPABASE_DB_URL`** | The production **database**, and nothing else. Production's Session pooler connection string, password percent-encoded | `migrate` only |
 | **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** | **In effect, all production data.** A Supabase *scoped* personal access token for the production project, with the **Edge Functions Read-write** permission — but deploying a function means deploying code, and that code runs with the production secret keys, which bypass row-level security. Treat it as equal in power to the connection string, not lesser. See below for what the scoping does limit | `deploy-functions` only |
-| **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions` and `smoke-test` |
+| **`PRODUCTION_SUPABASE_PROJECT_REF`** | Nothing on its own — it only names which project to deploy to. Kept as a secret to keep the production project id out of the repository | `deploy-functions`, `smoke-test`, `drift-check`, and the nightly `copy`, which builds the Storage endpoint from it |
+| **`PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID`** | **Every file in every bucket of the production project, with row-level security bypassed.** A Supabase S3 access key — Supabase's own words: such keys "provide full access to all S3 operations across all buckets and bypass RLS policies". Added 2026-10-10. **It cannot write to `tasks`**, which is the one reason it was chosen over the service-role key | the nightly `copy` only |
+| **`PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY`** | The other half of that key. Shown once, when the key is made | the nightly `copy` only |
+| **`BACKUP_STORAGE_KEY`** | The Cloudflare R2 bucket `team-tasks-backups` — **read and write, not configuration**. Added 2026-10-10. Holding it gets you every copy in encrypted form and nothing readable | the nightly `copy` only |
+| **`BACKUP_STORAGE_SECRET`** | The other half of that token | the nightly `copy` only |
+| **`BACKUP_PASSPHRASE`** | **Opens every copy** — and **it is the one value in this project that cannot be re-issued.** A GitHub secret cannot be read back, so the owner's password manager holds the only readable copy; lose it and no copy can ever be opened, by anybody. `docs/backups.md` → "The one thing that cannot be recovered" | the nightly `copy` only |
+
+**The five added on 2026-10-10 are read by one job in one workflow**, and that is deliberate: the job
+that writes to the public issue tracker when a copy fails is a **separate job that names no
+environment**, so the thing with a megaphone cannot reach the passphrase.
 
 The two credential-holding jobs are separate so that each credential is visible to one job and not the
 other: steps inside a single job share an environment, so splitting the jobs is what makes the
@@ -359,14 +377,17 @@ separation real rather than merely tidy. `deploy-functions` also has `needs: mig
 only deployed onto a database that has already been migrated. That separation limits what one leaked
 credential exposes; it does **not** make either job the safer one.
 
-### One environment variable, which is not a secret
+### Three environment variables, which are not secrets
 
-The same environment also holds **one configuration variable**, under **Environment variables** rather
-than Environment secrets:
+The same environment also holds **three configuration variables**, under **Environment variables**
+rather than Environment secrets. **This section said "one" until 2026-10-10**; the nightly copy added
+the second and the third.
 
 | Variable | What it is | Which job uses it |
 |---|---|---|
 | **`PRODUCTION_SITE_URL`** | The full `https` address of the production home page, which the smoke test fetches expecting 200. Not a credential — it grants nothing | `smoke-test` only |
+| **`BACKUP_STORAGE_ENDPOINT`** | The R2 S3 endpoint, of the shape `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** — the owner's decision of 2026-10-10 | the nightly `copy` only |
+| **`PRODUCTION_SUPABASE_S3_REGION`** | The production project's own region, which S3 request signing needs. **Supabase says to use "the region value displayed on the S3 configuration page"**, so it cannot be guessed: the job stops and names this variable rather than signing with a region somebody made up. **NOT SET YET** — it is on `docs/backups.md`'s by-hand list, and the first nightly run will stop at the settings check until it is | the nightly `copy` only |
 
 It is a variable because it is not secret, and it lives in the environment rather than this file for the
 reason the rest of this document gives: the production address is deliberately not written down in the

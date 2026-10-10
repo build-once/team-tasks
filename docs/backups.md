@@ -5,8 +5,18 @@ up **today**, and the gap. Then the two targets, and the nightly copy that Build
 the gap.
 
 Written 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)),
-against commit `cb58926`. **Documents only. Nothing in this file is built**: there is no backup
-workflow, no copy has ever been made, and no restore has ever been tried.
+against commit `cb58926`.
+
+**IT IS NOW BUILT, and NO COPY OF PRODUCTION HAS EVER BEEN MADE.** This paragraph said "Documents only.
+Nothing in this file is built: there is no backup workflow, no copy has ever been made, and no restore
+has ever been tried." Build it 24 part 1
+([#258](https://github.com/build-once/team-tasks/issues/258)) is the first half of that; the second half
+is unchanged and is the only sentence on this page anybody should quote:
+
+| | |
+|---|---|
+| **Built** | `.github/workflows/backup-production.yml`, `scripts/backup/` (the copy, the restore, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
+| **Not done** | **No copy of production exists.** The workflow has never run: it runs on a schedule from `main`, so it cannot until this merges, and **three of the settings it needs have not been created** (below). No restore has ever been tried, and `evidence/restore-tested.md` does not exist |
 
 **The owner settled seven decisions later the same day**, and they are recorded where each belongs rather
 than in a list at the top: the two targets below; the retention window and the restore drill's
@@ -109,6 +119,58 @@ established** ([#247](https://github.com/build-once/team-tasks/issues/247)), and
 resolves it. What it does mean for staging is unchanged and worth repeating: **keep nothing on staging
 you would mind losing.**
 
+## Where the data is held, which is a question this page can now answer
+
+Added 2026-10-10, from the owner. Until this section there was no one place that said where any of it
+physically is — and a copy of everything, going to a company in a different part of the world from the
+database it came from, is the point at which that stops being a detail.
+
+| What | Where | How it is known |
+|---|---|---|
+| **Production's database** — and with it the accounts, and the `attachments` bucket, which lives in the same project | **West US (Oregon), `us-west-2`** | The **owner's screenshot** of the project's settings, 10 Oct 2026. Nobody writing this opened a dashboard |
+| **Supabase's own daily backups** of that database | **Not established.** The pages read on 2026-10-10 do not say, and nobody has asked | — |
+| **The nightly copy**, in `team-tasks-backups` | **Western Europe, `WEUR`** | The owner's report of 10 Oct 2026; the coach saw that settings page |
+| **Sentry**, if it is ever installed | **United States** — the owner's choice of 5 Oct 2026 | `docs/plan.md`, "Error reports to an outside service". Nothing is installed, so nothing has been sent |
+| **Anthropic**, one task title per press of Suggest subtasks | **Not established, and not asked.** `docs/plan.md` cites what Anthropic keeps and for how long, and nothing about where | — |
+| **Vercel**, the app itself | **Not established** | — |
+
+**So the nightly copy crosses an ocean, and that is worth saying out loud.** Production's data sits in
+Oregon; the copy of it sits in Western Europe. Three things follow, and none of them is a problem to
+solve today:
+
+- **It is ciphertext the whole way.** The encryption happens on GitHub's runner before anything leaves
+  it, so what crosses is a file Cloudflare cannot open. That is the same sentence as everywhere else on
+  this page; it is simply more load-bearing now.
+- **The runner is a third place.** For the few minutes the job runs, production's whole database is in
+  plaintext on a GitHub-hosted machine in whatever region GitHub chose — which nobody has established
+  either. This page already states that cost; the geography is new and does not change it.
+- **Nobody chose this pairing on purpose.** The bucket's region was picked when the bucket was made, the
+  project's region when the project was made, and the two were not compared until today. Were it being
+  chosen now the question would be whether a copy should live in the **same** region as its source
+  (fewer moving parts, no ocean) or a **different** one (survives a regional failure). It happens to be
+  the second, which is the more useful of the two for a backup — **so nothing is being changed on the
+  strength of an accident, and nothing needs to be.** If it ever is: an R2 bucket's region cannot be
+  changed after it is made, so it would mean a new bucket and a new lifecycle rule.
+
+**And a related thing the owner has settled, which belongs on this page because the copy is the biggest
+consumer of what it governs: the Supabase Spend Cap on the `DHTA Ltd` organisation is ENABLED** — the
+owner, 10 Oct 2026. That is the control `docs/costs.md` calls "the strongest of any service here", and
+it had not been set when production moved to Pro that morning. It answers part of
+[#250](https://github.com/build-once/team-tasks/issues/250); what that issue still holds is the figures
+and the stale sentences on the costs page, and the fact that **compute is excluded from the Cap**, so
+about $25 a month bills whatever the Cap says.
+
+**And it is a thing people must be told, not only a thing this page knows.** The owner's instruction of
+10 Oct 2026: **Build it 26's privacy page must say where data is held.**
+[#204](https://github.com/build-once/team-tasks/issues/204) is the page, and `docs/plan.md` carries the
+requirement beside the rest of what that page has to say.
+
+**One practical use for the first row, today.** `PRODUCTION_SUPABASE_S3_REGION` is the variable the
+nightly job stops without, and a Supabase project's Storage is in the project's own region — so the value
+is **expected to be `us-west-2`**. That is an inference from the screenshot, not a reading of the page
+that matters: Supabase says to use "the region value displayed on the S3 configuration page", and **that
+page is the authority**. Set it from there.
+
 ## What Build it 24 adds, and why it is shaped that way
 
 `docs/plan.md` is the decision; this is the one-paragraph version. **A nightly copy of production's
@@ -170,6 +232,7 @@ job that runs and encrypts nothing.
 | `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | secret | **TO SET** | the Supabase S3 access key's id, for reading the bucket |
 | `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | secret | **TO SET** | its secret half |
 | `BACKUP_STORAGE_ENDPOINT` | **variable, not a secret** | **TO SET** | the R2 S3 endpoint, `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** |
+| `PRODUCTION_SUPABASE_S3_REGION` | **variable, not a secret** | **TO SET — and this row was not here on 10 October** | the production project's own region, which S3 request signing needs. **It was found by writing the code**, not by designing it: Supabase's page says to use "the region value displayed on the S3 configuration page" ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), so there is nothing to derive it from. The job **refuses and names this variable** rather than signing with a region somebody guessed, which is the fail-closed direction and also the one that produces a readable error on the first night |
 
 **The two `PRODUCTION_SUPABASE_S3_*` names are a naming choice rather than something the owner specified**,
 and the reasoning is in `docs/architecture.md`: this repository prefixes a credential by **which project it
@@ -241,11 +304,56 @@ It therefore belongs in the same sentence as the two rules it is governed by: it
 into a file in this repository, printed, or pasted into a chat (rule 7), and **the coding assistant and
 the coach never receive it or any file encrypted with it.**
 
+## What the encryption is, and the one thing it does not do
+
+Added 2026-10-10 at the coach's request, in the review of
+[PR #265](https://github.com/build-once/team-tasks/pull/265). A property this important should be
+written where somebody looking for it would look, not left to be read off `scripts/backup/lib.mjs`.
+
+**What it is.** **AES-256-CBC**, with the key derived from the passphrase by **PBKDF2-HMAC-SHA256 with
+600,000 iterations**, written in **OpenSSL's own `enc` file format** — the literal `Salted__`, an 8-byte
+salt, then the ciphertext. So a copy can be opened with stock `openssl` and **does not depend on this
+repository's code**, which is the whole reason that format was chosen over anything of ours.
+`docs/restore-runbook.md`'s last section is the two-command route, and the CI proof hands a real copy to
+the real `openssl` binary and requires the container back byte for byte.
+
+**AND IT IS NOT AUTHENTICATED ENCRYPTION.** CBC has no authentication tag, so **decryption alone cannot
+tell you whether a copy has been damaged or altered.** A wrong passphrase shows up as padding that does
+not decode, which is a hint and not a proof; bytes changed by somebody who knew what they were doing
+would not announce themselves at that layer at all.
+
+**What detects it instead, and why that is enough here.** The **checksums inside the copy** do the job
+the cipher does not:
+
+| | |
+|---|---|
+| **Every entry** carries the SHA-256 of its stored bytes **and** of its contents, in the container's header | so a flipped bit anywhere is caught when the entry is read — `scripts/backup/proof.mjs` flips one and requires the read to fail |
+| **The manifest** carries the dump's checksum and every file's, inside the ciphertext | so a copy that decrypts and does not match what it says it holds is refused, on the way in **and** on the way back out, by the same function |
+| **The stored object** is checked after upload by size, by ETag and by **reading the bytes back and comparing a SHA-256** | so a copy damaged in transit is caught the night it is made rather than the day it is needed |
+
+So the integrity guarantee is real and it lives **one layer in**, after decryption, rather than in the
+cipher. **Accepted as written by the coach on 2026-10-10.** What would change it is a format with a tag
+— AES-256-GCM, or a detached HMAC — and the cost would be the thing the current choice buys: stock
+`openssl` could no longer open a copy, so the data would depend on this repository's code surviving. For
+a backup, that trade is the wrong way round.
+
+**The honest limit, stated plainly:** anybody who can write to the bucket can replace a copy with
+rubbish, and nothing in the file itself will say so until somebody tries to restore it — at which point
+it will say so clearly. The things that make that unlikely are the token being limited to one bucket, and
+the **13-day Bucket Lock** proposed in `docs/plan.md`, which would stop an overwrite outright. That is
+one more argument for the lock than it had before.
+
 ## The restore drill
 
 A backup that has not been restored is a belief about a backup. The drill is what turns the "time down"
 target from an aspiration into a measurement, and it is the only thing that can settle
 [#249](https://github.com/build-once/team-tasks/issues/249)'s `restore-tested`.
+
+**`docs/restore-runbook.md` is now the step-by-step**, written with the code in Build it 24 part 1:
+which copy, how to open it, how to put it back into a new temporary project, how to check it came back,
+what has to be set again by hand, how to prove a copy is unreadable without the passphrase, and
+deleting the project as the last step rather than as tidying up. This section stays because it is the
+*policy* — where a restore may happen and what never leaves — and the runbook is the procedure.
 
 **Where it happens: a new temporary project, and nowhere else.**
 
@@ -320,7 +428,16 @@ footnote: the first means the window is "about a day" and not "exactly a day", a
 Gaps in this page, not findings. **Six of them are gathered in
 [#256](https://github.com/build-once/team-tasks/issues/256)**, with what to read or try for each and how
 somebody else can tell it is settled — the same way
-[#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones. **Two of those six
+[#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones.
+
+**And six more arrived with the code, each with its own issue** — Build it 24 part 1, 2026-10-10:
+[#259](https://github.com/build-once/team-tasks/issues/259) the settings and the lifecycle rule that do
+not exist; [#260](https://github.com/build-once/team-tasks/issues/260) nothing verified against the real
+services; [#261](https://github.com/build-once/team-tasks/issues/261) the signer checked only against
+itself; [#262](https://github.com/build-once/team-tasks/issues/262) `pg_dump` 16 against production's
+unread version; [#263](https://github.com/build-once/team-tasks/issues/263) the size ceiling nobody has
+measured; [#264](https://github.com/build-once/team-tasks/issues/264) nothing noticing if the copy stops
+happening. **Two of those six
 decide what gets built** rather than merely what may be claimed: whether a Supabase backup includes the
 `auth` schema at all, and whether a Storage read made with an S3 access key is metered as egress.
 
@@ -339,10 +456,35 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
 - **Not confirmed — which of production's settings exist only in a dashboard.** Nobody has walked the
   project's settings pages against this repository, so the "how long are we down" target rests partly on
   something nobody has inventoried.
-- **Not confirmed — that `gpg` and an S3-capable client are present on `ubuntu-latest`.** The job shape
-  above assumes a tool that can encrypt with a passphrase and a tool that can write to an S3-compatible
-  endpoint, both already on the runner image, because rule 17 makes installing one the owner's decision.
-  **Neither has been checked**, and the runner image's own software list is where to check.
+- **Answered 2026-10-10 by building it: neither `gpg` nor an S3 client is needed, and the two tools that
+  ARE needed are documented on the image.** This entry said "Not confirmed — that `gpg` and an
+  S3-capable client are present on `ubuntu-latest`", and the answer was to need neither: the encryption
+  is Node's own crypto writing **OpenSSL's `enc` file format**, and the four S3 operations are `fetch`
+  with a signature computed in forty lines. **No new dependency, so rule 17 never came up.** What the
+  job does depend on is `pg_dump` and `psql`, and the image's own README — read 2026-10-10 — says
+  "PostgreSQL 16.15 / User: postgres / PostgreSQL service is disabled by default", which is why the
+  workflow pins `ubuntu-24.04` rather than `ubuntu-latest` and **checks for both programs by name
+  before it reads anything**. `openssl` is on the image too ("OpenSSL 3.0.13-0ubuntu3.16"), and the CI
+  proof uses it to show a copy opens with standard tools alone — but the backup itself does not.
+- **ANSWERED AND FIXED, 2026-10-10 — production is PostgreSQL 17.6, and the runner now installs a 17
+  client.** This entry said "the likeliest first-night failure: `pg_dump` 16 against production's
+  Postgres … production is on 15.8 or newer and **nobody has read which**". The coach read it through the
+  production read-only connector that day: **`server_version` = 17.6**
+  (`evidence/production-log.md`, 10 Oct). So the answer was the bad one — the runner's 16.15 client would
+  have been refused by its own version check **every night**, copying nothing.
+
+  **The owner approved installing a client (rule 17) and `scripts/backup/install-pg17.sh` is it**, run by
+  both workflows. What it does and why that way is in its own header; the short version is the
+  PostgreSQL project's own apt repository, with the signing key verified against a **pinned SHA-256 and a
+  pinned fingerprint** before it is trusted, the major version pinned in the package name, and
+  `pg_dump --version` checked to be 17 before anything is read. **The patch version is deliberately not
+  pinned**, because a pinned version that leaves the pool would stop the nightly backup — a worse failure
+  than a client moving from 17.6 to 17.7.
+
+  **It is still not verified against production**, only against a version 17 server in CI: the proof job
+  installs the same client **and** a 17 server with the same script, so the two cannot drift
+  ([#260](https://github.com/build-once/team-tasks/issues/260) is the first real run).
+  [#262](https://github.com/build-once/team-tasks/issues/262) is closed by this.
 - **Not confirmed — anything about the R2 bucket, the token or the three secrets.** All of it is the
   owner's report of 10 Oct 2026: a private bucket `team-tasks-backups` in **Western Europe (WEUR)**,
   public development URL **disabled**, **no custom domain** — the coach saw that settings page — an R2 API
@@ -378,7 +520,18 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   nothing in this repository can show what any of them is set to. The three marked "set 10 Oct" are the
   owner's word; the five marked **TO SET** or **TO CREATE** have not been done as far as anybody writing
   this knows.
-- **Nothing in this file has been built or run.** No workflow, no copy, no restore, no evidence file. The
-  arithmetic in `docs/costs.md` is arithmetic on a design. **The decisions of 10 October changed what is
-  undecided, not what exists** — and the one-line test for this whole page is unchanged: **no copy of
-  production has ever been made.**
+- **The code exists and has never touched production.** This entry said "Nothing in this file has been
+  built or run. No workflow, no copy, no restore, no evidence file." Three of those four have changed:
+  there is a workflow, there are scripts, and `evidence/build-it-24-nightly-copy.md` records them being
+  run end to end **against made-up data on a throwaway PostgreSQL and a stand-in for both object
+  stores**. What has not changed is the one-line test for this whole page: **no copy of production has
+  ever been made, and no restore has ever been tried.** The arithmetic in `docs/costs.md` is still
+  arithmetic on a design.
+- **Not verified — anything about how the job behaves against the real services.** Everything the proof
+  establishes, it establishes about **our code**: that it signs correctly for a server that recomputes
+  the signature, reads a paged listing to the end, refuses an incomplete copy before uploading, encrypts
+  in a format `openssl` itself opens, and restores to equal counts and equal bytes. **It establishes
+  nothing about Supabase Storage's S3 gateway or Cloudflare R2** — not that the region is accepted, not
+  that `ListObjectsV2` pages as the stand-in does, not that R2's ETag is the body's MD5 (the job checks,
+  and says so rather than assuming), and not that a 5 GB single `PUT` is allowed. The first real run is
+  what settles those, which is why it should be started **by hand** and watched.
