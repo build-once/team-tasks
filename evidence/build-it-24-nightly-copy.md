@@ -486,5 +486,57 @@ UNVERIFIED  no pg_dump older than the server's major version 17 on this machine,
 exit code: 0
 ```
 
-**114 → 124 here, and the CI floor is 127**, the difference being those three end-to-end checks. The CI
-run is below.
+**114 → 124 here, and the CI floor is 127**, the difference being those three end-to-end checks.
+
+### And the CI run, which is where all of it actually happens
+
+Run [38049810798](https://github.com/build-once/team-tasks/actions/runs/38049810798) — `status`
+**completed**, `conclusion` **success**, **0 jobs not success**. The `backup-proof` job's own lines, in
+order:
+
+```
+/home/runner/work/_temp/pgdg-ACCC4CF8.asc: OK
+The signing key matches both the pinned SHA-256 and the pinned fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8.
+Added the noble-pgdg repository, signed by that key and no other.
+pg_dump (PostgreSQL) 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
+psql (PostgreSQL) 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
+The PostgreSQL 17 client is installed at /usr/lib/postgresql/17/bin and is what this job will use.
+Creating new PostgreSQL cluster 17/main ...
+17  main    5433 online postgres /var/lib/postgresql/17/main /var/log/postgresql/postgresql-17-main.log
+...
+PASS  the throwaway server is PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg24.04+2) -- major 17, which is what production is (17.6), so the version pair below is the real one.
+PASS  and the client is the same major version: "pg_dump (PostgreSQL) 17.11 (Ubuntu 17.11-1.pgdg24.04+2)". The nightly job installs this one with scripts/backup/install-pg17.sh.
+...
+PASS  SEEN TO FAIL: A CLIENT TOO OLD FOR THE SERVER: "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)" against this major-17 server is refused (exit 1).
+127 PASS, 0 FAIL.
+backup-proof: counted 127 PASS lines; at least 127 expected.
+```
+
+Five things that settles:
+
+- **The key verification is real.** `sha256sum --check` said OK and the fingerprint matched, before apt
+  was told to trust anything — and the repository was added "signed by that key and no other".
+- **The installed client is 17.11, not 17.6.** That is the unpinned patch version doing exactly what it
+  was left unpinned to do: the major is what matters, and 17.11 dumps a 17.6 server.
+- **The port really was 5433, and it was read rather than guessed** — 5432 belongs to the image's own 16
+  cluster, which is still installed.
+- **The 16-against-17 refusal fired with the REAL 16.15 binary**, exit 1, against a real 17 server. The
+  three checks that print `UNVERIFIED` on a one-PostgreSQL machine ran here.
+- **127 counted against 127 expected**, so the floor is exact: losing one of these turns the job red.
+
+**And one run before it went red, which is worth keeping.** Run
+[38049428367](https://github.com/build-once/team-tasks/actions/runs/38049428367) failed on the step that
+was supposed to start the cluster:
+
+```
+Error: specified cluster '17 main' does not exist
+Ver Cluster Port Status Owner    Data directory
+16  main    5432 down   postgres /var/lib/postgresql/16/main
+##[error]No PostgreSQL 17 cluster is configured, so the nightly copy could not be exercised against the version production runs. That is UNVERIFIED, not a pass (AGENTS.md rule 8).
+```
+
+The client had installed fine; the wrong assumption was the step after it — **installing
+`postgresql-17` on this image creates no cluster**, because the image turns automatic creation off (the
+same reason its own 16 server sits `down` until a job starts it). `pg_createcluster` is now called
+explicitly. **The job going red rather than green is the check working**: it refused to run the proof
+against whatever server happened to be there, which on that run would have been none.
