@@ -97,7 +97,7 @@ export async function startStandinStore({ credentials, buckets = [], pageSize = 
       headers,
       date,
     });
-    return expected.authorization === header ? undefined : "the signature does not match";
+    return expected.headers.authorization === header ? undefined : "the signature does not match";
   }
 
   function answer(request, response, body) {

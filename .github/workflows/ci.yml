@@ -737,12 +737,21 @@ jobs:
       # -- and three that run the refusal END TO END with the image's own
       # 16.15 binary.
       #
-      # THOSE LAST THREE ARE WHY THIS NUMBER IS 127 AND NOT 124. On a machine
-      # with only one PostgreSQL the script prints UNVERIFIED for them and
-      # counts nothing, which is what a local run on Windows does. Here the
-      # 16 client is on the image, so they run -- and this floor is what makes
-      # them run, because the job goes red if they are skipped.
-      EXPECTED_BACKUP_CHECKS: "127"
+      # THOSE LAST THREE ARE WHY THIS NUMBER IS 3 HIGHER THAN A LOCAL RUN'S. On
+      # a machine with only one PostgreSQL the script prints UNVERIFIED for
+      # them and counts nothing, which is what a local run on Windows does.
+      # Here the 16 client is on the image, so they run -- and this floor is
+      # what makes them run, because the job goes red if they are skipped.
+      #
+      # 127 -> 159 AFTER THE FIRST REAL RUN WAS REFUSED, 10 Oct 2026. The
+      # upload answered 403 and the log said only that, so: eleven checks
+      # against AWS's OWN published Signature Version 4 test vectors (#261 --
+      # one of which found a real bug in this signer), nine over what
+      # Cloudflare documents for R2 and what this actually sends, nine over
+      # reading the S3 error code and refusing to repeat anything else from a
+      # response, and three over the preflight that now asks the backup bucket
+      # whether it may write BEFORE production is read at all.
+      EXPECTED_BACKUP_CHECKS: "159"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

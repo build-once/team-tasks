@@ -186,6 +186,49 @@ async function main() {
     stop(`PRODUCTION_SUPABASE_DB_URL could not be read as a connection string (${error.message}). Its value is never printed.`);
   }
 
+  // --- 0. CAN WE EVEN UPLOAD? ASKED FIRST, BEFORE A SINGLE ROW IS READ -----
+  //
+  // The first real run, on 10 October 2026, dumped production's whole
+  // database, read the bucket, packed it, checked it and encrypted it -- and
+  // then the upload answered 403. Everything before the last step was work
+  // done in order to be thrown away, and for the few minutes it took,
+  // production's database was in plaintext on a runner for no purpose at all.
+  //
+  // So the question "will this credential be allowed to write?" is asked at
+  // the start, with ONE harmless request: a listing of the backup bucket
+  // limited to a single key. It reads no object and writes nothing.
+  //
+  // WHAT IT DOES AND DOES NOT PROVE. A listing is a GET with an empty body,
+  // and the upload is a PUT with 138 kB and a content type -- so passing here
+  // is not proof that the PUT will pass. It is proof that the endpoint, the
+  // key id, the secret and the signing of a basic request are all right, which
+  // is three of the four things that answer 403. If the preflight passes and
+  // the PUT still fails, that difference is itself the finding.
+  const destination = new Store({
+    endpoint: setting("BACKUP_STORAGE_ENDPOINT"),
+    // "When using the S3 API, the region for an R2 bucket is `auto`. For
+    // compatibility with tools that do not allow you to specify a region, an
+    // empty value and `us-east-1` will alias to the `auto` region."
+    // -- https://developers.cloudflare.com/r2/api/s3/api/, read 2026-10-10
+    region: setting("BACKUP_DEST_REGION") || "auto",
+    bucket: destBucket,
+    accessKeyId: setting("BACKUP_STORAGE_KEY"),
+    secretAccessKey: setting("BACKUP_STORAGE_SECRET"),
+    label: "the backup bucket",
+  });
+  try {
+    await destination.preflight();
+    say(`The backup bucket answered a one-key listing, so the endpoint, the key and the signing are good. Nothing has been read from production yet.`);
+  } catch (error) {
+    stop(
+      `${error.message} NOTHING WAS READ FROM PRODUCTION. This is the first request the job makes, on purpose. ` +
+        "What the code means: SignatureDoesNotMatch is this job's signing or a stray character in BACKUP_STORAGE_SECRET; " +
+        "AccessDenied is a real credential that is not allowed to list this bucket, so check the R2 token's scope and which bucket it is limited to; " +
+        "InvalidAccessKeyId (or S3InvalidAccessKeyId) is a key id this service does not know, so check BACKUP_STORAGE_KEY and that BACKUP_STORAGE_ENDPOINT names the right account; " +
+        "NoSuchBucket is the name in BACKUP_DEST_BUCKET. docs/backups.md -> 'What the owner must set by hand' is the list.",
+    );
+  }
+
   mkdirSync(work, { recursive: true });
   say("Working under a temporary directory outside the checkout. Nothing unencrypted is written anywhere else.");
 
@@ -374,17 +417,7 @@ async function main() {
   say(`Encrypted: ${container.length} bytes in, ${ciphertext.length} bytes out. SHA-256 ${ciphertextSha256}.`);
 
   // --- 4. upload, then prove it arrived -------------------------------------
-  const destination = new Store({
-    endpoint: setting("BACKUP_STORAGE_ENDPOINT"),
-    // "When using the S3 API, the region for an R2 bucket is `auto`."
-    // -- https://developers.cloudflare.com/r2/api/s3/api/, read 2026-10-10
-    region: setting("BACKUP_DEST_REGION") || "auto",
-    bucket: destBucket,
-    accessKeyId: setting("BACKUP_STORAGE_KEY"),
-    secretAccessKey: setting("BACKUP_STORAGE_SECRET"),
-    label: "the backup bucket",
-  });
-
+  // `destination` was made at step 0 and has already answered a listing.
   const key = objectName(createdAt);
   await destination.put(key, ciphertext);
   say(`Uploaded to ${destBucket} as ${key}.`);
