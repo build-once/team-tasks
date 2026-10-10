@@ -337,7 +337,16 @@ footnote: the first means the window is "about a day" and not "exactly a day", a
 Gaps in this page, not findings. **Six of them are gathered in
 [#256](https://github.com/build-once/team-tasks/issues/256)**, with what to read or try for each and how
 somebody else can tell it is settled — the same way
-[#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones. **Two of those six
+[#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones.
+
+**And six more arrived with the code, each with its own issue** — Build it 24 part 1, 2026-10-10:
+[#259](https://github.com/build-once/team-tasks/issues/259) the settings and the lifecycle rule that do
+not exist; [#260](https://github.com/build-once/team-tasks/issues/260) nothing verified against the real
+services; [#261](https://github.com/build-once/team-tasks/issues/261) the signer checked only against
+itself; [#262](https://github.com/build-once/team-tasks/issues/262) `pg_dump` 16 against production's
+unread version; [#263](https://github.com/build-once/team-tasks/issues/263) the size ceiling nobody has
+measured; [#264](https://github.com/build-once/team-tasks/issues/264) nothing noticing if the copy stops
+happening. **Two of those six
 decide what gets built** rather than merely what may be claimed: whether a Supabase backup includes the
 `auth` schema at all, and whether a Storage read made with an S3 access key is metered as egress.
 

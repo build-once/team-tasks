@@ -325,6 +325,16 @@ three to fetch, on purpose); it refuses an incomplete copy *before* uploading; i
   repository after 60 days of no activity, and a job that never starts has no failure to report.
   `drift-check.yml` names the same trap about itself.
 
-Every one of those is covered by an issue — six filed with this work, plus
-[#249](https://github.com/build-once/team-tasks/issues/249) for the drill. They are listed with their
-links at the end of the pull request.
+Every one of those is covered by an issue, filed with this work:
+
+| Issue | What it holds |
+|---|---|
+| [#259](https://github.com/build-once/team-tasks/issues/259) | the four settings and the 14-day lifecycle rule that do not exist, so the job cannot run and nothing would expire |
+| [#260](https://github.com/build-once/team-tasks/issues/260) | no copy of production exists, and nothing is verified against Supabase S3 or R2 — the region, the paging, the ETag, the single `PUT` |
+| [#261](https://github.com/build-once/team-tasks/issues/261) | the SigV4 signer is checked only against itself |
+| [#262](https://github.com/build-once/team-tasks/issues/262) | `pg_dump` 16 on the runner against production's unread PostgreSQL version |
+| [#263](https://github.com/build-once/team-tasks/issues/263) | the copy is held in memory and uploaded in one `PUT`, and the ceiling has never been measured |
+| [#264](https://github.com/build-once/team-tasks/issues/264) | nothing notices if the copy stops happening at all |
+
+Plus [#249](https://github.com/build-once/team-tasks/issues/249), which was already open and is what the
+restore drill settles.
