@@ -760,17 +760,26 @@ jobs:
       # is fine. One script, so the proof and the job cannot drift apart.
       - name: Install the PostgreSQL 17 client and server, pinned and verified
         run: sh scripts/backup/install-pg17.sh --with-server
-      - name: Start the version 17 cluster, and read its port rather than guess it
+      - name: Create and start the version 17 cluster, and read its port rather than guess it
         run: |
           set -euo pipefail
-          # Installing the server package creates a cluster and starts it, but
-          # on which PORT depends on what the image already had configured:
-          # 5432 belongs to the image's own 16 cluster, so 17/main lands on
-          # 5433. The port is READ rather than assumed, because a wrong guess
-          # here would point the proof at the 16 server and quietly prove the
-          # wrong thing.
+          # THE CLUSTER IS CREATED EXPLICITLY, and the first version of this
+          # step did not do that and failed: installing `postgresql-17` on this
+          # image creates NO cluster. `pg_lsclusters` listed only "16 main",
+          # and `pg_ctlcluster 17 main start` answered "specified cluster '17
+          # main' does not exist" -- the runner image turns the automatic
+          # creation off, which is the same reason its own 16 server is `down`
+          # until a job starts it. So the cluster is made here rather than
+          # hoped for, and the step is idempotent so a re-run is harmless.
+          if ! pg_lsclusters -h | awk '$1 == "17" && $2 == "main" { found = 1 } END { exit !found }'; then
+            sudo pg_createcluster 17 main --start
+          fi
           sudo pg_ctlcluster 17 main start || true
           pg_lsclusters
+          # The PORT depends on what the image already had configured: 5432
+          # belongs to the image's own 16 cluster, so 17/main lands on 5433.
+          # It is READ rather than assumed, because a wrong guess here would
+          # point the proof at the 16 server and quietly prove the wrong thing.
           port="$(pg_lsclusters -h | awk '$1 == "17" && $2 == "main" { print $3 }')"
           if [ -z "$port" ]; then
             echo "::error::No PostgreSQL 17 cluster is configured, so the nightly copy could not be exercised against the version production runs. That is UNVERIFIED, not a pass (AGENTS.md rule 8)."
