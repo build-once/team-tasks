@@ -909,6 +909,37 @@ question, and guessing at it here would put a design in a plan that nobody has r
 requirement of a later one.** The thing that changed between the morning and the evening of 2026-10-08 is
 that none of them is now a cost somebody is being asked to accept.
 
+**AND THERE IS A FOURTH CASE, FOUND ON 10 OCTOBER 2026 AND MISSING FROM THIS SECTION UNTIL THEN:
+production having to be restored.** The three above are all about somebody *doing* something. This one is
+about the project failing, and it was not asked when this section was written because the section assumed
+production's data is backed up. **The files were not.**
+[#248](https://github.com/build-once/team-tasks/issues/248) is the finding: production's backups cover the
+database and **not** the bucket — "Database backups do not include objects you store via the Storage API,
+as the database only includes metadata about these objects"
+([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10), which is also
+what the owner read on the dashboard page itself on 10 October 2026.
+
+**What losing them would mean, plainly.** A restore would bring back the `tasks` rows and the
+`storage.objects` rows that both say a file is there, pointing at bytes that are gone — so the app would
+show files nobody can open, which is a worse answer than showing none. And a file is the one thing in this
+app **nobody can retype**: task text, team names and memberships are all things a person could put back,
+and a photograph of a job that has since been done cannot be taken again.
+
+**What is being done about it: "A nightly copy of production, held by another company" below**, which
+copies the bucket as well as the database. Two things about it belong here rather than only there, because
+they are about files specifically:
+
+- **A deleted file stays in older copies until they expire** — about a fortnight on the proposal there. So
+  "nothing is left behind", decided on 2026-10-08 and enforced by the database, is a promise about **this
+  app**, and the copies are outside it. Both statements are true and the second does not weaken the first:
+  nothing in the app or its bucket outlives its task, and a backup that honoured deletions would have
+  dutifully honoured the wrong one too.
+- **The copy does not remove what is inside a photograph either**, any more than the app does — "What is
+  inside a photograph" below says the file is stored as it arrives, and it is copied as it was stored.
+
+**Nothing of this is built**, and `docs/backups.md` is the full map of what is covered today and what is
+not.
+
 ### What is inside a photograph, which the app does not look at
 
 **A photograph can carry the place it was taken and the device that took it, inside the file**, along with
@@ -971,6 +1002,205 @@ it, and `scan-of-the-letter-from-my-doctor.pdf` is a sentence about a person. **
 app's own code, not on the scrub**: a storage error is reported with its code and the operation, never
 with the path or the name. Nor is the file's contents, its size or its type attached to a report.
 
+## A nightly copy of production, held by another company
+
+Added 2026-10-10. Not a sixth feature of the list above, and **nobody using the app gets a new button**:
+the five things stay five, and there is no screen anywhere in this. It is in the plan because it sends
+**everything this app holds about everybody** out of this project, to a company that was not part of it
+yesterday — which is the same reason the Sentry, Anthropic and attachment sections are here, except that
+those three send a sliver each and this one sends the lot.
+
+**What it is.** Every night, the whole production database and every file in the `attachments` bucket
+are copied, **encrypted on GitHub's runner before either leaves it**, and written to a **private
+Cloudflare R2 bucket named `team-tasks-backups`**, in Cloudflare's **Western Europe (WEUR)** region. The
+bucket's public development URL is **disabled** and it has **no custom domain**, so nothing in it is
+reachable by address — the owner's report of 10 October 2026, and the coach saw that settings page.
+
+**Why, in one line.** Supabase's own daily backups cover the database and **not the files**: "Database
+backups do not include objects you store via the Storage API, as the database only includes metadata
+about these objects" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read
+2026-10-10), which the owner also read on the dashboard page itself. So the one thing in this app nobody
+can retype is the one thing nothing backs up.
+[#248](https://github.com/build-once/team-tasks/issues/248) is that gap, and **this nightly copy is
+exactly what it is for.** `docs/backups.md` is the full map of what is covered and what is not, and it
+says which of #248's conditions this meets and which it does not.
+
+**Cloudflare is a new company holding this app's data, and the whole of what it holds is ciphertext.**
+That is the difference from the other three outside services, and it cuts both ways. Sentry would hold
+readable error reports and Anthropic holds readable task titles; Cloudflare holds a file it cannot open.
+What it does hold is **the fact that this project exists, how big its data is, and when the job ran** —
+which is not nothing, and is the honest limit of "encrypted form only".
+
+### What a copy contains, and what it does not
+
+**Contains:**
+
+- **Every table.** All seven — `tasks`, `teams`, `team_members`, `invitations`, `profiles`,
+  `account_status`, `usage_counts` — counted in the session that wrote this by reading
+  `supabase/migrations/`. So: every task's text, every team name, who is in which team, every pending
+  invitation's address and hashed token, everybody's nickname and AI-suggestions setting, any suspension
+  **and the owner's reason for it**, and the daily usage counts. The two tables the appendix says nobody
+  can read through the app — `account_status` and `usage_counts` — are in the copy like everything else.
+- **The accounts, with their password hashes.** Supabase Auth's own tables: the addresses, the hashed
+  passwords, the sessions and the sign-in audit records with their IP addresses. **This has to be said
+  explicitly because the obvious tool silently leaves it out**: `supabase db dump` "Runs `pg_dump` in a
+  container with additional flags to exclude Supabase managed schemas. The ignored schemas include auth,
+  storage, and those created by extensions"
+  ([`supabase db dump`](https://supabase.com/docs/reference/cli/supabase-db-dump), read 2026-10-10). A
+  copy built on that command would contain no accounts at all, and would look complete.
+- **Every attached file**, as uploaded — including, in a photograph, the place and moment it was taken,
+  which "What is inside a photograph" above says this app does not remove. A copy does not remove it
+  either.
+
+**Does not contain:**
+
+- **The server functions' secrets.** Not the service-role key, not `EMAIL_API_KEY`, not `AI_API_KEY`.
+  Those live only in each Supabase project's function settings and **a backup of a secret is another copy
+  of a secret** — the thing `docs/architecture.md` and `docs/secrets.md` both exist to prevent. Losing one
+  is answered by re-issuing it, not by restoring it.
+- **The deploy credentials**, for the same reason. Nor the passphrase below, which would be a copy of the
+  key inside the thing it locks.
+- **The outside services' own data.** Resend's sending logs, Sentry's error reports and whatever
+  Anthropic holds are each that company's records, outside this project, on their own clocks. Nothing here
+  copies them and nothing here could.
+
+### Who can open a copy
+
+**Only somebody holding both halves**: the **storage key**, which gets the file out of R2, and the
+**passphrase**, which decrypts it. Either alone is useless — the key gets you ciphertext, and the
+passphrase gets you nothing without the file.
+
+**The passphrase is in two places and nowhere else.** The owner's report of 10 October 2026: generated on
+the owner's own PC, kept in the **owner's password manager**, and set as a **GitHub environment secret**
+(`BACKUP_PASSPHRASE`, in the `supabase-production` environment). Not in this repository, not in a `.env`
+file, not in Supabase, not in Cloudflare, and never in a chat (rule 7).
+
+**And only one of those two can be read back.** A GitHub Actions secret cannot be displayed once set — it
+can be overwritten and a workflow can use it, and that is all. So the password manager holds **the only
+readable copy in existence**.
+
+**If the passphrase is lost, no copy can be opened.** Not by the owner, not by Cloudflare, not by
+anybody, and there is no recovery, no reset and no support request that helps. Every file in that bucket
+becomes bytes. That is the price of encrypting before the data leaves the runner, and it is the right
+price — the alternative is this app's whole database, accounts included, sitting readable at a company
+on a key somebody else holds — but it makes the passphrase **the most valuable string in this project**,
+ahead of the service-role key, because a leaked key can be rotated and a lost passphrase cannot be
+recovered.
+
+**The coach and the coding assistant never receive a backup file, any part of one, or the passphrase.**
+Rules 1 and 10 already say the assistant has no production access; this says the same thing about the
+one new artefact that *is* production data in a file, so nobody has to reason it out from the general
+rule.
+
+### How long copies are kept, and how old ones are removed — PROPOSED, for the owner to decide
+
+**Nothing here is decided.** Every other retention decision in this plan was the owner's — the
+invitation's 7 days, the usage count's 7 days — and this one is offered the same way, with the
+arithmetic, so the answer is a choice rather than a default.
+
+**Proposed: 14 daily copies, removed by a Cloudflare R2 object lifecycle rule and never by the job.**
+
+| The proposal | Why |
+|---|---|
+| **14 days** | It is twice Supabase's own window for the database — "Pro Plan projects can access the last 7 days of daily backups" — and a fortnight covers a holiday, which is the realistic shape of "nobody noticed for a while" in a volunteer group of six. It is the shortest window that still answers "it was already wrong a week ago" |
+| **Removed by a lifecycle rule, not by the job** | R2 can delete on its own: "you can create an object lifecycle rule to delete objects after 90 days", and a rule "can specify which prefix you would like it to apply to" ([Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/), read 2026-10-10). So the **job never deletes anything** — and retention cannot drift, because it is not a step anybody can forget or a script anybody can break. It is the same preference as the usage count's window being part of the statement that counts, reached a different way |
+| **And the window is "14 days, plus up to a day"** | Cloudflare's own words: "Objects will typically be removed from a bucket within 24 hours of the `x-amz-expiration` value." So a copy can live a fifteenth day. Stated rather than rounded away, because the deletion consequence below is measured in exactly this number |
+
+**The two not proposed**, kept so the question is not re-argued from scratch later:
+
+| Not proposed | Why not |
+|---|---|
+| **7 days**, matching Supabase | Collects least, which is this plan's bias. But both windows then end at the same moment, so a problem that is a week old has no copy from before it anywhere — and the storage it saves is free either way |
+| **Keep a weekly or monthly one for longer** | The usual shape, and wrong here. A copy older than a fortnight is a copy of a volunteer's task list from last month: of almost no use for recovery, and a month of somebody's data held past the point anybody would look at it. **If the owner wants it, this is the line to come back to**, and the deletion consequence below gets correspondingly worse |
+
+**It costs nothing on Cloudflare's free tier at the plan's group size**, and `docs/costs.md` has the
+arithmetic, the quotas as published, and the headcount at which it stops being free.
+
+### What this means for deletion, which is the part a person would care about
+
+**A deleted account or a deleted file stays in older copies until those copies expire.** Plainly: if
+somebody deletes a photograph today, the copies from the last fortnight still have it, and the one made
+tonight will not. So "deleted" means *deleted from the app*, and the data is actually gone **up to
+fifteen days later** — the 14 of the window plus the day Cloudflare's own page allows for removal.
+
+**Nothing in this plan pretends otherwise, and nothing can make it otherwise.** A backup that excluded
+whatever somebody had deleted would not be a backup: the case it exists for is "something deleted the
+wrong thing", and a copy that honoured deletions would have dutifully honoured that one too.
+
+**Which means Build it 26 has to say it to users, and this paragraph is the requirement.** That build is
+where deleting an account arrives (and where removing that person's files is already a requirement —
+"What happens to a task's files when things change" above, and
+[#235](https://github.com/build-once/team-tasks/issues/235)). Whatever it tells somebody who deletes
+their account must say that **copies of their data remain for up to about a fortnight and then go**,
+because a person who is told "deleted" and means it has been misled by a true-sounding word. It is the
+same shape as the consent setting's own sentence — "switching it off stops any further sending at once …
+It does not recall what was already sent, and it cannot."
+
+**And it sharpens the gap the appendix already names.** There is still no way to delete an account in
+this app, so there is nothing to attach that sentence to yet. What this section adds is that when there
+is, the sentence is not optional.
+
+### The restore drill
+
+**A copy nobody has restored is a belief about a copy**, so the drill is part of this and not a later
+nicety. `docs/backups.md` has what a run must establish and what must be written down; this is where it
+may happen and what never leaves.
+
+- **Into a new temporary project, created for the drill and deleted the same day.** Not kept in case it
+  is useful: a second live copy of production's data is a second thing to protect and nobody is watching
+  it.
+- **Never into production**, which rules 1 and 10 forbid anyway.
+- **Never into staging.** This is the one that needs saying out loud, because staging is the convenient
+  answer. `docs/environments.md`'s own rule is "Production data is never copied to local or staging", and
+  staging is the one project the coding assistant has keys for — so a restore there would put real
+  volunteers' task text within reach of the assistant and beside the Alice / Bob / Carol accounts.
+- **The coach and the coding assistant never receive a backup file**, any part of one, a decrypted dump,
+  or a row out of a restored project. The drill is the owner's from start to finish; what this repository
+  holds is the procedure and the evidence of a run — counts, timings, pass or fail.
+
+**It is also the only thing that can settle one of the two launch items.**
+`checklist/launch.json` has carried `backups-on` and `restore-tested` the whole time, and
+`scripts/launch-check.mjs` reports both TODO because neither evidence file exists
+([#249](https://github.com/build-once/team-tasks/issues/249)).
+
+### The job reads all of production's data, so what stops it keeping or printing any
+
+**There is no narrower version of this job**: a copy of everything is a read of everything, which makes
+it the most powerful thing that will ever run in this repository's CI. Six things hold it, and they are
+listed rather than summarised because a summary is where one of them goes missing:
+
+- **Nothing is echoed but names, byte counts and statuses.** This repository is public, so its run logs
+  are. No sample row, no row counts of real tables, no `set -x`. It is the rule
+  `.github/workflows/migrate-production.yml`'s smoke-test job already follows and writes down.
+- **No artifact, ever.** `actions/upload-artifact` is not used at all. An uploaded dump would be a
+  downloadable copy of production's whole database, and on a public repository it is downloadable by
+  anybody who can read the repository. This is the easy mistake and the worst one.
+- **The plaintext exists only in the runner's temporary directory**, never in the checkout, so there is
+  nothing for a later step to commit — and the runner is destroyed when the job ends.
+- **Only the encrypted file leaves.** Encryption happens on the runner, before the upload, which is what
+  makes the sentence "Cloudflare holds it in encrypted form only" true rather than hopeful.
+- **Secrets arrive through `env:` and are never put on a command line**, and the passphrase reaches the
+  encryption tool on standard input or a file descriptor rather than as an argument. Each of the three
+  secrets gets its own "set and non-empty" check first, printing only its **name** — the pattern the
+  production workflow uses, for the reason it gives: a deleted or renamed GitHub secret expands to an
+  empty string rather than raising an error.
+- **No pull request can run it.** A `schedule` trigger only, no `workflow_dispatch`, and the
+  `supabase-production` environment, so a branch cannot reach the credentials.
+
+**And the cost that none of those removes.** For the few minutes the job runs, **production's entire
+database — every address, every task, every password hash — is in plaintext on a machine this project
+does not own.** That is true of any copy made this way; it is why the encryption happens on the runner
+rather than after the upload, and why the job does as little as possible between the dump and the
+encryption. It is stated here rather than in a footnote because it is the real price of the design.
+
+**A silent failure is the other thing to design against, and it is not solved here.** A backup job that
+quietly stopped would manufacture confidence rather than lose data, which is worse. The run must go red,
+and **how a red run reaches a person is an open decision for the owner** — GitHub's own failure email, or
+an issue opened by the job the way `.github/workflows/drift-check.yml` already does. Related: GitHub
+disables scheduled workflows in a public repository "when no repository activity has occurred in 60 days"
+([Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
+read 2026-10-10), so "nothing has run for two months" is a state this design can reach.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. Payments. A phone app.
@@ -1007,6 +1237,10 @@ than five, counted here rather than remembered.
   its size, who uploaded it and when
 - **Whatever is inside those files**, which is the one line in this list the app does not choose the
   contents of — including the place and the moment a photograph was taken, which the app does not remove
+- **A nightly encrypted copy of every line above it** — every table, the accounts with their password
+  hashes, and every attached file — held by Cloudflare, outside this project, as ciphertext only, and
+  removed after about a fortnight. It adds no new *kind* of data and it is the only line here that
+  contains all the others, which is why it is last
 
 Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
 2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is
@@ -1050,6 +1284,23 @@ published quotas (**1 GB** of storage, **5 GB** of egress a month), what the lim
 against them, and what the page says happens when a Free project goes past one. **The storage half fits
 and the egress half does not**, and the owner recorded that on 2026-10-08 rather than building a limit
 against it — which is on that page, with the three things that would change it.
+
+The nightly copy, added 2026-10-10, brings in **another company and adds £0 at this group's size.**
+Cloudflare R2's published forever-free tier is **10 GB-month of storage, 1 million Class A and 10 million
+Class B operations a month**, and **data transfer out is free**
+([R2 pricing](https://developers.cloudflare.com/r2/pricing/), read 2026-10-10) — so fourteen nightly
+copies of this app at six people sit inside it with room, and the headcount at which they stop doing so is
+on that page too. `docs/costs.md` → "Backups: what the nightly copy and a restore drill cost" has the
+arithmetic, and the one thing here that is **not** £0: **a restore drill creates a project, and a project
+on a paid organisation is billed by the hour.** It is pennies, it is named on that page, and it is a
+decision rather than a surprise.
+
+**And one sentence of this section is now out of date for a reason that has nothing to do with backups.**
+"Before real users arrive, production moves to a Supabase Pro organisation at about $25 a month" is what
+happened on 10 October 2026 — so it has moved, and the plan is being followed rather than exceeded. What
+has **not** happened is anybody setting or seeing the Spend Cap that a billable organisation now has
+([#250](https://github.com/build-once/team-tasks/issues/250)). This section is left as written, because
+rewriting the Budget is the owner's and #250 is where it is held.
 
 ---
 
@@ -1096,6 +1347,7 @@ free text that could contain absolutely anything.
 | A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
+| **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **NOTHING IS BUILT**: no workflow, no copy has ever been made, and no restore has ever been tried. The bucket, the token and the three GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **PROPOSED, not decided: 14 days, removed by a Cloudflare R2 object lifecycle rule rather than by the job** — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. The owner's to settle | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
 
 ## Collecting less — decided
 
@@ -1250,6 +1502,42 @@ can open it — never about what is inside.
   for the same problem in words — and the harder case, because what a photo carries is not something the
   person typed and cannot be seen on the screen they are uploading from.
 
+### Added 2026-10-10 — collecting less in a backup
+
+Kept apart again, and this one is the hardest of the six by a distance, because **the usual move is not
+available and neither is the attachment section's fallback.** Every list above reduces by choosing what to
+leave out of something this app composes — one title and not the list, a code and not the reply, a count
+and not a log. The attachment list could not do that, because a file arrives whole, so it reduced the
+*edges* instead: how many, how big, how long a link lives, who can open it. **A backup cannot even do
+that.** Its whole purpose is to contain everything; a backup that left things out would be a backup that
+fails at the one moment it is needed. So what is left to reduce is: **how long, who can read it, and
+whether anybody can print it.**
+
+- **Encrypted before it leaves the runner, not after it arrives.** This is the reduction that does the most
+  work, and it is about the *new company* rather than about the data: Cloudflare holds a file it cannot
+  open, so adding another company adds **no readable personal data anywhere**. Neither Sentry nor Anthropic
+  can say that.
+- **One key, in two places, one of which cannot be read.** The passphrase is in the owner's password
+  manager and a GitHub environment secret, and never in this repository, a `.env` file, Supabase,
+  Cloudflare or a chat. **And the coach and the coding assistant never receive a copy or the passphrase**,
+  which is the same line the restore drill draws.
+- **A private bucket with no public URL and no custom domain**, so nothing in it is reachable by address —
+  the same reduction as the `attachments` bucket's, for the same reason.
+- **Fourteen days, removed by a lifecycle rule rather than by anybody remembering.** PROPOSED, not decided.
+  This is deliberately the same move as the usage count's 7-day window being part of the statement that
+  counts: a retention period nobody enforces is not a retention period. And it is the **only** number in
+  this list that bounds how long a deleted thing survives, which is what makes it the one to argue about
+  rather than wave through.
+- **No artifact, and nothing printed.** The plaintext never leaves the runner and the run log carries names,
+  sizes and statuses and nothing else — which matters more here than anywhere else in this plan, because
+  this repository is public and the thing passing through is every row of everything.
+- **And one reduction that is NOT taken, written here so it is a decision rather than an oversight:** the
+  copy does **not** leave out the things the app itself makes unreadable. `account_status.reason` — free
+  text about a person — and `usage_counts` are both in the copy, though the appendix says nobody can read
+  either through the app. Leaving them out would mean a restore that silently un-suspends somebody or
+  resets a day's counts, which is a worse failure than holding them. **The copy is as readable as the
+  database it came from, and the passphrase is the whole of what stands in front of it.**
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -1263,13 +1551,14 @@ The three things below are unchanged, because there was nothing to reduce:
 ## Two gaps this table exposes
 
 **There is no way for anyone to delete their account.** Features 1 to 5 do not include it, which is
-why **eighteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
+why **nineteen** rows above say the owner must delete by hand, or that nobody can: nine of them from
 the first version, the two suspension rows added on 2026-10-04, four added on 2026-10-05 — an
 invitation's status and the three error-report rows — two added on 2026-10-07, the task title sent
-to Anthropic and the AI-suggestions setting, and **one added on 2026-10-08**, the daily usage count.
-(Fifteen before 2026-10-07, seventeen after it; the count was made again on **2026-10-08** by reading the
-table's "How a user deletes it" column for all **29** data rows, after the two attachment rows were added
-and after the owner's deletion decision was recorded in them, and it came to eighteen. Every one of those
+to Anthropic and the AI-suggestions setting, **one added on 2026-10-08**, the daily usage count, and
+**one added on 2026-10-10**, the nightly copy.
+(Fifteen before 2026-10-07, seventeen after it, eighteen on 2026-10-08; the count was made again on
+**2026-10-10** by reading the table's "How a user deletes it" column for all **30** data rows, after the
+nightly-copy row was added, and it came to nineteen. Every one of those
 numbers was counted in the session that wrote it, not carried forward.) That is a
 report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
@@ -1327,7 +1616,31 @@ files, and the database refuses to delete a task that still has them.**
 **That leaves one half, and it is the half this whole section is about.** Deleting an *account* removes a
 person's files only once Build it 26 does it, and there is still no way for anybody to delete an account
 at all. So attachments do not make this gap worse, and the thing that would make it better is the same
-thing that would make it better for the other eighteen rows.
+thing that would make it better for the other **nineteen** rows. (That word said "eighteen" until
+2026-10-10, when the nightly-copy row was added and the column was counted again.)
+
+**The nightly copy widens it a fourth way, and it is the widest of the four — which is why it is written
+out rather than noted.** The other three widen it by *what* they hold: an error report, a task title, a
+count. This one widens it by **how much and for how long**, and it is the first thing in this table that
+puts a **time** on the gap:
+
+- **It holds everything.** Every row of every table, the accounts with their password hashes, and every
+  file — one row in this table that contains all the others.
+- **A person cannot reach it, cannot ask for it, and cannot have it removed.** Not even the owner can take
+  one person out of a copy: the file is a single encrypted blob, so "delete Bob's data from the backup"
+  is not an operation that exists.
+- **And "deleted" now has a delay attached to it.** Delete a file or a task and it is gone from the app at
+  once and from the copies in **up to about a fortnight**. That is new. Every other row in this table
+  either goes immediately, goes with its parent, or never goes at all; this is the first one that goes
+  *later*, on a clock.
+
+**What makes it tolerable rather than the worst thing here**, and all three parts are needed:
+**Cloudflare cannot read it** — it is ciphertext, so the new company holds no readable personal data at
+all, which is not true of Sentry or Anthropic; **the window is short and enforces itself**, by a
+lifecycle rule rather than by anybody remembering, which is the same move as the usage count's 7 days;
+and **the alternative is worse** — the gap it closes is the permanent, total loss of the one thing in
+this app nobody can retype. A plan that collects less by having no backup is not collecting less, it is
+risking more.
 
 **Four rows are things you never chose to collect.** The sign-in audit records, both log stores and
 the session tokens are created by Supabase and Vercel whether you want them or not, and they
@@ -1352,6 +1665,14 @@ and they cannot be switched off. This one is written only when somebody attaches
 attaching one is always available — the same test the Anthropic paragraph above uses. What is new is
 that the thing we did not choose is now **inside our own project**, which is a reason to know what is in
 it rather than a reason to recount.
+
+Still four on 2026-10-10, and the nightly copy is not close to being a fifth — it is the **most** chosen
+row in this table, more so even than the usage count. Nothing creates it but a workflow we write, running
+on a schedule we set, sending what we name, to a bucket the owner made; delete the workflow and it stops.
+What it does change is the *shape* of the question. The four above are small things written about people
+using the app at all; this is a large thing written about everything, on purpose. "Chosen" and "safe" are
+different words, and this row is the one place in this table where the first is emphatically true and the
+second rests entirely on one passphrase.
 
 ## Unverified
 
@@ -1705,3 +2026,42 @@ it rather than a reason to recount.
   attachment arithmetic against the egress quota, which is what serving a file spends. Whether bringing
   one in counts against anything was not established on 2026-10-08, and no figure for it is written
   anywhere.
+- **"A nightly copy of production": NOTHING IS BUILT AND NO COPY HAS EVER BEEN MADE.** Added 2026-10-10
+  for Build it 24 part 0. There is **no workflow**, no encrypted file anywhere, no object in
+  `team-tasks-backups`, no lifecycle rule, no restore drill and no evidence file. The section is a design
+  and the arithmetic in `docs/costs.md` is arithmetic on a design. **Three of its decisions are still
+  open and are listed at the top of that pull request**: the two targets, the retention window and how it
+  is removed, and how a failed run reaches a person.
+- **Owner-reported, not seen by anybody writing this — the Cloudflare bucket, the token and the three
+  secrets.** A private R2 bucket `team-tasks-backups` in **Western Europe (WEUR)**, public development URL
+  **disabled**, **no custom domain** (the coach saw that settings page); an R2 API token named
+  `team-tasks-backup-job`, limited to that bucket, with **Object Read & Write**; a passphrase generated on
+  the owner's PC and held in the owner's password manager; and `BACKUP_STORAGE_KEY`,
+  `BACKUP_STORAGE_SECRET` and `BACKUP_PASSPHRASE` in the `supabase-production` GitHub environment. All of
+  it is the owner's report of 2026-10-10. **Nobody writing this opened the Cloudflare or GitHub dashboard,
+  and nothing in this repository can show what either is set to.**
+- **Not confirmed — whether Supabase's own backups include the `auth` schema**, which is where the
+  accounts and their password hashes live. The pages read on 2026-10-10 say a backup contains database
+  data and name **Storage** as the exclusion; **none says the accounts are included**. It matters for this
+  section only as a reason to build the copy with `pg_dump` and not with `supabase db dump`, whose own page
+  says it excludes `auth` and `storage` by name. `docs/backups.md` carries it with the step that would
+  settle it.
+- **Not tried — restoring anything, from Supabase's backups or from a copy of ours.** The dashboard's
+  "Restore to new project" is marked **Beta**, by the owner's reading of 10 October 2026, and nobody has
+  pressed it. So **"down for at most a few hours" is an aspiration with no measurement behind it**, and
+  the restore drill is what would change that ([#249](https://github.com/build-once/team-tasks/issues/249)).
+- **Not confirmed — that the tools this job needs are already on GitHub's runner.** It assumes something
+  that can encrypt with a passphrase and something that can write to an S3-compatible endpoint, both
+  present on `ubuntu-latest`, because rule 17 makes installing one the owner's decision. **Neither has
+  been checked.**
+- **Not confirmed — whether the R2 token can delete, and whether a narrower permission exists.** "Object
+  Read & Write" is what the owner reported, and on the reading here that includes delete. The retention
+  proposal deliberately leaves deletion to a lifecycle rule so the job never needs it; whether R2 offers a
+  write-without-delete permission at all **was not read**.
+- **Deliberately not written down — the R2 S3 endpoint's full value.** The owner gave it in chat. It
+  embeds the Cloudflare account ID, and this repository's own habit is to keep an identifier of that kind
+  out of its files: `evidence/production-log.md`'s header refuses to write the production project reference
+  for exactly this reason, and the repository is public. So what is recorded is its **shape** —
+  `https://<cloudflare account id>.r2.cloudflarestorage.com` — with the value belonging in a GitHub
+  environment variable beside the three secrets. **That is a judgement rather than a rule, and it is at
+  the top of the pull request for the owner to overrule.**

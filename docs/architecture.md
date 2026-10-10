@@ -58,15 +58,18 @@ the pieces will sit, so that the shape is agreed before anything is typed.
                           |  Supabase automatic  |        |  EMAIL                   |
                           |  daily copies        |        |  Resend                  |
                           |                      |        |  NOT SET UP YET          |
-                          |  PRO PLAN ONLY.      |        +------------+-------------+
-                          |  Free staging has    |                     |
-                          |  NO automatic        |            (8) "you have been
-                          |  backups at all.     |                invited to a team"
-                          +----------------------+                     |
-                                                                       v
-                                                          +--------------------------+
-                                                          |  Bob's email inbox       |
-                                                          +--------------------------+
+                          |  THE DATABASE ONLY.  |        +------------+-------------+
+                          |  STORAGE OBJECTS ARE |                     |
+                          |  NOT INCLUDED, so    |            (8) "you have been
+                          |  ATTACHMENTS ARE NOT |                invited to a team"
+                          |  BACKED UP (#248).   |                     |
+                          |                      |                     v
+                          |  PRO PLAN ONLY -     |        +--------------------------+
+                          |  free staging has    |        |  Bob's email inbox       |
+                          |  none (#247).        |        +--------------------------+
+                          |  NO RESTORE HAS EVER |
+                          |  BEEN TRIED (#249).  |
+                          +----------------------+
 
 
   ========================= AROUND ALL OF IT =========================
@@ -89,6 +92,32 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  Builds the web app and serves it to phones and laptops.              |
    |  Holds PUBLIC settings only: the Supabase URL and the publishable     |
    |  key. NO SECRET KEY IS STORED HERE.                                   |
+   +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  THE NIGHTLY COPY  -  CLOUDFLARE R2 chosen 10 Oct 2026.               |
+   |  NOTHING IS BUILT: no workflow, and no copy has ever been made.       |
+   |  A PRIVATE bucket "team-tasks-backups", region WEUR. Public           |
+   |  development URL DISABLED, no custom domain.                          |
+   |                                                                       |
+   |  (15) A SCHEDULED GITHUB ACTIONS JOB, nightly, no pull_request and    |
+   |       no workflow_dispatch, in the supabase-production environment.   |
+   |       READS: the whole production DATABASE through                    |
+   |              PRODUCTION_SUPABASE_DB_URL -- *** SECRET ***             |
+   |              and every FILE in the attachments bucket, which needs    |
+   |              a credential that DOES NOT EXIST YET -- see below.       |
+   |       ENCRYPTS on the runner, with BACKUP_PASSPHRASE                  |
+   |              *** SECRET ***, and only then                            |
+   |       WRITES: the encrypted file to R2, with BACKUP_STORAGE_KEY and   |
+   |              BACKUP_STORAGE_SECRET -- *** SECRET ***                  |
+   |                                                                       |
+   |  CLOUDFLARE HOLDS CIPHERTEXT ONLY. Opening a copy needs BOTH the      |
+   |  storage key AND the passphrase. The passphrase is in the owner's     |
+   |  password manager and a GitHub secret and NOWHERE ELSE; if it is      |
+   |  lost, NO COPY CAN EVER BE OPENED.                                    |
+   |  NO ARTIFACT is ever uploaded. The log prints names, byte counts      |
+   |  and statuses ONLY - this repository is public.                       |
+   |  The coach and the coding assistant NEVER receive a copy.             |
    +-----------------------------------------------------------------------+
 
    +-----------------------------------------------------------------------+
@@ -152,10 +181,19 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
 ## The arrows that carry a secret key
 
-**Six**, and all six start at the server functions. (This sentence said five on 2026-10-06 while the table
-listed four rows; the AI call added on 2026-10-07 was the fifth and made the word and the rows agree.
-**The upload path added on 2026-10-08 is the sixth** — the word and the rows are counted here again, not
-remembered.)
+**Six that a person's request can set off, and all six start at the server functions.** (This sentence
+said five on 2026-10-06 while the table listed four rows; the AI call added on 2026-10-07 was the fifth
+and made the word and the rows agree. **The upload path added on 2026-10-08 is the sixth** — the word and
+the rows are counted here again, not remembered.)
+
+**And one that nobody's request sets off, added 2026-10-10: arrow (15), the nightly copy.** It is counted
+apart on purpose rather than making the word seven, because it is a different class of thing and mixing
+them would hide what this table is for. The six below are **run-time** arrows: a volunteer presses
+something, a function reaches for a key. Arrow (15) is a **scheduled job** holding **deploy-class**
+credentials — the same class as `PRODUCTION_SUPABASE_DB_URL`, which this file already keeps off the
+run-time side for exactly this reason ("a **deploy credential, not a run-time key**: it never appears in
+a request from a volunteer's browser"). Nothing a person does in the app can make arrow (15) fire, and no
+screen can reach it. It has its own section below.
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
@@ -668,6 +706,137 @@ straight to Storage as the signed-in person. Counted here each time, not remembe
   this project will be holding when each person last opened each file. `docs/plan.md`'s "Unverified" list
   carries it, because it is a question about personal data before it is a question about architecture.
 
+## The nightly copy: one scheduled job, what it reads, and where it writes
+
+Added 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)),
+**when nothing is built**: there is no workflow file, no copy has ever been made, no object exists in
+`team-tasks-backups`, and no restore has ever been tried. This is the shape, agreed before anything is
+typed, which is what the top of this file says the whole document is for. `docs/plan.md` → "A nightly copy
+of production, held by another company" is the decision and what it means for people's data;
+`docs/backups.md` is the map of what is covered today and what is not.
+
+**Why it exists, in one line.** Supabase's own daily backups cover the database and **not** the files:
+"Database backups do not include objects you store via the Storage API, as the database only includes
+metadata about these objects" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read
+2026-10-10). The box on the map says so now; it used to say "PRO PLAN ONLY" and nothing about Storage.
+[#248](https://github.com/build-once/team-tasks/issues/248) is the gap and this job is the answer.
+
+### What it is, and the two ways it is unlike everything else on this map
+
+**One GitHub Actions workflow, on a `schedule` trigger, with no `pull_request` and no
+`workflow_dispatch`**, running in the **`supabase-production` environment** — the environment that already
+exists and already holds the production credentials, which is why this needs no fourth secret store. It
+reads production's database and bucket, encrypts on the runner, and writes one file to Cloudflare R2.
+
+**First: it is the only thing in this project that reads everything.** Every other path in this document
+is narrowed by design — a policy decides one row, a function checks one caller, a signed link opens one
+file. A backup is a read of all of it, and there is no narrower version. That makes it the most powerful
+thing that will ever run in this repository's CI, and the reason `docs/plan.md` lists the six controls on
+it one by one instead of summarising them.
+
+**Second: it is the only path where our code holds production data in plaintext.** Not a key *to*
+production data — the data itself, on a GitHub-hosted runner, for the few minutes between the dump and the
+encryption. Stated plainly because it is unavoidable for any copy made this way, and it is why the
+encryption happens **on the runner** rather than after the upload.
+
+### What it reads
+
+| What | Through | Standing |
+|---|---|---|
+| **The whole production database** — all seven tables, and the Supabase-managed schemas with them: the accounts and their hashed passwords in `auth`, and the file metadata in `storage` | `PRODUCTION_SUPABASE_DB_URL`, **the secret that already exists**, in the same environment, used today by `migrate-production.yml`'s `migrate` job | **Available.** No new credential, and the same connection string that applies migrations can read everything |
+| **Every file in the `attachments` bucket** | **A credential that does not exist yet** | **OPEN, and it is the one thing that stops this being buildable today** — see below |
+
+**The database half has a trap in it, and it is worth this document's space because the obvious tool walks
+straight into it.** `supabase db dump` is the CLI command for exactly this job, and it "Runs `pg_dump` in a
+container with additional flags to exclude Supabase managed schemas. The ignored schemas include auth,
+storage, and those created by extensions"
+([`supabase db dump`](https://supabase.com/docs/reference/cli/supabase-db-dump), read 2026-10-10) — and
+"The default dump does not contain any data or custom roles." So a copy built that way would contain **no
+accounts, no password hashes and no file metadata**, and would look complete: the tables would all be
+there. **`pg_dump` against the connection string is what takes everything**, which is available because the
+secret is a plain Postgres URL rather than a Supabase API credential.
+
+**And the two halves are taken by different mechanisms on different clocks**, which is the one correctness
+problem in this design rather than a security one. A file's bytes live in the bucket and its row lives in
+`storage.objects`, so a copy can easily hold rows without files or files without rows. Whatever is built
+has to take both as near the same moment as it can and **say in the file which it took first** — because
+on restore, a row without a file is a file the app offers and cannot open, and a file without a row is
+bytes nobody can reach.
+
+### The credential the bucket half needs, which does not exist
+
+**Neither secret in that environment can read a file's bytes.** This is worth being exact about, because
+"the pipeline already has production credentials" is the easy wrong answer:
+
+- **`PRODUCTION_SUPABASE_DB_URL`** reaches the database, which holds `storage.objects` — the path, the
+  size, the uploader, the timestamps — and **not one byte of any file**. The rows are metadata, which is
+  precisely what the Supabase quote above says a backup already has and why it is not enough.
+- **`PRODUCTION_SUPABASE_ACCESS_TOKEN`** is scoped to **Edge Functions Read-write** and nothing else, so
+  through the Management API "it can do nothing but Edge Functions" — `migrate-production.yml`'s own header
+  says so. It cannot read Storage. *It could deploy a function that reads Storage*, which that header is
+  also careful to say about this token's real reach — and using it that way would be a backup job that
+  works by deploying code to production, which is not a design anybody should accept.
+
+**So something has to be added, and the shape of it is a decision at the top of the pull request.** The
+option this document would propose, with its cost stated rather than buried: a **Supabase S3 access key**
+for the production project, as two more environment secrets. Supabase's own warning about them is the
+whole of the cost — "S3 access keys provide full access to all S3 operations across all buckets and bypass
+RLS policies" and they are "meant to be used only on the server"
+([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10). That
+is a credential as powerful as the service-role key over Storage, held by a GitHub Actions job.
+
+**What it is not, and must not become: the production service-role key in GitHub Actions secrets.** That
+would be a value reaching every row of every table *and* every file, in a store whose whole current
+justification is that it holds deploy credentials and no run-time app key — a sentence this file states
+twice. If the choice ends up being between a Storage-only key and the service-role key, it is the
+Storage-only key, and the reason is one line: **it cannot write to `tasks`.**
+
+### Where it writes, and what Cloudflare actually holds
+
+**One encrypted file per night, into a private R2 bucket named `team-tasks-backups`**, region Western
+Europe (WEUR), public development URL disabled and no custom domain — the owner's report of 10 October
+2026, with the coach having seen that settings page. Two secrets for the write
+(`BACKUP_STORAGE_KEY`, `BACKUP_STORAGE_SECRET`), one for the encryption (`BACKUP_PASSPHRASE`), all three in
+the `supabase-production` environment.
+
+**The endpoint is an S3-compatible address of the shape
+`https://<cloudflare account id>.r2.cloudflarestorage.com`, and its value is deliberately not written in
+this repository.** It embeds the Cloudflare account ID, and `evidence/production-log.md`'s header refuses
+to write the production project reference for the same reason; this repository is public. It belongs in a
+GitHub environment variable beside the secrets, the way `PRODUCTION_SITE_URL` already does for the site
+address.
+
+**Cloudflare holds ciphertext and nothing else**, which is the difference between this new company and the
+two outside services on this map that receive the app's data: Sentry would hold readable error reports and
+Anthropic holds readable task titles. What Cloudflare *can* see is that the project exists, roughly how big its data is, and when the job
+ran — the honest limit of "encrypted form only".
+
+**Opening a copy needs both halves — the storage key and the passphrase — and the passphrase cannot be
+recovered.** It is in the owner's password manager and a GitHub environment secret and nowhere else, and a
+GitHub secret cannot be read back once set, so the password manager holds the only readable copy. **Lose it
+and no copy can ever be opened.** That makes it the most valuable string in this project, ahead of the
+service-role key, for a reason this file has not had to state before: **a leaked key can be rotated and a
+lost passphrase cannot be recovered.**
+
+### What this section does NOT decide
+
+Four things, named so they are open questions rather than gaps somebody finds while building. All four are
+at the top of the pull request.
+
+- **The credential for the bucket half**, above. Nothing can be built until it is settled.
+- **The two targets** — how much data we are willing to lose, and how long we are willing to be down.
+  `docs/backups.md` proposes a day and a few hours and says what today's answers are against them.
+- **The retention window and how old copies are removed.** `docs/plan.md` proposes 14 days by an R2
+  lifecycle rule, so the job never deletes anything.
+- **How a failed run reaches a person.** A backup job that quietly stopped manufactures confidence, so
+  this matters more than it sounds. The two shapes already in this repository are GitHub's own failure
+  email and `drift-check.yml`'s habit of opening an issue.
+
+And two things it does **not** leave open, because they are not choices: **no artifact is ever uploaded**
+(on a public repository that is a downloadable copy of production's database), and **the log carries names,
+byte counts and statuses only** — the rule `migrate-production.yml`'s smoke-test job already follows and
+documents.
+
 ## Who may read a team
 
 `supabase/migrations/20261002122203_team_rules.sql` (Build it 14 part A) is the first migration whose
@@ -821,7 +990,8 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | Server functions | Creating a team, the invite flow, and anything else needing a secret key | Supabase Edge Functions | **Secret** — server side only. The key lives in the function's settings on Supabase, never in a file |
 | Where secrets live | Run-time app keys: service-role key and Resend key. Deploy credential: `PRODUCTION_SUPABASE_DB_URL`, and nothing else | Run-time keys in **Supabase Edge Functions secrets**; the one deploy credential in **GitHub Actions secrets**; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat |
 | Email | Sends the one email the app needs: "you have been invited" | Resend — **not set up yet** | **Secret** API key, held in Supabase |
-| Backups | Daily copies of the database, so a mistake is survivable | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none | **Secret** — owner only |
+| Backups | Daily copies of the **database**, so a mistake is survivable — **and they do not include the files**: "Database backups do not include objects you store via the Storage API" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10). **No restore has ever been tried** (#249) | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none. (That claim is in doubt: production had seven dailies dated before its Pro transfer — #247) | **Secret** — owner only |
+| The nightly copy | Closes the gap in the row above: copies the whole database **and every attached file**, encrypted on GitHub's runner before it leaves, so a restore brings the files back too (#248). Added 10 Oct 2026, **nothing built** | **Cloudflare R2**, a private bucket `team-tasks-backups` in WEUR — **a fifth company, and the only outside service that holds this app's data without being able to read it** | **Secret**, and two of them have to be held together: `BACKUP_STORAGE_KEY` + `BACKUP_STORAGE_SECRET` get the file, `BACKUP_PASSPHRASE` opens it. All three in the `supabase-production` GitHub environment. **The passphrase has one readable copy, in the owner's password manager; lose it and no copy can ever be opened** |
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
 | Monitoring | Will tell you the app is broken before a volunteer does, by sending an error report when a screen or a server route throws | **Sentry**, free plan, data region United States — chosen 5 Oct 2026, **not installed yet** | **Public** — the DSN is meant to be in the browser. No secret, because the setup wizard and its source-map auth token are not used |
@@ -888,6 +1058,13 @@ Before any real volunteer signs up:
   decision B).
 - Production on Pro so automatic daily backups exist, and **one test restore actually done**. Free
   staging has no automatic backups — do not keep anything on staging you would mind losing.
+  **Both halves moved on 10 October 2026, in opposite directions.** Production *is* on Pro, by the owner's
+  transfer that day. And the first half turns out not to be enough: **those backups do not include the
+  files** (#248), so "automatic daily backups exist" covers the database and leaves the one thing in this
+  app nobody can retype uncovered. That is what the nightly copy above is for, and **it is not built.**
+  The restore half is untouched and still undone — `scripts/launch-check.mjs` reports `backups-on` and
+  `restore-tested` as TODO because neither evidence file exists (#249), and the restore drill belongs in a
+  temporary project deleted the same day, **never staging** (`docs/plan.md`, `docs/backups.md`).
 - `main` protected — still open, see `docs/stack.md` decision D.
 - Invitation email working from a verified domain, not Supabase's built-in test sender.
 - Error monitoring set up — **Sentry** chosen on 5 Oct 2026, **nothing installed yet**, and it needs to
