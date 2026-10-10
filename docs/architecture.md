@@ -724,12 +724,27 @@ straight to Storage as the signed-in person. Counted here each time, not remembe
 
 ## The nightly copy: one scheduled job, what it reads, and where it writes
 
-Added 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)),
-**when nothing is built**: there is no workflow file, no copy has ever been made, no object exists in
-`team-tasks-backups`, and no restore has ever been tried. This is the shape, agreed before anything is
-typed, which is what the top of this file says the whole document is for. `docs/plan.md` → "A nightly copy
-of production, held by another company" is the decision and what it means for people's data;
-`docs/backups.md` is the map of what is covered today and what is not.
+Added 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)) as
+a shape agreed before anything was typed, which is what the top of this file says the whole document is
+for. `docs/plan.md` → "A nightly copy of production, held by another company" is the decision and what it
+means for people's data; `docs/backups.md` is the map of what is covered today and what is not.
+
+**AND IT IS NOW BUILT, later the same day: Build it 24 part 1
+([#258](https://github.com/build-once/team-tasks/issues/258)).** This section said "when nothing is
+built: there is no workflow file". There is now:
+
+| | |
+|---|---|
+| `.github/workflows/backup-production.yml` | the nightly job, and the separate job that opens an issue when it fails |
+| `scripts/backup/make-backup.mjs` | dump, list, read, pack, check, encrypt, upload, verify |
+| `scripts/backup/restore-backup.mjs` | download, decrypt, unpack, check, restore, compare — the tool `docs/restore-runbook.md` uses |
+| `scripts/backup/lib.mjs`, `s3.mjs` | the format, the manifest, the completeness check, the log scanner, SigV4; and the four S3 verbs over `fetch`. **No new dependency** (rule 17) |
+| `scripts/backup/proof.mjs`, `standin-store.mjs` | the whole sequence end to end against a throwaway PostgreSQL and a stand-in for both stores, in CI on every pull request |
+
+**What is still not true, and is the only sentence that matters here: NO COPY OF PRODUCTION HAS EVER
+BEEN MADE.** The workflow has never run — it runs on a schedule from `main`, so it cannot until this
+merges — three of the settings it needs are not set, and no restore has ever been tried.
+`evidence/build-it-24-nightly-copy.md` is what has been seen, which is all of it against made-up data.
 
 **Why it exists, in one line.** Supabase's own daily backups cover the database and **not** the files:
 "Database backups do not include objects you store via the Storage API, as the database only includes
@@ -739,10 +754,20 @@ metadata about these objects" ([Database Backups](https://supabase.com/docs/guid
 
 ### What it is, and the two ways it is unlike everything else on this map
 
-**One GitHub Actions workflow, on a `schedule` trigger, with no `pull_request` and no
-`workflow_dispatch`**, running in the **`supabase-production` environment** — the environment that already
-exists and already holds the production credentials, which is why this needs no fourth secret store. It
-reads production's database and bucket, encrypts on the runner, and writes one file to Cloudflare R2.
+**One GitHub Actions workflow, on a `schedule` trigger, with no `pull_request`**, running in the
+**`supabase-production` environment** — the environment that already exists and already holds the
+production credentials, which is why this needs no fourth secret store. It reads production's database
+and bucket, encrypts on the runner, and writes one file to Cloudflare R2.
+
+**It also has a `workflow_dispatch`, which this sentence refused on 2026-10-10 and which
+[#258](https://github.com/build-once/team-tasks/issues/258) — the owner's, and later — asks for in those
+words: "Runs nightly on a schedule and by hand."** The reason the refusal was written is kept, because
+the thing it protected is protected by something stronger than a missing trigger: **the environment**.
+Its deployment branches are limited to `main` (checked on 2026-10-02, recorded in `drift-check.yml`'s
+header), so a manual run started from a branch is handed no secrets at all and stops at the first
+settings check saying which one is empty. A pull request still cannot start it under any circumstances,
+because there is no `pull_request` trigger. That is the shape `drift-check.yml` has run in since Build
+it 15, and it is why "by hand" costs nothing here.
 
 **First: it is the only thing in this project that reads everything.** Every other path in this document
 is narrowed by design — a policy decides one row, a function checks one caller, a signed link opens one
@@ -760,7 +785,7 @@ encryption happens **on the runner** rather than after the upload.
 | What | Through | Standing |
 |---|---|---|
 | **The whole production database** — all seven tables, and the Supabase-managed schemas with them: the accounts and their hashed passwords in `auth`, and the file metadata in `storage` | `PRODUCTION_SUPABASE_DB_URL`, **the secret that already exists**, in the same environment, used today by `migrate-production.yml`'s `migrate` job | **Available.** No new credential, and the same connection string that applies migrations can read everything |
-| **Every file in the `attachments` bucket** | **A credential that does not exist yet** | **OPEN, and it is the one thing that stops this being buildable today** — see below |
+| **Every file in the `attachments` bucket** | A **Supabase S3 access key** for the production project, as `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` and `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY`, with the project's region in the variable `PRODUCTION_SUPABASE_S3_REGION` | **Decided 2026-10-10 and built; the key itself is NOT CREATED YET.** The region is a third setting this file did not foresee: Supabase says to use "the region value displayed on the S3 configuration page", so it cannot be derived, and the job refuses rather than guessing one |
 
 **The database half has a trap in it, and it is worth this document's space because the obvious tool walks
 straight into it.** `supabase db dump` is the CLI command for exactly this job, and it "Runs `pg_dump` in a
@@ -771,6 +796,16 @@ storage, and those created by extensions"
 accounts, no password hashes and no file metadata**, and would look complete: the tables would all be
 there. **`pg_dump` against the connection string is what takes everything**, which is available because the
 secret is a plain Postgres URL rather than a Supabase API credential.
+
+**So, exactly which schemas and roles are copied, and how — added 2026-10-10 with the code, because
+[#258](https://github.com/build-once/team-tasks/issues/258) asks for it in those words.**
+
+| | |
+|---|---|
+| **Every schema, and all of its data** | One `pg_dump --format=plain --encoding=UTF8 --quote-all-identifiers`, with **no `-n`, no `-N`, no `--schema-only` and no `--data-only`**. Those four absences *are* the decision: they are what makes `auth` (the accounts and their password hashes), `storage` (the file metadata), `public` (this project's seven tables), `supabase_migrations` and the extension schemas all part of the copy |
+| **Checked rather than claimed** | The copy is not uploaded unless a scan **of the dump itself** found a `CREATE TABLE`, `COPY` or `CREATE SCHEMA` for both `auth` and `storage`. A manifest saying the accounts are in there proves nothing; the dump saying so does |
+| **Roles: NONE, deliberately** | `pg_dump` does not dump roles, and nothing here adds `pg_dumpall --roles-only`. Two reasons, and the first is the one that decides it: **a role's password is a credential, and a copy of a credential is another copy of a credential** — the same argument this file makes about the function secrets. The second is that it is not needed: a new Supabase project creates `anon`, `authenticated`, `service_role` and the rest for itself, under the same names, so the dump's `GRANT`s land on roles that already exist |
+| **Also deliberately left out** | The function secrets; anything set in a dashboard (Auth redirect URLs, email templates, the Spend Cap); and the outside services' own records. **The manifest lists all four inside the copy**, so a restore is told rather than having to remember, and `docs/restore-runbook.md` step 7 is the table |
 
 **And the two halves are taken by different mechanisms on different clocks**, which is the one correctness
 problem in this design rather than a security one. A file's bytes live in the bucket and its row lives in
@@ -836,13 +871,14 @@ whole current justification is that it holds deploy credentials and no run-time 
 file states twice. The choice was between a Storage-only key and the service-role key, and it is the
 Storage-only key, for the reason given above: **it cannot write to `tasks`.**
 
-**One claim this file must not make, now the key exists.** The "Where secrets live" row of "The parts"
-below says GitHub Actions secrets hold a deploy credential "and nothing else". With two Supabase S3
-secrets, three `BACKUP_*` secrets and a storage endpoint variable in that environment, **that sentence is
-true only if "deploy credential" is read as "a credential CI uses rather than a run-time app key"** — which
-is the honest reading and is not the reading somebody skimming will take. It is on
-[#255](https://github.com/build-once/team-tasks/issues/255) with the rest of the secrets bookkeeping,
-because the fix is one list in `docs/secrets.md` rather than six sentences in six places.
+**One claim this file must not make, now the key exists — FIXED 2026-10-10.** The "Where secrets live"
+row of "The parts" below said GitHub Actions secrets hold a deploy credential "and nothing else". With
+two Supabase S3 secrets, three `BACKUP_*` secrets and two more variables in that environment, that was
+true only on a careful reading. **That row now says what is actually there** — eight credentials CI uses
+and three variables — **and keeps the claim the sentence existed to make: no run-time app key is among
+them.** The list itself is in `docs/secrets.md` → "Every setting production needs", with where each one
+comes from again, which is what [#255](https://github.com/build-once/team-tasks/issues/255) asked for:
+one list rather than six sentences in six places.
 
 ### Where it writes, and what Cloudflare actually holds
 
@@ -926,8 +962,10 @@ above.
 - **Still open: whether the 13-day Bucket Lock is accepted.** `docs/plan.md` has it as a proposal with the
   one thing that keeps it one — nobody has established whether an R2 lock rule can be removed or shortened
   once set.
-- **Still not built: the workflow.** Everything in this section is a shape, which is what the top of this
-  file says the whole document is for, and **Build it 24 part 1 is where it becomes a file.**
+- **Built, and never run against production: the workflow.** This bullet said "Still not built:
+  everything in this section is a shape ... Build it 24 part 1 is where it becomes a file." It is that
+  file now — `.github/workflows/backup-production.yml` — and the thing that is still open is not a design
+  but three settings nobody has created and a drill nobody has done.
 
 And the six facts this section's citations do **not** cover are gathered in
 [#256](https://github.com/build-once/team-tasks/issues/256), two of which decide what gets built:
@@ -1090,7 +1128,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | Sign-in | Sign up, sign in, password reset; answers "who is this?" | Supabase Auth | **Public** key in the browser |
 | Database + RLS | Holds teams, members, tasks, invitations. RLS enforces feature 5 | Supabase Postgres | **Public** key, safe only because RLS is on |
 | Server functions | Creating a team, the invite flow, and anything else needing a secret key | Supabase Edge Functions | **Secret** — server side only. The key lives in the function's settings on Supabase, never in a file |
-| Where secrets live | Run-time app keys: service-role key and Resend key. Deploy credential: `PRODUCTION_SUPABASE_DB_URL`, and nothing else | Run-time keys in **Supabase Edge Functions secrets**; the one deploy credential in **GitHub Actions secrets**; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat |
+| Where secrets live | Run-time app keys: service-role key, Resend key, Anthropic key. **Credentials CI uses: eight, plus three variables** — the deploy pair, the project ref, the two Supabase S3 halves, the two Cloudflare R2 halves and the backup passphrase. **No run-time app key is among them**, which is the sentence this row exists to protect | Run-time keys in **Supabase Edge Functions secrets**; every CI credential in the **`supabase-production` GitHub environment**, branch-limited to `main`; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat. **`BACKUP_PASSPHRASE` is the one that cannot be re-issued** |
 | Email | Sends the one email the app needs: "you have been invited" | Resend — **not set up yet** | **Secret** API key, held in Supabase |
 | Backups | Daily copies of the **database**, so a mistake is survivable — **and they do not include the files**: "Database backups do not include objects you store via the Storage API" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10). **No restore has ever been tried** (#249) | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none. (That claim is in doubt: production had seven dailies dated before its Pro transfer — #247) | **Secret** — owner only |
 | The nightly copy | Closes the gap in the row above: copies the whole database **and every attached file**, encrypted on GitHub's runner before it leaves, so a restore brings the files back too (#248). Added 10 Oct 2026, **nothing built** | **Cloudflare R2**, a private bucket `team-tasks-backups` in WEUR — **a fifth company, and the only outside service that holds this app's data without being able to read it** | **Secret**, and two of them have to be held together: `BACKUP_STORAGE_KEY` + `BACKUP_STORAGE_SECRET` get the file, `BACKUP_PASSPHRASE` opens it. All three in the `supabase-production` GitHub environment. **The passphrase has one readable copy, in the owner's password manager; lose it and no copy can ever be opened** |

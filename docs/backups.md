@@ -5,8 +5,18 @@ up **today**, and the gap. Then the two targets, and the nightly copy that Build
 the gap.
 
 Written 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)),
-against commit `cb58926`. **Documents only. Nothing in this file is built**: there is no backup
-workflow, no copy has ever been made, and no restore has ever been tried.
+against commit `cb58926`.
+
+**IT IS NOW BUILT, and NO COPY OF PRODUCTION HAS EVER BEEN MADE.** This paragraph said "Documents only.
+Nothing in this file is built: there is no backup workflow, no copy has ever been made, and no restore
+has ever been tried." Build it 24 part 1
+([#258](https://github.com/build-once/team-tasks/issues/258)) is the first half of that; the second half
+is unchanged and is the only sentence on this page anybody should quote:
+
+| | |
+|---|---|
+| **Built** | `.github/workflows/backup-production.yml`, `scripts/backup/` (the copy, the restore, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
+| **Not done** | **No copy of production exists.** The workflow has never run: it runs on a schedule from `main`, so it cannot until this merges, and **three of the settings it needs have not been created** (below). No restore has ever been tried, and `evidence/restore-tested.md` does not exist |
 
 **The owner settled seven decisions later the same day**, and they are recorded where each belongs rather
 than in a list at the top: the two targets below; the retention window and the restore drill's
@@ -170,6 +180,7 @@ job that runs and encrypts nothing.
 | `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | secret | **TO SET** | the Supabase S3 access key's id, for reading the bucket |
 | `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | secret | **TO SET** | its secret half |
 | `BACKUP_STORAGE_ENDPOINT` | **variable, not a secret** | **TO SET** | the R2 S3 endpoint, `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** |
+| `PRODUCTION_SUPABASE_S3_REGION` | **variable, not a secret** | **TO SET — and this row was not here on 10 October** | the production project's own region, which S3 request signing needs. **It was found by writing the code**, not by designing it: Supabase's page says to use "the region value displayed on the S3 configuration page" ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), so there is nothing to derive it from. The job **refuses and names this variable** rather than signing with a region somebody guessed, which is the fail-closed direction and also the one that produces a readable error on the first night |
 
 **The two `PRODUCTION_SUPABASE_S3_*` names are a naming choice rather than something the owner specified**,
 and the reasoning is in `docs/architecture.md`: this repository prefixes a credential by **which project it
@@ -246,6 +257,12 @@ the coach never receive it or any file encrypted with it.**
 A backup that has not been restored is a belief about a backup. The drill is what turns the "time down"
 target from an aspiration into a measurement, and it is the only thing that can settle
 [#249](https://github.com/build-once/team-tasks/issues/249)'s `restore-tested`.
+
+**`docs/restore-runbook.md` is now the step-by-step**, written with the code in Build it 24 part 1:
+which copy, how to open it, how to put it back into a new temporary project, how to check it came back,
+what has to be set again by hand, how to prove a copy is unreadable without the passphrase, and
+deleting the project as the last step rather than as tidying up. This section stays because it is the
+*policy* — where a restore may happen and what never leaves — and the runbook is the procedure.
 
 **Where it happens: a new temporary project, and nowhere else.**
 
@@ -339,10 +356,25 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
 - **Not confirmed — which of production's settings exist only in a dashboard.** Nobody has walked the
   project's settings pages against this repository, so the "how long are we down" target rests partly on
   something nobody has inventoried.
-- **Not confirmed — that `gpg` and an S3-capable client are present on `ubuntu-latest`.** The job shape
-  above assumes a tool that can encrypt with a passphrase and a tool that can write to an S3-compatible
-  endpoint, both already on the runner image, because rule 17 makes installing one the owner's decision.
-  **Neither has been checked**, and the runner image's own software list is where to check.
+- **Answered 2026-10-10 by building it: neither `gpg` nor an S3 client is needed, and the two tools that
+  ARE needed are documented on the image.** This entry said "Not confirmed — that `gpg` and an
+  S3-capable client are present on `ubuntu-latest`", and the answer was to need neither: the encryption
+  is Node's own crypto writing **OpenSSL's `enc` file format**, and the four S3 operations are `fetch`
+  with a signature computed in forty lines. **No new dependency, so rule 17 never came up.** What the
+  job does depend on is `pg_dump` and `psql`, and the image's own README — read 2026-10-10 — says
+  "PostgreSQL 16.15 / User: postgres / PostgreSQL service is disabled by default", which is why the
+  workflow pins `ubuntu-24.04` rather than `ubuntu-latest` and **checks for both programs by name
+  before it reads anything**. `openssl` is on the image too ("OpenSSL 3.0.13-0ubuntu3.16"), and the CI
+  proof uses it to show a copy opens with standard tools alone — but the backup itself does not.
+- **AND THE ONE THAT REPLACED IT, which is the likeliest first-night failure: `pg_dump` 16 against
+  production's Postgres.** `pg_dump` refuses to dump a server NEWER than itself. The image carries 16.15;
+  production is on 15.8 or newer and **nobody has read which** — "All projects on Postgres `15.8.1.079`
+  and newer use the newer physical backup process" is the nearest thing this page has, and it does not
+  give a version. If production is on 17, the first run fails. It fails **loudly and legibly**: the job
+  asks the database its version first and stops with one sentence naming both numbers and the fix, which
+  is a client of at least the server's major version on the runner — a tool to install, and therefore the
+  owner's decision (rule 17). Settle it the cheap way: read the Postgres version on production's
+  dashboard, or watch the first run.
 - **Not confirmed — anything about the R2 bucket, the token or the three secrets.** All of it is the
   owner's report of 10 Oct 2026: a private bucket `team-tasks-backups` in **Western Europe (WEUR)**,
   public development URL **disabled**, **no custom domain** — the coach saw that settings page — an R2 API
@@ -378,7 +410,18 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   nothing in this repository can show what any of them is set to. The three marked "set 10 Oct" are the
   owner's word; the five marked **TO SET** or **TO CREATE** have not been done as far as anybody writing
   this knows.
-- **Nothing in this file has been built or run.** No workflow, no copy, no restore, no evidence file. The
-  arithmetic in `docs/costs.md` is arithmetic on a design. **The decisions of 10 October changed what is
-  undecided, not what exists** — and the one-line test for this whole page is unchanged: **no copy of
-  production has ever been made.**
+- **The code exists and has never touched production.** This entry said "Nothing in this file has been
+  built or run. No workflow, no copy, no restore, no evidence file." Three of those four have changed:
+  there is a workflow, there are scripts, and `evidence/build-it-24-nightly-copy.md` records them being
+  run end to end **against made-up data on a throwaway PostgreSQL and a stand-in for both object
+  stores**. What has not changed is the one-line test for this whole page: **no copy of production has
+  ever been made, and no restore has ever been tried.** The arithmetic in `docs/costs.md` is still
+  arithmetic on a design.
+- **Not verified — anything about how the job behaves against the real services.** Everything the proof
+  establishes, it establishes about **our code**: that it signs correctly for a server that recomputes
+  the signature, reads a paged listing to the end, refuses an incomplete copy before uploading, encrypts
+  in a format `openssl` itself opens, and restores to equal counts and equal bytes. **It establishes
+  nothing about Supabase Storage's S3 gateway or Cloudflare R2** — not that the region is accepted, not
+  that `ListObjectsV2` pages as the stand-in does, not that R2's ETag is the body's MD5 (the job checks,
+  and says so rather than assuming), and not that a 5 GB single `PUT` is allowed. The first real run is
+  what settles those, which is why it should be started **by hand** and watched.

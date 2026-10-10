@@ -680,6 +680,96 @@ jobs:
             exit 1
           fi
 
+  # THE NIGHTLY COPY, RUN END TO END WITH NO REAL DATA: issue #258, Build it 24
+  # part 1. The thing .github/workflows/backup-production.yml does every night
+  # against production is done here against a throwaway PostgreSQL seeded with
+  # made-up accounts, tasks and storage records, and a stand-in for both object
+  # stores -- back up, encrypt, upload, verify, download, decrypt, restore,
+  # compare.
+  #
+  # WHY IT IS WORTH A JOB OF ITS OWN. A backup is the one piece of code whose
+  # failure is invisible until the day it matters, and whose success cannot be
+  # checked by looking at production (rules 1 and 10 forbid it, and nobody
+  # should be restoring production to find out). So the only honest place to
+  # exercise it is a world made of made-up data, and the only honest time is
+  # every pull request.
+  #
+  # AND IT IS SEEN TO FAIL. The five things issue #258 names each have a case
+  # that must come out FAIL before the run is allowed to pass: the accounts
+  # left out of the dump, a file missing from the copy, the copy uploaded
+  # unencrypted, the wrong passphrase, and a secret or a row appearing in the
+  # log. Those are the lines beginning "PASS  SEEN TO FAIL:".
+  #
+  # NO CREDENTIAL OF ANY KIND. Every setting the scripts read is a made-up
+  # value invented in scripts/backup/proof.mjs, pointing at 127.0.0.1. This job
+  # names no environment, holds no secret, and reaches no Supabase project,
+  # staging or production. It cannot: the script refuses a database URL whose
+  # host is not this machine.
+  #
+  # ubuntu-24.04 RATHER THAN ubuntu-latest, because this job depends on what is
+  # on the image. Its README, read 2026-10-10, says: "PostgreSQL 16.15 / User:
+  # postgres / PostgreSQL service is disabled by default. Use the following
+  # command as a part of your job to start the service: 'sudo systemctl start
+  # postgresql.service'" -- which is exactly what the first step does. Using
+  # the image's own server and its own client programs is also what keeps their
+  # versions in step: pg_dump refuses to dump a server newer than itself.
+  backup-proof:
+    name: Nightly copy, end to end on made-up data (backup, encrypt, restore, compare)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # A FLOOR, not an equality, as the counting jobs above. Counted from the
+      # script's own output on 2026-10-10:
+      # evidence/build-it-24-nightly-copy.md has the run.
+      EXPECTED_BACKUP_CHECKS: "114"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Start the runner's own PostgreSQL, and find its client programs
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql.service
+          # The runner user is not `postgres`, and Ubuntu's default pg_hba uses
+          # peer authentication for local connections -- so a password is set
+          # for the loopback connection the proof makes. It is the word
+          # "postgres", in a throwaway cluster, on a machine that is destroyed
+          # when this job ends; it is not a secret and is deliberately written
+          # in the open, like the placeholder settings in app-build above.
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres'"
+          found=""
+          for dir in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -rV); do
+            if [ -x "$dir/pg_dump" ]; then found="$dir/"; break; fi
+          done
+          if [ -z "$found" ] && ! command -v pg_dump >/dev/null 2>&1; then
+            echo "::error::pg_dump is not on this runner, so the nightly copy could not be exercised. That is UNVERIFIED, not a pass (AGENTS.md rule 8). The ubuntu-24.04 image is documented as carrying PostgreSQL 16.15."
+            exit 1
+          fi
+          echo "BACKUP_PG_DUMP=${found}pg_dump" >> "$GITHUB_ENV"
+          echo "BACKUP_PSQL=${found}psql" >> "$GITHUB_ENV"
+          "${found}pg_dump" --version
+          "${found}psql" --version
+          openssl version
+      - name: Back up, encrypt, upload, verify, download, decrypt, restore, compare
+        env:
+          BACKUP_PROOF_DB_URL: "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/backup-proof.log"
+          node scripts/backup/proof.mjs | tee "$log"
+          count=$(grep -c '^PASS ' "$log" || true)
+          : "${count:=0}"
+          echo "backup-proof: counted $count PASS lines; at least $EXPECTED_BACKUP_CHECKS expected."
+          if [ "$count" -lt "$EXPECTED_BACKUP_CHECKS" ]; then
+            echo "::error::backup-proof ran $count checks, fewer than the $EXPECTED_BACKUP_CHECKS expected. Either the script lost checks or the end-to-end half did not run -- and a backup nobody exercised is a belief about a backup. Restore them, or lower the expected number on purpose and say why."
+            exit 1
+          fi
+
   # The full test suite on Windows and macOS. The jobs above run on Linux.
   # This caught (and now guards against) path bugs that only show up off Linux.
   other-os:
@@ -1016,7 +1106,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, other-os, secret-scan, app-build, app-tests]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, backup-proof, other-os, secret-scan, app-build, app-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -1024,7 +1114,8 @@ jobs:
       - name: Every needed job must have succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EXPECTED_JOBS: "14"
+          # 14 -> 15 with Build it 24 part 1 (issue #258): backup-proof.
+          EXPECTED_JOBS: "15"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
