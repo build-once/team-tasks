@@ -16,9 +16,50 @@ is unchanged and is the only sentence on this page anybody should quote:
 | | |
 |---|---|
 | **Built** | `.github/workflows/backup-production.yml`, `scripts/backup/` (the copy, the restore, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
-| **Not done** | **No copy of production exists.** No restore has ever been tried, and `evidence/restore-tested.md` does not exist |
+| **Not done** | **No restore has ever finished.** The first drill got through the database and stopped at the files; `evidence/restore-tested.md` does not exist, so `restore-tested` is still TODO ([#249](https://github.com/build-once/team-tasks/issues/249)). The lifecycle rule is still not set, so nothing expires |
 
-**AND IT HAS NOW BEEN RUN AGAINST PRODUCTION ONCE, AND IT FAILED — 10 October 2026.** The owner started
+**TWO COPIES OF PRODUCTION NOW EXIST — 10 October 2026.** The owner ran the job by hand five times that
+day: three refusals, then two successes. **So the sentence at the top of this page has changed for the
+first time since it was written**: there is a copy, and the gap [#248](https://github.com/build-once/team-tasks/issues/248)
+names is closed for the database *and the one attached file* as of today.
+
+| Run | What happened |
+|---|---|
+| 12:04 | read everything, `PUT answered HTTP 403` — no code, no copy |
+| 12:42, 12:45 | **`403, code AccessDenied`** — the code arrived with the fix and named the fault in one word: the credential was real and not allowed to write |
+| **12:56** | **a copy.** 47 tables, 0 files, **138,272 bytes** stored, read back and verified |
+| **15:07** | **a copy with the first attached file in it.** 47 tables, **1 file of 1,178,671 bytes**, 1,309,392 bytes stored |
+
+**AND THE FIRST RESTORE DRILL FOUND A FAULT, the same day, which is what a drill is for.** The owner
+restored the 15:07 copy into a new project with this repository's 11 migrations applied. The three
+completeness checks passed, the database went in, and then:
+
+```
+psql exited 0 with 573 ERROR line(s)
+the restored bucket: PUT answered HTTP 415, code InvalidMimeType
+```
+
+**The comparison never ran**, which is the only part of a drill that proves anything. The `attachments`
+bucket allows six named types and nothing else, and the restore was sending the file with no type the
+bucket accepts. `evidence/build-it-24-nightly-copy.md` section 13 is the whole record; what changed:
+
+- **Every file now goes back with the content type it had**, from the manifest (copies made from today
+  onward record it), else the storage record in the dump, else the file's extension — which is how the
+  app assigned the type in the first place, so **today's two copies restore without making a third**.
+  A file with no type the bucket accepts stops the restore **before anything is uploaded**.
+- **psql's error COUNT was never a check, and the kinds now are.** 573 is what one drill saw and is
+  asserted nowhere; every ERROR line is classified and **an unexpected kind fails the run**, with none of
+  the text printed. Writing that check found a kind nobody had predicted — replaying a primary key says
+  "multiple primary keys … are not allowed", one line per table, so a 47-table restore has 47 of them.
+- **A restore that stops part-way is safe to run again**, and `docs/restore-runbook.md` step 4 says
+  exactly what a second run does to rows already restored and to a file already uploaded — including the
+  one thing it does *not* do, which is repair a half-filled table.
+- **The CI stand-in now holds the bucket's six types**, so this fault fails there first. It could not
+  have before: nothing in CI cared what a PUT declared.
+
+**The earlier record is kept below**, because the first failure is the reason the error code exists.
+
+**IT WAS RUN AGAINST PRODUCTION AND FAILED FIRST — 10 October 2026.** The owner started
 it by hand on `main`. It read production correctly and **stopped at the upload**:
 
 | | |
@@ -94,8 +135,8 @@ so it is stated before it:
 
 | | Today, for the database | Today, for the attached files |
 |---|---|---|
-| **Data lost** | **about a day at worst** — Supabase takes a daily backup, so the target is met for the database | **everything, permanently.** Nothing backs the files up at all |
-| **Time down** | **not known.** No restore has ever been tried, and the dashboard's "Restore to new project" is marked Beta ([#249](https://github.com/build-once/team-tasks/issues/249)) | not applicable — there is nothing to restore from |
+| **Data lost** | **about a day at worst** — Supabase takes a daily backup, so the target is met for the database | **about a day, as of 10 October 2026.** This said "everything, permanently. Nothing backs the files up at all", and the 15:07 copy is what changed it: the one file in production is in a copy at Cloudflare |
+| **Time down** | **STILL NOT KNOWN, and now for a better reason.** A restore has been *tried*: the database went into a new project and the files did not, so there is no measured end-to-end number yet ([#249](https://github.com/build-once/team-tasks/issues/249)). The dashboard's "Restore to new project" is still marked Beta and still unpressed | the same drill, the same answer: not yet |
 
 So one of the four cells is a pass, one is a total gap, and two are unknown. A target nobody has
 timed a restore against is an aspiration.

@@ -347,19 +347,28 @@ async function main() {
   const files = [];
   const objectEntries = [];
   let fileBytes = 0;
+  let typesRecorded = 0;
   for (const object of listed) {
-    const bytes = await source.get(object.key);
+    // THE CONTENT TYPE IS RECORDED, as of 2026-10-10, and the reason is the
+    // owner's first restore drill: it reached `PUT answered HTTP 415, code
+    // InvalidMimeType`, because the copy knew what each file WAS and not what
+    // KIND of thing it was, and the bucket accepts six named types and nothing
+    // else. The type is a header on a response this already reads, so keeping
+    // it costs nothing. docs/restore-runbook.md says what a restore does with
+    // it, and what it does for the copies made before this line existed.
+    const { bytes, contentType } = await source.getObject(object.key);
     if (bytes.length !== object.bytes) {
       stop(
         `An object came back a different size from the one the bucket listed, so NOTHING was uploaded. ` +
           `Listed ${object.bytes} bytes, read ${bytes.length}. Its path is not printed.`,
       );
     }
-    files.push({ path: object.key, bytes: bytes.length, sha256: sha256(bytes) });
+    if (contentType) typesRecorded++;
+    files.push({ path: object.key, bytes: bytes.length, sha256: sha256(bytes), contentType });
     objectEntries.push({ path: OBJECT_PREFIX + object.key, data: bytes });
     fileBytes += bytes.length;
   }
-  say(`Read ${files.length} file(s), ${fileBytes} bytes in total.`);
+  say(`Read ${files.length} file(s), ${fileBytes} bytes in total. ${typesRecorded} of them answered with a content type, which the manifest records so a restore can put them back as they were.`);
 
   // The reconciliation the order above makes necessary. Numbers only.
   const storageRows = tables.find((t) => t.schema === "storage" && t.name === "objects");

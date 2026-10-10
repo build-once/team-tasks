@@ -56,7 +56,9 @@ import { gunzipSync } from "node:zlib";
 import {
   buildManifest,
   checkCopy,
+  classifyPsqlErrors,
   clientTooOld,
+  contentTypeFor,
   decrypt,
   deriveKeyAndIv,
   encodeS3Key,
@@ -66,6 +68,7 @@ import {
   objectName,
   opensslDecryptCommand,
   packContainer,
+  parseStorageObjectTypes,
   pgEnvFromUrl,
   readContainer,
   s3ErrorCode,
@@ -82,8 +85,10 @@ import {
   OPENSSL_MAGIC,
   PBKDF2_DIGEST,
   PBKDF2_ITERATIONS,
+  BUCKET_ALLOWED_TYPES,
   S3_ERROR_CODES,
   SCHEMAS_A_COPY_MUST_COVER,
+  TYPE_BY_EXTENSION,
 } from "./lib.mjs";
 import { Store } from "./s3.mjs";
 import { startStandinStore } from "./standin-store.mjs";
@@ -308,6 +313,83 @@ function pureCases() {
   scanDumpLine("CREATE SCHEMA IF NOT EXISTS extensions;", schemas);
   scanDumpLine("-- a comment about auth.users", schemas);
   check(schemas.has("auth") && schemas.has("storage") && schemas.has("extensions") && schemas.size === 3, "the dump scan reads CREATE TABLE, COPY and CREATE SCHEMA, and is not fooled by a comment.");
+
+  console.log("--- Putting a file back with the type it had");
+  // The owner's first restore drill, 10 Oct 2026, reached
+  // `PUT answered HTTP 415, code InvalidMimeType` and the comparison never
+  // ran. These are the judgements that fix it.
+  //
+  // THE FIRST ONE IS A DRIFT GUARD, and it reads the migration's own SQL
+  // rather than a second copy of the list -- the same move
+  // scripts/screen-state-check.mjs makes for the app's copy. The bucket is the
+  // authority; lib.mjs holds a copy; if they ever disagree this goes red.
+  const bucketSql = readFileSync("supabase/migrations/20261008191804_attachments_bucket.sql", "utf8");
+  // The array is taken out of the INSERT itself, not found by searching for
+  // the types: screen-state-check.mjs learned that the hard way -- a search
+  // for a type matched the migration's own PROSE about why a wildcard is not
+  // used, and only the statement decides anything.
+  const declaredTypes = (/insert\s+into\s+storage\.buckets[\s\S]*?array\s*\[([^\]]*)\]/i.exec(bucketSql) || [])[1];
+  const fromMigration = (declaredTypes || "").match(/'([^']+)'/g)?.map((quoted) => quoted.slice(1, -1)) ?? [];
+  check(
+    fromMigration.length === BUCKET_ALLOWED_TYPES.length && fromMigration.every((type) => BUCKET_ALLOWED_TYPES.includes(type)),
+    `the six types lib.mjs will restore are the six the bucket's own migration allows: ${fromMigration.join(", ")}.`,
+  );
+  check(
+    Object.values(TYPE_BY_EXTENSION).every((type) => BUCKET_ALLOWED_TYPES.includes(type)) && new Set(Object.values(TYPE_BY_EXTENSION)).size === BUCKET_ALLOWED_TYPES.length,
+    "and every extension maps to one of them, with all six reachable -- including `heic`, which the APP no longer offers but the BUCKET still holds.",
+  );
+
+  const typeOf = (args) => contentTypeFor(args);
+  check(typeOf({ manifestType: "image/png", storageType: "image/jpeg", path: "x/a.gif" }).source === "the manifest", "the manifest's recorded type wins, because it is what the file actually answered with.");
+  check(typeOf({ storageType: "image/jpeg", path: "x/a.gif" }).type === "image/jpeg", "with no manifest type -- today's two copies -- the storage record inside the dump is next.");
+  check(typeOf({ path: "x/made-up.JPG" }).type === "image/jpeg", "with neither, the file's EXTENSION answers, case and all: that is how the app assigned the type in the first place.");
+  check(typeOf({ path: "x/made-up.heic" }).type === "image/heic", "a HEIC file already in the bucket comes back, although the app would refuse a new one -- restoring is not uploading.");
+  checkRefuses(typeOf({ manifestType: "image/svg+xml", path: "x/a.svg" }).type === undefined, "A TYPE THE BUCKET DOES NOT ALLOW IS TREATED AS NO TYPE: sending it would be refused, and `image/svg+xml` is the one the bucket's list exists to keep out.");
+  checkRefuses(typeOf({ path: "x/made-up.bin" }).type === undefined && typeOf({ path: "x/made-up.bin" }).source === "nowhere", "and a file whose extension nothing recognises has no type at all, which is what stops the restore before it sends anything.");
+  check(typeOf({ manifestType: "  IMAGE/JPEG  ", path: "x/a.bin" }).type === "image/jpeg", "a type is trimmed and lower-cased before it is compared, so spacing or case cannot turn a good type into none.");
+
+  const dumpWithTypes = [
+    'COPY "storage"."objects" ("id", "bucket_id", "name", "owner", "metadata", "created_at") FROM stdin;',
+    '1\tattachments\t11111111-1111-4111-8111-111111111110/made-up-photo-9c1d.jpg\t\\N\t{"size": 1178671, "mimetype": "image/jpeg"}\t2026-10-10',
+    '2\tattachments\t11111111-1111-4111-8111-111111111111/made-up-letter.pdf\t\\N\t{"eTag": "x", "size": 10, "contentType": "application/pdf"}\t2026-10-10',
+    "\\.",
+    'COPY "public"."tasks" ("id") FROM stdin;',
+    "3",
+    "\\.",
+  ].join("\n");
+  const parsedTypes = parseStorageObjectTypes(dumpWithTypes);
+  check(parsedTypes.get("11111111-1111-4111-8111-111111111110/made-up-photo-9c1d.jpg") === "image/jpeg", "a type IS read out of the dump's storage records when the metadata carries one.");
+  check(parsedTypes.get("11111111-1111-4111-8111-111111111111/made-up-letter.pdf") === "application/pdf", "under `contentType` as well as `mimetype`, because nothing documents which key it would be.");
+  check(parsedTypes.size === 2, "and it stops at the end of that COPY block rather than reading the next table's rows.");
+  check(
+    parseStorageObjectTypes('COPY "storage"."objects" ("id", "name", "metadata") FROM stdin;\n1\tx/y.jpg\t{"size": 1234}\n\\.').size === 0,
+    "AND AN EMPTY ANSWER IS A NORMAL ONE: the only metadata Supabase documents is `{\"size\": 1234}`, so a dump carrying no type is the expected case, not a failure.",
+  );
+  check(parseStorageObjectTypes("no COPY block here at all").size === 0, "a dump with no storage.objects block answers with nothing rather than throwing.");
+
+  console.log("--- Which of psql's errors a restore is supposed to produce");
+  const psqlStderr = [
+    'psql:dump.sql:12: ERROR:  schema "auth" already exists',
+    'psql:dump.sql:40: ERROR:  must be owner of table objects',
+    'psql:dump.sql:51: ERROR:  permission denied for schema storage',
+    'psql:dump.sql:77: ERROR:  duplicate key value violates unique constraint "tasks_pkey"',
+    'psql:dump.sql:60: ERROR:  multiple primary keys for table "tasks" are not allowed',
+    "psql:dump.sql:77: DETAIL:  Key (id)=(44444444-4444-4444-8444-444444444440) already exists.",
+    "psql:dump.sql:77: STATEMENT:  COPY public.tasks (id, title) FROM stdin;",
+  ].join("\n");
+  const classified = classifyPsqlErrors(psqlStderr);
+  check(classified.total === 5 && classified.unexpected === 0, "the five ERROR lines a restore is supposed to produce are counted, and none of them is unexpected.");
+  check(classified.byKind.length === 4 && classified.byKind.some((k) => k.kind === "row already restored" && k.count === 1), "they are counted BY KIND, so a reader learns what happened without reading a line of it.");
+  check(
+    classifyPsqlErrors('psql:dump.sql:60: ERROR:  multiple primary keys for table "tasks" are not allowed').unexpected === 0,
+    "including the one NOBODY PREDICTED: replaying a primary key onto a table that has one says this and not `already exists`, and it is one line PER TABLE -- so the owner's 47-table drill has 47 of them, and the first version of this check would have failed a restore that was fine.",
+  );
+  checkRefuses(
+    !JSON.stringify(classified).includes("44444444") && !JSON.stringify(classified).includes("COPY public.tasks"),
+    "AND NOTHING OF THE TEXT COMES BACK: the DETAIL line's key and the STATEMENT line are neither counted nor carried out of the classifier.",
+  );
+  checkRefuses(classifyPsqlErrors('psql:dump.sql:90: ERROR:  relation "tasks" does not exist').unexpected === 1, "AN ERROR OF AN UNEXPECTED KIND IS COUNTED AS ONE, which is what now fails a restore -- a count of 573 could not tell these apart.");
+  check(classifyPsqlErrors("").total === 0 && classifyPsqlErrors(undefined).total === 0, "no errors at all is zero, not a crash.");
 
   console.log("--- The log scanner");
   const cleanLog = "Counted the rows in 9 table(s). Read 3 file(s), 4211 bytes in total. Uploaded to team-tasks-backups.";
@@ -681,6 +763,15 @@ async function endToEnd() {
     // would not notice, because the manifest is built from what was listed.
     pageSize: 2,
     region: "proof-source-region",
+    // THE BUCKET'S SIX TYPES, ADDED AFTER THE OWNER'S FIRST RESTORE DRILL.
+    // Until this line the stand-in accepted any content type, so CI could not
+    // have caught the fault the drill found: the restore sent every file with
+    // nothing the bucket accepts and the real service answered
+    // `415 InvalidMimeType`. This store holds the `restored` bucket, which is
+    // where the restore PUTs, so the limit applies exactly where it did on the
+    // day. The BACKUP bucket below deliberately has no list -- a copy is an
+    // `application/octet-stream` and R2 takes anything.
+    allowedTypes: BUCKET_ALLOWED_TYPES,
   });
   const destination = await startStandinStore({
     credentials: { accessKeyId: MADE_UP.destKeyId, secretAccessKey: MADE_UP.destSecret },
@@ -689,8 +780,11 @@ async function endToEnd() {
   });
 
   const fileBytes = MADE_UP.fileNames.map((file, index) => Buffer.from(`made-up-bytes-${index}-${file}`.padEnd(20 + index, "."), "utf8"));
+  // Seeded WITH a content type each, the way Storage holds them -- one photo
+  // and two PDFs, matching the three made-up names.
+  const fileTypes = ["image/jpeg", "application/pdf", "application/pdf"];
   MADE_UP.fileNames.forEach((file, index) => {
-    source.seed("attachments", `4444444${index}-4444-4444-8444-44444444444${index}/${file}`, fileBytes[index]);
+    source.seed("attachments", `4444444${index}-4444-4444-8444-44444444444${index}/${file}`, fileBytes[index], fileTypes[index]);
   });
 
   const commonEnv = {
@@ -877,6 +971,45 @@ async function endToEnd() {
     check(/the accounts came back: auth\.users has 3 row\(s\)/.test(restore.log), "THE ACCOUNTS CAME BACK: auth.users has its 3 rows.");
     check(/every one of 3 file\(s\) came back byte for byte/.test(restore.log), "and all three files came back byte for byte.");
     check(/THAT NUMBER IS THE ANSWER/.test(restore.log), "the run reports its own wall-clock time, which is the only answer to 'how long are we down'.");
+    check(/Content types: 3 from the manifest/.test(restore.log), "every file went back with the type the manifest recorded, which is what the owner's first drill did not do.");
+    for (const [index, name] of MADE_UP.fileNames.entries()) {
+      const key = [...source.objects("restored").keys()].find((candidate) => candidate.endsWith(name));
+      check(key !== undefined && source.typeOf("restored", key) === fileTypes[index], `file ${index + 1} of 3 is in the restored bucket AS A ${fileTypes[index]}, not as whatever the upload felt like.`);
+    }
+
+    console.log("--- and running the restore AGAIN over the same project changes nothing");
+    // The drill stopped part-way, so somebody will run it again. What a second
+    // run must not do: duplicate a row, double an object, or half-write a file.
+    const secondRun = await runScript("restore-backup.mjs", restoreEnv, ["--latest"]);
+    if (secondRun.status !== 0 || process.env.BACKUP_PROOF_SHOW_LOG) {
+      console.log("--- every line the SECOND restore printed, in full");
+      for (const line of secondRun.log.split("\n")) if (line.trim()) console.log(`    | ${line}`);
+    }
+    check(secondRun.status === 0, `a second restore of the same copy into the same project exits ${secondRun.status}.`);
+    check(source.objects("restored").size === 3, "the restored bucket still holds THREE objects, not six: a PUT to the same key replaces it.");
+    check(/every one of 3 file\(s\) came back byte for byte/.test(secondRun.log), "and all three still match the copy's checksums after being written twice.");
+    check(/every one of \d+ table\(s\) came back with the row count the copy recorded/.test(secondRun.log), "every table still has the row count the copy recorded -- the rows were not duplicated.");
+    check(
+      /row already restored/.test(secondRun.log),
+      "and the second run's extra psql errors are classified as `row already restored` rather than failing it, which is the kind a re-run is supposed to produce.",
+    );
+
+    console.log("--- a copy made BEFORE the type was recorded, which is both of today's");
+    // THE CASE THE OWNER ACTUALLY HAS. The two copies made on 10 October 2026
+    // were taken before the backup recorded content types, so their manifests
+    // have none. This builds exactly that shape -- the good copy with every
+    // `contentType` stripped -- and requires the restore to work anyway.
+    const oldShapeEntries = packed.entries.map((entry) => ({ path: entry.path, data: packed.read(entry.path) }));
+    const oldManifest = structuredClone(manifest);
+    for (const file of oldManifest.storage.files) delete file.contentType;
+    oldShapeEntries[oldShapeEntries.findIndex((e) => e.path === MANIFEST_PATH)].data = Buffer.from(JSON.stringify(oldManifest, null, 2), "utf8");
+    const oldShapeKey = "team-tasks/2026-10-10/made-before-types-were-recorded.ttbk1.enc";
+    destination.seed("team-tasks-backups", oldShapeKey, encrypt(packContainer(oldShapeEntries), MADE_UP.passphrase));
+    const oldShapeRun = await runScript("restore-backup.mjs", restoreEnv, ["--key", oldShapeKey]);
+    check(oldShapeRun.status === 0, `a copy with NO types in its manifest -- today's two -- still restores (exit ${oldShapeRun.status}).`);
+    check(/Content types: 3 from the file's extension/.test(oldShapeRun.log), "and the three types came from the files' EXTENSIONS, which is how the app assigned them in the first place.");
+    check(/every one of 3 file\(s\) came back byte for byte/.test(oldShapeRun.log), "with the bytes still matching, so the owner's existing copies are restorable without making a new one.");
+
     const restoredTitles = psqlOn(urlWithDatabase(admin, restoreDb), "select count(*) from public.tasks where title like 'MADE-UP-TASK-TEXT%'");
     check(restoredTitles.out === "3", "the restored database really holds the three made-up tasks, read back with a query of its own.");
     const restoredHash = psqlOn(urlWithDatabase(admin, restoreDb), "select count(*) from auth.users where encrypted_password = 'MADE-UP-HASH-aaa'");
@@ -930,6 +1063,49 @@ async function endToEnd() {
       !/The database reports server version/.test(badKeyRun.log) && !/The dump is/.test(badKeyRun.log) && !/Counted the rows/.test(badKeyRun.log),
       "AND NOTHING WAS READ FROM PRODUCTION AT ALL: the preflight is the job's first request, so a bad credential stops it in the first seconds -- before a version, a dump or a row count.",
     );
+
+    // THE SEVENTH, AND IT IS THE OWNER'S FIRST RESTORE DRILL REPRODUCED: an
+    // upload the bucket refuses for its type. The stand-in now holds the
+    // bucket's six types, so this fault fails in CI where before it could not.
+    const wrongType = new Store({
+      endpoint: source.endpoint,
+      region: source.region,
+      bucket: "restored",
+      accessKeyId: MADE_UP.sourceKeyId,
+      secretAccessKey: MADE_UP.sourceSecret,
+      label: "the restored bucket",
+    });
+    let refusedType;
+    try {
+      await wrongType.put("44444440-4444-4444-8444-444444444440/made-up.bin", Buffer.from("x"), { contentType: "application/octet-stream" });
+    } catch (error) {
+      refusedType = error.message;
+    }
+    checkRefuses(
+      refusedType !== undefined && /HTTP 415/.test(refusedType) && /code InvalidMimeType/.test(refusedType),
+      `THE DRILL'S OWN FAULT: a file sent with a type the bucket does not allow is refused -- "${refusedType}" -- which is the 415 the restore walked into, now reproducible in CI.`,
+    );
+    checkRefuses(
+      refusedType !== undefined && !/The specified MIME type is not valid/.test(refusedType),
+      "and the sentence in the response's Message element is not repeated: the code is the whole of what comes out.",
+    );
+    const noTypeEntries = packed.entries
+      .filter((entry) => !entry.path.endsWith(MADE_UP.fileNames[0]))
+      .map((entry) => ({ path: entry.path, data: packed.read(entry.path) }));
+    const strandedPath = "44444440-4444-4444-8444-444444444440/made-up-thing-0001.bin";
+    noTypeEntries.push({ path: OBJECT_PREFIX + strandedPath, data: Buffer.from("made-up-bytes-of-an-unknown-kind") });
+    const strandedManifest = structuredClone(manifest);
+    strandedManifest.storage.files = strandedManifest.storage.files.map((file, index) =>
+      index === 0 ? { path: strandedPath, bytes: 32, sha256: sha256(Buffer.from("made-up-bytes-of-an-unknown-kind")) } : { ...file, contentType: undefined },
+    );
+    noTypeEntries[noTypeEntries.findIndex((e) => e.path === MANIFEST_PATH)].data = Buffer.from(JSON.stringify(strandedManifest, null, 2), "utf8");
+    const strandedKey = "team-tasks/2026-10-10/a-file-with-no-type-anywhere.ttbk1.enc";
+    destination.seed("team-tasks-backups", strandedKey, encrypt(packContainer(noTypeEntries), MADE_UP.passphrase));
+    const beforeStranded = source.objects("restored").size;
+    const strandedRun = await runScript("restore-backup.mjs", restoreEnv, ["--key", strandedKey]);
+    checkRefuses(refusedCleanly(strandedRun), `A FILE WHOSE TYPE IS NOWHERE: the restore is refused (exit ${strandedRun.status}) instead of being refused by the bucket one file at a time.`);
+    checkRefuses(/have no content type the bucket accepts, so NOTHING was uploaded/.test(strandedRun.log), "and it says so before sending anything, naming no path.");
+    checkRefuses(source.objects("restored").size === beforeStranded, "and the restored bucket is untouched: not one of that copy's files was uploaded.");
 
     // THE SIXTH, ADDED AFTER THE COACH'S REVIEW OF PR #265: the pair of
     // versions that would have stopped the first real run -- a 16 client

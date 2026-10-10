@@ -743,6 +743,17 @@ jobs:
       # Here the 16 client is on the image, so they run -- and this floor is
       # what makes them run, because the job goes red if they are skipped.
       #
+      # 159 -> 196 AFTER THE OWNER'S FIRST RESTORE DRILL, 10 Oct 2026, which
+      # stopped at `PUT answered HTTP 415, code InvalidMimeType` because the
+      # restore sent every file with no type the bucket accepts. Thirty-seven
+      # checks: where a file's content type comes from and what happens when it
+      # comes from nowhere, reading a type out of the dump's storage records,
+      # classifying psql's errors by kind instead of counting them, the restore
+      # of a copy made BEFORE types were recorded (which is both of today's),
+      # running the whole restore a second time over the same project, and the
+      # drill's own 415 reproduced -- which CI could not do until the stand-in
+      # was given the bucket's six types.
+      #
       # 127 -> 159 AFTER THE FIRST REAL RUN WAS REFUSED, 10 Oct 2026. The
       # upload answered 403 and the log said only that, so: eleven checks
       # against AWS's OWN published Signature Version 4 test vectors (#261 --
@@ -751,7 +762,7 @@ jobs:
       # reading the S3 error code and refusing to repeat anything else from a
       # response, and three over the preflight that now asks the backup bucket
       # whether it may write BEFORE production is read at all.
-      EXPECTED_BACKUP_CHECKS: "159"
+      EXPECTED_BACKUP_CHECKS: "196"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

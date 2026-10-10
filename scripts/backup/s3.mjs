@@ -121,8 +121,25 @@ export class Store {
   }
 
   async get(key) {
+    return (await this.getObject(key)).bytes;
+  }
+
+  // The bytes AND the content type the service answered with, in one request.
+  //
+  // THE TYPE IS WHY THIS EXISTS. The owner's restore drill of 10 October 2026
+  // stopped at `PUT answered HTTP 415, code InvalidMimeType`, because a copy
+  // recorded what a file was and not what KIND of thing it was, and the
+  // `attachments` bucket accepts six named types and nothing else. The type
+  // costs nothing to keep: it is a header on a response the backup is already
+  // reading.
+  async getObject(key) {
     const response = await this.send({ method: "GET", key });
-    return Buffer.from(await response.arrayBuffer());
+    return {
+      bytes: Buffer.from(await response.arrayBuffer()),
+      // Trimmed of any `; charset=…`, because the bucket's list is of bare
+      // types. Null rather than a guess when the service says nothing.
+      contentType: (response.headers.get("content-type") || "").split(";")[0].trim() || null,
+    };
   }
 
   async put(key, body, { contentType = "application/octet-stream" } = {}) {
