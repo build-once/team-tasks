@@ -66,6 +66,7 @@ import { tmpdir } from "node:os";
 import {
   buildManifest,
   checkCopy,
+  clientTooOld,
   encrypt,
   looksEncrypted,
   md5,
@@ -207,24 +208,22 @@ async function main() {
     stop(`Could not ask the database its version (${psql} exited ${version.status}), so NOTHING was copied. No connection detail is printed.`);
   }
   const serverVersion = version.stdout.trim();
-  const serverMajor = Number(serverVersion.split(".")[0]);
   say(`The database reports server version ${serverVersion}.`);
 
   const dumpVersion = spawnSync(pgDump, ["--version"], { encoding: "utf8" });
   if (dumpVersion.status !== 0) {
-    stop(`${pgDump} is not available on this machine, so NOTHING was copied. docs/backups.md names it as a tool the job needs.`);
+    stop(`${pgDump} is not available on this machine, so NOTHING was copied. docs/backups.md names it as a tool the job needs, and scripts/backup/install-pg17.sh is what puts it there.`);
   }
-  const dumpMajor = Number((/(\d+)\./.exec(dumpVersion.stdout || "") || [])[1]);
-  say(`${pgDump} reports "${(dumpVersion.stdout || "").trim()}".`);
-  // pg_dump refuses a server newer than itself, and says so in a way that
-  // reads like a database fault rather than a missing tool. Saying it here
-  // first turns a baffling nightly failure into one sentence naming the fix.
-  if (Number.isFinite(dumpMajor) && Number.isFinite(serverMajor) && dumpMajor < serverMajor) {
-    stop(
-      `pg_dump is major version ${dumpMajor} and the database is major version ${serverMajor}. pg_dump refuses to dump a newer server, so NOTHING was copied. ` +
-        "The fix is a pg_dump of at least the server's major version on the runner -- which is a tool to install, so it is the owner's decision (AGENTS.md rule 17). docs/backups.md carries this as a known risk.",
-    );
-  }
+  const clientVersion = (dumpVersion.stdout || "").trim();
+  say(`${pgDump} reports "${clientVersion}".`);
+  // Production is PostgreSQL 17.6 and the runner's own client is 16.15, so
+  // this is the check that would have stopped the first real run. The
+  // judgement is in lib.mjs, pure, so proof.mjs can feed it exactly that pair
+  // and require a refusal.
+  const tooOld = clientTooOld({ serverVersion, clientVersion });
+  if (tooOld.refuse) stop(tooOld.note);
+  if (tooOld.note) say(`NOTE: ${tooOld.note}`);
+  else say(`The client is major version ${tooOld.clientMajor} and the server is ${tooOld.serverMajor}, so pg_dump will not refuse the server for being newer than itself.`);
 
   const dumpFile = join(work, "dump.sql");
   // NO -n, NO -N, NO --schema-only and NO --data-only, deliberately: every

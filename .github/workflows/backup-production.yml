@@ -182,35 +182,27 @@ jobs:
           fi
           echo "All nine settings are present. No value is printed."
 
-      # The job needs two programs the runner image is expected to carry.
-      # "Expected" is not "checked", so this checks -- and it looks in the
-      # versioned directory as well as on PATH, because the image installs
-      # PostgreSQL under /usr/lib/postgresql/<major>/bin and whether that is on
-      # PATH is the image's business and not ours.
+      # THE RUNNER'S OWN CLIENT IS THE WRONG ONE, and this step is what fixes
+      # it. The ubuntu-24.04 image carries PostgreSQL 16.15; **production is
+      # PostgreSQL 17.6**, read through the production read-only connector by
+      # the coach on 10 October 2026 (evidence/production-log.md). `pg_dump`
+      # refuses to dump a server newer than itself, so with the image's client
+      # this job would stop at make-backup.mjs' own version check every night
+      # and copy nothing. Issue #262.
       #
-      # A version mismatch is the likeliest first-night failure: pg_dump
-      # refuses a server NEWER than itself. make-backup.mjs asks the database
-      # its version and says so in one sentence naming the fix, rather than
-      # leaving a Postgres error to be deciphered.
-      - name: The Postgres client programs must be on this runner
-        run: |
-          set -u
-          found=""
-          for dir in "" $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -rV); do
-            candidate="${dir:+$dir/}pg_dump"
-            if command -v "$candidate" >/dev/null 2>&1; then
-              found="${dir:+$dir/}"
-              break
-            fi
-          done
-          if [ -z "$found" ] && ! command -v pg_dump >/dev/null 2>&1; then
-            echo "::error::pg_dump is not on this runner, so NO COPY was made. The ubuntu-24.04 image is documented as carrying PostgreSQL 16.15; if that has changed, installing a client is a tool decision and therefore the owner's (AGENTS.md rule 17). docs/backups.md carries this as a known risk."
-            exit 1
-          fi
-          echo "BACKUP_PG_DUMP=${found}pg_dump" >> "$GITHUB_ENV"
-          echo "BACKUP_PSQL=${found}psql" >> "$GITHUB_ENV"
-          "${found}pg_dump" --version
-          "${found}psql" --version
+      # The owner approved installing a client on 10 Oct 2026 (rule 17). The
+      # script this calls holds the whole proposal and the reasoning: the
+      # PostgreSQL project's own apt repository, its signing key verified
+      # against a pinned SHA-256 **and** a pinned fingerprint before it is
+      # trusted, the major version pinned in the package name, and then
+      # `pg_dump --version` checked to be 17 before this job reads anything.
+      # It also writes BACKUP_PG_DUMP and BACKUP_PSQL, so the scripts use the
+      # client it installed rather than whichever one is first on PATH.
+      #
+      # The SAME script runs in ci.yml's backup-proof job, with --with-server,
+      # so the copy is proved against the version of PostgreSQL it will meet.
+      - name: Install the PostgreSQL 17 client, pinned and verified
+        run: sh scripts/backup/install-pg17.sh
 
       # The whole job, in one script. Everything it prints is a name, a count,
       # a size or a status -- see control 2 in the header.

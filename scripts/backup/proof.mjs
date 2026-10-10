@@ -49,18 +49,20 @@
 //     on the first real call. See the issue this file's pull request files.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import {
   buildManifest,
   checkCopy,
+  clientTooOld,
   decrypt,
   deriveKeyAndIv,
   encodeS3Key,
   encrypt,
   looksEncrypted,
+  majorVersion,
   objectName,
   opensslDecryptCommand,
   packContainer,
@@ -83,6 +85,13 @@ import {
 import { startStandinStore } from "./standin-store.mjs";
 
 const PURE_ONLY = process.argv.includes("--pure-only");
+
+// What the ubuntu-24.04 runner image's own pg_dump says, copied from CI run
+// 38045409343 rather than written from memory. It is the client the nightly
+// copy would have used before scripts/backup/install-pg17.sh existed, and
+// production is PostgreSQL 17.6, so this exact string is one half of the pair
+// that would have stopped the first real run (#262).
+const RUNNER_16_VERSION = "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)";
 
 // ---------------------------------------------------------------------------
 // Made-up values. Every one of them is invented here and appears nowhere else.
@@ -322,6 +331,25 @@ function pureCases() {
   check(name === "team-tasks/2026-10-10/production-20261010T011700Z.ttbk1.enc", "one object per night, named by its UTC date and time, so the bucket reads as a calendar.");
   check(objectName(new Date("2026-10-10T23:30:00.000Z")) > name, "and the names sort in the order the copies were taken, which is how --latest finds the newest.");
 
+  console.log("--- The client that is too old to dump the server");
+  // Production is PostgreSQL 17.6, read through the production read-only
+  // connector by the coach on 2026-10-10, and the ubuntu-24.04 runner carries
+  // 16.15. These are the real two numbers, not invented ones: without
+  // scripts/backup/install-pg17.sh the first nightly run would have stopped
+  // here and copied nothing (#262).
+  const RUNNER_16 = RUNNER_16_VERSION;
+  const CLIENT_17 = "pg_dump (PostgreSQL) 17.6 (Ubuntu 17.6-1.pgdg24.04+1)";
+  check(majorVersion("17.6") === 17 && majorVersion(RUNNER_16) === 16 && majorVersion(CLIENT_17) === 17, "a major version is read off both a bare `17.6` and a full `pg_dump --version` line.");
+  check(majorVersion("18beta1") === 18 && majorVersion("") === undefined && majorVersion(undefined) === undefined, "a pre-release reads as its major, and something with no number in it reads as UNKNOWN rather than as zero.");
+  const old = clientTooOld({ serverVersion: "17.6", clientVersion: RUNNER_16 });
+  checkRefuses(old.refuse === true, "THE 16 CLIENT AGAINST THE 17 SERVER: the real pair that would have broken the first run is refused.");
+  check(old.note.includes("major version 16") && old.note.includes("major version 17") && old.note.includes("install-pg17.sh"), "and the refusal names both numbers and the step that installs the right client, rather than leaving a Postgres error to be deciphered.");
+  check(clientTooOld({ serverVersion: "17.6", clientVersion: CLIENT_17 }).refuse === false, "the 17 client against the 17 server is allowed.");
+  check(clientTooOld({ serverVersion: "17.6", clientVersion: "pg_dump (PostgreSQL) 18.0" }).refuse === false, "a NEWER client is allowed, because pg_dump only refuses a server newer than itself.");
+  check(clientTooOld({ serverVersion: "16.15", clientVersion: RUNNER_16 }).refuse === false, "and a 16 client against a 16 server is allowed, so this check is about the pair and not about the number 16.");
+  const unknown = clientTooOld({ serverVersion: "", clientVersion: RUNNER_16 });
+  check(unknown.refuse === false && /did not run/.test(unknown.note), "an unreadable version string does NOT stop the backup -- it says the check did not run, and leaves pg_dump's own refusal as the thing that catches a mismatch.");
+
   console.log("--- The database password never becomes an argument");
   const pg = pgEnvFromUrl("postgresql://a%40b:p%40ss%2Fword@db.example.invalid:6543/postgres?sslmode=require");
   check(pg.PGPASSWORD === "p@ss/word" && pg.PGUSER === "a@b", "the connection string's user and password are percent-decoded into libpq's own variables.");
@@ -503,6 +531,25 @@ async function endToEnd() {
       }
     }
     check(true, `created three throwaway databases on ${host}: one to copy, one with no accounts, one to restore into.`);
+
+    // THE PROOF ASSERTS ITS OWN PREMISE. Production is PostgreSQL 17.6, so a
+    // proof run against a 16 server would exercise a pair of versions the
+    // nightly job will never see -- and the "seen to fail with the 16 client"
+    // case below would pass for the wrong reason, because a 16 client against
+    // a 16 server is fine. The coach's review asked for the proof and the job
+    // to use the same client, against a 17 server; this is the line that makes
+    // that checkable rather than intended.
+    const serverVersion = psqlOn(admin, "show server_version").out;
+    const serverMajor = majorVersion(serverVersion);
+    const clientVersion = spawnSync(PG_DUMP, ["--version"], { encoding: "utf8" }).stdout || "";
+    check(
+      serverMajor !== undefined && serverMajor >= 17,
+      `the throwaway server is PostgreSQL ${serverVersion} -- major ${serverMajor}, which is what production is (17.6), so the version pair below is the real one.`,
+    );
+    check(
+      majorVersion(clientVersion) === serverMajor,
+      `and the client is the same major version: "${clientVersion.trim()}". The nightly job installs this one with scripts/backup/install-pg17.sh.`,
+    );
     const seeded = psqlOn(urlWithDatabase(admin, sourceDb), seedSql({ withAuth: true }));
     const seededNoAuth = psqlOn(urlWithDatabase(admin, noAuthDb), seedSql({ withAuth: false }));
     if (seeded.status !== 0 || seededNoAuth.status !== 0) {
@@ -671,6 +718,55 @@ async function endToEnd() {
     });
     checkRefuses(refusedCleanly(badKeyRun), `a wrong storage secret fails the run (exit ${badKeyRun.status}): the stand-in recomputes the signature and refuses it, so every request really was signed correctly in the passing run above.`);
     checkRefuses(destination.objects("team-tasks-backups").size === badKeyBefore, "and nothing was written when it did.");
+
+    // THE SIXTH, ADDED AFTER THE COACH'S REVIEW OF PR #265: the pair of
+    // versions that would have stopped the first real run -- a 16 client
+    // against a 17 server.
+    //
+    // IT USES A REAL OLDER pg_dump, NOT A STAND-IN, and that is worth the few
+    // extra lines. On the ubuntu-24.04 runner the image's own 16.15 client
+    // stays installed beside the 17 that install-pg17.sh adds, so this case
+    // runs the actual binary whose version made #262 a problem.
+    //
+    // A STAND-IN WAS TRIED FIRST AND WAS WORSE THAN USELESS. A one-line
+    // script answering `--version` with "16.15" works on POSIX; on Windows,
+    // spawning a `.cmd` directly fails with EINVAL, so make-backup refused
+    // for the WRONG REASON -- "pg_dump is not available on this machine" --
+    // and the first of these three checks passed while proving nothing. That
+    // is precisely the false pass a seen-to-fail case exists to prevent, and
+    // it was caught by the second check being specific about the words.
+    //
+    // Where there is no older client -- a developer's machine with one
+    // PostgreSQL on it -- this says UNVERIFIED and counts NOTHING, the way
+    // build-it-16-checks.mjs does for EXPIRED_ACCESS_TOKEN. CI is where the
+    // enforcement lives: the job counts PASS lines against a floor that
+    // includes these three, so the case going missing there turns it red.
+    const older = [process.env.BACKUP_PG_DUMP_OLD, "/usr/lib/postgresql/16/bin/pg_dump", "/usr/lib/postgresql/15/bin/pg_dump"]
+      .filter(Boolean)
+      .find((candidate) => existsSync(candidate));
+    const olderVersion = older ? (spawnSync(older, ["--version"], { encoding: "utf8" }).stdout || "").trim() : "";
+    if (!older || !(majorVersion(olderVersion) < serverMajor)) {
+      console.log(
+        `UNVERIFIED  no pg_dump older than the server's major version ${serverMajor} on this machine, so the "client too old" refusal was not run end to end. ` +
+          "Nothing is counted for it. On the ubuntu-24.04 runner the image's own 16.15 client is there and this case runs; set BACKUP_PG_DUMP_OLD to run it elsewhere.",
+      );
+    } else {
+      const oldClientBefore = destination.objects("team-tasks-backups").size;
+      const oldClientRun = await runScript("make-backup.mjs", {
+        ...commonEnv,
+        PRODUCTION_SUPABASE_DB_URL: urlWithDatabase(admin, sourceDb),
+        BACKUP_PG_DUMP: older,
+      });
+      checkRefuses(
+        refusedCleanly(oldClientRun),
+        `A CLIENT TOO OLD FOR THE SERVER: "${olderVersion}" against this major-${serverMajor} server is refused (exit ${oldClientRun.status}).`,
+      );
+      checkRefuses(
+        /major version 16/.test(oldClientRun.log) && new RegExp(`major version ${serverMajor}`).test(oldClientRun.log) && /install-pg17\.sh/.test(oldClientRun.log),
+        "and the run names BOTH versions and the step that installs the right client, instead of leaving a Postgres version-mismatch error to be deciphered.",
+      );
+      checkRefuses(destination.objects("team-tasks-backups").size === oldClientBefore, "and nothing was uploaded: it stops before it reads a single row.");
+    }
 
     const missingSetting = await runScript("make-backup.mjs", { ...commonEnv, PRODUCTION_SUPABASE_DB_URL: urlWithDatabase(admin, sourceDb), BACKUP_PASSPHRASE: "   " });
     checkRefuses(refusedCleanly(missingSetting), "a passphrase of spaces is treated as missing, matching every other settings check in this repository.");

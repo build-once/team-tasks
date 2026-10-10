@@ -242,7 +242,15 @@ find out what it sends. Before the production key is installed, a privacy page m
 **what Suggest subtasks sends and to whom**: one task's title and fixed instructions, to Anthropic, with
 nothing attached that says who asked; how long Anthropic keeps it; that the setting starts off; and that
 switching it off stops further sending but recalls nothing. [#204](https://github.com/build-once/team-tasks/issues/204)
-holds it, with the full list and how we will know it is done. **Writing the words is the owner's**, not
+holds it, with the full list and how we will know it is done.
+
+**And it gained a second requirement on 10 October 2026, from the owner: the privacy page must say WHERE
+DATA IS HELD.** Production's database is in **West US (Oregon)**, the nightly encrypted copy is in
+**Western Europe** at Cloudflare, Sentry's data region would be the **United States**, and three places
+are not established at all — "A nightly copy of production" above and `docs/backups.md` → "Where the data
+is held" are the record. The owner put it on **Build it 26**, which is where deleting an account arrives
+and therefore where this plan already owes people two other sentences: that deletion is real, and that
+copies of their data remain for up to about a fortnight. All three belong on one page. **Writing the words is the owner's**, not
 least because they carry legal weight; the gate is written here so the release order is decided in one
 place.
 
@@ -1026,6 +1034,18 @@ can retype is the one thing nothing backs up.
 exactly what it is for.** `docs/backups.md` is the full map of what is covered and what is not, and it
 says which of #248's conditions this meets and which it does not.
 
+**WHERE ALL OF THIS PHYSICALLY IS, recorded 2026-10-10 because a copy of everything that crosses an
+ocean is the point at which "where" stops being a detail.** Production's database — and with it the
+accounts and the `attachments` bucket, which live in the same project — is in **West US (Oregon),
+`us-west-2`**, from the **owner's screenshot** of that day; the nightly copy is in **Western Europe**.
+So the copy lives in a different part of the world from the thing it is a copy of. **It is ciphertext
+the whole way**, which is what makes that acceptable rather than merely true, and a copy surviving a
+regional failure is the more useful of the two arrangements for a backup — but **nobody chose the
+pairing on purpose**, and `docs/backups.md` → "Where the data is held" is the full table, including the
+three places nobody has established at all. **And people have to be told: Build it 26's privacy page
+must say where data is held** — the owner's instruction of 10 Oct 2026, which is now one of the things
+[#204](https://github.com/build-once/team-tasks/issues/204) carries.
+
 **Cloudflare is a new company holding this app's data, and the whole of what it holds is ciphertext.**
 That is the difference from the other three outside services, and it cuts both ways. Sentry would hold
 readable error reports and Anthropic holds readable task titles; Cloudflare holds a file it cannot open.
@@ -1414,10 +1434,17 @@ decision rather than a surprise.
 
 **And one sentence of this section is now out of date for a reason that has nothing to do with backups.**
 "Before real users arrive, production moves to a Supabase Pro organisation at about $25 a month" is what
-happened on 10 October 2026 — so it has moved, and the plan is being followed rather than exceeded. What
-has **not** happened is anybody setting or seeing the Spend Cap that a billable organisation now has
-([#250](https://github.com/build-once/team-tasks/issues/250)). This section is left as written, because
-rewriting the Budget is the owner's and #250 is where it is held.
+happened on 10 October 2026 — so it has moved, and the plan is being followed rather than exceeded. This
+section is left as written, because rewriting the Budget is the owner's and
+[#250](https://github.com/build-once/team-tasks/issues/250) is where it is held.
+
+**The Spend Cap is now ENABLED on the `DHTA Ltd` organisation — the owner, 10 October 2026.** This
+paragraph said "What has **not** happened is anybody setting or seeing the Spend Cap that a billable
+organisation now has", and that was true for a few hours. `docs/costs.md` calls the Cap "the strongest
+control of any service here", and the window that page warns about — the same sitting as the upgrade —
+was that day. **It answers part of #250 and not all of it:** that issue also wants the figures recorded
+on the costs page and its stale "nothing can bill us" sentences fixed, and the Cap **excludes compute**,
+so about $25 a month bills whatever the Cap says.
 
 ---
 

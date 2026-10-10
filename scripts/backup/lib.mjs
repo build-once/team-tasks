@@ -408,6 +408,70 @@ export function signRequest({ method, url, region, service = "s3", accessKeyId, 
 }
 
 // ---------------------------------------------------------------------------
+// Is this client old enough to be useless?
+// ---------------------------------------------------------------------------
+//
+// `pg_dump` refuses to dump a server NEWER than itself, and says so in a way
+// that reads like a database fault rather than a missing tool. **Production is
+// PostgreSQL 17.6** -- read through the production read-only connector by the
+// coach on 2026-10-10 -- and the ubuntu-24.04 runner carries 16.15, so this is
+// not a hypothetical: a nightly copy with the runner's own client would stop
+// every night and copy nothing (#262). `scripts/backup/install-pg17.sh` is the
+// fix; this is the thing that says so in one sentence if the fix ever stops
+// working.
+//
+// It lives here, pure and exported, so proof.mjs can feed it the exact pair of
+// numbers that was about to break the first run and require a refusal.
+
+// The first integer after "PostgreSQL)" if the text has one, else the first
+// integer at all. So all four of these read correctly:
+//   "17.6"                                            -> 17
+//   "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg)" -> 16
+//   "psql (PostgreSQL) 17.6 (Ubuntu 17.6-1.pgdg24.04+1)" -> 17
+//   "18beta1"                                          -> 18
+// and anything with no number in it reads as unknown rather than as zero.
+export function majorVersion(text) {
+  const whole = String(text ?? "");
+  const marker = whole.indexOf("PostgreSQL)");
+  const after = marker === -1 ? whole : whole.slice(marker + "PostgreSQL)".length);
+  const found = /(\d+)/.exec(after);
+  return found ? Number(found[1]) : undefined;
+}
+
+export function clientTooOld({ serverVersion, clientVersion }) {
+  const serverMajor = majorVersion(serverVersion);
+  const clientMajor = majorVersion(clientVersion);
+  if (serverMajor === undefined || clientMajor === undefined) {
+    // DELIBERATELY NOT A REFUSAL, and this is the one place in these scripts
+    // where an unknown does not stop the work. The reason is that the refusal
+    // this check exists to produce is `pg_dump`'s own: it will decline a newer
+    // server whatever we think. So an unreadable version string costs a clear
+    // message and nothing else, where failing closed here would turn a
+    // cosmetic change in somebody's `--version` output into no backup at all.
+    return {
+      refuse: false,
+      serverMajor,
+      clientMajor,
+      note:
+        "Could not read a major version from one of the two version strings, so this check did not run. " +
+        "pg_dump's own refusal of a newer server is what still stops a mismatch -- it is a real refusal, not a silent pass.",
+    };
+  }
+  if (clientMajor < serverMajor) {
+    return {
+      refuse: true,
+      serverMajor,
+      clientMajor,
+      note:
+        `pg_dump is major version ${clientMajor} and the database is major version ${serverMajor}. pg_dump refuses to dump a newer server, so NOTHING was copied. ` +
+        "The fix is scripts/backup/install-pg17.sh, which both workflows run before this script -- if that step was skipped or failed, that is where to look. " +
+        "Installing a client is a tool decision and therefore the owner's (AGENTS.md rule 17); it was taken on 2026-10-10 and #262 is the record.",
+    };
+  }
+  return { refuse: false, serverMajor, clientMajor, note: undefined };
+}
+
+// ---------------------------------------------------------------------------
 // Talking to Postgres without putting a password on a command line
 // ---------------------------------------------------------------------------
 //

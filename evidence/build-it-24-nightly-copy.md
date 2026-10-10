@@ -309,10 +309,10 @@ three to fetch, on purpose); it refuses an incomplete copy *before* uploading; i
   (the job checks and says so rather than assuming), not that a copy of our likely size is accepted in
   one `PUT`, and nothing whatever about the lifecycle rule or the proposed bucket lock, neither of which
   exists.
-- **Production's Postgres version.** The sandbox is 17.10 and the runner image carries `pg_dump` 16.15.
-  `pg_dump` refuses a server **newer** than itself, so if production is on 17 the first run fails. It
-  fails legibly — the job asks the database its version first and stops with one sentence naming both
-  numbers and the fix — but nobody has read which version production is on.
+- **~~Production's Postgres version.~~ ANSWERED, AND IT WAS THE BAD ANSWER — see section 11.** This
+  bullet said "if production is on 17 the first run fails … nobody has read which version production is
+  on". The coach read it: **17.6**. The runner's 16.15 client would have been refused every night, so the
+  job now installs a 17 client and the proof runs against a 17 server.
 - **Anything at all about production's data.** Eleven tables and three files here are made up. Production
   has seven tables, an empty bucket, and no accounts, because nobody has signed up.
 
@@ -347,7 +347,13 @@ three to fetch, on purpose); it refuses an incomplete copy *before* uploading; i
   ([#249](https://github.com/build-once/team-tasks/issues/249)).
 - **The SigV4 signer is checked against itself**, in the stand-in's verifier, and not against AWS's
   published test vector. A systematic error would pass here and fail on the first real call.
-- **`pg_dump` 16.15 against production's unread Postgres version** — see section 8.
+- **~~`pg_dump` 16.15 against production's unread Postgres version~~ — ANSWERED AND FIXED, section 11.
+  What replaced it:** the 17 client is installed from the PostgreSQL project's apt repository every run,
+  so **the job depends on `apt.postgresql.org` being reachable**, and the **patch** version is not
+  pinned. Both are deliberate and both are stated in `scripts/backup/install-pg17.sh`.
+- **The end-to-end "client too old" refusal was NOT seen on this machine**, only in CI: it needs a
+  `pg_dump` older than the server, and this machine has one PostgreSQL. The proof prints `UNVERIFIED`
+  and counts nothing for it there. Section 11 has the CI run where it does fire.
 - **The whole copy is held in memory** at three points (the dump, the gzipped container, the
   ciphertext), and the upload is a single `PUT` with no multipart. At the plan's six people and 100 MB
   each that is well inside a runner, and nobody has measured where it stops being.
@@ -362,9 +368,123 @@ Every one of those is covered by an issue, filed with this work:
 | [#259](https://github.com/build-once/team-tasks/issues/259) | the four settings and the 14-day lifecycle rule that do not exist, so the job cannot run and nothing would expire |
 | [#260](https://github.com/build-once/team-tasks/issues/260) | no copy of production exists, and nothing is verified against Supabase S3 or R2 — the region, the paging, the ETag, the single `PUT` |
 | [#261](https://github.com/build-once/team-tasks/issues/261) | the SigV4 signer is checked only against itself |
-| [#262](https://github.com/build-once/team-tasks/issues/262) | `pg_dump` 16 on the runner against production's unread PostgreSQL version |
+| [#262](https://github.com/build-once/team-tasks/issues/262) | ~~`pg_dump` 16 on the runner against production's unread PostgreSQL version~~ — **answered and CLOSED, section 11** |
 | [#263](https://github.com/build-once/team-tasks/issues/263) | the copy is held in memory and uploaded in one `PUT`, and the ceiling has never been measured |
 | [#264](https://github.com/build-once/team-tasks/issues/264) | nothing notices if the copy stops happening at all |
 
 Plus [#249](https://github.com/build-once/team-tasks/issues/249), which was already open and is what the
 restore drill settles.
+
+---
+
+## 11. The coach's review, and the one change that had to happen before the first run
+
+**Added 2026-10-10, after the coach's review comment on
+[PR #265](https://github.com/build-once/team-tasks/pull/265).** What the review confirmed is in the
+comment itself; this section is the change it required, and it is the most consequential thing in this
+file — **as it stood, the first nightly copy would have copied nothing.**
+
+### What was wrong
+
+**Production is PostgreSQL 17.6.** The coach read it that day through the production read-only
+connector: one read of `server_version`, one setting, no row contents
+(`evidence/production-log.md`). And `pg_dump` refuses to dump a server **newer** than itself.
+
+So:
+
+| | |
+|---|---|
+| The runner's client | **16.15**, observed in CI run [38045409343](https://github.com/build-once/team-tasks/actions/runs/38045409343) — not read off documentation |
+| Production's server | **17.6**, the coach's read |
+| What would have happened every night | `make-backup.mjs` stops at its own version check, says so in one sentence, uploads nothing, goes red, opens the "Backup did not run" issue |
+
+**This file carried that as "unverified" in three places** — sections 8 and 10 and the #262 row — and it
+was the one unverified item that was not a nice-to-know. It was also the direction that at least fails
+loudly: the copy would have been absent, not wrong.
+
+### What was done, and why this way
+
+**The owner approved installing a client (rule 17), and asked for the one way judged safest, pinned and
+verified.** `scripts/backup/install-pg17.sh` is the proposal, run by **both** workflows; its own header
+carries the whole argument. In short:
+
+| | |
+|---|---|
+| **Where from** | The PostgreSQL project's **own apt repository**. The runner's 16.15 came from there too ("16.15-1.pgdg24.04+2"), so this is the same packaging, not a third party's |
+| **Verified how** | The signing key is checked against a **pinned SHA-256** *and* a **pinned fingerprint** before apt is told to trust it. Both were read in this session, not remembered: `curl … ACCC4CF8.asc \| sha256sum` → `0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76`, and `gpg --show-keys --with-colons` → `B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8`, uid "PostgreSQL Debian Repository" |
+| **Pinned how** | The **major** version, twice: in the package name (`postgresql-client-17`) and again by checking `pg_dump --version` says 17 before anything is read |
+| **NOT pinned** | The **patch** version, on purpose. `=17.6-1.pgdg24.04+1` would be byte-exact and would **stop the nightly backup** the day that version left the pool — a worse failure than a client moving from 17.6 to 17.7 |
+| **Rejected: `postgres:17` pinned by digest** | It puts Docker in the backup path, so the plaintext dump would have to cross a volume mount — one more place for it to be left behind; the image's maintainers are a step further from the source than the project's own packages; and a digest needs a human to bump it for security fixes, which nobody will do |
+
+**And the cost of that choice, stated rather than left to be noticed:** the job now depends on
+`apt.postgresql.org` being reachable, and a compromise of that repository or its key would reach the
+runner. What it does **not** depend on is a third-party GitHub Action — there is no `uses:` in that step.
+
+### The proof uses the same client, against a version 17 server
+
+The coach asked for this in those words, and the reason is sharp: against a 16 server, the
+"seen to fail with a 16 client" case below **would pass for the wrong reason**, because a 16 client
+against a 16 server is fine. So `ci.yml`'s `backup-proof` job runs the **same script** with
+`--with-server`, starts the 17 cluster, and **reads its port out of `pg_lsclusters` rather than guessing
+it** — a wrong guess there would point the proof at the image's 16 server and quietly prove the wrong
+thing.
+
+**The proof now asserts its own premise**, which is the part worth copying elsewhere:
+
+```
+PASS  the throwaway server is PostgreSQL 17.10 -- major 17, which is what production is (17.6), so the version pair below is the real one.
+PASS  and the client is the same major version: "pg_dump (PostgreSQL) 17.10". The nightly job installs this one with scripts/backup/install-pg17.sh.
+```
+
+### Seen to fail first, with the version 16 client
+
+Eight checks over the judgement itself, which moved out of `make-backup.mjs` into `lib.mjs` so it could
+be fed the exact pair that was about to break:
+
+```
+--- The client that is too old to dump the server
+PASS  a major version is read off both a bare `17.6` and a full `pg_dump --version` line.
+PASS  a pre-release reads as its major, and something with no number in it reads as UNKNOWN rather than as zero.
+PASS  SEEN TO FAIL: THE 16 CLIENT AGAINST THE 17 SERVER: the real pair that would have broken the first run is refused.
+PASS  and the refusal names both numbers and the step that installs the right client, rather than leaving a Postgres error to be deciphered.
+PASS  the 17 client against the 17 server is allowed.
+PASS  a NEWER client is allowed, because pg_dump only refuses a server newer than itself.
+PASS  and a 16 client against a 16 server is allowed, so this check is about the pair and not about the number 16.
+PASS  an unreadable version string does NOT stop the backup -- it says the check did not run, and leaves pg_dump's own refusal as the thing that catches a mismatch.
+```
+
+And three that run the refusal **end to end, with a real older binary**:
+
+```
+PASS  SEEN TO FAIL: A CLIENT TOO OLD FOR THE SERVER: "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)" against this major-17 server is refused (exit 1).
+PASS  SEEN TO FAIL: and the run names BOTH versions and the step that installs the right client, instead of leaving a Postgres version-mismatch error to be deciphered.
+PASS  SEEN TO FAIL: and nothing was uploaded: it stops before it reads a single row.
+```
+
+**THOSE THREE DID NOT RUN ON THIS MACHINE, and the first attempt at them passed for the wrong reason —
+which is worth recording, because it is exactly what a seen-to-fail case exists to prevent.** The first
+version used a one-line **stand-in** `pg_dump` answering `--version` with 16.15. On POSIX that works. On
+Windows, spawning a `.cmd` directly fails with `EINVAL`, so `make-backup.mjs` refused with *"pg_dump is
+not available on this machine"* — a refusal, exit 1, the headline check green, **proving nothing about
+versions at all.** It was caught by the second check being specific about the words, and the fix was to
+stop using a stand-in: on the ubuntu-24.04 runner the image's own **16.15 binary** is still installed
+beside the 17 that the script adds, so the case uses the real thing. Where there is no older client —
+this machine — the proof prints `UNVERIFIED` and **counts nothing**, and CI's floor is what makes the
+case run where it can.
+
+### The runs
+
+```
+$ BACKUP_PROOF_DB_URL="postgresql://postgres@127.0.0.1:55433/postgres" \
+  BACKUP_PSQL=".../PostgreSQL/17/bin/psql" BACKUP_PG_DUMP=".../PostgreSQL/17/bin/pg_dump" \
+  node scripts/backup/proof.mjs
+...
+UNVERIFIED  no pg_dump older than the server's major version 17 on this machine, so the "client too old" refusal was not run end to end. Nothing is counted for it. On the ubuntu-24.04 runner the image's own 16.15 client is there and this case runs; set BACKUP_PG_DUMP_OLD to run it elsewhere.
+...
+124 PASS, 0 FAIL.
+
+exit code: 0
+```
+
+**114 → 124 here, and the CI floor is 127**, the difference being those three end-to-end checks. The CI
+run is below.
