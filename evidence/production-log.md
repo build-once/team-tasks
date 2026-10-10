@@ -346,8 +346,127 @@ whatever the setting says.
 
 ---
 
-## Nothing written to production yet
+## 2026-10-10
 
-No entry above changed anything: every one is a read. **The assistant has never run a production
-command of any kind**, and rule 19's one permission — `supabase secrets set` against production — has
-not been used. The first time it is, it goes here, in that session, before the session ends.
+**The first entry in this file that is not a read.** Production was moved into a different
+organisation, on a paid plan. Everything above it is a read; this one changed something.
+
+**Where these lines come from.** Written on 10 Oct 2026 by the assistant (Claude Code) from **the
+owner's own words, given in this session**. As with every entry above it: the assistant has no
+production access of any kind, **opened no dashboard, ran no command and used no connector**, and has
+verified **nothing** below. Rules 1 and 10 forbid all of it, and rule 19's exception covers production
+function secrets and nothing else.
+
+**The production project reference is not written here.** The owner gave it in chat; this file's own
+header says the reference does not go in this file, because it is already in `guard/local.json` and
+repeating it spreads it for no gain. That rule is kept — the entries below name the project as
+"production" and nothing more. **The organisation's name is written**, because it is not an
+identifier of that kind and the owner gave it to be recorded.
+
+**On the time.** The owner gave a clock time for **one** thing only: the backups, each at around
+12:20 UTC. No time was given for the transfer, the sign-in or the connector read, and none is invented
+here. What is known is their **order**, which is the order of the rows.
+
+| Time | Who | What | Why | Result |
+|---|---|---|---|---|
+| No time given | **The owner**, in the Supabase dashboard | **Transferred the production project into the `DHTA Ltd` organisation** — **a change, not a read.** The first writing action in this file | `docs/plan.md`'s Budget: "Before real users arrive, production moves to a Supabase Pro organisation at about $25 a month; staging stays in a separate free organisation at $0" | Production is now in the **`DHTA Ltd`** organisation, which is on Supabase's **Pro** plan. **Staging stays in its original organisation, on the free plan** |
+| After the transfer — no time given | **The owner**, in a browser | Signed in to the **live site** | Check the transfer had not broken the thing the six volunteers would use | **The owner could still sign in** |
+| After the transfer — no time given | The coach (claude.ai), via the production read-only connector | One read of the **migration record — a count and one name, no row contents** | Check the database was still reachable and still held what it held before the project moved | **11 migrations, newest `20261008191804`** |
+| After the transfer — no time given for the read itself. The **12:20 UTC** below is the backups' own time | **The owner**, in the Supabase dashboard | Read the **Database → Backups** page — **read-only** | Find out what backup cover production actually has, now that it is on a paid plan | **Seven daily physical backups, 3 to 9 October, each around 12:20 UTC.** The page's own statement that **Storage objects are not included**. A **"Restore to new project"** option, marked **Beta** |
+
+**What the transfer itself changes, beyond where the project sits.** Production is now on a plan that
+**can bill**, which no account in this project could do before except Anthropic's. Two consequences,
+neither of them visible in the dashboard page the owner read:
+
+- **Supabase's Spend Cap now exists for this organisation**, and `docs/costs.md` calls it "the
+  strongest control of any service here". **Nobody has set or seen it.** That page also warns, about
+  Vercel but in general terms, that "the dangerous moment is the upgrade … set the On-Demand Budget
+  and the Pause switch in the **same sitting** as entering card details, not afterwards" — and that
+  sitting is today. **Compute is excluded from the Cap**, so about $25/month bills whatever the Cap
+  says.
+- **Egress has a price now instead of a stop.** `docs/costs.md` worked the attachments arithmetic
+  against the Free plan's 5 GB on 2026-10-08 and recorded that the limits do **not** keep inside it.
+  On the Free plan the answer was "$0 — the Free plan cannot generate overage charges". That answer
+  has changed and the page has not.
+
+Both are [#250](https://github.com/build-once/team-tasks/issues/250). **This log does not change
+`docs/costs.md` or `docs/plan.md`'s Budget**: the first needs a figure read off a dashboard that only
+the owner can open, and the second is the owner's to change (rule 9). The move itself is **inside**
+the plan — its Budget section says production moves to Pro before real users arrive, at about $25 a
+month, with staging staying free — so what happened today is the plan being followed, not exceeded.
+
+**What the backups row settles, and the thing in it nobody expected.** The seven backups are dated
+**3 to 9 October** — every one of them **before** the transfer on the 10th. So **backups were already
+being taken**, and the Pro transfer is not what started them. That is worth saying plainly because
+`docs/stack.md` says the opposite in so many words: "Automatic daily backups come with **Pro only**.
+Production has them; free staging has none." The dates say daily physical backups were being taken
+while production was still in its old organisation. **Which of the two is wrong is not established
+here** — nobody writing this has read a Supabase pricing or backups page, and no page is cited, so
+this entry records the dates and leaves the claim in doubt rather than replacing it with a guess.
+[#247](https://github.com/build-once/team-tasks/issues/247) holds it.
+
+**And the thing that matters most, which is not about the database at all.** The page says **Storage
+objects are not included**. Production has a Storage bucket as of 9 October — `attachments`, from
+`20261008191804_attachments_bucket.sql` — so **the files people attach to tasks are outside these
+backups**. Nothing in `docs/plan.md`'s "Files attached to a task" says so, and it was written on the
+assumption that production's data is backed up. It is empty today, because nobody has signed up and
+the screen is deployed nowhere, so this is a gap to close **before** a volunteer attaches anything
+rather than after. [#248](https://github.com/build-once/team-tasks/issues/248) holds it.
+
+**"Restore to new project" is marked Beta, and no restore has ever been tried.** A backup that has
+not been restored is a belief about a backup. `checklist/launch.json` already carries that as two
+separate items — `backups-on`, "Automatic database backups are on", and `restore-tested`, "You have
+restored a backup into a scratch database and checked the data" — and **neither
+`evidence/backups-on.md` nor `evidence/restore-tested.md` exists**, so `scripts/launch-check.mjs`
+reports both as TODO. This entry is most of the evidence the first one asks for and **none** of the
+second's. [#249](https://github.com/build-once/team-tasks/issues/249) holds both.
+
+**What the connector read settles, and it is more than it looks.** 11 migrations with
+`20261008191804` newest, against **11 `.sql` files in `supabase/migrations/`** — counted in this
+session by listing the directory. So **production holds every migration in this repository**,
+including `20261008115900_usage_counts.sql`, which `docs/environments.md` has been recording as **not
+applied** to production. That is the disagreement [#238](https://github.com/build-once/team-tasks/issues/238)
+was filed about, and the count resolves it in favour of "applied": were usage_counts missing,
+production would report 10. **It is an inference from a count, not a read of the names** — the owner
+reported a count and the newest name, not the list — and it holds only if production's recorded set is
+a subset of this repository's migrations. Said the other way: this read **cannot** show *which* 11.
+
+**And something that does not need the inference at all, found while writing this entry.**
+`.github/workflows/drift-check.yml` has been comparing production's applied migrations against
+`supabase/migrations/` on a daily schedule the whole time, and it **opens a "Database drift" issue and
+fails the run** when they differ. Run
+[37936434092](https://github.com/build-once/team-tasks/actions/runs/37936434092), at
+**2026-10-09T13:22:58Z**, **succeeded** — which for that script means exit 0, "checked, and production
+matches the repository", because exit 3 is drift and exit 1 is "could not check" and the workflow
+fails on both. It ran after the attachments migration reached production that morning, so it compared
+against all 11 files. **So `docs/environments.md` was being contradicted daily by a green job in this
+repository**, and that is the lesson rather than the migration: evidence arriving on a schedule is
+only evidence if somebody reads it against what the documents claim. The run conclusions here were
+read with `gh run list --json` in this session; **the assistant did not run the workflow and holds
+none of its credentials.**
+
+**What the first two rows do not settle.** The owner signing in shows the live site still reached
+production and that nothing in Vercel needed changing for that one path. It is not a check of the
+project's URL or keys, and nothing here says whether either changed.
+
+**What none of these rows touches: the bucket's own rules on production.**
+[#243](https://github.com/build-once/team-tasks/issues/243) asks for the bucket row, the three
+policies and their privileges to be read back on production, and this read was of the migration
+record. #243 stays open.
+
+---
+
+## What has been written to production, and by whom
+
+**One entry in this file changed something: the transfer on 10 Oct 2026, by the owner, in the
+dashboard.** Every other entry is a read. Three things stay true, and they are the three this section
+has always been for:
+
+- **The assistant has never run a production command of any kind**, and rule 19's one permission —
+  `supabase secrets set` against production — has not been used. The first time it is, it goes here,
+  in that session, before the session ends.
+- **Nothing has changed production's data.** No row of real data has been written, read back in full,
+  or deleted by anybody recorded here.
+- **Nothing has changed production's schema outside the pipeline.** Every migration reached it through
+  `.github/workflows/migrate-production.yml` on a merge to `main`, which is what rule 10 asks for. The
+  transfer moved the project between organisations; it did not apply a statement.
