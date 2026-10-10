@@ -16,7 +16,43 @@ is unchanged and is the only sentence on this page anybody should quote:
 | | |
 |---|---|
 | **Built** | `.github/workflows/backup-production.yml`, `scripts/backup/` (the copy, the restore, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
-| **Not done** | **No copy of production exists.** The workflow has never run: it runs on a schedule from `main`, so it cannot until this merges, and **three of the settings it needs have not been created** (below). No restore has ever been tried, and `evidence/restore-tested.md` does not exist |
+| **Not done** | **No copy of production exists.** No restore has ever been tried, and `evidence/restore-tested.md` does not exist |
+
+**AND IT HAS NOW BEEN RUN AGAINST PRODUCTION ONCE, AND IT FAILED — 10 October 2026.** The owner started
+it by hand on `main`. It read production correctly and **stopped at the upload**:
+
+| | |
+|---|---|
+| What worked | server **17.6**, `pg_dump` **17.11**, a dump of **654,776 bytes over 10 schemas**, **47 tables** counted, the `attachments` bucket listed (**0 objects**, because nobody has signed up), the copy checked, encrypted to **138,272 bytes** |
+| What failed | `the backup bucket: PUT answered HTTP 403` |
+| What is in the bucket | **nothing** |
+
+**Two things that run settled on its way to failing**, and they are worth as much as the failure: the
+Supabase **S3 access key works** — the listing of the `attachments` bucket is a signed S3 request to a
+real service, and it was accepted — and **the PostgreSQL 17 client works against production's 17.6**.
+So of the four things nobody had verified, two are now verified, and the third is where it stopped.
+
+**Why the message was nearly useless, and what changed because of it.** Three completely different
+faults answer 403 — a signing fault, a permission fault, and a key id the service does not know — and
+they need three different fixes. The run named none of them. So:
+
+- **The S3 error code is now printed**, taken from the response's `<Code>` element and checked against a
+  fixed list; anything else prints as `unrecognised`. Never the message, the RequestId or a header — an
+  object store's error body can quote the key it was asked for, and this repository's run logs are
+  public.
+- **The signing is now checked against AWS's own published test vectors**, not only against the
+  stand-in that recomputes it with the same code ([#261](https://github.com/build-once/team-tasks/issues/261)).
+  **One of those vectors found a real bug**: a header value's internal runs of whitespace must be
+  collapsed, not merely trimmed.
+- **`content-length` is no longer signed or sent.** The Fetch standard makes it a forbidden
+  request-header, so it is not ours to set — and signing a header you do not control is a way to be
+  refused with no explanation.
+- **The job now asks the backup bucket whether it may write BEFORE it reads anything from production**:
+  one listing limited to a single key. The failed run dumped production's whole database in order to
+  throw it away, and for those minutes production's data sat in plaintext on a runner for nothing.
+
+**None of those four is established as the cause.** The first is the one that will say. `#266` is the
+issue that run opened, and it stays open until a later run succeeds.
 
 **The owner settled seven decisions later the same day**, and they are recorded where each belongs rather
 than in a list at the top: the two targets below; the retention window and the restore drill's
@@ -527,6 +563,17 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   stores**. What has not changed is the one-line test for this whole page: **no copy of production has
   ever been made, and no restore has ever been tried.** The arithmetic in `docs/costs.md` is still
   arithmetic on a design.
+- **PARTLY ANSWERED BY THE FAILED RUN OF 10 OCT, and this is the honest scoreboard.** The entry below
+  listed four things nobody had checked against the real services. Two are now checked, one failed, and
+  one is still untouched:
+
+  | | |
+  |---|---|
+  | The **region** is accepted by Supabase's S3 gateway | **YES.** `PRODUCTION_SUPABASE_S3_REGION` was set to the project's own region and the signed listing was accepted |
+  | **`ListObjectsV2` paging** | **STILL NOT CHECKED.** The bucket held 0 objects, so one page was all there was. It needs a bucket with more objects than a page |
+  | The **upload** | **NO — HTTP 403**, cause not established. See the section at the top of this page |
+  | R2's **ETag** being the body's MD5 | **not reached** |
+
 - **Not verified — anything about how the job behaves against the real services.** Everything the proof
   establishes, it establishes about **our code**: that it signs correctly for a server that recomputes
   the signature, reads a paged listing to the end, refuses an incomplete copy before uploading, encrypts

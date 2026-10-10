@@ -540,3 +540,161 @@ The client had installed fine; the wrong assumption was the step after it — **
 same reason its own 16 server sits `down` until a job starts it). `pg_createcluster` is now called
 explicitly. **The job going red rather than green is the check working**: it refused to run the proof
 against whatever server happened to be there, which on that run would have been none.
+
+---
+
+## 12. The first real run, which failed at the upload — and the four changes it bought
+
+**Added 2026-10-10. THE OWNER RAN `backup-production` BY HAND, ON `main`, AGAINST PRODUCTION.** Run
+[38050647011](https://github.com/build-once/team-tasks/actions/runs/38050647011), `event`
+**workflow_dispatch**, `headBranch` **main**, started **2026-10-10T12:04:32Z**, `conclusion`
+**failure** — read with `gh run view --json` in this session. **The assistant did not start it, holds
+none of its credentials, and has read nothing of it but its public log.**
+
+### What it did, in its own words
+
+Every line the job printed, in order, with nothing elided:
+
+```
+Working under a temporary directory outside the checkout. Nothing unencrypted is written anywhere else.
+The database reports server version 17.6.
+/usr/lib/postgresql/17/bin/pg_dump reports "pg_dump (PostgreSQL) 17.11 (Ubuntu 17.11-1.pgdg24.04+2)".
+The client is major version 17 and the server is 17, so pg_dump will not refuse the server for being newer than itself.
+The dump is 654776 bytes and covers 10 schema(s).
+Counted the rows in 47 table(s). The numbers are in the manifest inside the copy and are not printed here.
+The attachments bucket holds 0 object(s). No path is printed.
+Read 0 file(s), 0 bytes in total.
+The copy checks out: 2 entries, and the accounts and the file metadata are both in the dump.
+Encrypted: 138248 bytes in, 138272 bytes out. SHA-256 b0a0fc481569bf638c4c9f98749aa951a748e90681ec8be13cc4431f9431ce08.
+##[error]The copy was not completed: the backup bucket: PUT answered HTTP 403. No response body is printed.. Nothing partial is in the bucket, because the upload is the last step.
+##[error]Process completed with exit code 1.
+```
+
+**Nothing is in the bucket.** The failure job did its work: it opened
+[#266](https://github.com/build-once/team-tasks/issues/266), "Backup did not run", carrying no detail of
+what failed — and **that issue stays open until a later run succeeds.**
+
+### What it proved on the way to failing, which is a good deal
+
+| | |
+|---|---|
+| **The log discipline holds against real data** | Eleven lines, 47 real tables, 10 real schemas, and **not one table named, not one row count, not one path.** The first time that has been true of production rather than of made-up data |
+| **The Supabase S3 access key works** | "The attachments bucket holds 0 object(s)" is a **signed S3 request to a real service, accepted** — so the key, the endpoint, `PRODUCTION_SUPABASE_S3_REGION` and the signing of a basic request are all right |
+| **The PostgreSQL 17 client works against production** | server **17.6**, client **17.11**, and the version check said so rather than `pg_dump` refusing. Section 11 is what put it there; this is it working |
+| **The copy itself is sound** | 654,776 bytes over 10 schemas, the accounts and the file metadata both present — its own completeness check said so — encrypted to 138,272 bytes |
+| **And the one thing that could not be checked any other way** | the upload. It is the one that failed |
+
+### What the message did not say, and the four changes that follow
+
+`PUT answered HTTP 403` is correct and nearly useless: **three different faults answer 403 and need
+three different fixes** — `SignatureDoesNotMatch` (our signing, or a stray character in the secret),
+`AccessDenied` (a real credential that is not allowed), `InvalidAccessKeyId` (a key id the service does
+not know). The run named none of them, after dumping production's entire database.
+
+**1. The error code is printed, and nothing else from the response.** Out of the `<Code>` element,
+checked against a fixed list of 39 codes — the ones Supabase's Storage error-code page documents plus
+the S3 codes that name a cause somebody can act on — and **anything else prints as `unrecognised`**.
+That fallback is the design, not a limitation of it: an incomplete list costs a word of detail, where
+echoing an unknown string could cost a file name, and this repository's logs are public. Nine checks,
+including a body with a path inside the `Code` element, an HTML error page, an empty body, and no body
+at all.
+
+**2. The signing is checked against AWS's OWN published test vectors.** This is
+[#261](https://github.com/build-once/team-tasks/issues/261), and the 403 is why it stopped being
+optional. Five cases from the Signature Version 4 test suite AWS publishes in its own repository
+(`awslabs/aws-c-auth`, `tests/aws-signing-test-suite/v4`, read with `gh api` on 2026-10-10), each
+compared **character for character** on the canonical request and on the signature.
+
+**AND ONE OF THEM FOUND A REAL BUG — seen to fail first:**
+
+```
+$ node scripts/backup/proof.mjs --pure-only          # with the fix reverted
+FAIL  AWS's own `get-header-value-trim`: the canonical request matches theirs, character for character.
+FAIL  AWS's own `get-header-value-trim`: the signature matches the one AWS publishes.
+97 PASS, 2 FAIL.
+
+$ node scripts/backup/proof.mjs --pure-only          # with the fix
+PASS  AWS's own `get-header-value-trim`: the canonical request matches theirs, character for character.
+PASS  AWS's own `get-header-value-trim`: the signature matches the one AWS publishes.
+99 PASS, 0 FAIL.
+```
+
+A header value's internal runs of whitespace must be **collapsed**, not merely trimmed:
+`My-Header2: "a   b   c"` is canonically `my-header2:"a b c"`. Nothing this project sends has runs of
+spaces in a header value, **which is exactly why no check of ours would ever have caught it** — and why
+"checked against itself in the stand-in" was not a check.
+
+**3. What Cloudflare documents, against what this sends.** Read 2026-10-10 and cited in the code:
+
+| | Cloudflare's words | This job |
+|---|---|---|
+| Region | "When using the S3 API, the region for an R2 bucket is `auto`. For compatibility with tools that do not allow you to specify a region, an empty value and `us-east-1` will alias to the `auto` region." ([S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/)) | `auto` ✔ |
+| Addressing | Cloudflare's own aws4fetch example builds `https://${ACCOUNT_ID}.r2.cloudflarestorage.com/my-bucket/...` — bucket first in the path, region `auto`, service `s3` ([aws4fetch example](https://developers.cloudflare.com/r2/examples/aws/aws4fetch/)) | path-style ✔ |
+| Payload hash | **NOT DOCUMENTED** by either page — nothing read says whether `UNSIGNED-PAYLOAD` is accepted | the real SHA-256 of the body, which is what S3 requires and what Supabase accepted on the failed run. A guess is not a reason to send anything else |
+
+**And one thing that changed: `content-length` is no longer signed or sent.** The Fetch standard lists
+both it and `Host` as forbidden request-headers — "a header (name, value) is a forbidden request-header
+if … name matches one of these (byte-case-insensitive) … `Content-Length` … `Host`"
+([Fetch Standard](https://fetch.spec.whatwg.org/), read 2026-10-10) — so it is not ours to set, and
+**signing a header you do not control is a way to be refused with no explanation.** `host` is still
+signed, because SigV4 requires it, and is no longer sent, because the URL already says what it is.
+
+**4. The job asks whether it may write BEFORE it reads anything.** One listing of the backup bucket,
+limited to a single key. The failed run dumped 654,776 bytes of production in order to throw it away,
+and for those minutes production's database sat in plaintext on a runner **for nothing**. The order is
+checked rather than assumed:
+
+```
+PASS  the run asks the backup bucket whether it may write before doing anything else.
+PASS  and that question comes BEFORE the first word production says -- which is the whole point of it.
+PASS  SEEN TO FAIL: THE REASON IS NAMED: the run prints the S3 error code out of the response's Code element -- SignatureDoesNotMatch, which is a signing fault and not a permission one.
+PASS  SEEN TO FAIL: AND NOTHING ELSE FROM THE RESPONSE: the stand-in puts that sentence in the body's Message element, and it does not appear in the log.
+PASS  SEEN TO FAIL: AND NOTHING WAS READ FROM PRODUCTION AT ALL: the preflight is the job's first request, so a bad credential stops it in the first seconds -- before a version, a dump or a row count.
+```
+
+### A mistake this work made and caught, because it is the same kind as the bug it was fixing
+
+Returning the canonical request from the signer, so the vectors could compare it, **put it in the same
+object as the headers** — and `sendableHeaders` handed the lot to `fetch`. The preflight died with
+`Headers.append: "GET\n/team-tasks-backups\n…" is an invalid header value`, and **in a real run that
+message would have printed the request's path into a public log.** The workings now come back beside
+the headers rather than among them, and `lib.mjs` says why. It was caught by running the thing, not by
+reading it.
+
+### The runs
+
+```
+$ node scripts/backup/proof.mjs --pure-only
+99 PASS, 0 FAIL.
+
+$ BACKUP_PROOF_DB_URL="postgresql://postgres@127.0.0.1:55433/postgres" \
+  BACKUP_PSQL=".../PostgreSQL/17/bin/psql" BACKUP_PG_DUMP=".../PostgreSQL/17/bin/pg_dump" \
+  node scripts/backup/proof.mjs
+...
+UNVERIFIED  no pg_dump older than the server's major version 17 on this machine, so the "client too old" refusal was not run end to end. Nothing is counted for it.
+...
+156 PASS, 0 FAIL.
+
+exit code: 0
+```
+
+**124 → 156 locally, and the CI floor is 159** — the three being the older-client case, which needs a
+second PostgreSQL.
+
+### What none of this establishes
+
+**The cause of the 403.** Four things changed; any of them, or none, may have been it. What is now true
+is that **the next run will say which** — in one word, from a fixed list, in the first seconds, before
+production is touched:
+
+| If the next run says | It means |
+|---|---|
+| `SignatureDoesNotMatch` | a signing fault still, or a stray character in `BACKUP_STORAGE_SECRET`. The AWS vectors now rule out a class of signer bug, so **the secret's exact bytes are the first thing to check** |
+| `AccessDenied` | the credential is real and is not allowed. The R2 token's scope, or which bucket it is limited to |
+| `InvalidAccessKeyId` / `S3InvalidAccessKeyId` | a key id R2 does not know — so `BACKUP_STORAGE_KEY`, or `BACKUP_STORAGE_ENDPOINT` naming the wrong account |
+| `NoSuchBucket` | the name in `BACKUP_DEST_BUCKET` |
+| `unrecognised` | something not on the list answered. The status is still printed; the next step is to look at the run rather than to guess |
+
+**And the preflight may now fail where the PUT used to**, which would be the fastest possible answer: a
+listing and an upload differ by the method, a body and a content type, so a refused listing says the
+fault was never about the upload at all.

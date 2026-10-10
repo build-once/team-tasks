@@ -604,6 +604,41 @@ strongest of any service here. It answers **part** of #250: what that issue stil
 figures recorded on the costs page, that page's stale "nothing can bill us" sentences, and the fact that
 **compute is excluded from the Cap**, so about $25 a month bills whatever the Cap says.
 
+### And the first backup run — 10 Oct 2026, 12:04 UTC, by the owner
+
+**The first time anything in this repository has read the whole of production.** The owner started
+`.github/workflows/backup-production.yml` by hand, on `main`
+([run 38050647011](https://github.com/build-once/team-tasks/actions/runs/38050647011), `event`
+workflow_dispatch, `conclusion` **failure**). **It read everything and uploaded nothing.**
+
+**Where these lines come from.** The run's **public log and `gh run view --json`**, read by the
+assistant in the session that fixed what the run found. The assistant did not start it, holds none of
+its credentials, and has read nothing of it beyond that log — which by design carries names, counts,
+sizes and statuses only.
+
+| Time (UTC) | Who | What | Why | Result |
+|---|---|---|---|---|
+| 12:04:32 → 12:05:11 | **The owner**, by `workflow_dispatch` on `main` | **The nightly copy, run by hand: `pg_dump` of the WHOLE production database, and a signed S3 listing of the `attachments` bucket.** Read-only against production — it writes to Cloudflare, never to Supabase | The first real test of the job built in [#258](https://github.com/build-once/team-tasks/issues/258), started by hand and watched rather than waited for | **Read: server 17.6; a dump of 654,776 bytes over 10 schemas; 47 tables counted; the `attachments` bucket listed, 0 objects. Encrypted to 138,272 bytes. THEN THE UPLOAD WAS REFUSED — `PUT answered HTTP 403`. Nothing is in the backup bucket. No row of data was printed, named or retained** |
+
+**Why this is a read and not a write.** It ran `pg_dump` and one `ListObjectsV2`. It applied no
+statement, changed no row, and deployed nothing; what it writes to is Cloudflare R2, which is not
+production. The plaintext lived in the runner's temporary directory and died with the runner.
+
+**What it cost, said plainly, because it is the reason the job changed.** For about twelve seconds
+**production's entire database was in plaintext on a GitHub-hosted runner for nothing** — the upload
+was never going to be accepted, and nothing in the job asked whether it would be until it had read
+everything. The job now asks the backup bucket for a one-key listing **before it reads anything from
+production**, so a credential fault costs a second and no data leaves the database.
+
+**What was settled by it, and it is worth as much as the failure.** The **Supabase S3 access key
+works** — that bucket listing is a signed S3 request to a real service, accepted — and the
+**PostgreSQL 17 client works against production's 17.6**, which is what the client installed on
+2026-10-10 was for. `evidence/build-it-24-nightly-copy.md` section 12 has the whole log and the four
+changes the 403 bought; the cause of the 403 is **not established**, and the next run will name it.
+
+**The failure job did what it is for**: it opened [#266](https://github.com/build-once/team-tasks/issues/266)
+without a word about what failed, and **that issue stays open until a later run succeeds.**
+
 ---
 
 ## What has been written to production, and by whom

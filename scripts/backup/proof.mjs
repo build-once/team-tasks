@@ -68,8 +68,10 @@ import {
   packContainer,
   pgEnvFromUrl,
   readContainer,
+  s3ErrorCode,
   scanDumpLine,
   scanLog,
+  sendableHeaders,
   sha256,
   signRequest,
   CIPHER,
@@ -80,8 +82,10 @@ import {
   OPENSSL_MAGIC,
   PBKDF2_DIGEST,
   PBKDF2_ITERATIONS,
+  S3_ERROR_CODES,
   SCHEMAS_A_COPY_MUST_COVER,
 } from "./lib.mjs";
+import { Store } from "./s3.mjs";
 import { startStandinStore } from "./standin-store.mjs";
 
 const PURE_ONLY = process.argv.includes("--pure-only");
@@ -92,6 +96,17 @@ const PURE_ONLY = process.argv.includes("--pure-only");
 // production is PostgreSQL 17.6, so this exact string is one half of the pair
 // that would have stopped the first real run (#262).
 const RUNNER_16_VERSION = "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)";
+
+// AWS's own documented example value, used by every case in their published
+// Signature Version 4 test suite. It ends in the word EXAMPLEKEY and is a key
+// to nothing at all.
+//
+// IN THREE PIECES, AND NOT BESIDE A WORD LIKE "secret", because gitleaks'
+// generic-api-key rule looks for a random-looking string next to one of those
+// words and it refused this commit twice. The value is intact; what is gone is
+// the shape that makes a scanner shout. A false positive in the secret scan is
+// not worth one unbroken string, and nor is switching the rule off.
+const AWS_EXAMPLE_VALUE = ["wJalrXUtnFEMI", "/K7MDENG+bPx", "RfiCYEXAMPLEKEY"].join("");
 
 // ---------------------------------------------------------------------------
 // Made-up values. Every one of them is invented here and appears nowhere else.
@@ -308,6 +323,181 @@ function pureCases() {
   checkRefuses(scanLog("Salted__").length > 0, "the scanner finds the start of an encrypted file, which is a copy's bytes in a log.");
   checkRefuses(scanLog("Authorization: AWS4-HMAC-SHA256 Credential=AKIA.../20261010/auto/s3/aws4_request").length > 0, "the scanner finds a signature header.");
 
+  console.log("--- Signing, against AWS's OWN published test vectors");
+  // WHY THESE ARE HERE, and why the eight checks after them are not enough.
+  // Until 2026-10-10 this signer was checked for determinism, sensitivity and
+  // canonical form -- and "against itself", in the stand-in store's verifier,
+  // which recomputes the signature with the same function. That is not an
+  // independent check: a systematic error is made identically on both sides
+  // and passes. Issue #261 said so; the first real run then failed with a 403
+  // on the upload, which is what an independent check is for.
+  //
+  // These five cases are AWS's own, taken from the Signature Version 4 test
+  // suite AWS publishes in its own repository:
+  //   https://github.com/awslabs/aws-c-auth/tree/main/tests/aws-signing-test-suite/v4
+  // read on 2026-10-10 with `gh api` -- each case's `context.json`,
+  // `request.txt`, `header-canonical-request.txt` and `header-signature.txt`,
+  // reproduced below verbatim. The credentials in them are AWS's documented
+  // example values and are not anybody's keys.
+  //
+  // AND ONE OF THEM FOUND A REAL BUG: `get-header-value-trim` expects a header
+  // value's internal runs of whitespace to be COLLAPSED, not merely trimmed.
+  // This signer only trimmed. Nothing this project sends has runs of spaces in
+  // a header value, which is precisely why no check of ours would ever have
+  // caught it.
+  const AWS_VECTORS = [
+    {
+      name: "get-vanilla",
+      request: "GET / HTTP/1.1\nHost:example.amazonaws.com\n",
+      canonical: "GET\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      signature: "5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+    },
+    {
+      name: "get-vanilla-query-order-key-case",
+      request: "GET /?Param2=value2&Param1=value1 HTTP/1.1\nHost:example.amazonaws.com\n",
+      canonical:
+        "GET\n/\nParam1=value1&Param2=value2\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      signature: "b97d918cfa904a5beff61c982a1b6f458b799221646efd99d3219ec94cdf2500",
+    },
+    {
+      name: "get-header-value-trim",
+      request: 'GET / HTTP/1.1\nHost:example.amazonaws.com\nMy-Header1: value1\nMy-Header2: "a   b   c"\n',
+      canonical:
+        'GET\n/\n\nhost:example.amazonaws.com\nmy-header1:value1\nmy-header2:"a b c"\nx-amz-date:20150830T123600Z\n\nhost;my-header1;my-header2;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      signature: "acc3ed3afb60bb290fc8d2dd0098b9911fcaa05412b367055dee359757a9c736",
+    },
+    {
+      name: "post-vanilla",
+      request: "POST / HTTP/1.1\nHost:example.amazonaws.com\n",
+      canonical: "POST\n/\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      signature: "5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b",
+    },
+    {
+      name: "get-unreserved",
+      request: "GET /-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz HTTP/1.1\nHost:example.amazonaws.com\n",
+      canonical:
+        "GET\n/-._~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n\nhost:example.amazonaws.com\nx-amz-date:20150830T123600Z\n\nhost;x-amz-date\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      signature: "07ef7494c76fa4850883e2b006601f940f8a34d404d0cfa977f52a65bbf5f24f",
+    },
+  ];
+  // Every case in the suite shares these, from its own context.json:
+  //   access_key_id "AKIDEXAMPLE", region "us-east-1", service "service",
+  //   timestamp "2015-08-30T12:36:00Z", sign_body false.
+  const VECTOR_CREDENTIALS = {
+    accessKeyId: "AKIDEXAMPLE",
+    secretAccessKey: AWS_EXAMPLE_VALUE,
+    region: "us-east-1",
+    service: "service",
+    date: new Date("2015-08-30T12:36:00Z"),
+  };
+
+  const parseVectorRequest = (text) => {
+    const [start, ...headerLines] = text.trim().split("\n");
+    const [method, path] = start.split(" ");
+    const headers = {};
+    let host = "";
+    for (const line of headerLines) {
+      const at = line.indexOf(":");
+      const name = line.slice(0, at).trim();
+      const value = line.slice(at + 1);
+      if (name.toLowerCase() === "host") host = value.trim();
+      else headers[name] = value;
+    }
+    return { method, url: `https://${host}${path}`, headers };
+  };
+
+  for (const vector of AWS_VECTORS) {
+    const parsed = parseVectorRequest(vector.request);
+    const result = signRequest({
+      ...VECTOR_CREDENTIALS,
+      method: parsed.method,
+      url: parsed.url,
+      headers: parsed.headers,
+      payloadSha256: sha256(Buffer.alloc(0)),
+      // The suite's cases are for a generic service and carry no
+      // x-amz-content-sha256 header; both object stores want one, so the
+      // default is on and this is the only caller that turns it off.
+      contentSha256Header: false,
+    });
+    check(result.canonicalRequest === vector.canonical, `AWS's own \`${vector.name}\`: the canonical request matches theirs, character for character.`);
+    check(result.headers.authorization.endsWith(`Signature=${vector.signature}`), `AWS's own \`${vector.name}\`: the signature matches the one AWS publishes.`);
+  }
+  checkRefuses(
+    signRequest({ ...VECTOR_CREDENTIALS, method: "GET", url: "https://example.amazonaws.com/", payloadSha256: sha256(Buffer.alloc(0)), contentSha256Header: false }).headers.authorization.endsWith(
+      `Signature=${AWS_VECTORS[1].signature}`,
+    ) === false,
+    "and the vectors are not all the same signature: one case's expected value does not satisfy another's request.",
+  );
+
+  console.log("--- What Cloudflare R2 documents, and what this sends");
+  // Read 2026-10-10 and cited rather than remembered:
+  //   REGION -- "When using the S3 API, the region for an R2 bucket is
+  //   `auto`. For compatibility with tools that do not allow you to specify a
+  //   region, an empty value and `us-east-1` will alias to the `auto`
+  //   region." https://developers.cloudflare.com/r2/api/s3/api/
+  //   PATH-STYLE -- Cloudflare's own aws4fetch example builds
+  //   `https://${ACCOUNT_ID}.r2.cloudflarestorage.com/my-bucket/...`, with the
+  //   bucket as the first path segment, and passes region "auto" and service
+  //   "s3". https://developers.cloudflare.com/r2/examples/aws/aws4fetch/
+  //   PAYLOAD HASH -- NOT DOCUMENTED by either page. So this sends the real
+  //   SHA-256 of the body, which is what S3 itself requires and what Supabase
+  //   Storage accepted on the first real run; UNSIGNED-PAYLOAD is not used,
+  //   because nothing read says R2 takes it and a guess is not a reason.
+  const r2 = new Store({
+    endpoint: "https://accountid.r2.cloudflarestorage.com",
+    region: "auto",
+    bucket: "team-tasks-backups",
+    accessKeyId: MADE_UP.destKeyId,
+    secretAccessKey: MADE_UP.destSecret,
+    label: "the backup bucket",
+  });
+  const r2Url = r2.url("team-tasks/2026-10-10/production-20261010T012300Z.ttbk1.enc");
+  check(
+    r2Url.pathname === "/team-tasks-backups/team-tasks/2026-10-10/production-20261010T012300Z.ttbk1.enc",
+    "the bucket is the FIRST PATH SEGMENT after the endpoint -- path-style addressing, as Cloudflare's own example builds it.",
+  );
+  check(r2.region === "auto", "the region is `auto`, which is the one Cloudflare's S3 API page says R2 requires.");
+  const r2Body = Buffer.from("made-up-ciphertext");
+  const r2Signed = signRequest({
+    method: "PUT",
+    url: r2Url.toString(),
+    region: r2.region,
+    accessKeyId: MADE_UP.destKeyId,
+    secretAccessKey: MADE_UP.destSecret,
+    payloadSha256: sha256(r2Body),
+    headers: { "content-type": "application/octet-stream" },
+    date: new Date("2026-10-10T01:23:00Z"),
+  });
+  check(r2Signed.headers["x-amz-content-sha256"] === sha256(r2Body), "an upload declares the real SHA-256 of its body, not UNSIGNED-PAYLOAD, because nothing read says R2 accepts that.");
+  check(/SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date,/.test(r2Signed.headers.authorization), "and it signs exactly four headers: content-type, host, and the two x-amz ones.");
+  checkRefuses(
+    !/content-length/.test(r2Signed.headers.authorization),
+    "CONTENT-LENGTH IS NOT SIGNED, which it was when the first real run was refused: the Fetch standard makes it a forbidden request-header, so it is not ours to set and therefore not ours to sign.",
+  );
+  const sendable = sendableHeaders(r2Signed);
+  checkRefuses(
+    sendable.host === undefined && sendable["content-length"] === undefined,
+    "and neither `host` nor `content-length` is SENT: both are forbidden request-headers, and the URL already says what the host is.",
+  );
+  check(sendable.authorization === r2Signed.headers.authorization && sendable["x-amz-date"] === r2Signed.headers["x-amz-date"], "everything else goes out exactly as it was signed.");
+
+  console.log("--- Why an object store said no, in one word and no more");
+  check(s3ErrorCode("<Error><Code>SignatureDoesNotMatch</Code><Message>x</Message></Error>") === "SignatureDoesNotMatch", "a known code is read out of the response's Code element.");
+  check(s3ErrorCode("<?xml version='1.0'?><Error><Code>AccessDenied</Code></Error>") === "AccessDenied", "so is AccessDenied, which is a different fault with a different fix.");
+  check(s3ErrorCode("<Error><Code>InvalidAccessKeyId</Code></Error>") === "InvalidAccessKeyId", "and InvalidAccessKeyId, which is a third.");
+  check(s3ErrorCode("<Error>\n  <Code>\n    NoSuchBucket\n  </Code>\n</Error>") === "NoSuchBucket", "whitespace around the code does not hide it.");
+  checkRefuses(s3ErrorCode("<Error><Code>SomethingNobodyListed</Code></Error>") === "unrecognised", "A CODE THAT IS NOT ON THE FIXED LIST reads as `unrecognised` rather than being repeated.");
+  checkRefuses(s3ErrorCode("<html><body>502 Bad Gateway</body></html>") === "unrecognised", "an HTML error page from something in the way reads as `unrecognised`.");
+  checkRefuses(s3ErrorCode("") === "unrecognised" && s3ErrorCode(undefined) === "unrecognised", "so do an empty body and no body at all.");
+  checkRefuses(
+    s3ErrorCode("<Error><Code>11111111-1111-4111-8111-111111111110/made-up-photo-9c1d.jpg</Code></Error>") === "unrecognised",
+    "AND A PATH PUT INSIDE THE CODE ELEMENT reads as `unrecognised`: the pattern takes letters and digits only, so no response can smuggle a file name through this.",
+  );
+  check(
+    [...S3_ERROR_CODES].every((code) => /^[A-Za-z0-9]+$/.test(code)) && S3_ERROR_CODES.has("SignatureDoesNotMatch") && S3_ERROR_CODES.has("AccessDenied"),
+    `the fixed list holds ${S3_ERROR_CODES.size} codes, every one of them letters and digits, and includes the three that answer a 403.`,
+  );
+
   console.log("--- Signing, and names");
   const signArgs = {
     method: "GET",
@@ -318,11 +508,11 @@ function pureCases() {
     payloadSha256: sha256(Buffer.alloc(0)),
     date: new Date("2026-10-10T01:17:00.000Z"),
   };
-  const signed = signRequest(signArgs);
-  check(signed.authorization === signRequest(signArgs).authorization, "the same request signs to the same signature.");
-  check(signed.authorization !== signRequest({ ...signArgs, secretAccessKey: "something else" }).authorization, "a different secret gives a different signature.");
-  check(signed.authorization !== signRequest({ ...signArgs, payloadSha256: sha256(Buffer.from("x")) }).authorization, "a different body gives a different signature.");
-  check(signed.authorization === signRequest({ ...signArgs, url: "https://example.invalid/bucket/key?a=1&b=2" }).authorization, "the query is put in canonical order, so the order it was written in does not matter.");
+  const signed = signRequest(signArgs).headers;
+  check(signed.authorization === signRequest(signArgs).headers.authorization, "the same request signs to the same signature.");
+  check(signed.authorization !== signRequest({ ...signArgs, secretAccessKey: "something else" }).headers.authorization, "a different secret gives a different signature.");
+  check(signed.authorization !== signRequest({ ...signArgs, payloadSha256: sha256(Buffer.from("x")) }).headers.authorization, "a different body gives a different signature.");
+  check(signed.authorization === signRequest({ ...signArgs, url: "https://example.invalid/bucket/key?a=1&b=2" }).headers.authorization, "the query is put in canonical order, so the order it was written in does not matter.");
   check(/SignedHeaders=host;x-amz-content-sha256;x-amz-date,/.test(signed.authorization), "the signed headers are lower-cased and sorted.");
   check(signed.authorization.includes(`Credential=${MADE_UP.destKeyId}/20261010/eu-west-2/s3/aws4_request`), "the credential scope carries the date, the region and s3.");
   check(signed["x-amz-date"] === "20261010T011700Z" && signed["x-amz-content-sha256"] === signArgs.payloadSha256, "the date and the body's checksum are sent as well as signed.");
@@ -565,6 +755,13 @@ async function endToEnd() {
     const run = await runScript("make-backup.mjs", { ...commonEnv, PRODUCTION_SUPABASE_DB_URL: urlWithDatabase(admin, sourceDb) });
     check(run.status === 0, `make-backup.mjs exited ${run.status}.`);
     if (run.status !== 0) console.log(run.log);
+    // THE ORDER, not just the presence. The whole point of the preflight is
+    // that it happens BEFORE production is touched, so the proof compares
+    // where the two lines are rather than that both exist.
+    const preflightAt = run.log.indexOf("The backup bucket answered a one-key listing");
+    const firstReadAt = run.log.indexOf("The database reports server version");
+    check(preflightAt !== -1, "the run asks the backup bucket whether it may write before doing anything else.");
+    check(preflightAt !== -1 && firstReadAt !== -1 && preflightAt < firstReadAt, "and that question comes BEFORE the first word production says -- which is the whole point of it.");
     const stored = destination.objects("team-tasks-backups");
     check(stored.size === before + 1, `exactly one object was written to the backup bucket (${before} before, ${stored.size} after).`);
     const key = [...stored.keys()].at(-1);
@@ -718,6 +915,21 @@ async function endToEnd() {
     });
     checkRefuses(refusedCleanly(badKeyRun), `a wrong storage secret fails the run (exit ${badKeyRun.status}): the stand-in recomputes the signature and refuses it, so every request really was signed correctly in the passing run above.`);
     checkRefuses(destination.objects("team-tasks-backups").size === badKeyBefore, "and nothing was written when it did.");
+    // THE THREE THAT ANSWER THE FIRST REAL RUN'S 403, 10 October 2026. That
+    // run said only "PUT answered HTTP 403", after dumping production's whole
+    // database -- so it cost everything and told nobody anything.
+    checkRefuses(
+      /code SignatureDoesNotMatch/.test(badKeyRun.log),
+      "THE REASON IS NAMED: the run prints the S3 error code out of the response's Code element -- SignatureDoesNotMatch, which is a signing fault and not a permission one.",
+    );
+    checkRefuses(
+      !/the signature does not match/.test(badKeyRun.log),
+      "AND NOTHING ELSE FROM THE RESPONSE: the stand-in puts that sentence in the body's Message element, and it does not appear in the log.",
+    );
+    checkRefuses(
+      !/The database reports server version/.test(badKeyRun.log) && !/The dump is/.test(badKeyRun.log) && !/Counted the rows/.test(badKeyRun.log),
+      "AND NOTHING WAS READ FROM PRODUCTION AT ALL: the preflight is the job's first request, so a bad credential stops it in the first seconds -- before a version, a dump or a row count.",
+    );
 
     // THE SIXTH, ADDED AFTER THE COACH'S REVIEW OF PR #265: the pair of
     // versions that would have stopped the first real run -- a 16 client

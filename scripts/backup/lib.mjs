@@ -359,6 +359,21 @@ export function scanLog(text, { values = {} } = {}) {
 // Written here rather than taken from a package: signing is forty lines of
 // HMAC, and a package is the owner's decision (rule 17).
 
+// Headers the Fetch standard will not let a caller set: "a header (name,
+// value) is a forbidden request-header if these steps return true: … name
+// matches one of these (byte-case-insensitive): … `Content-Length` … `Host` …"
+// (https://fetch.spec.whatwg.org/, read 2026-10-10 — the full list is longer;
+// these are the two SigV4 touches).
+//
+// WHY THIS MATTERS TO A SIGNER AND NOT ONLY TO TIDINESS. SigV4 signs the
+// headers it lists in SignedHeaders, and the request is refused if what
+// arrives differs from what was signed. `host` MUST be signed and must NOT be
+// set by us — the HTTP layer sets it from the URL. `content-length` is the
+// same the other way round: it is not ours to set, so it is not ours to sign.
+// Signing something you do not control is how a 403 with no explanation
+// happens.
+export const FORBIDDEN_REQUEST_HEADERS = new Set(["content-length", "host"]);
+
 const encodeSegment = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 
 export function encodeS3Key(key) {
@@ -369,7 +384,23 @@ export function amzDate(date) {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
-export function signRequest({ method, url, region, service = "s3", accessKeyId, secretAccessKey, payloadSha256, headers = {}, date }) {
+export function signRequest({
+  method,
+  url,
+  region,
+  service = "s3",
+  accessKeyId,
+  secretAccessKey,
+  payloadSha256,
+  headers = {},
+  date,
+  // Both object stores want `x-amz-content-sha256` and it is sent by default.
+  // The ONLY caller that turns it off is scripts/backup/proof.mjs, reproducing
+  // AWS's own published test vectors, which are for a generic service and do
+  // not carry that header. Being able to reproduce them exactly is what makes
+  // them a check rather than a gesture.
+  contentSha256Header = true,
+}) {
   if (!accessKeyId || !secretAccessKey) throw new Error("no access key for signing");
   const target = new URL(url);
   const stamp = amzDate(date);
@@ -379,11 +410,19 @@ export function signRequest({ method, url, region, service = "s3", accessKeyId, 
   // doing the fold once removes any chance of signing one spelling and sending
   // another.
   const all = {};
-  for (const [name, value] of Object.entries({ ...headers, host: target.host, "x-amz-content-sha256": payloadSha256, "x-amz-date": stamp })) {
+  const given = { ...headers, host: target.host, "x-amz-date": stamp };
+  if (contentSha256Header) given["x-amz-content-sha256"] = payloadSha256;
+  for (const [name, value] of Object.entries(given)) {
     all[name.toLowerCase()] = String(value);
   }
   const names = Object.keys(all).sort();
-  const canonicalHeaders = names.map((n) => `${n}:${all[n].trim()}\n`).join("");
+  // TRIMMED **AND** INTERNAL WHITESPACE COLLAPSED. The second half is not a
+  // nicety: AWS's published test suite case `get-header-value-trim` sends
+  // `My-Header2: "a   b   c"` and expects the canonical form `"a b c"`, and
+  // this signer got it wrong until those vectors were run against it. Nothing
+  // this project sends has runs of spaces in a header value, which is exactly
+  // why it would never have been noticed here.
+  const canonicalHeaders = names.map((n) => `${n}:${all[n].trim().replace(/\s+/g, " ")}\n`).join("");
   const signedHeaders = names.join(";");
 
   const query = [...target.searchParams.entries()]
@@ -402,9 +441,129 @@ export function signRequest({ method, url, region, service = "s3", accessKeyId, 
   const signature = createHmac("sha256", signing).update(toSign).digest("hex");
 
   return {
-    ...all,
-    authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    headers: {
+      ...all,
+      authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+    signedHeaders,
+    signature,
+    // THE WORKINGS, so proof.mjs can compare them with AWS's published
+    // expected strings. They are returned BESIDE the headers rather than
+    // mixed in with them, which is not tidiness: the first version put them
+    // in the same object, `sendableHeaders` passed the lot to fetch, and
+    // `Headers.append` refused a multi-line value -- so the preflight died
+    // with the canonical request in the error message. In a real run that
+    // would have printed the request's PATH into a public log.
+    //
+    // NOTHING PRINTS THESE. A canonical request carries the path, and a path
+    // is `<task id>/<file name>`.
+    canonicalRequest,
+    stringToSign: toSign,
   };
+}
+
+// What goes on the wire: the signed headers, minus the ones the Fetch
+// standard will not let a caller set. Takes the whole result of signRequest
+// and reads only its `headers`, so the workings above cannot leak into a
+// request by accident.
+export function sendableHeaders(signed) {
+  const out = {};
+  for (const [name, value] of Object.entries(signed.headers ?? signed)) {
+    if (!FORBIDDEN_REQUEST_HEADERS.has(name.toLowerCase())) out[name] = value;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// What an object store said "no" for, in one word
+// ---------------------------------------------------------------------------
+//
+// THE REASON THIS EXISTS. On 10 October 2026 the first real run got all the
+// way to the upload and stopped at "the backup bucket: PUT answered HTTP 403.
+// No response body is printed." That message is correct and nearly useless:
+// three completely different faults answer 403, and they need three
+// completely different fixes.
+//
+//   SignatureDoesNotMatch  our signing is wrong, or the secret has a stray
+//                          character in it
+//   AccessDenied           the credential is real and is not allowed to do
+//                          this -- a token scope or a bucket restriction
+//   InvalidAccessKeyId     the key id is not a key id this service knows
+//
+// So the code is printed, and nothing else. **Never the message, never the
+// RequestId, never a header.** A body from an object store can quote the key
+// it was asked for, and a key is `<task id>/<file name>` -- which
+// docs/plan.md puts on the list of things that must never reach a log, and
+// this repository's run logs are public.
+//
+// HOW IT IS KEPT SAFE: the code is matched against a FIXED LIST and anything
+// else prints as "unrecognised". So the list being incomplete is harmless by
+// construction -- an unknown code costs a word of detail, where echoing an
+// unknown string could cost a file name. That property is the design, not a
+// limitation of it.
+//
+// Where the list comes from: the codes Supabase's own Storage error-code page
+// documents (https://supabase.com/docs/guides/storage/debugging/error-codes,
+// read 2026-10-10) plus the S3 codes that name a cause somebody could act on.
+// Both of this project's object stores speak S3, so both answer in these
+// terms.
+export const S3_ERROR_CODES = new Set([
+  // the three that answer a 403, and the whole reason for this
+  "AccessDenied",
+  "InvalidAccessKeyId",
+  "S3InvalidAccessKeyId",
+  "SignatureDoesNotMatch",
+  "InvalidSignature",
+  "InvalidJWT",
+  // wrong place, wrong name
+  "NoSuchBucket",
+  "NoSuchKey",
+  "NoSuchUpload",
+  "InvalidBucketName",
+  "InvalidKey",
+  "InvalidUploadId",
+  "KeyAlreadyExists",
+  "BucketAlreadyExists",
+  "ResourceAlreadyExists",
+  "TenantNotFound",
+  // the request itself
+  "InvalidRequest",
+  "InvalidArgument",
+  "InvalidRange",
+  "InvalidMimeType",
+  "InvalidChecksum",
+  "MissingContentLength",
+  "MissingParameter",
+  "MissingPart",
+  "MalformedXML",
+  "AuthorizationHeaderMalformed",
+  "RequestTimeTooSkewed",
+  "EntityTooLarge",
+  "MethodNotAllowed",
+  "PermanentRedirect",
+  // the service, not us
+  "InternalError",
+  "S3Error",
+  "SlowDown",
+  "ServiceUnavailable",
+  "DatabaseTimeout",
+  "DatabaseError",
+  "LockTimeout",
+  "ResourceLocked",
+  "S3MaximumCredentialsLimit",
+]);
+
+// Reads <Code>…</Code> out of an S3 error body and answers with it ONLY if it
+// is one we know. Everything else — an unknown code, an HTML error page, an
+// empty body, a body with no Code element — is "unrecognised".
+//
+// The regex is deliberately narrow: a code is letters and digits, so no
+// response can smuggle a path, an address or a quoted value through this
+// function even if it puts one inside the Code element.
+export function s3ErrorCode(body) {
+  const found = /<Code>\s*([A-Za-z0-9]{1,64})\s*<\/Code>/.exec(String(body ?? ""));
+  if (found && S3_ERROR_CODES.has(found[1])) return found[1];
+  return "unrecognised";
 }
 
 // ---------------------------------------------------------------------------
