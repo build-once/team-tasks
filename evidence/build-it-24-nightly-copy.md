@@ -5,7 +5,8 @@ Issue [#258](https://github.com/build-once/team-tasks/issues/258). New workflow:
 `docs/restore-runbook.md`.
 
 **Result: PASS, end to end, on a throwaway PostgreSQL and a stand-in for both object stores, with
-made-up data. NO COPY OF PRODUCTION HAS EVER BEEN MADE.** That second sentence is the one to quote. The
+made-up data — on this machine and on a Linux CI runner (section 7). NO COPY OF PRODUCTION HAS EVER
+BEEN MADE.** That second sentence is the one to quote. The
 workflow runs on a schedule from `main`, so it cannot have run; three of the nine settings it needs do
 not exist yet; and no restore drill has been done.
 
@@ -245,6 +246,35 @@ $ npm test
 AI team self-test: 258 passed, 0 failed.
 Checked 6 workflow file(s), 14 job(s): 0 problem(s), 0 warning(s).
 ```
+
+**And the whole thing ran on a Linux runner, which is the half this machine could not show.** CI run
+[38045409343](https://github.com/build-once/team-tasks/actions/runs/38045409343) on pull request #265:
+`status` **completed**, `conclusion` **success**, all **17** jobs `success` (read with
+`gh run view 38045409343 --json status,conclusion,jobs`). The new job took **13 seconds**, and these are
+its own lines:
+
+```
+pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)
+psql (PostgreSQL) 16.15 (Ubuntu 16.15-1.pgdg24.04+2)
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+...
+PASS  OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024) opened the copy this run made: exit 0.
+114 PASS, 0 FAIL.
+backup-proof: counted 114 PASS lines; at least 114 expected.
+```
+
+Three things that settles which nothing on this machine could:
+
+- **`ubuntu-24.04` really does carry PostgreSQL 16.15, client and server**, and
+  `sudo systemctl start postgresql.service` really does start it — until this run that was the image
+  README's word, read on 2026-10-10, and now it is observed. It is also the number
+  [#262](https://github.com/build-once/team-tasks/issues/262) is about: the client the nightly job will
+  use against production is **16.15**.
+- **The encryption format is not an artefact of a modern OpenSSL.** The by-hand check in section 6 used
+  OpenSSL 3.5.4; the runner's is **3.0.13**, two years older, and it opened the same format byte for
+  byte.
+- **The proof's floor is exact rather than generous**: 114 counted against 114 expected, so losing a
+  single check turns the job red.
 
 `npm test` exited 0. The 64 is the pure half — the format, the manifest check, the log scanner, the
 signer and the connection-string parser — which is what Windows and macOS runners now cover through the
