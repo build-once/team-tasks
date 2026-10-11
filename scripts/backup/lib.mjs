@@ -611,6 +611,445 @@ function unescapeCopyField(field) {
 }
 
 // ---------------------------------------------------------------------------
+// WHAT A RESTORE PROMISES TO BRING BACK, BY NAME
+// ---------------------------------------------------------------------------
+//
+// THE OWNER'S DECISION OF 11 OCTOBER 2026, after the first finished drill:
+// **sign-in sessions are not restored, and after a recovery everybody signs in
+// again.** That is a small decision with a large consequence for this code,
+// because until it was taken the restore compared EVERY table in the copy
+// against the restored database and called any difference a failure. A copy of
+// a Supabase project holds dozens of tables that a new Supabase project brings
+// with it, and two of them -- `auth.refresh_tokens` and `auth.mfa_amr_claims`
+// -- came back as 0 of 2 and 0 of 1 in the drill, because the sessions they
+// point at were not there. "Every table matched except three" is not a verdict
+// anybody can act on.
+//
+// So the promise is a NAMED SET, and the three answers are different:
+//
+//   INSIDE the promise  -- a mismatch FAILS the restore. No "mostly".
+//   OUTSIDE it          -- reported as "not restored, by design", with a count,
+//                          and NEVER as a failure.
+//   NAMED NOWHERE       -- still not a failure (the owner's decision above),
+//                          but printed by name, because a table this design has
+//                          never heard of is the line somebody should read when
+//                          Supabase ships a new one.
+//
+// WHERE THE NAMES COME FROM, AND THE ONE THING THAT IS NOT CONFIRMED. The
+// `public` half needs no list: every table in it is this app's own. The account
+// half is a list, and it was written from this project's knowledge of Supabase
+// Auth and from the constraint names in the drill's own error messages -- NOT by
+// reading a dump, because the assistant never receives one (docs/backups.md).
+// So the restore PRINTS every `auth` table it meets that is in neither list, and
+// the next drill's output is what settles the naming. Issue #276.
+export const PROMISED_ACCOUNT_TABLES = {
+  users: "the account itself, with its hashed password",
+  identities: "the identity that ties an email address to that account, which is what a password sign-in matches",
+  mfa_factors: "a second factor somebody enrolled -- without it, their sign-in is not the one they set up",
+};
+
+// "The storage records" of the owner's instruction: the rows Storage keeps about
+// each file. The bucket row is in it because a file has nowhere to go without
+// one; `docs/plan.md`'s appendix calls these two rows and the bytes three
+// separate things, and a restore that brought back two of the three would show
+// files nobody can open -- which is #248 all over again, from the other end.
+export const PROMISED_STORAGE_TABLES = {
+  buckets: "the bucket row -- without it there is nowhere for a file to be",
+  objects: "what Storage records about each file: its path, its size, who uploaded it, and when",
+};
+
+// NOT RESTORED, AND THIS IS WHY -- the `auth` tables this design has looked at
+// and decided about. Every one of them is sign-in state, a log, or Supabase's
+// own bookkeeping that a new project arrives with.
+export const AUTH_TABLES_NOT_RESTORED = {
+  sessions: "a sign-in session. The owner's decision of 11 October 2026: after a recovery everybody signs in again",
+  refresh_tokens: "the same thing one layer down, and one of the two the drill saw refused",
+  mfa_amr_claims: "which factors a session used, so it goes wherever the session goes -- the other one the drill saw refused",
+  mfa_challenges: "a second-factor challenge that was in flight",
+  flow_state: "a sign-in that was half-done at the moment production died",
+  one_time_tokens: "a confirmation or reset link in flight. Every one of them is a credential with a clock on it, and restoring it would restart the clock",
+  audit_log_entries: "the sign-in log, with its IP addresses. docs/plan.md's appendix says never to build anything on it; a restore is not the place to start",
+  instances: "GoTrue's own bookkeeping; a new project brings its own",
+  schema_migrations: "GoTrue's own migration record; a new project has already applied its own",
+  sso_providers: "single sign-on, which this app does not use",
+  sso_domains: "single sign-on, which this app does not use",
+  saml_providers: "single sign-on, which this app does not use",
+  saml_relay_states: "single sign-on, which this app does not use",
+};
+
+// One answer per table, used by the restore's comparison and by the replay
+// planner -- the same function in both places, so what is COMPARED and what is
+// actually SENT cannot disagree.
+export function restoreScope(schema, table) {
+  const s = String(schema ?? "");
+  const t = String(table ?? "");
+  if (s === "public") return { promised: true, named: true, part: "every table in public", why: "this app's own data" };
+  if (s === "auth" && Object.hasOwn(PROMISED_ACCOUNT_TABLES, t)) {
+    return { promised: true, named: true, part: "the accounts", why: PROMISED_ACCOUNT_TABLES[t] };
+  }
+  if (s === "storage" && Object.hasOwn(PROMISED_STORAGE_TABLES, t)) {
+    return { promised: true, named: true, part: "the storage records", why: PROMISED_STORAGE_TABLES[t] };
+  }
+  if (s === "auth" && Object.hasOwn(AUTH_TABLES_NOT_RESTORED, t)) {
+    return { promised: false, named: true, part: "sign-in state and Supabase Auth's own bookkeeping", why: AUTH_TABLES_NOT_RESTORED[t] };
+  }
+  if (s === "auth") {
+    return {
+      promised: false,
+      named: false,
+      part: "an `auth` table this design has never named",
+      why: "it is neither on the promised list nor on the deliberately-not-restored one, which is the state a new Supabase release can create. Read it and decide (#276)",
+    };
+  }
+  return {
+    promised: false,
+    named: true,
+    part: "a schema a new project brings with it",
+    why: "Supabase's own -- storage internals, realtime, vault, the extensions' tables and the migration records. A new project has its own and refuses ours",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HOW THE DUMP IS REPLAYED, AND WHY A ROW CAN NO LONGER BE EXECUTED AS SQL
+// ---------------------------------------------------------------------------
+//
+// THE FAULT, from the owner's finished drill of 10-11 October 2026: three of
+// psql's 574 ERROR lines were **syntax errors at character 1** -- one "trailing
+// junk after numeric literal" and two "syntax error at or near" a number. Those
+// are not schema errors. They are ROWS OF A TABLE BEING PARSED AS SQL.
+//
+// WHAT HAPPENED. The sequence below was MEASURED against psql 17.10 on
+// 2026-10-11, and every step of it is explained by a sentence psql's own
+// documentation already carries
+// (https://www.postgresql.org/docs/17/app-psql.html and
+// https://www.postgresql.org/docs/17/sql-copy.html, both read 2026-10-11). The
+// measured run, three lines of it, in full:
+//
+//   psql:oldway.sql:1: ERROR:  relation "public.nope" does not exist
+//   psql:oldway.sql:4: error: invalid command \.
+//   psql:oldway.sql:5: ERROR:  syntax error at or near "1" at character 1
+//
+//   1. A plain pg_dump writes a table's data INLINE: `COPY "s"."t" (...) FROM
+//      stdin;`, then one line per row, then a line holding `\.` -- the
+//      "end-of-data marker", which COPY documents as "a single line containing
+//      just backslash-period (`\.`)".
+//   2. The COPY is refused. The rows are then still sitting in the script, and
+//      psql does not stop, because `ON_ERROR_STOP` is deliberately off here:
+//      psql "returns … 3 if an error occurred in a script and the variable
+//      `ON_ERROR_STOP` was set", and it is not set.
+//   3. The rows produce NO error of their own, because "Ordinarily, input lines
+//      are sent to the server when a command-terminating semicolon is reached.
+//      An end of line does not terminate a command." They are buffered.
+//   4. `\.` is read as a meta-command, because "Anything you enter in psql that
+//      begins with an unquoted backslash is a psql meta-command" -- so it does
+//      not end the mess, it is simply `invalid command \.`. **That is an extra
+//      error line per refused block**, and it is counted like any other.
+//   5. THE NEXT REAL STATEMENT'S SEMICOLON FLUSHES THE WHOLE LOT AS ONE
+//      STATEMENT. The rows and that statement are parsed together, so the
+//      failure lands **at character 1** and quotes the FIRST TOKEN OF THE FIRST
+//      ROW -- in the run above, `"1"`, which is a row's first column.
+//
+// WHICH IS EXACTLY WHAT THE DRILL REPORTED, and this is the part that makes it a
+// diagnosis rather than a theory: "three syntax errors at character 1 ('trailing
+// junk after numeric literal', and two 'syntax error at or near' a number)". At
+// character 1, quoting a number -- the first column of a row. And three of them
+// rather than hundreds, because each one covers every row buffered up to the
+// next semicolon.
+//
+// scripts/backup/proof.mjs runs that measurement as a case, against a real psql,
+// and then requires the same dump replayed the new way to produce no syntax
+// error, no `invalid command`, and no sign of the row at all.
+//
+// THE FIX: THE ROWS NEVER GO IN THE SQL STREAM. Each `COPY … FROM stdin;` block
+// is lifted out of the dump into a file of its own, and is replayed with psql's
+// own `\copy` meta-command, which "runs an SQL COPY command, but instead of the
+// server reading or writing the specified file, psql reads or writes the file
+// and routes the data between the server and the local file system". A refused
+// COPY is then an error with nothing after it: the next line is the next
+// statement, because the rows are not in the stream to be read.
+//
+// IT IS TWO SCRIPTS AND TWO psql RUNS, AND THAT IS NOT A STYLE CHOICE -- IT IS
+// FORCED BY POSTGRESQL'S OWN HARDENING, found by running this against a real
+// psql on 2026-10-11 and not by reading anything:
+//
+//   psql:…: error: backslash commands are restricted; only \unrestrict is allowed
+//
+// A pg_dump from a current PostgreSQL wraps its whole output in `\restrict
+// <token>` … `\unrestrict <token>`, and inside that region psql refuses every
+// meta-command but `\unrestrict`. That exists to stop a hostile dump's data
+// lines being read as psql commands -- which is a cousin of the very fault being
+// fixed here, so it is not something to switch off. So:
+//
+//   PASS 1  the dump, verbatim, with each COPY block replaced by a comment. Its
+//           `\restrict` is left exactly where pg_dump put it, and nothing of
+//           ours needs a backslash command.
+//   PASS 2  a script of nothing but our own `\copy` lines, in its own psql
+//           process, where no `\restrict` has ever been issued.
+//
+// AND A RETRY ROUND, which is the part the hardening forced us to think about.
+// pg_dump's data section is ordered **alphabetically by schema and table** --
+// measured on 2026-10-11: `auth.identities` is dumped before `auth.users`. A
+// plain dump gets away with that because its own foreign keys are added
+// afterwards, in the post-data section. A restore into a project that ALREADY
+// has the schema -- which is what docs/restore-runbook.md step 3 tells you to
+// do, because that is what gives you the bucket -- has those foreign keys in
+// place during the load, so the child's `COPY` is refused before its parent is
+// there. So the restore counts the rows, and runs the data pass again for the
+// promised tables that did not match, while that number is going down. The
+// runbook's "run it again" advice, done by the script instead of by a person.
+//
+// WHY THIS AND NOT THE OBVIOUS ALTERNATIVES:
+//
+//   * `ON_ERROR_STOP=on` would stop at the FIRST error, and a restore into a
+//     project that already has the schema is supposed to produce hundreds. It
+//     would turn every restore into a failure.
+//   * `pg_dump --format=custom` with `pg_restore` cannot have this fault at all,
+//     because the data is not SQL -- and it is the usual answer. It is refused
+//     here for one reason: the copy would stop being readable with stock tools.
+//     docs/restore-runbook.md's "Opening a copy with no scripts at all" and
+//     docs/backups.md both rest on the dump inside the copy being plain text
+//     that `openssl` and `gzip` get you to. Trading that away to fix a parser
+//     problem would be paying for a backup with the thing that makes it a
+//     backup.
+//   * Feeding each COPY block to its own `psql` invocation does NOT fix it: the
+//     rows would still follow the command in that invocation's input.
+//   * `\unrestrict`-ing around each `\copy` would keep it to one pass and one
+//     order. It is refused because it means switching off a protection
+//     PostgreSQL added on purpose, in the middle of replaying somebody else's
+//     file, to save a second process.
+//
+// AND THE SECOND THING IT BUYS, which is the owner's promise decision above: a
+// table outside the promise simply gets NO `\copy` line and NO data file. "Not
+// restored, by design" becomes true by construction rather than by comparison,
+// and the rows of a table nobody promised never touch the disk.
+export const COPY_FROM_STDIN_LINE = /^COPY\s+(.*?)\s+FROM\s+stdin\s*((?:WITH\s*)?\([^()]*\))?\s*;\s*$/i;
+
+// Reads one `COPY … FROM stdin;` line into its parts. It THROWS rather than
+// guessing, and that is the point: a line this cannot read is a line the old
+// code would have left in the script with its rows behind it, which is the
+// fault. A loud stop is the fail-closed direction.
+export function parseCopyFromStdin(line) {
+  const text = String(line ?? "").replace(/\r$/, "");
+  const m = COPY_FROM_STDIN_LINE.exec(text);
+  if (!m) throw new Error("a COPY ... FROM stdin line in the dump could not be read. Its text is deliberately not quoted: a COPY line names a table and its columns.");
+  const target = m[1].trim();
+  const options = (m[2] || "").trim();
+  const withColumns = /^(.*?)\s*(\([^()]*\))\s*$/.exec(target);
+  const relation = (withColumns ? withColumns[1] : target).trim();
+  const columns = withColumns ? withColumns[2] : "";
+  const parts = /^(?:"((?:[^"]|"")*)"|([A-Za-z_][\w$]*))\.(?:"((?:[^"]|"")*)"|([A-Za-z_][\w$]*))$/.exec(relation);
+  if (!parts) {
+    throw new Error("a COPY ... FROM stdin line names a relation this cannot split into a schema and a table. pg_dump always qualifies one; a dump that does not is not a dump this restore understands.");
+  }
+  // THE NAMES GO INTO A psql META-COMMAND, so they are checked before they do.
+  // `\copy` takes "the entire remainder of the line" as its arguments, so an
+  // apostrophe in a name would end the quoted file path early and the rest of
+  // the line would be read as something else. Nothing in this project has such a
+  // name; a dump that did would stop here rather than build a line nobody meant.
+  for (const [what, value] of [
+    ["the relation", relation],
+    ["the column list", columns],
+    ["the options", options],
+  ]) {
+    if (/['\r\n\\]/.test(value)) {
+      throw new Error(
+        `${what} on a COPY ... FROM stdin line carries an apostrophe, a backslash or a line break, which cannot go into a psql \\copy line safely. Nothing was replayed, and the name is not printed.`,
+      );
+    }
+  }
+  if (options !== "" && !/^(?:WITH\s*)?\([A-Za-z0-9_,\s]*\)$/i.test(options)) {
+    throw new Error("the options on a COPY ... FROM stdin line are not a plain `WITH (...)` list of words, so this refuses to reproduce them. Nothing was replayed.");
+  }
+  const unquote = (value) => value.replace(/""/g, '"');
+  return {
+    relation,
+    columns,
+    options,
+    schema: parts[1] !== undefined ? unquote(parts[1]) : parts[2],
+    table: parts[3] !== undefined ? unquote(parts[3]) : parts[4],
+  };
+}
+
+// Where a `COPY` line may be recognised and where it may not. A dump carries
+// function bodies in dollar quotes and comments in single quotes, and either can
+// hold a line that begins with the word COPY. Mistaking one for a real block
+// would swallow the rest of a function body as "rows", so the state is tracked
+// rather than hoped about: single quotes (with '' as the escape), double-quoted
+// identifiers (with "" as the escape), dollar quotes, and `--` to end of line.
+//
+// NOT TRACKED: `/* */` block comments, which pg_dump does not emit. If that ever
+// changes, an unterminated block throws rather than passing silently.
+export function advanceQuoteState(line, state) {
+  const text = String(line ?? "");
+  let at = 0;
+  while (at < text.length) {
+    if (state.dollarTag !== undefined) {
+      const closes = text.indexOf(state.dollarTag, at);
+      if (closes === -1) return state;
+      at = closes + state.dollarTag.length;
+      state.dollarTag = undefined;
+      continue;
+    }
+    if (state.inSingle) {
+      if (text[at] === "'") {
+        if (text[at + 1] === "'") at += 2;
+        else {
+          state.inSingle = false;
+          at += 1;
+        }
+        continue;
+      }
+      at += 1;
+      continue;
+    }
+    if (state.inDouble) {
+      if (text[at] === '"') {
+        if (text[at + 1] === '"') at += 2;
+        else {
+          state.inDouble = false;
+          at += 1;
+        }
+        continue;
+      }
+      at += 1;
+      continue;
+    }
+    const here = text[at];
+    if (here === "-" && text[at + 1] === "-") return state;
+    if (here === "'") {
+      state.inSingle = true;
+      at += 1;
+      continue;
+    }
+    if (here === '"') {
+      state.inDouble = true;
+      at += 1;
+      continue;
+    }
+    if (here === "$") {
+      const tag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(text.slice(at));
+      if (tag) {
+        state.dollarTag = tag[0];
+        at += tag[0].length;
+        continue;
+      }
+    }
+    at += 1;
+  }
+  return state;
+}
+
+export function freshQuoteState() {
+  return { inSingle: false, inDouble: false, dollarTag: undefined };
+}
+
+// Builds the data pass out of blocks: nothing but `\copy` lines, which is what
+// lets it run in a psql that has never seen a `\restrict`. Exported because the
+// retry round builds a narrower one from the same blocks.
+export function dataScript(blocks) {
+  const lines = blocks.filter((block) => block.restored).map((block) => block.copyLine);
+  return lines.length ? `${lines.join("\n")}\n` : "";
+}
+
+// Turns a plain-text dump into (a) a script with no row of data anywhere in it,
+// (b) a data script of `\copy` lines, and (c) one data file per table that is
+// going back. Pure: it is given a function that says which tables are promised
+// and a function that names a data file, and it opens nothing.
+//
+// `split("\n")` then `join("\n")` is lossless, CRLF included, because a trailing
+// `\r` stays on the end of its line either way.
+export function planReplay(dumpText, { isPromised = () => true, dataPath = (index) => `copy-${index}.dat` } = {}) {
+  const lines = String(dumpText ?? "").split("\n");
+  const script = [];
+  const blocks = [];
+  const state = freshQuoteState();
+  let index = 0;
+  let skippedInsideQuotes = 0;
+
+  for (let at = 0; at < lines.length; at++) {
+    const line = lines[at];
+    const insideQuotes = state.inSingle || state.inDouble || state.dollarTag !== undefined;
+    const looksLikeCopy = /^COPY\s/i.test(line) && /\bFROM\s+stdin\b/i.test(line);
+    if (insideQuotes && looksLikeCopy) skippedInsideQuotes++;
+    if (!insideQuotes && looksLikeCopy) {
+      const copy = parseCopyFromStdin(line);
+      const rows = [];
+      let terminated = false;
+      while (++at < lines.length) {
+        if (lines[at].replace(/\r$/, "") === "\\.") {
+          terminated = true;
+          break;
+        }
+        rows.push(lines[at]);
+      }
+      if (!terminated) {
+        throw new Error(
+          `a COPY block for ${copy.schema}.${copy.table} runs to the end of the dump with no \\. end-of-data marker, so this cannot tell its rows from the rest of the file. ` +
+            "Nothing was replayed. That is a damaged or unexpected dump, not something to work around.",
+        );
+      }
+      const restored = isPromised(copy.schema, copy.table) === true;
+      const file = restored ? dataPath(index) : undefined;
+      blocks.push({
+        index,
+        schema: copy.schema,
+        table: copy.table,
+        restored,
+        file,
+        // ONE LINE, NO SEMICOLON, AND THE PATH QUOTED. psql: "Unlike most other
+        // meta-commands, the entire remainder of the line is always taken to be
+        // the arguments of \copy, and neither variable interpolation nor
+        // backquote expansion are performed in the arguments." So nothing in
+        // this line is expanded, and a `;` would be read as part of the file
+        // name.
+        copyLine: restored ? `\\copy ${copy.relation}${copy.columns ? ` ${copy.columns}` : ""} FROM '${file}'${copy.options ? ` ${copy.options}` : ""}` : undefined,
+        // Kept with a trailing newline so the file ends in one, which is what
+        // COPY expects of its last row.
+        rows: rows.length ? `${rows.join("\n")}\n` : "",
+        rowCount: rows.filter((row) => row.replace(/\r$/, "") !== "").length,
+      });
+      // WHAT GOES IN THE SCHEMA PASS IS A COMMENT EITHER WAY, because a `\copy`
+      // here would be refused: the dump's own `\restrict` is still in force.
+      script.push(
+        restored
+          ? `-- data for ${copy.schema}.${copy.table} is loaded by the data pass, out of a file of its own`
+          : `-- not restored, by design: ${copy.schema}.${copy.table}`,
+      );
+      index++;
+      continue;
+    }
+    advanceQuoteState(line, state);
+    script.push(line);
+  }
+
+  // THE INVARIANT: NOT ONE `COPY … FROM stdin;` LINE MAY SURVIVE IN THE SCRIPT.
+  // This is the thing that makes the guarantee a guarantee rather than a
+  // best-effort parse. A line of that shape still in the script has its rows
+  // behind it, which is exactly the fault this function exists to remove, so the
+  // run STOPS. It stops for either cause, and the message says which:
+  //
+  //   * the quote tracker believed the line was inside a string -- a function
+  //     body with such a line in it, or a string shape it read wrongly;
+  //   * something else entirely, which is a dump this does not understand.
+  //
+  // THE COST, STATED RATHER THAN DISCOVERED: a dump carrying a line that merely
+  // LOOKS like a data block stops a restore that might have worked. That is the
+  // right way round. A false stop is read by a person; a row executed as SQL is
+  // not, and the drill is how we found out.
+  const leftover = script.filter((line) => /^COPY\s/i.test(line) && /\bFROM\s+stdin\b/i.test(line)).length;
+  if (leftover > 0) {
+    throw new Error(
+      `${leftover} \`COPY … FROM stdin;\` line(s) are still in the script after planning the replay, so this refuses to run it -- ` +
+        `${skippedInsideQuotes} of them because the scanner judged the line to be inside a quoted string, and ${leftover - skippedInsideQuotes} for some other reason. ` +
+        "Every one has to be lifted out, because a row left in the SQL stream is a row psql will execute if the COPY is refused. " +
+        "Nothing was replayed, and no row and no line of the dump is printed.",
+    );
+  }
+
+  return { script: script.join("\n"), data: dataScript(blocks), blocks };
+}
+
+// ---------------------------------------------------------------------------
 // Which of psql's errors are the ones a restore is supposed to produce
 // ---------------------------------------------------------------------------
 //
@@ -632,6 +1071,18 @@ function unescapeCopyField(field) {
 // a kind, a count, and nothing else. The run keeps psql's own output in the
 // temporary directory when it fails, which is the place to read it: on the
 // owner's machine, not in a log.
+// THE KINDS THE OWNER'S FINISHED DRILL ADDED, 10-11 October 2026. The first
+// drill's 573 lines were a number; the finished one's **574** were a list,
+// because the owner read the kinds off his own machine and sent them with no row
+// text. Five of them this classifier called "unexpected", and four of those five
+// are Supabase saying "that schema is mine" in four different sentences. They are
+// expected kinds now, each with its own name, so the report says which of them
+// happened rather than lumping them under "not the owner".
+//
+// THE FIFTH IS NOT HERE AND MUST NOT BE: the three **syntax errors** at
+// character 1. Those were rows of a table being executed as SQL after a `COPY`
+// was refused, and they are the fault `planReplay` below exists to make
+// impossible. A kind for them would have hidden the bug behind a classification.
 export const EXPECTED_PSQL_ERROR_KINDS = [
   // Replaying a schema the project already has.
   { kind: "already exists", test: /already exists/i },
@@ -643,6 +1094,44 @@ export const EXPECTED_PSQL_ERROR_KINDS = [
   // of 47 tables would have had 47 of them, and the first version of this
   // check would have failed a restore that was fine.
   { kind: "a primary key the table already has", test: /multiple primary keys for table .* are not allowed/i },
+  // --- The four Supabase-managed-schema refusals, named from the owner's
+  // finished drill. Each is "that is Supabase's, not yours", said differently,
+  // and each is ORDERED BEFORE the broad `permission denied` kind below so the
+  // report names the particular refusal rather than the general one.
+  //
+  // 52 of them in the drill. `ALTER DEFAULT PRIVILEGES` for a role the restoring
+  // user does not belong to.
+  { kind: "default privileges are not ours to change", test: /permission denied to change default privileges/i },
+  // 32. A dump replays `GRANT … WITH GRANT OPTION` and PostgreSQL refuses to
+  // hand a grant option back to the role that gave it.
+  { kind: "a grant option cannot be given back to its grantor", test: /grant options cannot be granted back to your own grantor/i },
+  // 97, over five schemas: auth, realtime, storage, pgbouncer, graphql_public.
+  { kind: "a managed schema is not ours to write in", test: /permission denied for schema/i },
+  // 6. Supabase's own event triggers, which a dump cannot recreate here.
+  { kind: "an event trigger a non-superuser may not own", test: /non-superuser owned event trigger must execute a non-superuser owned function/i },
+  // THE TWO FOREIGN KEYS THAT FOLLOW FROM THE OWNER'S DECISION OF 11 OCTOBER
+  // 2026: sign-in sessions are not restored, so a row that points at one cannot
+  // be either. Named by CONSTRAINT rather than by "violates foreign key
+  // constraint" at large, because any other table's foreign key failing is a
+  // real failure and must stay unexpected. A constraint name is schema, not a
+  // row -- nothing of the row comes near this.
+  {
+    kind: "a sign-in row whose session this restore does not promise",
+    test: /violates foreign key constraint "(?:refresh_tokens_session_id_fkey|mfa_amr_claims_session_id_fkey)"/i,
+  },
+  // ANY OTHER FOREIGN KEY ON A DATA LOAD, which is an ORDERING artefact and not
+  // a fault: pg_dump's data section is alphabetical, so `auth.identities` is sent
+  // before `auth.users`, and into a project that already has the schema the
+  // child is refused before its parent exists. The restore's retry round is what
+  // answers it.
+  //
+  // AND THE REASON LETTING THIS PASS IS NOT A HOLE: a table whose rows did not
+  // arrive is caught by the ROW-COUNT COMPARISON, which is a stronger check than
+  // an error count and fails the restore by name. Only promised tables are sent
+  // at all, and every promised table is compared -- so an unrepaired foreign-key
+  // failure cannot be survived, it just gets reported by the thing that can tell
+  // whether it mattered.
+  { kind: "a row whose parent had not loaded yet -- the retry round answers this", test: /violates foreign key constraint/i },
   // Supabase owns its managed schemas and roles; a dump tries to set owners
   // and privileges on them and is refused. Expected, and not ours to fix.
   { kind: "not the owner", test: /must be owner of|must be member of role|permission denied/i },
@@ -877,4 +1366,77 @@ export function objectName(date) {
   const stamp = amzDate(date);
   // `stamp` already ends in Z, because that is the form SigV4 wants.
   return `team-tasks/${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}/production-${stamp}.ttbk1.enc`;
+}
+
+// The other direction, and the whole reason the name carries a timestamp: a
+// watcher can tell how old the newest copy is WITHOUT holding the passphrase.
+// `undefined` for anything that is not one of this job's own names, so a
+// stray object in the bucket cannot make the bucket look fresh.
+export function dateFromObjectName(key) {
+  const m = /production-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\.ttbk1\.enc$/.exec(String(key ?? ""));
+  if (!m) return undefined;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
+  return Number.isFinite(ms) ? new Date(ms) : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// IS THERE A RECENT COPY AT ALL? -- 36 hours, the owner's decision of 2026-10-11
+// ---------------------------------------------------------------------------
+//
+// WHY 36 AND NOT 24, which is the number anybody would have reached for. The
+// first scheduled run started **5h 57m 24s** after its cron time, so two copies
+// on consecutive nights can be **29h 57m 24s** apart with nothing wrong at all
+// (docs/backups.md -> "The two targets" has the arithmetic). A 24-hour threshold
+// would have cried wolf over a perfectly good copy, and a watcher nobody
+// believes is worse than no watcher. 36 clears that measured delay by six hours
+// and still fires on the FIRST missed night rather than the second -- which is
+// the failure it exists for, because GitHub publishes that a queued job "may be
+// dropped" and a dropped run leaves no failure to report.
+//
+// Everything about this judgement is pure and the threshold is a parameter, so
+// scripts/backup/proof.mjs can hand it an empty bucket, a three-day-old copy and
+// the measured 29h 57m delay and require the right answer to each.
+export const COPY_OVERDUE_AFTER_HOURS = 36;
+
+export function judgeCopyFreshness({ keys = [], now, thresholdHours = COPY_OVERDUE_AFTER_HOURS } = {}) {
+  const at = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(at)) throw new Error("judgeCopyFreshness needs the time now, as a Date or a number of milliseconds.");
+  const all = [...keys];
+  const dated = all.map((key) => ({ key, when: dateFromObjectName(key) })).filter((candidate) => candidate.when !== undefined);
+
+  if (dated.length === 0) {
+    return {
+      verdict: "none",
+      overdue: true,
+      counted: 0,
+      ignored: all.length,
+      thresholdHours,
+      ageHours: undefined,
+      newestKey: undefined,
+      newestAt: undefined,
+      // AN EMPTY BUCKET IS THE STATE THIS IS REALLY ABOUT (#264's own words), so
+      // it is overdue rather than "nothing to judge". Fail closed.
+      note:
+        all.length === 0
+          ? "The backup bucket is EMPTY. There is no copy of production anywhere, which is the state this whole build exists to get out of."
+          : `The bucket holds ${all.length} object(s) and not one of them is named like a copy this job makes, so nothing here can be dated. Treated as no copy at all.`,
+    };
+  }
+
+  const newest = dated.reduce((best, candidate) => (candidate.when > best.when ? candidate : best));
+  const ageHours = (at - newest.when.getTime()) / 3600000;
+  const overdue = ageHours > thresholdHours;
+  return {
+    verdict: overdue ? "overdue" : "fresh",
+    overdue,
+    counted: dated.length,
+    ignored: all.length - dated.length,
+    thresholdHours,
+    ageHours,
+    newestKey: newest.key,
+    newestAt: newest.when,
+    note: overdue
+      ? `The newest copy is ${ageHours.toFixed(1)} hours old and the limit is ${thresholdHours}. A night has been missed, or the schedule has stopped.`
+      : `The newest copy is ${ageHours.toFixed(1)} hours old, inside the ${thresholdHours}-hour limit.`,
+  };
 }

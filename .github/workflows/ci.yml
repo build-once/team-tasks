@@ -762,7 +762,34 @@ jobs:
       # reading the S3 error code and refusing to repeat anything else from a
       # response, and three over the preflight that now asks the backup bucket
       # whether it may write BEFORE production is read at all.
-      EXPECTED_BACKUP_CHECKS: "196"
+      #
+      # 196 -> 268 AFTER THE OWNER'S FIRST FINISHED RESTORE DRILL, 10-11 Oct
+      # 2026 (evidence/restore-tested.md). Seventy-two checks, and the first
+      # group is the one that matters most:
+      #
+      #   * A ROW OF DATA EXECUTED AS SQL, reproduced against a real psql and
+      #     then made impossible. Three of the drill's 574 ERROR lines were
+      #     syntax errors at character 1, which is a table's rows being parsed
+      #     as SQL after a COPY was refused. The case runs the old shape and
+      #     requires the row's own first column to come back inside the error,
+      #     then runs the new shape and requires no sign of it. It also found a
+      #     second error nobody had noticed -- `invalid command \.` -- and
+      #     PostgreSQL's `\restrict` hardening, which is why the replay is two
+      #     passes.
+      #   * WHAT A RESTORE PROMISES, by name: every table in public, the
+      #     accounts, the storage records and the files. A mismatch inside the
+      #     promise fails; everything else is reported with a count and never
+      #     fails. The made-up world now holds a child table whose name sorts
+      #     before its parent's, so the retry round that repairs pg_dump's
+      #     alphabetical data order is a tested path and not machinery nobody
+      #     has run.
+      #   * THE FIVE MANAGED-SCHEMA AND SESSION REFUSALS the drill named, each
+      #     now its own expected kind -- and the three syntax errors still
+      #     unexpected, deliberately.
+      #   * THE FRESHNESS WATCHER (#264), end to end against the stand-in R2
+      #     with no passphrase anywhere in its environment: a fresh bucket, a
+      #     three-day-old copy, an EMPTY bucket, and a bucket it cannot read.
+      EXPECTED_BACKUP_CHECKS: "268"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

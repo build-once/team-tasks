@@ -10,6 +10,11 @@ BEEN MADE.** That second sentence is the one to quote. The
 workflow runs on a schedule from `main`, so it cannot have run; three of the nine settings it needs do
 not exist yet; and no restore drill has been done.
 
+> **THAT WAS TRUE ON 10 OCTOBER 2026 AND IS NOT NOW. Read section 15 first.** Three copies of production
+> exist, a restore has finished in 219 seconds, and a 14-day lifecycle rule is on the bucket. The sections
+> below are kept exactly as they were written, because this file is a record of what was seen on a date,
+> and each later section says what changed. **Section 15 is the current state.**
+
 **What was NOT done, stated before anything is claimed.** No MCP connector and no browser tool were
 used in this session. **Nothing touched production or staging** — no deploy, no secret, no query, no
 dashboard, no `supabase` command of any kind — so there is no `evidence/production-log.md` entry to
@@ -1004,3 +1009,52 @@ issue's state and this one cannot.
   the delay is hours rather than minutes, and not enough to say what the worst case is.
 - **Nothing here was run against production, R2 or GitHub by the assistant.** The run is the schedule's;
   everything above was read from a public log and a public API.
+
+## 15. THE DRILL FINISHED, THE LIFECYCLE RULE EXISTS, AND THE RESTORE CHANGED — 11 October 2026
+
+**Added in the session that built the freshness watcher. Three of the four things section 14 listed as
+"still does not exist" now do**, so the sections above are left exactly as they were written — they are a
+record of what was true on a date — and this one says what changed.
+
+| What section 14 said | Now |
+|---|---|
+| "**No restore has finished.** Unchanged. `evidence/restore-tested.md` still does not exist" | **A restore has finished**, 10–11 October 2026: **219 seconds**, 47 tables, 269 rows, one file byte for byte, signed into with a real account, the project and the local files deleted. **`evidence/restore-tested.md` exists**, and `node scripts/launch-check.mjs` now reports `restore-tested` as PASS |
+| "**The lifecycle rule still does not exist** … so today the sentence describes an intention" | **It exists** — `delete-after-14-days`, whole bucket, delete after 14 days, Enabled; the owner's report of 10 October. So `Nothing was deleted. Retention is the bucket's 14-day lifecycle rule` now describes something that happens. **Nobody writing this has seen the rule**, and nothing in this repository can read one: the first check on it is whether the copy of 10 October is still in the bucket in about a fortnight |
+| "nothing notices when the copies stop … nothing notices when they start again" | **Both are built.** `.github/workflows/backup-freshness.yml` at **36 hours** ([#264](https://github.com/build-once/team-tasks/issues/264)), and a `close-alarm` job that closes "Backup did not run" when a copy succeeds ([#272](https://github.com/build-once/team-tasks/issues/272)). The owner also closed the stale #268 by hand |
+| "One scheduled run is not a measured delay distribution" | **Unchanged.** 5h 57m 24s is still one sample, and it is still what chose 36 hours over 24 |
+
+**And the cause of the three failed runs of 10 October is now established**, which section 12 left open
+with "None of those four is established as the cause": **the R2 token had been created with Object Read
+ONLY**, and the owner changed it to Object Read & Write. So `AccessDenied` meant exactly what the
+one-word error code said, and printing that code is what pointed at it.
+
+### What the finished drill changed in this repository
+
+Three faults, and the second is the one worth reading:
+
+| Found | Changed |
+|---|---|
+| The files did not go back at all — `415 InvalidMimeType` | fixed in [PR #269](https://github.com/build-once/team-tasks/pull/269), before this session |
+| **Three of the drill's 574 ERROR lines were rows of a table being executed as SQL** | the dump is no longer replayed with its data inline. Every `COPY … FROM stdin;` block is lifted into a file of its own and replayed with psql's `\copy`, in a **second pass** — forced by PostgreSQL's own `\restrict` hardening, which was found by running it. And a **retry round**, because `pg_dump` orders its data alphabetically. All of it is reproduced against a real psql in `scripts/backup/proof.mjs` |
+| Two tables were called a failure that the restore was never going to bring back | the owner's decision of 11 October: **sign-in sessions are not restored**, and the restore promises a **named set** |
+
+### The numbers from this session, all computed here rather than reported
+
+| | |
+|---|---|
+| `scripts/backup/proof.mjs`, full run on a throwaway PostgreSQL 17.10 | **265 PASS, 0 FAIL** |
+| Of those, new in this session | **72** — 42 pure, 30 end to end. `EXPECTED_BACKUP_CHECKS` in `ci.yml` goes 196 → **268**, which is 265 plus the three cases that only run where an older `pg_dump` exists |
+| `npm test` | **exit 0** |
+| `node scripts/check-workflows.mjs` | 6 workflow files, 27 jobs, **0 problems, 0 warnings** |
+| Of the 199 error lines the owner itemised from the drill, how many the classifier now calls unexpected | **3** — the syntax errors, and deliberately only those. Under the kinds as they were, **43** of the 199 were unexpected, so **9** of the owner's 52 are not itemised and nothing here classifies them |
+
+### What section 15 does NOT establish
+
+- **The freshness watcher has never run against the real bucket.** What has run is its judgement and the
+  script itself, against a stand-in R2 on 127.0.0.1.
+- **The `close-alarm` job has never run either**, so [#272](https://github.com/build-once/team-tasks/issues/272)
+  stays open for its own third condition: a failure, a success and a second failure, in sequence.
+- **No second restore drill.** 219 seconds is one measurement, of a production holding 269 rows.
+- **Nothing in this section was run against production, R2 or GitHub by the assistant.** The drill is the
+  owner's; the lifecycle rule is the owner's report; what was run here is a local PostgreSQL and the test
+  suite.

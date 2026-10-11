@@ -149,7 +149,8 @@ scrapers watch new public commits for exactly that.
     copy, which builds the Storage endpoint from it.
 
   **And five added on 2026-10-10 for the nightly copy** (`docs/plan.md` → "A nightly copy of production,
-  held by another company"), read only by `.github/workflows/backup-production.yml`:
+  held by another company"), read by `.github/workflows/backup-production.yml` — and two of them, from
+  2026-10-11, also by `.github/workflows/backup-freshness.yml`:
 
   - `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` and `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` — a Supabase
     **S3 access key** for the production project, which is how the job reads the bytes of every attached
@@ -162,6 +163,11 @@ scrapers watch new public commits for exactly that.
   - `BACKUP_STORAGE_KEY` and `BACKUP_STORAGE_SECRET` — the Cloudflare R2 API token
     (`team-tasks-backup-job`, **Object Read & Write**, limited to the `team-tasks-backups` bucket) that
     the copy is written with. **Holding both gets you the encrypted files and nothing readable.**
+    **It was created as Object Read ONLY and had to be changed** — the owner's report of 2026-10-10, and
+    the cause of three failed runs that answered `403, code AccessDenied`.
+    **These two are also read by `.github/workflows/backup-freshness.yml`** (#264), which lists the
+    bucket four times a day and **does not reference `BACKUP_PASSPHRASE`** — so the thing that watches
+    the copies cannot open one.
   - `BACKUP_PASSPHRASE` — what each copy is encrypted with, on the runner, before it leaves.
     **THIS IS THE ONE VALUE IN THIS PROJECT THAT CANNOT BE RE-ISSUED.** A GitHub secret cannot be read
     back once set, so the **owner's password manager holds the only readable copy in existence**. If it

@@ -54,23 +54,30 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import {
+  advanceQuoteState,
   buildManifest,
   checkCopy,
   classifyPsqlErrors,
   clientTooOld,
   contentTypeFor,
+  dateFromObjectName,
   decrypt,
   deriveKeyAndIv,
   encodeS3Key,
   encrypt,
+  freshQuoteState,
+  judgeCopyFreshness,
   looksEncrypted,
   majorVersion,
   objectName,
   opensslDecryptCommand,
   packContainer,
+  parseCopyFromStdin,
   parseStorageObjectTypes,
   pgEnvFromUrl,
+  planReplay,
   readContainer,
+  restoreScope,
   s3ErrorCode,
   scanDumpLine,
   scanLog,
@@ -379,7 +386,10 @@ function pureCases() {
   ].join("\n");
   const classified = classifyPsqlErrors(psqlStderr);
   check(classified.total === 5 && classified.unexpected === 0, "the five ERROR lines a restore is supposed to produce are counted, and none of them is unexpected.");
-  check(classified.byKind.length === 4 && classified.byKind.some((k) => k.kind === "row already restored" && k.count === 1), "they are counted BY KIND, so a reader learns what happened without reading a line of it.");
+  check(
+    classified.byKind.length === 5 && classified.byKind.some((k) => k.kind === "row already restored" && k.count === 1),
+    "they are counted BY KIND, so a reader learns what happened without reading a line of it -- five kinds for these five lines, because `permission denied for schema` now has a name of its own rather than sharing `not the owner`.",
+  );
   check(
     classifyPsqlErrors('psql:dump.sql:60: ERROR:  multiple primary keys for table "tasks" are not allowed').unexpected === 0,
     "including the one NOBODY PREDICTED: replaying a primary key onto a table that has one says this and not `already exists`, and it is one line PER TABLE -- so the owner's 47-table drill has 47 of them, and the first version of this check would have failed a restore that was fine.",
@@ -390,6 +400,197 @@ function pureCases() {
   );
   checkRefuses(classifyPsqlErrors('psql:dump.sql:90: ERROR:  relation "tasks" does not exist').unexpected === 1, "AN ERROR OF AN UNEXPECTED KIND IS COUNTED AS ONE, which is what now fails a restore -- a count of 573 could not tell these apart.");
   check(classifyPsqlErrors("").total === 0 && classifyPsqlErrors(undefined).total === 0, "no errors at all is zero, not a crash.");
+
+  console.log("--- What a restore PROMISES to bring back, by name");
+  // The owner's decision of 11 October 2026. Three answers, not two: inside the
+  // promise a mismatch fails, outside it nothing fails, and a table named
+  // NOWHERE is still not a failure but is printed by name.
+  const scope = (schema, table) => restoreScope(schema, table);
+  check(scope("public", "tasks").promised && scope("public", "anything_added_later").promised, "every table in `public` is inside the promise, with no list to keep up to date.");
+  check(scope("auth", "users").promised && scope("auth", "users").part === "the accounts", "auth.users is inside it, as the accounts.");
+  check(scope("auth", "identities").promised && scope("auth", "mfa_factors").promised, "and so are auth.identities and auth.mfa_factors, which is what password sign-in needs besides the row itself.");
+  check(scope("storage", "objects").promised && scope("storage", "buckets").promised, "the storage records are inside it: storage.objects and the bucket row it needs to exist in.");
+  checkRefuses(
+    !scope("auth", "sessions").promised && scope("auth", "sessions").named,
+    "SIGN-IN SESSIONS ARE OUTSIDE IT, and named: the owner's decision of 11 October 2026 is that after a recovery everybody signs in again.",
+  );
+  checkRefuses(
+    !scope("auth", "refresh_tokens").promised && !scope("auth", "mfa_amr_claims").promised,
+    "and so are the two the drill actually saw refused -- auth.refresh_tokens (0 of 2) and auth.mfa_amr_claims (0 of 1), which pointed at sessions that were not there.",
+  );
+  checkRefuses(
+    !scope("auth", "audit_log_entries").promised,
+    "the sign-in log is outside it too, with its IP addresses -- docs/plan.md's appendix says never to build anything on it.",
+  );
+  checkRefuses(
+    !scope("auth", "a_table_a_later_supabase_release_adds").promised && scope("auth", "a_table_a_later_supabase_release_adds").named === false,
+    "AND AN `auth` TABLE THIS DESIGN HAS NEVER NAMED comes back as NOT NAMED rather than as either answer, which is the line the restore prints for somebody to read (#276).",
+  );
+  check(!scope("realtime", "messages").promised && !scope("storage", "migrations").promised, "every other schema is outside it: a new project brings its own and refuses ours.");
+
+  console.log("--- A row of a table can no longer be executed as SQL");
+  // THE DRILL'S THIRD FINDING. Three of its 574 ERROR lines were syntax errors
+  // at character 1, which is a table's rows being parsed as SQL after a COPY was
+  // refused. planReplay's own header has psql's documented behaviour step by
+  // step; these are the judgements.
+  const ROW_MARKER = "MADE-UP-ROW-TEXT-b17c9e";
+  const replayDump = [
+    "SET standard_conforming_strings = on;",
+    'CREATE TABLE "public"."tasks" ("id" integer, "title" text);',
+    'COPY "public"."tasks" ("id", "title") FROM stdin;',
+    `1\t${ROW_MARKER} one`,
+    `2\t${ROW_MARKER} two`,
+    "\\.",
+    'COPY "auth"."sessions" ("id", "user_id") FROM stdin;',
+    `9\tMADE-UP-SESSION-${ROW_MARKER}`,
+    "\\.",
+    "",
+  ].join("\n");
+  const replay = planReplay(replayDump, { isPromised: (s, t) => restoreScope(s, t).promised, dataPath: (index) => `/made/up/copy-${index}.dat` });
+  checkRefuses(
+    !replay.script.includes(ROW_MARKER) && !replay.data.includes(ROW_MARKER),
+    "NOT ONE ROW IS IN EITHER SCRIPT psql WILL RUN. This is the whole fix: a refused COPY has nothing behind it to be read as SQL, because the rows are not there to read.",
+  );
+  check(replay.data === `\\copy "public"."tasks" ("id", "title") FROM '/made/up/copy-0.dat'\n`, "the data pass is nothing BUT \\copy lines -- one line each, no semicolon, which \\copy would take as part of the file name.");
+  check(replay.blocks[0].rows === `1\t${ROW_MARKER} one\n2\t${ROW_MARKER} two\n` && replay.blocks[0].rowCount === 2, "and the rows go to that file, counted, ending in a newline as COPY expects.");
+  check(!replay.script.includes("\\.") && !replay.data.includes("\\.") && !replay.blocks[0].rows.includes("\\."), "the `\\.` end-of-data marker is in none of the three: it belongs to inline data, and there is no inline data now.");
+  checkRefuses(
+    replay.blocks[1].restored === false && replay.blocks[1].file === undefined && !replay.script.includes("MADE-UP-SESSION") && !replay.data.includes("MADE-UP-SESSION"),
+    "A TABLE OUTSIDE THE PROMISE GETS NO \\copy AND NO FILE, so 'not restored, by design' is true by construction -- and its rows never touch the disk.",
+  );
+  check(replay.script.includes("-- not restored, by design: auth.sessions"), "what it gets instead is a comment saying so, in the schema pass, where somebody reading the replay can see it.");
+  // THE TWO PASSES EXIST BECAUSE OF POSTGRESQL'S OWN HARDENING, which is the one
+  // thing in this change that was found by running it rather than by reading.
+  const restricted = planReplay(["\\restrict MADEUPTOKEN0001", 'COPY "public"."t" ("a") FROM stdin;', "x", "\\.", "\\unrestrict MADEUPTOKEN0001", ""].join("\n"), { dataPath: () => "/made/up/d.dat" });
+  check(
+    restricted.script.includes("\\restrict MADEUPTOKEN0001") && restricted.script.includes("\\unrestrict MADEUPTOKEN0001"),
+    "A CURRENT pg_dump WRAPS ITS OUTPUT IN `\\restrict` … `\\unrestrict`, and the schema pass keeps both exactly where pg_dump put them -- that hardening is not ours to switch off.",
+  );
+  check(
+    !restricted.data.includes("\\restrict") && restricted.data.trim().split("\n").every((line) => line.startsWith("\\copy ")),
+    "and the data pass carries no `\\restrict` at all, which is why its `\\copy` lines are allowed: inside that region psql answers 'backslash commands are restricted; only \\unrestrict is allowed'.",
+  );
+  const withOptions = planReplay('COPY "public"."t" ("a") FROM stdin WITH (FORMAT text);\nx\n\\.\n', { dataPath: () => "/made/up/d.dat" });
+  check(withOptions.data.includes(`\\copy "public"."t" ("a") FROM '/made/up/d.dat' WITH (FORMAT text)`), "a COPY that carries options keeps them, rather than being replayed with different ones.");
+  checkRefuses(
+    threw(() => parseCopyFromStdin(`COPY "public"."t" ("it's") FROM stdin;`)) !== undefined,
+    "AND A NAME WITH AN APOSTROPHE IN IT IS REFUSED rather than built into a \\copy line: that line's quoted file path would end early and the rest would be read as something else.",
+  );
+  const crlf = planReplay('CREATE TABLE "public"."t" ();\r\nCOPY "public"."t" ("a") FROM stdin;\r\nx\r\n\\.\r\nSELECT 1;\r\n', { dataPath: () => "/made/up/d.dat" });
+  check(crlf.blocks.length === 1 && crlf.blocks[0].rows === "x\r\n" && crlf.script.includes("SELECT 1;\r"), "a dump with CRLF line endings is handled losslessly: the terminator is recognised and every other line keeps its own ending.");
+  check(parseCopyFromStdin("COPY public.plain FROM stdin;").table === "plain" && parseCopyFromStdin('COPY "s"."a b" ("x") FROM stdin;').table === "a b", "a relation is read quoted or unquoted, and a quoted name with a space in it survives.");
+  checkRefuses(
+    threw(() => planReplay('COPY "public"."t" ("a") FROM stdin;\n1\n2\n')) !== undefined,
+    "A BLOCK WITH NO `\\.` TERMINATOR IS REFUSED: if this cannot tell where a table's rows end, it replays nothing rather than guessing.",
+  );
+  checkRefuses(threw(() => parseCopyFromStdin("COPY unqualified FROM stdin;")) !== undefined, "and a COPY line naming no schema is refused too -- pg_dump always qualifies one, so a dump that does not is not one this understands.");
+  // THE QUOTE TRACKER AND THE INVARIANT, which are two halves of one promise.
+  const insideQuotes = threw(() => planReplay(["CREATE FUNCTION f() RETURNS void AS $fn$", 'COPY "public"."t" ("a") FROM stdin;', "$fn$ LANGUAGE sql;", ""].join("\n")));
+  checkRefuses(
+    insideQuotes !== undefined && /inside a quoted string/.test(insideQuotes.message),
+    "A COPY-SHAPED LINE INSIDE A DOLLAR-QUOTED FUNCTION BODY IS NOT TREATED AS DATA -- and because one survived in the script, the whole replay STOPS rather than running with a line of that shape still in it. A false stop is read by a person; a row executed as SQL is not.",
+  );
+  checkRefuses(
+    insideQuotes !== undefined && !/COPY "public"/.test(insideQuotes.message) && !/\$fn\$/.test(insideQuotes.message),
+    "and the refusal quotes no line of the dump: a COPY line names a table and its columns.",
+  );
+  const quoteState = freshQuoteState();
+  advanceQuoteState("CREATE FUNCTION f() RETURNS void AS $fn$", quoteState);
+  check(quoteState.dollarTag === "$fn$", "the scanner knows it is inside a dollar quote that was opened on an earlier line.");
+  advanceQuoteState("$fn$ LANGUAGE sql;", quoteState);
+  check(quoteState.dollarTag === undefined, "and that it has left it when the tag comes back.");
+  const apostrophe = freshQuoteState();
+  advanceQuoteState("COMMENT ON TABLE \"public\".\"tasks\" IS 'it''s fine';", apostrophe);
+  check(apostrophe.inSingle === false && apostrophe.inDouble === false, "a doubled apostrophe inside a comment does not leave the scanner believing a string is still open.");
+
+  console.log("--- The managed-schema refusals the finished drill named");
+  // The owner read these kinds off his own machine on 11 October 2026 and sent
+  // them with no row text. Five were classified "unexpected" by the first
+  // version of this check; four of the five are Supabase saying "that is mine"
+  // in four different sentences, and they are expected kinds now.
+  const drillKinds = [
+    "psql:dump.sql:101: ERROR:  permission denied to change default privileges",
+    "psql:dump.sql:102: ERROR:  grant options cannot be granted back to your own grantor",
+    "psql:dump.sql:103: ERROR:  permission denied for schema auth",
+    "psql:dump.sql:104: ERROR:  permission denied for schema pgbouncer",
+    "psql:dump.sql:105: ERROR:  Non-superuser owned event trigger must execute a non-superuser owned function",
+    'psql:dump.sql:106: ERROR:  insert or update on table "refresh_tokens" violates foreign key constraint "refresh_tokens_session_id_fkey"',
+    'psql:dump.sql:107: ERROR:  insert or update on table "mfa_amr_claims" violates foreign key constraint "mfa_amr_claims_session_id_fkey"',
+  ].join("\n");
+  const drill = classifyPsqlErrors(drillKinds);
+  check(drill.total === 7 && drill.unexpected === 0, "all seven of the drill's managed-schema and session refusals are expected kinds now, so none of them fails a restore.");
+  check(
+    ["default privileges are not ours to change", "a grant option cannot be given back to its grantor", "a managed schema is not ours to write in", "an event trigger a non-superuser may not own"].every(
+      (kind) => drill.byKind.some((counted) => counted.kind === kind),
+    ),
+    "and each is its own named kind rather than being lumped under `not the owner`, so the report says which refusal happened.",
+  );
+  check(
+    drill.byKind.some((counted) => counted.kind === "a sign-in row whose session this restore does not promise" && counted.count === 2),
+    "the two foreign keys follow from the promise: a row pointing at a session this restore does not bring back cannot come back either.",
+  );
+  // THE THREE THAT MUST STAY UNEXPECTED, in the owner's own words for them.
+  const syntaxErrors = [
+    'psql:dump.sql:201: ERROR:  trailing junk after numeric literal at or near "1t"',
+    'psql:dump.sql:202: ERROR:  syntax error at or near "44444444"',
+    'psql:dump.sql:203: ERROR:  syntax error at or near "2026"',
+  ].join("\n");
+  checkRefuses(
+    classifyPsqlErrors(syntaxErrors).unexpected === 3,
+    "AND THE DRILL'S THREE SYNTAX ERRORS STAY UNEXPECTED, which is deliberate: they were rows being executed as SQL, and a kind for them would have hidden the bug behind a classification.",
+  );
+  // ANY OTHER FOREIGN KEY IS AN ORDERING ARTEFACT, which is a deliberate change
+  // made in this same pull request after pg_dump's alphabetical data order was
+  // measured. The thing that still catches an unrepaired one is the ROW-COUNT
+  // COMPARISON, not the error count -- see the end-to-end case that makes the
+  // retry round happen and then repair it.
+  check(
+    classifyPsqlErrors('psql:dump.sql:301: ERROR:  insert or update on table "tasks" violates foreign key constraint "tasks_team_id_fkey"').byKind[0]?.kind ===
+      "a row whose parent had not loaded yet -- the retry round answers this",
+    "a foreign key failing on any OTHER table is the ordering artefact pg_dump's alphabetical data order produces, and is named as such -- the row-count comparison is what decides whether it mattered.",
+  );
+  checkRefuses(
+    classifyPsqlErrors('psql:dump.sql:302: ERROR:  new row for relation "tasks" violates check constraint "tasks_title_length"').unexpected === 1,
+    "but a CHECK constraint failing is still a failure of an unexpected kind: no retry fixes data the database refuses on its own terms.",
+  );
+
+  console.log("--- Is there a recent copy at all? -- 36 hours, the owner's decision of 2026-10-11");
+  const NOW = new Date("2026-10-12T13:47:00Z");
+  const copyAt = (iso) => objectName(new Date(iso));
+  check(dateFromObjectName(copyAt("2026-10-11T07:20:24Z")).toISOString() === "2026-10-11T07:20:24.000Z", "a copy's own name gives back the moment it was taken, which is how a watcher dates the bucket without holding the passphrase.");
+  check(dateFromObjectName("team-tasks/2026-10-11/something-else-entirely") === undefined, "and anything that is not one of this job's names is not a date at all.");
+  checkRefuses(
+    judgeCopyFreshness({ keys: [], now: NOW }).verdict === "none" && judgeCopyFreshness({ keys: [], now: NOW }).overdue,
+    "AN EMPTY BUCKET IS OVERDUE, not 'nothing to judge'. It is the state issue #264 is really about and the state this whole build exists to get out of.",
+  );
+  checkRefuses(
+    judgeCopyFreshness({ keys: ["team-tasks/2026-10-09/not-a-copy-name.txt"], now: NOW }).verdict === "none",
+    "and a bucket holding only objects this job did not name is the same answer: fail closed, so a stray file cannot make the bucket look fresh.",
+  );
+  checkRefuses(
+    judgeCopyFreshness({ keys: [copyAt("2026-10-09T01:23:00Z")], now: NOW }).overdue,
+    "A COPY THREE DAYS OLD IS OVERDUE, which is the case #264 asks to be seen to fail.",
+  );
+  check(judgeCopyFreshness({ keys: [copyAt("2026-10-12T01:23:00Z")], now: NOW }).verdict === "fresh", "a copy from last night is fresh.");
+  // THE MEASUREMENT THAT CHOSE THE NUMBER. The first scheduled run started 5h
+  // 57m 24s late, so two good copies can be 29h 57m 24s apart.
+  const lateByTheMeasuredDelay = [copyAt("2026-10-11T07:20:24Z")];
+  const asIfNow = new Date(Date.UTC(2026, 9, 12, 13, 17, 48)); // 29h 57m 24s after that copy
+  check(judgeCopyFreshness({ keys: lateByTheMeasuredDelay, now: asIfNow }).verdict === "fresh", "and the longest gap anybody has MEASURED -- 29h 57m 24s, from the first scheduled run starting 5h 57m 24s late -- is still fresh at 36 hours.");
+  checkRefuses(
+    judgeCopyFreshness({ keys: lateByTheMeasuredDelay, now: asIfNow, thresholdHours: 24 }).overdue,
+    "WHICH IS WHY THE THRESHOLD IS NOT 24: at 24 hours that same good copy would have raised the alarm, and a watcher that cries wolf is one nobody reads.",
+  );
+  check(
+    judgeCopyFreshness({ keys: [copyAt("2026-10-11T01:47:00Z")], now: NOW }).verdict === "fresh" && judgeCopyFreshness({ keys: [copyAt("2026-10-11T01:46:00Z")], now: NOW }).verdict === "overdue",
+    "the line is at exactly 36 hours: 36 is inside the limit and 36 hours and a minute is not.",
+  );
+  check(
+    judgeCopyFreshness({ keys: [copyAt("2026-10-12T01:23:00Z"), copyAt("2026-10-09T01:23:00Z")], now: NOW }).newestKey === copyAt("2026-10-12T01:23:00Z"),
+    "it judges the NEWEST copy rather than the last one the bucket happened to list.",
+  );
+  check(judgeCopyFreshness({ keys: [copyAt("2026-10-12T01:23:00Z"), "team-tasks/x/stray.bin"], now: NOW }).ignored === 1, "and it says how many objects it could not date, so a bucket filling up with something else is visible.");
+  checkRefuses(threw(() => judgeCopyFreshness({ keys: [] })) !== undefined, "with no time to compare against, it refuses rather than inventing one.");
 
   console.log("--- The log scanner");
   const cleanLog = "Counted the rows in 9 table(s). Read 3 file(s), 4211 bytes in total. Uploaded to team-tasks-backups.";
@@ -672,6 +873,17 @@ function seedSql({ withAuth }) {
       ('11111111-1111-4111-8111-111111111110', 'alice.${MADE_UP.email}', 'MADE-UP-HASH-aaa'),
       ('11111111-1111-4111-8111-111111111111', 'bob.${MADE_UP.email}', 'MADE-UP-HASH-bbb'),
       ('11111111-1111-4111-8111-111111111112', 'carol.${MADE_UP.email}', 'MADE-UP-HASH-ccc');`);
+    // AND A CHILD TABLE WHOSE NAME SORTS BEFORE ITS PARENT'S, on purpose.
+    // pg_dump's data section is alphabetical, so `auth.identities` is dumped
+    // before `auth.users` -- measured 2026-10-11 -- and into a project whose
+    // schema is already in place its foreign key is refused before the parent
+    // exists. That is the case the restore's retry round exists for, and this is
+    // what makes the retry a tested path rather than untested machinery.
+    lines.push("create table auth.identities (id uuid primary key, user_id uuid not null references auth.users(id), provider text not null);");
+    lines.push(`insert into auth.identities values
+      ('66666666-6666-4666-8666-666666666660', '11111111-1111-4111-8111-111111111110', 'email'),
+      ('66666666-6666-4666-8666-666666666661', '11111111-1111-4111-8111-111111111111', 'email'),
+      ('66666666-6666-4666-8666-666666666662', '11111111-1111-4111-8111-111111111112', 'email');`);
     lines.push("create table auth.audit_log_entries (id uuid primary key, ip_address text);");
     lines.push("insert into auth.audit_log_entries values ('22222222-2222-4222-8222-222222222220', '203.0.113.7');");
   }
@@ -775,7 +987,10 @@ async function endToEnd() {
   });
   const destination = await startStandinStore({
     credentials: { accessKeyId: MADE_UP.destKeyId, secretAccessKey: MADE_UP.destSecret },
-    buckets: ["team-tasks-backups"],
+    // THE TWO EXTRA BUCKETS ARE FOR THE FRESHNESS WATCHER, and one of them has
+    // to be declared here rather than seeded: an EMPTY bucket is the state
+    // issue #264 is really about, and you cannot seed emptiness.
+    buckets: ["team-tasks-backups", "a-stale-backup-bucket", "an-empty-backup-bucket"],
     region: "auto",
   });
 
@@ -967,7 +1182,7 @@ async function endToEnd() {
       console.log("--- every line restore-backup.mjs printed, in full");
       for (const line of restore.log.split("\n")) if (line.trim()) console.log(`    | ${line}`);
     }
-    check(/every one of \d+ table\(s\) came back with the row count the copy recorded/.test(restore.log), "every table came back with the row count the copy recorded.");
+    check(/every one of \d+ PROMISED table\(s\) came back with the row count the copy recorded/.test(restore.log), "every PROMISED table came back with the row count the copy recorded.");
     check(/the accounts came back: auth\.users has 3 row\(s\)/.test(restore.log), "THE ACCOUNTS CAME BACK: auth.users has its 3 rows.");
     check(/every one of 3 file\(s\) came back byte for byte/.test(restore.log), "and all three files came back byte for byte.");
     check(/THAT NUMBER IS THE ANSWER/.test(restore.log), "the run reports its own wall-clock time, which is the only answer to 'how long are we down'.");
@@ -976,6 +1191,116 @@ async function endToEnd() {
       const key = [...source.objects("restored").keys()].find((candidate) => candidate.endsWith(name));
       check(key !== undefined && source.typeOf("restored", key) === fileTypes[index], `file ${index + 1} of 3 is in the restored bucket AS A ${fileTypes[index]}, not as whatever the upload felt like.`);
     }
+
+    console.log("--- what the restore promises, and what it says it is not bringing back");
+    // The made-up world holds one table outside the promise --
+    // `auth.audit_log_entries`, which is the sign-in log -- so the three answers
+    // are all exercised by the ordinary passing run above.
+    check(
+      /every one of 11 PROMISED table\(s\) came back/.test(restore.log),
+      "ELEVEN TABLES ARE INSIDE THE PROMISE in this world: the seven in public, auth.users, auth.identities, storage.buckets and storage.objects. A mismatch in any of them fails the restore.",
+    );
+    checkRefuses(
+      /promised table\(s\) did not take all their rows on that pass/.test(restore.log),
+      "AND THE ORDERING FAILURE REALLY HAPPENED: auth.identities is dumped before auth.users, so its foreign key was refused on the data pass -- which is the thing the retry round exists for.",
+    );
+    check(/every promised table took all of its rows, retries included/.test(restore.log), "and the retry repaired it, which is the runbook's 'run it again' advice done by the script instead of by a person.");
+    check(
+      /Not restored, by design: 1 table\(s\), 1 row\(s\)/.test(restore.log),
+      "AND THE ONE OUTSIDE IT IS REPORTED, NOT FAILED: auth.audit_log_entries, the sign-in log, with a count of what was left -- which is the owner's decision of 11 October 2026.",
+    );
+    check(/every table outside the promise is one this design has named/.test(restore.log), "and nothing was left out that this design has not named, which is the line that would say so if Supabase added a table.");
+    check(
+      /The promised account tables this copy actually holds: auth\.users, auth\.identities\./.test(restore.log) && /Named here and not in the copy: auth\.mfa_factors/.test(restore.log),
+      "the run names which promised account tables the copy actually holds AND which it named and did not find, so a name this design got wrong shows up as an absence rather than as silence (#276).",
+    );
+    const auditAfter = psqlOn(urlWithDatabase(admin, restoreDb), "select count(*) from auth.audit_log_entries");
+    checkRefuses(
+      auditAfter.out === "0",
+      "AND IT REALLY WAS NOT RESTORED: the sign-in log is empty in the restored database, so 'by design' is a fact about what was sent and not a sentence in a log.",
+    );
+
+    console.log("--- a row of data executed as SQL: the drill's third finding, reproduced and then made impossible");
+    // THIS IS THE ONE THING IN THIS FILE THAT RUNS THE OLD CODE ON PURPOSE.
+    // planReplay's header gives psql's documented behaviour step by step and
+    // says plainly which step no page read states: what psql does with inline
+    // COPY data after the server has REFUSED the command. So it is shown here
+    // against a real psql instead of cited.
+    //
+    // The dump is three lines long and its COPY cannot succeed, because the
+    // table does not exist. In the drill the cause was `permission denied for
+    // table`; the cause does not matter, only that the server says no.
+    // The first column is a distinctive NUMBER, because that is what psql's
+    // error quotes: the parse fails at character 1 of the buffered rows, so what
+    // comes back is the first token of the first row and nothing else. The
+    // drill's own words were "syntax error at or near" A NUMBER, at character 1.
+    //
+    // AND THERE IS A STATEMENT AFTER THE `\.`, which is not decoration: the rows
+    // are only sent when a semicolon arrives, so without a following statement
+    // psql reaches the end of the file with them still buffered and says nothing
+    // at all. A real dump always has a post-data section after its data.
+    const faultFirstColumn = "987654321";
+    const faultMarker = "MADE-UP-ROW-TEXT-EXECUTED-AS-SQL";
+    const faultDump = [
+      'COPY "public"."a_table_that_is_not_there" ("id", "title") FROM stdin;',
+      `${faultFirstColumn}\t${faultMarker}`,
+      `${faultFirstColumn}\t${faultMarker}`,
+      "\\.",
+      "SELECT 1;",
+      "",
+    ].join("\n");
+    const oldWayFile = join(work, "the-old-way.sql");
+    writeFileSync(oldWayFile, faultDump);
+    const oldWay = spawnSync(PSQL, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", oldWayFile], {
+      env: { ...process.env, ...pgEnvFromUrl(urlWithDatabase(admin, restoreDb)), PGCONNECT_TIMEOUT: "30" },
+      encoding: "utf8",
+    });
+    const oldWayErrors = String(oldWay.stderr || "");
+    checkRefuses(
+      /syntax error/i.test(oldWayErrors) && oldWayErrors.includes(faultFirstColumn) && /at character 1/.test(oldWayErrors),
+      `THE OLD WAY, AGAINST A REAL psql: with the rows inline, a refused COPY leaves them to be parsed as SQL -- and psql answers "syntax error at or near \\"${faultFirstColumn}\\" at character 1", quoting a made-up row's own first column. That is what the drill's three syntax errors at character 1 were.`,
+    );
+    checkRefuses(
+      /invalid command \\\./.test(oldWayErrors),
+      "AND A SECOND ERROR NOBODY HAD NOTICED: the `\\.` end-of-data marker is itself read as a psql meta-command, so every refused block also costs an `invalid command \\.` line. Measured here, not reasoned.",
+    );
+    checkRefuses(
+      classifyPsqlErrors(oldWayErrors).unexpected >= 2,
+      "and the classifier calls both of them UNEXPECTED, which is what would now fail a restore rather than letting it pass with three lines nobody read.",
+    );
+    // THE NEW WAY: the same dump, planned, with the rows in a file of their own
+    // and the `\copy` in a pass of its own.
+    const newWayPlan = planReplay(faultDump, { dataPath: (index) => join(work, `the-new-way-${index}.dat`).replace(/\\/g, "/") });
+    const newWaySchema = join(work, "the-new-way-schema.sql");
+    const newWayData = join(work, "the-new-way-data.sql");
+    writeFileSync(newWaySchema, newWayPlan.script);
+    writeFileSync(newWayData, newWayPlan.data);
+    for (const block of newWayPlan.blocks) writeFileSync(block.file, block.rows);
+    const runNewWay = (file) =>
+      String(
+        spawnSync(PSQL, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", file], {
+          env: { ...process.env, ...pgEnvFromUrl(urlWithDatabase(admin, restoreDb)), PGCONNECT_TIMEOUT: "30" },
+          encoding: "utf8",
+        }).stderr || "",
+      );
+    const newWayErrors = `${runNewWay(newWaySchema)}\n${runNewWay(newWayData)}`;
+    check(
+      !newWayErrors.includes(faultMarker) && !newWayErrors.includes(faultFirstColumn),
+      "THE NEW WAY, THE SAME DUMP, THE SAME psql: not one character of the row comes back -- not its text and not its first column -- because the row was never in a script. It was in a file psql read for itself.",
+    );
+    check(
+      !/syntax error/i.test(newWayErrors) && !/invalid command/.test(newWayErrors),
+      "and there is neither a syntax error nor an `invalid command \\.`: the COPY is still refused, and the next line is the next statement rather than a row.",
+    );
+    check(/does not exist/i.test(newWayErrors), "the refusal itself is unchanged and still reported -- the table really is not there, and \\copy says so.");
+    checkRefuses(
+      !/backslash commands are restricted/.test(newWayErrors),
+      "AND THE `\\copy` WAS ALLOWED TO RUN, which is what the two passes are for: in the same file as a pg_dump's `\\restrict` it would have answered 'backslash commands are restricted; only \\unrestrict is allowed' -- the error that found this design.",
+    );
+    rmSync(oldWayFile, { force: true });
+    rmSync(newWaySchema, { force: true });
+    rmSync(newWayData, { force: true });
+    for (const block of newWayPlan.blocks) rmSync(block.file, { force: true });
 
     console.log("--- and running the restore AGAIN over the same project changes nothing");
     // The drill stopped part-way, so somebody will run it again. What a second
@@ -988,7 +1313,7 @@ async function endToEnd() {
     check(secondRun.status === 0, `a second restore of the same copy into the same project exits ${secondRun.status}.`);
     check(source.objects("restored").size === 3, "the restored bucket still holds THREE objects, not six: a PUT to the same key replaces it.");
     check(/every one of 3 file\(s\) came back byte for byte/.test(secondRun.log), "and all three still match the copy's checksums after being written twice.");
-    check(/every one of \d+ table\(s\) came back with the row count the copy recorded/.test(secondRun.log), "every table still has the row count the copy recorded -- the rows were not duplicated.");
+    check(/every one of \d+ PROMISED table\(s\) came back with the row count the copy recorded/.test(secondRun.log), "every promised table still has the row count the copy recorded -- the rows were not duplicated.");
     check(
       /row already restored/.test(secondRun.log),
       "and the second run's extra psql errors are classified as `row already restored` rather than failing it, which is the kind a re-run is supposed to produce.",
@@ -1159,6 +1484,46 @@ async function endToEnd() {
     const missingSetting = await runScript("make-backup.mjs", { ...commonEnv, PRODUCTION_SUPABASE_DB_URL: urlWithDatabase(admin, sourceDb), BACKUP_PASSPHRASE: "   " });
     checkRefuses(refusedCleanly(missingSetting), "a passphrase of spaces is treated as missing, matching every other settings check in this repository.");
     checkRefuses(/BACKUP_PASSPHRASE/.test(missingSetting.log) && !missingSetting.log.includes(MADE_UP.passphrase), "and the run names the setting that is missing and no value.");
+
+    console.log("--- the watcher that notices when no copy has been made, end to end");
+    // ISSUE #264, and the owner's threshold of 36 hours (11 October 2026). Run
+    // against the same stand-in R2 the backup just wrote to, with the SAME code
+    // the scheduled job runs -- and with no passphrase anywhere in its
+    // environment, which is the whole point of it.
+    const watcherEnv = {
+      BACKUP_STORAGE_ENDPOINT: destination.endpoint,
+      BACKUP_DEST_REGION: "auto",
+      BACKUP_STORAGE_KEY: MADE_UP.destKeyId,
+      BACKUP_STORAGE_SECRET: MADE_UP.destSecret,
+      BACKUP_DEST_BUCKET: "team-tasks-backups",
+    };
+    check(
+      watcherEnv.BACKUP_PASSPHRASE === undefined && process.env.BACKUP_PASSPHRASE === undefined,
+      "THE WATCHER IS GIVEN NO PASSPHRASE, by construction: it is not in the environment handed to it and not in this process's either, so the runs below prove it does not need one.",
+    );
+    const fresh = await runScript("check-fresh.mjs", watcherEnv);
+    check(fresh.status === 0, `it passes against a bucket holding the copy this run just made (exit ${fresh.status}) -- while holding nothing that could open it.`);
+    check(/Newest copy: team-tasks\//.test(fresh.log) && /inside the 36-hour limit/.test(fresh.log), "and says which copy it found and how old it is, against the 36-hour limit.");
+    check(/object\(s\) are not named like a copy/.test(fresh.log), "the tampered and hand-seeded objects in that bucket are not dated at all, so a stray file cannot make the bucket look fresh.");
+    check(scanLog(fresh.log, { values: mustNotAppear }).length === 0, "its whole log is clean: a key, a count and a date, and nothing else.");
+
+    destination.seed("a-stale-backup-bucket", objectName(new Date(Date.now() - 3 * 24 * 3600 * 1000)), Buffer.from("made-up-ciphertext-of-an-old-copy"));
+    const stale = await runScript("check-fresh.mjs", { ...watcherEnv, BACKUP_DEST_BUCKET: "a-stale-backup-bucket" });
+    checkRefuses(refusedCleanly(stale), `A COPY THREE DAYS OLD: the watcher goes red (exit ${stale.status}), which is what opens the issue.`);
+    checkRefuses(/NO RECENT COPY OF PRODUCTION/.test(stale.log) && /A night has been missed, or the schedule has stopped/.test(stale.log), "and it names the thing to go and look at, rather than reporting a number.");
+
+    const emptyBucket = await runScript("check-fresh.mjs", { ...watcherEnv, BACKUP_DEST_BUCKET: "an-empty-backup-bucket" });
+    checkRefuses(refusedCleanly(emptyBucket), `AN EMPTY BUCKET: the state #264 is really about, and it goes red too (exit ${emptyBucket.status}) rather than finding nothing to judge.`);
+    checkRefuses(/The backup bucket is EMPTY/.test(emptyBucket.log), "and says so in those words.");
+
+    const unreadable = await runScript("check-fresh.mjs", { ...watcherEnv, BACKUP_STORAGE_SECRET: "the-wrong-secret-entirely" });
+    checkRefuses(refusedCleanly(unreadable), `AND A BUCKET IT CANNOT READ IS NOT A PASS (exit ${unreadable.status}): a watcher that could not look has not seen a copy (AGENTS.md rule 8).`);
+    checkRefuses(
+      /code SignatureDoesNotMatch/.test(unreadable.log) && /UNVERIFIED and not a pass/.test(unreadable.log),
+      "and it says which of the four faults it was, and that this says nothing about whether a copy exists.",
+    );
+    const nonsenseHours = await runScript("check-fresh.mjs", { ...watcherEnv, BACKUP_FRESH_HOURS: "thirty-six" });
+    checkRefuses(refusedCleanly(nonsenseHours), "a threshold somebody typed in words is refused rather than read as zero, which would have alarmed every single day.");
   } finally {
     await source.stop();
     await destination.stop();

@@ -20,6 +20,22 @@
 // Nothing in this script can enforce that -- it does what its settings say --
 // so the settings are the thing to read twice.
 //
+// WHAT IT PROMISES TO BRING BACK, which is a named set and not "everything":
+// every table in `public`, the accounts (`auth.users`, `auth.identities`,
+// `auth.mfa_factors`), the storage records (`storage.buckets`,
+// `storage.objects`) and the files. A mismatch inside that set FAILS. Everything
+// else in the copy -- sign-in sessions above all -- is reported as "not
+// restored, by design" with a count and is never a failure, because of the
+// owner's decision of 11 October 2026: after a recovery everybody signs in
+// again. restoreScope in lib.mjs is the list, with a reason per table, and
+// docs/backups.md -> "What a restore promises" is the same thing in prose.
+//
+// AND NO ROW OF DATA IS EVER IN THE SCRIPT psql RUNS. The dump's inline `COPY …
+// FROM stdin;` blocks are lifted into files of their own and replayed with
+// psql's `\copy`, so a refused COPY cannot leave a table's rows behind to be
+// parsed as SQL -- which is what three of the first finished drill's 574 ERROR
+// lines were. planReplay in lib.mjs has the whole of why.
+//
 // RUNNING IT TWICE AGAINST THE SAME PROJECT IS SAFE, and a restore that
 // stopped part-way is exactly when somebody will. What a second run does:
 //
@@ -88,15 +104,19 @@ import {
   contentTypeFor,
   decrypt,
   looksEncrypted,
+  dataScript,
   parseStorageObjectTypes,
   pgEnvFromUrl,
+  planReplay,
   readContainer,
+  restoreScope,
   scanDumpLine,
   sha256,
   BUCKET_ALLOWED_TYPES,
   DUMP_PATH,
   MANIFEST_PATH,
   OBJECT_PREFIX,
+  PROMISED_ACCOUNT_TABLES,
 } from "./lib.mjs";
 import { Store } from "./s3.mjs";
 
@@ -224,50 +244,199 @@ async function main() {
   }
   const pgEnv = pgEnvFromUrl(setting("RESTORE_DB_URL"));
   const psql = setting("BACKUP_PSQL") || "psql";
+
+  // --- 5a. THE ROWS COME OUT OF THE SCRIPT BEFORE psql EVER SEES IT --------
+  //
+  // THE DRILL'S THIRD FINDING, and the one that could have been the worst: three
+  // of its 574 ERROR lines were syntax errors at character 1, which is a table's
+  // ROWS being parsed as SQL after a `COPY` was refused. planReplay in lib.mjs
+  // has psql's documented behaviour, step by step, and the two alternatives that
+  // were not chosen. What it does here:
+  //
+  //   * every `COPY … FROM stdin;` block is lifted into a data file of its own,
+  //     and is replayed with psql's `\copy … FROM '<file>'` -- so there is no row
+  //     in the SQL stream for a refused COPY to leave behind;
+  //   * that `\copy` goes in a SECOND script, run by a second psql, because the
+  //     dump's own `\restrict` makes psql refuse a backslash command inside it;
+  //   * a table OUTSIDE the promise gets no `\copy` and no data file at all, so
+  //     "not restored, by design" is true by construction. The rows of a table
+  //     nobody promised are never written to this disk.
+  //
+  // Forward slashes in the path on purpose: the path is quoted inside a psql
+  // meta-command, Windows accepts them, and a backslash in a quoted argument is
+  // one fewer thing to reason about.
   const dumpFile = join(work, "dump.sql");
-  writeFileSync(dumpFile, dump);
+  let plan;
+  try {
+    plan = planReplay(dump.toString("utf8"), {
+      isPromised: (schema, table) => restoreScope(schema, table).promised,
+      dataPath: (index) => join(work, `copy-${String(index).padStart(5, "0")}.dat`).replace(/\\/g, "/"),
+    });
+  } catch (error) {
+    fail(`the dump could not be prepared for replay, so NOTHING was restored: ${error.message}`);
+    return;
+  }
+  writeFileSync(dumpFile, plan.script);
+  let rowsToRestore = 0;
+  let rowsLeft = 0;
+  for (const block of plan.blocks) {
+    if (block.restored) {
+      writeFileSync(block.file, block.rows);
+      rowsToRestore += block.rowCount;
+    } else {
+      rowsLeft += block.rowCount;
+    }
+  }
+  const sending = plan.blocks.filter((block) => block.restored).length;
+  say(
+    `Prepared the replay: ${plan.blocks.length} table(s) of data in the dump, ${sending} of them inside the promise. ` +
+      `${rowsToRestore} row(s) go back; ${rowsLeft} row(s) in ${plan.blocks.length - sending} table(s) are not restored, by design. ` +
+      "No row is in either script psql runs -- each table's data is in a file of its own and reaches the server through psql's own \\copy.",
+  );
 
   // ON_ERROR_STOP is deliberately OFF. A dump of a Supabase database replayed
   // into a new Supabase project tries to create things the new project already
   // has, and each of those is an error that does not matter. What matters is
   // whether the rows and the files came back, which is the comparison below.
   //
-  // VERBOSITY=terse, which is new and is not cosmetic: terse keeps psql to the
-  // primary message and drops DETAIL, HINT and CONTEXT -- and DETAIL is where a
+  // VERBOSITY=terse, which is not cosmetic: terse keeps psql to the primary
+  // message and drops DETAIL, HINT and CONTEXT -- and DETAIL is where a
   // unique-violation quotes the row's key. So the lines this reads are the ones
   // least likely to carry data, and it still prints none of them.
-  const logFile = join(work, "psql.log");
-  const restore = spawnSync(psql, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", dumpFile, "--output", logFile], {
-    env: { ...process.env, ...pgEnv, PGCONNECT_TIMEOUT: "30" },
-    encoding: "utf8",
-    maxBuffer: 256 * 1024 * 1024,
-  });
-  writeFileSync(join(work, "psql-stderr.log"), restore.stderr || "");
-
-  // THE COUNT WAS NOT A CHECK, AND NOW THE KINDS ARE. The drill of 10 October
-  // 2026 printed "psql exited 0 with 573 ERROR line(s)" and carried on, because
-  // a number cannot tell a harmless error from a fatal one.
   //
-  // WHAT IS NORMAL. Restoring into a fresh Supabase project that already has
-  // this repository's 11 migrations applied, the owner's drill saw **573**
-  // ERROR lines. That figure is what ONE drill saw and is deliberately NOT
-  // asserted anywhere: it moves with every migration added and with whatever
-  // Supabase ships in a new project. What is stable is that every one of them
-  // should say some version of "that is already there" or "that is not yours to
-  // change" -- so the kinds are counted, and an unexpected kind FAILS.
-  const errors = classifyPsqlErrors(restore.stderr);
-  const breakdown = errors.byKind.length ? errors.byKind.map((e) => `${e.count} ${e.kind}`).join(", ") : "none";
-  say(`psql exited ${restore.status} with ${errors.total} ERROR line(s): ${breakdown}. None of the text is printed.`);
-  if (errors.unexpected > 0) {
+  // Each pass's own stderr is kept in a file of its own, in the working
+  // directory, which is the only place psql's text is allowed to exist.
+  let totalErrors = 0;
+  let unexpectedErrors = 0;
+  const kindTotals = new Map();
+  function replay(label, file, stderrName) {
+    const run = spawnSync(psql, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", file, "--output", join(work, `${stderrName}.out`)], {
+      env: { ...process.env, ...pgEnv, PGCONNECT_TIMEOUT: "30" },
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    writeFileSync(join(work, `${stderrName}.log`), run.stderr || "");
+    // THE COUNT WAS NOT A CHECK, AND NOW THE KINDS ARE. The drill of 10 October
+    // 2026 printed "psql exited 0 with 573 ERROR line(s)" and carried on,
+    // because a number cannot tell a harmless error from a fatal one. The
+    // finished drill's 574 were a LIST, and five of its kinds are now named.
+    //
+    // WHAT IS NORMAL is NOT a number. Restoring into a project that already has
+    // this repository's migrations, one drill saw 573 and the next 574. That
+    // figure is deliberately asserted nowhere: it moves with every migration
+    // added and with whatever Supabase ships in a new project. What is stable is
+    // the KINDS -- and an unexpected kind FAILS.
+    const errors = classifyPsqlErrors(run.stderr);
+    totalErrors += errors.total;
+    unexpectedErrors += errors.unexpected;
+    for (const { kind, count } of errors.byKind) kindTotals.set(kind, (kindTotals.get(kind) || 0) + count);
+    const breakdown = errors.byKind.length ? errors.byKind.map((e) => `${e.count} ${e.kind}`).join(", ") : "none";
+    say(`${label}: psql exited ${run.status} with ${errors.total} ERROR line(s): ${breakdown}. None of the text is printed.`);
+    return errors;
+  }
+
+  // PASS 1, THE SCHEMA, with the dump's own `\restrict` left where pg_dump put
+  // it. There is not one row of data in this file.
+  replay("The schema pass", dumpFile, "psql-schema");
+
+  // PASS 2, THE DATA, in a psql of its own -- which is forced rather than
+  // chosen: inside the dump's `\restrict` region psql refuses every backslash
+  // command but `\unrestrict`, so a `\copy` cannot live in the file above.
+  // planReplay's header in lib.mjs has the whole of why, including the error
+  // psql gives.
+  const dataFile = join(work, "data.sql");
+  if (plan.data === "") {
+    say("The data pass: nothing to do -- this copy holds no table data inside the promise.");
+  } else {
+    writeFileSync(dataFile, plan.data);
+    replay("The data pass", dataFile, "psql-data");
+  }
+
+  // --- 5b. COUNT, AND RUN THE DATA PASS AGAIN FOR WHAT DID NOT LOAD --------
+  //
+  // WHY THIS EXISTS, measured on 2026-10-11 rather than reasoned: pg_dump orders
+  // its data section **alphabetically by schema and table**, so `auth.identities`
+  // is dumped before `auth.users`. A plain dump gets away with that because its
+  // own foreign keys are added afterwards -- but a restore into a project that
+  // already has the schema, which is what the runbook tells you to do, has those
+  // keys in place while the data loads. The child is then refused before its
+  // parent exists.
+  //
+  // So: count, and send again only the promised tables that did not match, while
+  // that number is going DOWN. This is the runbook's "run it again" advice, done
+  // by the script. It converges or it stops; it cannot loop.
+  const FIELD = String.fromCharCode(31);
+  const countsQuery = `
+    select table_schema || '${FIELD}' || table_name || '${FIELD}' ||
+           (xpath('/row/n/text()', query_to_xml(format('select count(*) as n from %I.%I', table_schema, table_name), false, true, '')))[1]::text
+    from information_schema.tables
+    where table_type = 'BASE TABLE'
+      and table_schema not in ('pg_catalog', 'information_schema')`;
+  function countRows() {
+    const counted = spawnSync(psql, ["--no-psqlrc", "--tuples-only", "--no-align", "--command", countsQuery], {
+      env: { ...process.env, ...pgEnv, PGCONNECT_TIMEOUT: "30" },
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (counted.status !== 0) return undefined;
+    const rows = new Map();
+    for (const line of (counted.stdout || "").split("\n")) {
+      if (!line.includes(FIELD)) continue;
+      const [schema, table, count] = line.trim().split(FIELD);
+      rows.set(`${schema}.${table}`, Number(count));
+    }
+    return rows;
+  }
+  const shortOf = (rows) =>
+    plan.blocks.filter((block) => block.restored && rows.get(`${block.schema}.${block.table}`) !== Number(block.rowCount) && block.rowCount > 0);
+
+  let after = countRows();
+  if (after === undefined) {
+    fail("could not count the rows in the restored database, so the restore is UNVERIFIED rather than good (AGENTS.md rule 8).");
+  } else {
+    let behind = shortOf(after);
+    for (let round = 1; round <= 5 && behind.length > 0; round++) {
+      say(
+        `${behind.length} promised table(s) did not take all their rows on that pass, which is what pg_dump's alphabetical data order does when the schema is already in place. ` +
+          `Sending those ${behind.length} again (round ${round} of at most 5).`,
+      );
+      const retryFile = join(work, `data-retry-${round}.sql`);
+      writeFileSync(retryFile, dataScript(behind));
+      replay(`Data retry ${round}`, retryFile, `psql-data-retry-${round}`);
+      const recounted = countRows();
+      if (recounted === undefined) {
+        fail("could not count the rows after a retry, so the restore is UNVERIFIED rather than good (AGENTS.md rule 8).");
+        break;
+      }
+      after = recounted;
+      const stillBehind = shortOf(after);
+      // NO PROGRESS MEANS STOP, not try harder: whatever is refusing those rows
+      // is not an ordering problem, and the comparison below is what reports it.
+      if (stillBehind.length >= behind.length) {
+        say(`That retry changed nothing (${stillBehind.length} still short), so this stops rather than looping. The comparison below names them.`);
+        behind = stillBehind;
+        break;
+      }
+      behind = stillBehind;
+    }
+    if (behind.length === 0 && plan.data !== "") pass("every promised table took all of its rows, retries included.");
+  }
+
+  // THE ERROR VERDICT, over every pass. A retry adds errors on purpose -- the
+  // tables that DID load answer the second send with a unique violation, which
+  // is the `row already restored` kind.
+  const breakdown = kindTotals.size ? [...kindTotals.entries()].map(([kind, count]) => `${count} ${kind}`).join(", ") : "none";
+  say(`Across every pass: ${totalErrors} ERROR line(s) -- ${breakdown}. None of the text is printed.`);
+  if (unexpectedErrors > 0) {
     fail(
-      `${errors.unexpected} of psql's ${errors.total} ERROR line(s) are NOT of a kind a restore is supposed to produce, so this restore is not one to rely on. ` +
+      `${unexpectedErrors} of psql's ${totalErrors} ERROR line(s) are NOT of a kind a restore is supposed to produce, so this restore is not one to rely on. ` +
         "Their text is deliberately not printed -- psql's output can quote a row. It is kept in the working directory, whose path is named at the end of this run, " +
         "and that is the place to read it: your own machine, not a log. docs/restore-runbook.md step 4 says what the expected kinds are.",
     );
-  } else if (errors.total > 0) {
+  } else if (totalErrors > 0) {
     say(
-      `All ${errors.total} are of expected kinds -- replaying a schema the project already has, or being refused ownership of Supabase's own objects. ` +
-        "For reference the first drill saw 573; the number is not a check and is not asserted.",
+      "All of them are of expected kinds -- replaying a schema the project already has, or Supabase refusing us its own schemas. " +
+        "For reference two drills saw 573 and 574; the number is not a check and is asserted nowhere.",
     );
   }
 
@@ -325,39 +494,66 @@ async function main() {
   say(`Put ${planned.length} file(s) back, each with the content type it had.`);
 
   // --- 7. compare, which is the only part that proves anything -------------
-  const FIELD = String.fromCharCode(31);
-  const countsQuery = `
-    select table_schema || '${FIELD}' || table_name || '${FIELD}' ||
-           (xpath('/row/n/text()', query_to_xml(format('select count(*) as n from %I.%I', table_schema, table_name), false, true, '')))[1]::text
-    from information_schema.tables
-    where table_type = 'BASE TABLE'
-      and table_schema not in ('pg_catalog', 'information_schema')`;
-  const counted = spawnSync(psql, ["--no-psqlrc", "--tuples-only", "--no-align", "--command", countsQuery], {
-    env: { ...process.env, ...pgEnv, PGCONNECT_TIMEOUT: "30" },
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (counted.status !== 0) {
-    fail(`could not count the rows in the restored database (psql exited ${counted.status}), so the restore is UNVERIFIED rather than good.`);
+  //
+  // The counts were read at step 5b, after the last retry round, so this is the
+  // state the database is actually in and not a second opinion about it.
+  if (after === undefined) {
+    fail("there are no row counts to compare against, because the counting query did not answer. See the FAIL above.");
   } else {
-    const after = new Map();
-    for (const line of (counted.stdout || "").split("\n")) {
-      if (!line.includes(FIELD)) continue;
-      const [schema, table, rows] = line.trim().split(FIELD);
-      after.set(`${schema}.${table}`, Number(rows));
-    }
+    // THE COMPARISON IS AGAINST THE PROMISE, NOT AGAINST EVERY TABLE IN THE
+    // COPY -- the owner's decision of 11 October 2026. restoreScope in lib.mjs
+    // is the named set; the three answers are different on purpose, and the
+    // same function decided what was sent, so what is compared and what went
+    // cannot disagree.
     let same = 0;
+    let promisedTables = 0;
+    const outside = [];
+    const unnamed = [];
+    let rowsOutside = 0;
     for (const table of manifest.database.tables) {
       const key = `${table.schema}.${table.name}`;
+      const scope = restoreScope(table.schema, table.name);
+      if (!scope.promised) {
+        outside.push(key);
+        rowsOutside += Number(table.rows);
+        if (!scope.named) unnamed.push(key);
+        if (showTables) say(`      ${key}: not restored, by design -- ${scope.why}`);
+        continue;
+      }
+      promisedTables++;
       const got = after.get(key);
-      if (got === undefined) fail(`${key} is in the copy and not in the restored database.`);
-      else if (got !== Number(table.rows)) fail(`${key}: the copy says ${table.rows} row(s), the restored database has ${got}.`);
-      else {
+      if (got === undefined) fail(`${key} is inside the promise, is in the copy, and is not in the restored database at all.`);
+      else if (got !== Number(table.rows)) {
+        fail(
+          `${key}: the copy says ${table.rows} row(s), the restored database has ${got}. It is inside the promise, so this restore FAILED. ` +
+            "If the table came back empty, run the restore once more before giving up -- a table whose COPY was refused because a table it points at had not loaded yet succeeds on a second pass, and docs/restore-runbook.md step 4 says what a second run does.",
+        );
+      } else {
         same++;
         if (showTables) say(`      ${key}: ${got} row(s)`);
       }
     }
-    if (same === manifest.database.tables.length) pass(`every one of ${same} table(s) came back with the row count the copy recorded.`);
+    if (promisedTables > 0 && same === promisedTables) {
+      pass(`every one of ${same} PROMISED table(s) came back with the row count the copy recorded: every table in public, the accounts, and the storage records.`);
+    }
+    if (promisedTables === 0) {
+      fail("not one table in this copy is inside the restore's promise, which cannot be right for a copy of this app. Read docs/backups.md -> 'What a restore promises'.");
+    }
+
+    // NOT A FAILURE, AND STILL SAID OUT LOUD. The owner's decision is that
+    // these are not restored and that saying so is the whole of what is owed.
+    say(
+      `Not restored, by design: ${outside.length} table(s), ${rowsOutside} row(s) in the copy -- sign-in sessions, Supabase Auth's own bookkeeping, and the schemas a new project brings with it. ` +
+        "Nobody loses anything they typed: after a recovery everybody signs in again. docs/backups.md -> 'What a restore promises' is the list.",
+    );
+    if (unnamed.length > 0) {
+      say(
+        `AND ${unnamed.length} OF THOSE IS AN \`auth\` TABLE THIS DESIGN HAS NEVER NAMED: ${unnamed.join(", ")}. ` +
+          "That is not a failure and it is the line to read: it is either a Supabase release with a new table in it, or a table that should have been on the promised list. Issue #276.",
+      );
+    } else {
+      pass("and every table outside the promise is one this design has named, so nothing was quietly left out.");
+    }
 
     // The accounts are the half a dump taken the obvious way would have
     // missed, so they get their own line rather than being one of the rows
@@ -365,6 +561,15 @@ async function main() {
     const users = manifest.database.tables.find((t) => t.schema === "auth" && t.name === "users");
     if (!users) fail("the copy's manifest has no auth.users at all, so there are no accounts to come back.");
     else if (after.get("auth.users") === Number(users.rows)) pass(`the accounts came back: auth.users has ${users.rows} row(s), as the copy recorded.`);
+    // The rest of the promised account tables, named rather than counted, so a
+    // name this design got wrong shows up as an absence somebody can read. The
+    // next drill's output is what settles the list (#276).
+    const accountTables = Object.keys(PROMISED_ACCOUNT_TABLES).filter((name) => manifest.database.tables.some((t) => t.schema === "auth" && t.name === name));
+    const absent = Object.keys(PROMISED_ACCOUNT_TABLES).filter((name) => !accountTables.includes(name));
+    say(
+      `The promised account tables this copy actually holds: ${accountTables.map((name) => `auth.${name}`).join(", ") || "none"}.` +
+        (absent.length ? ` Named here and not in the copy: ${absent.map((name) => `auth.${name}`).join(", ")} -- either this Supabase project has no such table or the name is wrong (#276).` : ""),
+    );
   }
 
   const back = await target.list();

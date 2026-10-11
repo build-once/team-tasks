@@ -953,9 +953,16 @@ to the window between copies**, which is the thing that has a measured number on
 intention. `docs/backups.md` → "The two targets" is that number: **about a day and a quarter on a normal
 night**, because the first scheduled run started 5h 57m 24s late, and **about two and a half days** if
 GitHub drops a run. That page is the full map of what is covered today and what is not, and
-`docs/restore-runbook.md` is what to do with a copy — which still ends in the one thing nobody has done:
-**no restore has ever finished**, so what exists is three copies and no proof that a copy can be put
-back.
+`docs/restore-runbook.md` is what to do with a copy.
+
+**AND A COPY HAS NOW BEEN PUT BACK — 10 to 11 October 2026.** The sentence that stood here said the
+runbook "still ends in the one thing nobody has done: **no restore has ever finished**, so what exists is
+three copies and no proof that a copy can be put back." There is proof now: the owner restored the copy
+of 10 October into a new project, **and opened the attachment in the app**. For the files, which is what
+this section is about, that is the half that mattered — a restore of the rows alone would have brought
+back `storage.objects` rows pointing at bytes that were gone, which is the failure
+[#248](https://github.com/build-once/team-tasks/issues/248) describes from the other end.
+`evidence/restore-tested.md` is the record.
 
 ### What is inside a photograph, which the app does not look at
 
@@ -1278,10 +1285,39 @@ may happen and what never leaves.
   or a row out of a restored project. The drill is the owner's from start to finish; what this repository
   holds is the procedure and the evidence of a run — counts, timings, pass or fail.
 
-**It is also the only thing that can settle one of the two launch items.**
-`checklist/launch.json` has carried `backups-on` and `restore-tested` the whole time, and
-`scripts/launch-check.mjs` reports both TODO because neither evidence file exists
-([#249](https://github.com/build-once/team-tasks/issues/249)).
+**It is also the only thing that can settle one of the two launch items, and IT HAS.**
+`checklist/launch.json` has carried `backups-on` and `restore-tested` the whole time. The drill of 10 to
+11 October 2026 was run, every rule above was kept, and **`evidence/restore-tested.md` now exists**, so
+`restore-tested` is no longer TODO. `evidence/backups-on.md` still does not, so the other half of
+[#249](https://github.com/build-once/team-tasks/issues/249) is open.
+
+### What a restore brings back, and what it does not — DECIDED 2026-10-11
+
+**Added after the first finished drill, and it is a decision about people rather than about code.** That
+drill reported "every table matched except three", and two of the three were **sign-in sessions** — rows
+that were never going to come back, because the rows they point at were not restored either.
+
+**The owner's decision, 11 October 2026: sign-in sessions are not restored. After a recovery, everybody
+signs in again.** Which means a restore now promises a **named set**, and says plainly what is outside
+it:
+
+| | |
+|---|---|
+| **Brought back, and a difference is a failure** | every table in `public` — so every task, team, membership, invitation, nickname, suspension and usage count; **the accounts**, with their hashed passwords, so people can sign in at all; **what Storage records about each file**; and **the files themselves**, byte for byte |
+| **Not brought back, on purpose** | **sign-in sessions and refresh tokens** — so everybody signs in again; **the sign-in log**, with its IP addresses, which the appendix already says nothing should be built on; **confirmation and reset links in flight**, because every one of them is a credential with a clock on it and restoring one would restart the clock; and Supabase's own bookkeeping, which a new project brings with it |
+
+**Nobody loses anything they typed**, which is the whole of what this costs. What they lose is being
+already signed in, on the one day the app has been rebuilt from a copy.
+
+**And it is a thing to tell people, not only a thing this plan knows.** Whatever Build it 26's privacy
+page says about recovery — it already owes people two sentences there, about deletion being real and
+about copies remaining for up to about a fortnight — this is the third: **after a recovery you will be
+asked to sign in again.** [#204](https://github.com/build-once/team-tasks/issues/204) carries it.
+
+**No new kind of data, and nothing new leaves the project.** This section adds nothing to the appendix:
+it says which of the rows already in it a restore puts back. `docs/backups.md` → "What a restore
+promises" is the table, with a reason per table, and the runbook's step 4 is the same thing for somebody
+in the middle of a bad day.
 
 ### The job reads all of production's data, so what stops it keeping or printing any
 
@@ -1498,7 +1534,7 @@ free text that could contain absolutely anything.
 | The owner's reason for a suspension — optional free text | So the owner still knows why weeks later, when deciding whether to restore the account | `account_status.reason` — **built**. Optional free text, written by hand in the dashboard | As the row above: nobody through the app. Owner via the dashboard; the server functions | With the row | **They cannot** — it goes when the owner removes the row | **Yes** — free text, and it is text *about a person*, so it can name a third party who never agreed to anything |
 | Sent-invitation logs | Proof an invitation actually went out | Resend — outside your app | Owner via Resend; Resend | 30 days on the free plan | Not user-deletable; owner clears | No |
 | Sign-in audit records, including IP address | **Nothing** — Supabase Auth writes them anyway | Supabase `auth.audit_log_entries` | Owner via dashboard; Supabase | UNSURE — see notes below | Not user-deletable | **Yes** — IP address |
-| Session and refresh tokens, last sign-in time | Keeping people signed in (feature 1) | Supabase `auth.sessions`, `auth.refresh_tokens`, `auth.users` | Nobody — they are secrets | Until sign-out or expiry | Sign out | **Yes** — credentials |
+| Session and refresh tokens, last sign-in time | Keeping people signed in (feature 1) | Supabase `auth.sessions`, `auth.refresh_tokens`, `auth.users` | Nobody — they are secrets | Until sign-out or expiry. **And a restore does not bring them back — the owner's decision of 2026-10-11**: they are in the nightly copy like everything else, and the restore deliberately leaves them there, so after a recovery everybody signs in again. "What a restore brings back, and what it does not" above | Sign out | **Yes** — credentials |
 | Hosting access logs: IP address, browser and device, page visited | **Nothing** — Vercel writes them anyway; we add no logging of our own | Vercel — outside your database | Owner via Vercel; Vercel | UNSURE — short, depends on plan | Not user-deletable | **Yes** — IP address and device |
 | Database and API logs, including caller IP | **Nothing** — Supabase writes them anyway; we add no logging of our own | Supabase logs | Owner via dashboard; Supabase | UNSURE — see notes below | Not user-deletable | **Yes** — IP address |
 | Analytics | **Nothing — none is collected, and none is planned** | Nowhere | — | — | — | No |
@@ -1511,7 +1547,7 @@ free text that could contain absolutely anything.
 | A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
-| **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **BUILT, AND THREE COPIES NOW EXIST — AND NO RESTORE HAS EVER FINISHED**: `.github/workflows/backup-production.yml` and `scripts/backup/` exist as of Build it 24 part 1 and are exercised in CI against made-up data on every pull request (`evidence/build-it-24-nightly-copy.md`). This cell said "**NO COPY HAS EVER BEEN MADE**" and "**the workflow has never run**" until 2026-10-11; the owner made two copies by hand on 10 Oct and **the schedule made the third by itself on 11 Oct** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), success in 38 seconds). **What is still not done: no restore has ever finished** ([#249](https://github.com/build-once/team-tasks/issues/249)), and **there is no lifecycle rule** ([#259](https://github.com/build-once/team-tasks/issues/259)), so nothing expires and the 14 days in the next column is a decision rather than a thing happening. **And "every night" is nightly-ish**: that first scheduled run started **5h 57m 24s** after its cron time, so the window between copies is about a day and a quarter rather than a day — `docs/backups.md` → "The two targets". The bucket, the token and the three `BACKUP_*` GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
+| **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **BUILT, THREE COPIES EXIST, ONE HAS BEEN RESTORED, AND COPIES NOW EXPIRE**: `.github/workflows/backup-production.yml`, `.github/workflows/backup-freshness.yml` and `scripts/backup/` are exercised in CI against made-up data on every pull request (`evidence/build-it-24-nightly-copy.md`). This cell has said "**NO COPY HAS EVER BEEN MADE**", then "**the workflow has never run**", then "**NO RESTORE HAS EVER FINISHED**", and all three are gone: the owner made two copies by hand on 10 Oct, **the schedule made the third by itself on 11 Oct** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), success in 38 seconds), and **the drill of 10–11 Oct put one back in 219 seconds** — 47 tables, 269 rows, one file byte for byte, signed into with a real account, project then deleted (`evidence/restore-tested.md`). **A 14-day lifecycle rule exists** on the bucket, named `delete-after-14-days`, owner-reported for 10 Oct, so the 14 days in the next column is now a thing happening rather than only a decision ([#259](https://github.com/build-once/team-tasks/issues/259)). **What is still not done**: no second drill, so 219 seconds is one measurement; no bucket lock; and `evidence/backups-on.md` does not exist, which is the open half of [#249](https://github.com/build-once/team-tasks/issues/249). **And "every night" is nightly-ish**: that first scheduled run started **5h 57m 24s** after its cron time, so the window between copies is about a day and a quarter rather than a day — `docs/backups.md` → "The two targets". The bucket, the token and the three `BACKUP_*` GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
 
 ## Collecting less — decided
 
@@ -2225,14 +2261,26 @@ second rests entirely on one passphrase.
   is dropped. `docs/backups.md` → "The two targets" is reworded with the arithmetic, and
   `evidence/build-it-24-nightly-copy.md` section 14 is the record.
 
-  **Still not done, and this is now the whole of what this entry is for:** **no restore has ever
-  finished** — one drill got the database into a new project and stopped at the files, so
-  `evidence/restore-tested.md` does not exist ([#249](https://github.com/build-once/team-tasks/issues/249))
-  — **there is no lifecycle rule** ([#259](https://github.com/build-once/team-tasks/issues/259)), so all
+  **FOUR OF THE FIVE THINGS THIS ENTRY LISTED AS NOT DONE ARE NOW DONE, 10 to 11 October 2026.** It
+  said: "**no restore has ever finished** — one drill got the database into a new project and stopped at
+  the files, so `evidence/restore-tested.md` does not exist — **there is no lifecycle rule**, so all
   three copies will sit there indefinitely, there is **no bucket lock**, and **nothing notices if the
-  copies stop** ([#264](https://github.com/build-once/team-tasks/issues/264)) or when they start again
-  ([#272](https://github.com/build-once/team-tasks/issues/272) — the "Backup did not run" issue from
-  10 October is still open, three successful copies later, because nothing closes it).
+  copies stop** or when they start again". Each, in turn:
+
+  | | |
+  |---|---|
+  | **A finished restore** | **DONE.** 219 seconds, 47 tables, 269 rows, one file byte for byte, signed into with a real account, the attachment opened, the project and the local files deleted. `evidence/restore-tested.md`. **One measurement, against a production holding 269 rows** — a second drill has never been done, and [#249](https://github.com/build-once/team-tasks/issues/249) stays open for its other half, `evidence/backups-on.md` |
+  | **A lifecycle rule** | **DONE, owner-reported for 10 Oct**: `delete-after-14-days`, whole bucket, delete after 14 days, shown as Enabled. **Nobody writing this has seen it**, and nothing in this repository can read an R2 rule — the first thing that will check it is the copy of 10 October either disappearing in about a fortnight or not. [#259](https://github.com/build-once/team-tasks/issues/259) |
+  | **A bucket lock** | **STILL NOT DONE.** It is the proposal of 10 October and the owner has not accepted it; [#277](https://github.com/build-once/team-tasks/issues/277) holds it |
+  | **Something noticing if the copies stop** | **BUILT**, at the owner's threshold of **36 hours**: `.github/workflows/backup-freshness.yml`, holding the two storage settings and **not the passphrase**. **It has never run against the real bucket**, and it cannot catch its own silence — which its own header says. [#264](https://github.com/build-once/team-tasks/issues/264) |
+  | **Something noticing when they start again** | **BUILT**: a `close-alarm` job closes the "Backup did not run" issue when a copy succeeds. The owner also closed the stale one, #268, by hand on 11 October. [#272](https://github.com/build-once/team-tasks/issues/272) **stays open** for its third condition — a failure, a success and a second failure seen in sequence against the real thing, which nothing in CI can reach |
+
+  **And the restore itself changed, which is the part that matters to people's data rather than to the
+  schedule.** The drill found that three of psql's error lines were **rows of a table being executed as
+  SQL**, and that two tables it called a failure were sign-in sessions it was never going to bring back.
+  So: no row of data is in the script psql runs any more, and **a restore promises a named set** — "What
+  a restore brings back, and what it does not" above is the decision, and `docs/backups.md` is the full
+  table.
 
   **Nothing above was run or seen by the assistant**: the copies are the owner's and the schedule's, and
   the run's facts were read from a public log and the Actions API.
@@ -2251,8 +2299,9 @@ second rests entirely on one passphrase.
     lock, no restore drill and no `evidence/restore-tested.md`. **Three of the nine settings the job needs
     have not been created**, so the first run will stop at the settings check and name them". **Since
     then**: the settings were created and three copies have been made, so the first two clauses are
-    gone — and **the lifecycle rule, the bucket lock, the finished drill and the evidence file are all
-    still missing**, which is what the rewritten head of this entry now carries.
+    gone — and so are three more, as the head of this entry now records: **the lifecycle rule, the
+    finished drill and the evidence file all exist**, and **the bucket lock is the one thing on that
+    sentence still missing**.
     `docs/backups.md` → "What the owner must set by hand" is the settings list, and it gained a row that
     writing the code found: `PRODUCTION_SUPABASE_S3_REGION`, which Supabase says must be read off its own
     S3 configuration page and so cannot be derived.
@@ -2275,9 +2324,10 @@ second rests entirely on one passphrase.
   this", and the settings the JOB needs have since been made** — a run that reads production and writes
   to R2 cannot succeed otherwise, and three have. **Nobody writing this has still seen any of them**:
   what is observed is a green run, which proves the values work and says nothing about what they are.
-  **What is still open is one proposal and two settings**: the **13-day Bucket Lock**, which the owner
-  asked to be proposed and has not accepted; and the **14-day lifecycle rule**, which does not exist, so
-  nothing in the bucket expires ([#259](https://github.com/build-once/team-tasks/issues/259)). The sentence that said "**nothing is deployed, because the workflow has not been
+  **What is still open is ONE PROPOSAL and nothing else**: the **13-day Bucket Lock**, which the owner
+  asked to be proposed and has not accepted ([#277](https://github.com/build-once/team-tasks/issues/277)).
+  This sentence also named the **14-day lifecycle rule** as missing, and it exists as of 10 October
+  ([#259](https://github.com/build-once/team-tasks/issues/259)). The sentence that said "**nothing is deployed, because the workflow has not been
   written** — Build it 24 part 1" is the half that has gone: the workflow is written. Six vendor facts
   these sections cite nothing for are gathered in
   [#256](https://github.com/build-once/team-tasks/issues/256); the new secrets being in no secrets
@@ -2300,21 +2350,31 @@ second rests entirely on one passphrase.
 - **Owner-reported, not seen by anybody writing this — the Cloudflare bucket, the token and the three
   secrets.** A private R2 bucket `team-tasks-backups` in **Western Europe (WEUR)**, public development URL
   **disabled**, **no custom domain** (the coach saw that settings page); an R2 API token named
-  `team-tasks-backup-job`, limited to that bucket, with **Object Read & Write**; a passphrase generated on
-  the owner's PC and held in the owner's password manager; and `BACKUP_STORAGE_KEY`,
+  `team-tasks-backup-job`, limited to that bucket, with **Object Read & Write**; **an object lifecycle
+  rule named `delete-after-14-days`, whole bucket, delete after 14 days, shown as Enabled**; a passphrase
+  generated on the owner's PC and held in the owner's password manager; and `BACKUP_STORAGE_KEY`,
   `BACKUP_STORAGE_SECRET` and `BACKUP_PASSPHRASE` in the `supabase-production` GitHub environment. All of
   it is the owner's report of 2026-10-10. **Nobody writing this opened the Cloudflare or GitHub dashboard,
   and nothing in this repository can show what either is set to.**
+
+  **One correction inside that, and it is the answer to the three failed runs: the token was created with
+  Object Read ONLY, and the owner changed it to Object Read & Write.** That is what ended the 403s. So
+  `AccessDenied` meant exactly what the one-word error code said — a real credential that was not allowed
+  to write — and the cause of the first real failure is established rather than guessed.
 - **Not confirmed — whether Supabase's own backups include the `auth` schema**, which is where the
   accounts and their password hashes live. The pages read on 2026-10-10 say a backup contains database
   data and name **Storage** as the exclusion; **none says the accounts are included**. It matters for this
   section only as a reason to build the copy with `pg_dump` and not with `supabase db dump`, whose own page
   says it excludes `auth` and `storage` by name. `docs/backups.md` carries it with the step that would
   settle it.
-- **Not tried — restoring anything, from Supabase's backups or from a copy of ours.** The dashboard's
-  "Restore to new project" is marked **Beta**, by the owner's reading of 10 October 2026, and nobody has
-  pressed it. So **"down for at most a few hours" is an aspiration with no measurement behind it**, and
-  the restore drill is what would change that ([#249](https://github.com/build-once/team-tasks/issues/249)).
+- **A copy of OURS has been restored; a SUPABASE backup still has not.** This entry said "Not tried —
+  restoring anything, from Supabase's backups or from a copy of ours ... so **'down for at most a few
+  hours' is an aspiration with no measurement behind it**". Half of that is gone: the drill of 10–11
+  October 2026 restored our copy in **219 seconds**, so that target has a measurement behind it — one
+  measurement, against a production holding 269 rows and one file, and the restore itself rather than the
+  whole outage. The dashboard's **"Restore to new project" is still marked Beta and still unpressed**, so
+  the faster route back for the database alone is still a belief
+  ([#249](https://github.com/build-once/team-tasks/issues/249)).
 - **Not confirmed — that the tools this job needs are already on GitHub's runner.** It assumes something
   that can encrypt with a passphrase and something that can write to an S3-compatible endpoint, both
   present on `ubuntu-latest`, because rule 17 makes installing one the owner's decision. **Neither has
