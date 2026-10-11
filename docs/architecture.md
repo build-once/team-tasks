@@ -207,6 +207,49 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  Never sent to Sentry or to Anthropic, and a FILE NAME never          |
    |  appears in an error report.                                          |
    +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  THE CAPTCHA  -  CLOUDFLARE TURNSTILE chosen 11 Oct 2026.             |
+   |  NOTHING INSTALLED. Free plan: unlimited challenges, 20 widgets.      |
+   |  On THREE SCREENS ONLY: sign-up, sign-in, password reset.             |
+   |                                                                       |
+   |  (17) THE BROWSER loads Cloudflare's script and gets a TOKEN          |
+   |       SITE KEY -- PUBLIC, in Vercel per environment as                |
+   |       NEXT_PUBLIC_TURNSTILE_SITE_KEY                                  |
+   |       The token then goes to SUPABASE AUTH with the sign-in, and      |
+   |       SUPABASE AUTH checks it with Cloudflare, holding the            |
+   |       SECRET KEY -- *** SECRET ***                                    |
+   |                                                                       |
+   |  THE SECRET KEY IS NOT IN EDGE FUNCTIONS SECRETS. It lives in each    |
+   |  project's AUTH SETTINGS - a NEW PLACE a secret of ours lives, the    |
+   |  first since this map was drawn. No code of ours ever reads it.       |
+   |  WHAT CLOUDFLARE SEES: the visitor's IP ADDRESS, TLS fingerprint,     |
+   |  User-Agent and the sitekey. NEVER an address, a password, a task.    |
+   |  STAGING AND PREVIEW use Cloudflare's DUMMY KEYS, so the nine         |
+   |  automated sign-ins keep working with CAPTCHA switched ON.            |
+   |  COST: SIGNING IN NOW NEEDS JAVASCRIPT. Nothing else here does.       |
+   +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  THE LOGIN EMAILS  -  RESEND, over SUPABASE AUTH's CUSTOM SMTP.       |
+   |  PROPOSED 11 Oct 2026 for PRODUCTION. NOT CONFIGURED ANYWHERE.        |
+   |                                                                       |
+   |  (18) SUPABASE AUTH sends the SIGN-UP CONFIRMATION and the            |
+   |       PASSWORD-RESET email through smtp.resend.com                    |
+   |       A RESEND API KEY as the SMTP PASSWORD -- *** SECRET ***         |
+   |       in PRODUCTION'S AUTH SETTINGS, not Edge Functions secrets,      |
+   |       and SEPARATE from invite-member's own EMAIL_API_KEY.            |
+   |                                                                       |
+   |  WHY: without custom SMTP, Supabase Auth refuses to deliver to any    |
+   |  address that is not part of the project's team - so TODAY A          |
+   |  VOLUNTEER GETS NEITHER EMAIL. It is a REPAIR, not an improvement.    |
+   |  AND THE BUILT-IN SENDER IS 2 EMAILS AN HOUR, PER PROJECT.            |
+   |  STAGING KEEPS THE BUILT-IN SENDER - proposed, because its only       |
+   |  addresses are Alice, Bob and Carol, and a second SMTP setting is a   |
+   |  second place a sending credential lives.                             |
+   |  WHAT RESEND THEN HOLDS: every person's OWN address, not only the     |
+   |  addresses of people who were INVITED. 30-day sending log.            |
+   +-----------------------------------------------------------------------+
 ```
 
 ## The arrows that carry a secret key
@@ -232,6 +275,23 @@ bucket and cannot open one; it makes a listing and never reads an object. That i
 ([#264](https://github.com/build-once/team-tasks/issues/264)): the one thing in this design that can
 check the backups without being able to read them.
 
+**AND TWO MORE, ADDED 2026-10-11, WHICH BREAK THIS TABLE'S PATTERN IN A NEW WAY: ARROWS (17) AND (18)
+CARRY KEYS THAT ARE NOT IN EDGE FUNCTIONS SECRETS.** Every arrow above holds its key in the one store
+this map has had since it was drawn, and the box at the top of the map calls Edge Functions secrets "the
+only place an app secret key lives at run time". These two put a secret in **each Supabase project's
+AUTH SETTINGS** instead. That is worth a paragraph rather than only two rows, because it changes what
+the map says about itself:
+
+- **No code of ours reads either one.** Supabase Auth holds them and uses them. There is no function to
+  review, no `Deno.env.get` to find, and nothing in this repository that could print one — which is a
+  better position than arrows (5), (7), (12) and (14) are in rather than a worse one.
+- **But the list of places a secret of this app can live is now one longer**, and that is the thing to
+  carry away. Somebody auditing "where are the secrets" from this table alone would miss both.
+- **Neither is counted into the six.** They are not run-time arrows that a press sets off through our
+  code: (17) fires in the browser and inside Supabase Auth, and (18) fires inside Supabase Auth.
+  **Nothing of ours is on either path**, which is also why neither can be checked by any test in this
+  repository — and why `docs/rate-limits.md` says what the owner has to do by hand instead.
+
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
 | **create a team** — not drawn on the map above yet | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Both limits in `docs/plan.md` — a name of 1 to 60 characters, and at most 3 teams per person — have to hold even if the request does not come from our own screens. A browser cannot be trusted to enforce its own limit, and counting somebody's teams is not something a person should have to be able to read rows to do. (An earlier version of this row said creating a team also makes its owner its first member. It does not: `create-team` writes only to `teams`, and an owner has no `team_members` row.) |
@@ -240,6 +300,8 @@ check the backups without being able to read them.
 | **accept an invitation** — not drawn on the map yet | Supabase **service-role key** | Supabase Edge Function (`accept-invite`) | Supabase Edge Functions secrets | Marking an invitation accepted and writing the `team_members` row both have to happen for somebody who is not yet in the team, so no policy on either table can allow it. The claim also has to be atomic, or two clicks both succeed. |
 | **(14)** accept a file onto a task — **nothing is built yet** | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | The owner decided on 2026-10-08 that **100 MB per person is enforced on the server at upload**, and a total is a sum across rows the caller may not be able to see — the same reason "at most 3 teams per person" needs a function and cannot be a policy. The three-per-task count is the same shape. A row-level rule on `storage.objects` can say "this file belongs to a task you may see"; it cannot say "and you are under your 100 MB". **This arrow adds a key to an existing store rather than a new store**, and it is the only arrow on this map whose *reason* is arithmetic rather than authority. **How the bytes travel is not decided** — through the function, or a signed upload URL the function hands back — and the section below sets out both |
 | **(12)** ask for subtask suggestions — **nothing is installed yet** | **Anthropic Claude API key** (`AI_API_KEY`) | Supabase Edge Function | Supabase Edge Functions secrets, **per project** | Anyone holding this key can spend the owner's money at Anthropic, so it must never reach a browser — which is the whole reason this is a server function and not a `fetch` from a screen. The function is also where the three limits live that a browser could not be trusted with: only the one task's title goes out, nothing identifying the asker goes with it, and a suspended caller is refused. **Staging holds a key from Build it 20; production holds none until the consent setting lands in Build it 21**, so on production the function answers that suggestions are not available. See `docs/plan.md` → "Suggest subtasks — an outside AI service". |
+| **(17)** check a CAPTCHA token — **nothing is installed yet** | **Cloudflare Turnstile secret key** | **Supabase Auth**, not a function of ours | **Each Supabase project's Auth settings** — set by the owner by hand, and **nowhere else**: not in this repository, not in Vercel, not in a `.env` file | The secret key is what turns a token into a yes or a no, so a browser holding it could answer its own question. The **site key** beside it is public and goes in Vercel per environment as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, for the reason the Sentry DSN is public: it identifies a widget and grants nothing. **Staging and Preview hold Cloudflare's DUMMY secret and sitekey**, which is what lets CAPTCHA stay switched on where the automated sign-ins run. See `docs/plan.md` → "A CAPTCHA on the three sign-in screens" and `docs/rate-limits.md` |
+| **(18)** send the sign-up and reset emails — **not configured anywhere** | **A Resend API key, used as an SMTP password** | **Supabase Auth**, not a function of ours | **Production's Auth settings only** — staging is proposed to keep the built-in sender and so to hold nothing | Supabase Auth sends both emails itself, so the credential has to be somewhere Supabase Auth can reach. **It is a SEPARATE key from `EMAIL_API_KEY`**, which arrow (7) uses from Edge Functions secrets — same company, same account, two credentials, and that is deliberate: either can be rotated without stopping the other, and the one in Auth settings can be read by nothing of ours. See `docs/plan.md` → "The sign-up and reset emails move to Resend" |
 
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
 row-level security rule. It is the most damaging value in this project to lose.
@@ -350,10 +412,24 @@ what this paragraph exists to keep honest:
   both Edge Functions call `count_daily_use()` through it.
   `evidence/build-it-22-daily-limits-counting.md` has the tests, including the runs where they failed
   first.
-- **And neither function is DEPLOYED.** The assistant deploys nothing (rule 19), staging is the owner's
-  step and production follows a merge. **So nothing is limited in any running app**, both projects' tables
-  are empty, and `docs/costs.md` is still right that the vendor ceilings are the only thing in the way of
-  anything running today.
+- **AND BOTH FUNCTIONS ARE DEPLOYED, WHICH THIS BULLET DENIED UNTIL 2026-10-11.** It said "**And neither
+  function is DEPLOYED** ... **So nothing is limited in any running app**, both projects' tables are
+  empty". [#230](https://github.com/build-once/team-tasks/issues/230) had recorded that as stale since 8
+  October. The two answers, because "deployed" collapses them:
+  - **Staging** — both functions, deployed by the owner on 8 October 2026, and the refusal **seen**: 429
+    with the code `daily_limit`, at a temporary limit of 4 on a branch since deleted. The coach then read
+    **two rows** off the table, so **staging's table is not empty**.
+    `evidence/build-it-22-daily-limits-counting.md` § 12.
+  - **Production** — both functions on the merge of PR #228, run
+    [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), **"Deploy server
+    functions to production: success"**. So `invite-member` there counts every real send. **Whether
+    production's table holds a row has never been read** ([#222](https://github.com/build-once/team-tasks/issues/222)),
+    and neither has the EXECUTE grant.
+  - **What survives of the old sentence, narrowed to where it is true**: the vendor ceiling is the only
+    thing in the way **for `suggest-subtasks` on production**, because `not_configured` is decided before
+    the count and production has no `AI_API_KEY`, so nothing is counted and nothing is sent.
+  - **And the twentieth has not been reached anywhere**, so no deployed function has ever refused at the
+    limit this app actually ships.
 
 The rest of this section is the shape, agreed before anything was typed, which is what the top
 of this file says the whole document is for — and every line of it is now also a description of code that
@@ -395,7 +471,26 @@ sets out why that is the right direction for an unknown to fail in.
 2026-10-08, holding 20 and 20. A `_`-prefixed directory beside the functions rather than inside one,
 because both functions read it and neither owns it.
 
-**Nothing else writes it.** `create-team` and `accept-invite` spend nothing, so they have nothing to
+**AND A THIRD THING WILL WRITE IT, WHICH IS NOT A FUNCTION AT ALL — the owner's decision of
+2026-10-11 (Build it 25).** An **attachment upload** gets a daily count too, **30 a day per person**,
+which `docs/plan.md` records as a reversal of what it decided on 8 October. Two things about it
+belong on this map rather than only in the plan, because they change the shape of this section:
+
+- **It is the first entry in `usage_counts` that is not about a bill.** The two above bound money per
+  press. An upload spends **traffic** — ingress and egress at Supabase — and upload-delete-upload never
+  exceeds the 100 MB per person while spending it every time.
+- **AND THERE IS NO SERVER CODE IN THE UPLOAD PATH TO WRITE IT FROM.** Every row of the table above is
+  written by an Edge Function immediately before it spends money. The upload is
+  **browser → Storage, as the signed-in person** (the owner's decision of 9 October, set out under
+  "Uploading goes through server code" above), so the only thing of ours it passes is
+  `attachments_may_add()`, called from the `INSERT` policy. **So the count would have to be written
+  from inside a policy's `with check`** — and nobody has established that a check expression may
+  perform a write, or what becomes of that write when the statement it is checking is then refused. A
+  count kept on a refused upload is the wrong way round; one lost on a successful upload is worse.
+
+**That is the first question Build it 25's code has to answer**, and it is why the third row is
+described here and not drawn into the table above: nothing about where it is written is settled.
+**Nothing else writes it TODAY.** `create-team` and `accept-invite` spend nothing, so they have nothing to
 count. The web app cannot write it at all — same reason it cannot write `teams`: the table will have no
 insert or update policy, and the browser holds only the publishable key.
 
@@ -1067,6 +1162,29 @@ being deleted — who owns its team — rather than a count of other rows, which
 a policy does well and what needs a function. Nobody can *leave* a team of their own accord; that is
 on `docs/plan.md`'s not-built list and needs deciding rather than assuming.
 
+## A ceiling on how many tasks one person can hold
+
+**Added 2026-10-11: at most 500 live tasks per person**, decided by the owner that day
+(`docs/plan.md` → "A ceiling on how many tasks one person can hold"). **Nothing is built.**
+
+It is on this map for one reason: it is the first limit on **feature 4 itself**, and it goes in the
+place this file keeps saying counted limits have to go. `docs/rate-limits.md` found the gap — adding
+a task is an `INSERT` on `public.tasks` over the Data API with the person's own session, row-level
+security decides **whose** rows, two check constraints decide the title, a trigger decides which columns
+may change, and **nothing at all decides how many**.
+
+**Where it goes: a `security definer` function called from the `INSERT` policy**, counting the
+caller's own rows — the same shape as `attachments_may_add()`, and for the reason this file gives
+about every counted limit: a sum across rows the caller may not be able to see cannot be a plain policy
+expression, and must not be a screen.
+
+**What it does NOT need, which is the useful contrast with the upload count above:** no Edge Function,
+no secret key, and **no write from inside a policy.** It is a **read** — count, compare, allow or refuse
+— so the pattern for it is already applied and proved in this database. That makes it the easier of the
+two limits Build it 25 adds, which is the opposite of how the two look.
+
+**And it adds no arrow to the map and no new store**: no new secret, nothing new leaving the project,
+and no new kind of row. The appendix of `docs/plan.md` gains nothing for it.
 ## Who may touch a task
 
 `supabase/migrations/20261002133637_tasks_join_teams.sql` (Build it 15 part 1) gives `tasks` an
