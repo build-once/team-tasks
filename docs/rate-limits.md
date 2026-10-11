@@ -9,9 +9,61 @@ file.** No code, no test, no workflow and no migration was touched; nothing was 
 or production; no MCP connector and no browser was used. What was read is this repository, at that
 commit, and the vendor pages cited below.
 
-**This file is an inventory and a set of proposals. It decides nothing.** Every number marked
-**PROPOSED** is for the owner, and every one of them is listed at the top of the pull request that
-adds this file. A limit nobody chose is not a limit.
+**THIRTEEN DECISIONS CAME BACK FROM THE OWNER ON 2026-10-11, and this file was written before them
+rather than after.** It went up as an inventory and a set of proposals, with thirteen things for the
+owner at the top of the pull request; all thirteen were settled the same day. Each is recorded in its
+place below and they are gathered in the table that follows, the way `docs/plan.md` gathers the nine
+decisions of "Daily limits on what costs money" and the nine of "Files attached to a task".
+
+**Still a set of proposals in one place, and it is named so nobody has to guess:** the **four check
+constraints** in section 2 were never among the thirteen. They are open.
+
+**Nothing in this file is applied anywhere.** A decision is not a dashboard setting and not a
+migration. Section 3 is the list of what somebody still has to do by hand.
+
+### The thirteen, in one view
+
+| | Decided 2026-10-11 |
+|---|---|
+| **A** The CAPTCHA at all | **Yes.** Cloudflare Turnstile on sign-up, sign-in and password reset |
+| **B** A daily count of attachment uploads | **Yes, 30 a day per person** — and it **reverses** a decision `docs/plan.md` took on 2026-10-08 |
+| **C** A cap on live tasks per person | **Yes, 500** |
+| **D** Read both projects' Rate Limits pages first | **Yes, AND DONE the same day.** Both projects, from a screenshot: **every value is the documented default**, and seven of the documentation's eleven rows were reported. See "the owner has now read both dashboards" below — including the one thing the reading turned up that is not reassuring |
+| **E** Sign-up, per IP | **Yes, 5 per 5 minutes** |
+| **F** The token endpoint, per IP | **30 per 5 minutes, NOT the 20 proposed** — because CI and the staging scripts sign in from **shared addresses**, and the limit is per IP. **And the dashboard calls that field "token refreshes", which the reading below shows is a problem rather than a detail** |
+| **G** Leaked-password protection on production | **Yes** |
+| **H** Minimum password length 8 | **ALREADY DONE**, by the owner on **both projects on 7 October 2026**, four days before this file proposed it — and proven on staging by a refused 7-character sign-up |
+| **I** Dummy keys on staging and Preview, real keys on production | **Yes** |
+| **J** The nine test files change | **Yes, and as ONE exported constant every test and script imports.** That is the owner's rule 20 agreement to the change |
+| **K** Which widget mode | **Cloudflare's "Managed"**, which is one of its three modes and the one Cloudflare recommends |
+| **L** Custom SMTP on production | **Yes** |
+| **M** Staging keeps the built-in sender | **Yes** |
+
+**Two of the thirteen did not come back as the proposal, and both are worth more than a tick.**
+
+**F is a correction of this file's own reasoning.** It proposed 20 per 5 minutes on the token
+endpoint, arguing that 150 is thirty password guesses a minute against six accounts. The owner
+answered **30**, because **the limit is per IP address and this project's own automation shares
+addresses**: `web/tests/access-rules.test.mjs` signs in **three** accounts on every pull request, from
+a GitHub-hosted runner whose address this project does not choose and does not know, and the eight
+scripts under `scripts/staging/` sign in repeatedly from wherever the owner runs them. At 20, several
+pull requests' checks landing in the same five minutes on the same runner address would start failing
+**for a reason that has nothing to do with what they test** — which is the exact failure
+`web/tests/staging.mjs` already guards against in its own comment beside `signIn`: "Supabase's auth
+endpoint is rate-limited, and a test file that signed in per test would spend its budget on sign-ins
+and start failing for a reason that has nothing to do with the rules." **So 30 is not a softer
+version of 20; it is the number that does not break the thing that proves the rules.**
+
+**H was already true, and this file proposed it anyway.** The owner changed "Minimum password length"
+from **6 to 8** on staging **and** on production on **7 October 2026**, and on staging a direct
+`POST` to `/auth/v1/signup` with the publishable key and a **7-character** password answered **HTTP
+422**, `error_code` `weak_password`, "Password should be at least 8 characters."
+`docs/claims.md` → "SETTLED 2026-10-07" is the record, and
+`evidence/build-it-21-ai-consent-migration.md` is where it was written down. **That is a miss by this
+file**, not a decision: it is recorded here rather than quietly dropped, because the inventory's whole
+value is that somebody can trust what it says is missing. What the two sources add, and this file now
+carries: **production's setting is owner-reported and was not tested**, and **nothing watches either
+project's setting**, so a change would go unnoticed.
 
 ### About the quotations
 
@@ -35,7 +87,7 @@ are not interchangeable.
 | Where | What it is | What it cannot do |
 |---|---|---|
 | **Supabase Auth's own limits** | Counted by Supabase, per IP address or per user, on its own endpoints | Nothing of ours configures it in this repository. It is a **dashboard setting**, so this repository cannot say what either project is actually set to |
-| **`usage_counts`** | One row per person, per feature, per UTC day, written by `public.count_daily_use()` — `supabase/migrations/20261008115900_usage_counts.sql` | Only covers a person who is **signed in**, because the row is keyed by `user_id`. It is **deployed nowhere**: both functions that write it are in this repository and in no Supabase project |
+| **`usage_counts`** | One row per person, per feature, per UTC day, written by `public.count_daily_use()` — `supabase/migrations/20261008115900_usage_counts.sql` | Only covers a person who is **signed in**, because the row is keyed by `user_id`. **It is live on staging and on production, and has been since 8 October 2026** — see the correction below |
 | **A database rule** | A check constraint, a unique index, a policy, or a `security definer` function a policy calls | Caps **how many rows exist**, never **how fast somebody asks**. "At most 3 teams" does not stop 3,000 attempts |
 | **Nothing** | The honest answer for most of the rows below | — |
 
@@ -44,6 +96,54 @@ teams per person", "at most 20 pending invitations per team", "3 files per task"
 person" are all caps on what the database ends up holding. None of them stops a loop making the
 request ten thousand times and being refused ten thousand times — and each refusal is still a
 function invocation, a database read, and on Vercel a request somebody paid for.
+
+### CORRECTION, 2026-10-11: the daily limits ARE deployed, and this file said they were not
+
+**The owner's correction of 11 October 2026.** The first version of this file said, in four places,
+that the daily limits were "deployed nowhere". **They have been on staging and on production since
+8 October 2026.** It is not a small error: it is the difference between "nothing stands between a
+retry loop and the bill but a vendor cap" and "every invitation email sent from production is
+counted", and the first of those is what this file told a reader.
+
+**Where it came from, which is the part worth knowing.** This file did not invent the claim — it
+inherited it from `docs/plan.md`, `docs/costs.md` and `docs/architecture.md`, all three of which still
+said it, and all three of which were **already known to be stale**:
+[#230](https://github.com/build-once/team-tasks/issues/230) names eight such sentences with their file
+and line and has been open since 8 October. So the inventory copied a stale claim out of the documents
+it was written to improve. **The lesson is the one rule 14 states**: a sentence in this repository is a
+record of what was true when somebody looked, and reading it is not the same as checking it.
+
+**What is actually true, project by project, because "deployed" collapses two different answers:**
+
+| | What is known, and from where |
+|---|---|
+| **The migration** | **Applied to staging** by the owner's `supabase db push` on 2026-10-08, CLI 2.75.0, and **read back** by the coach through the staging read-only connector: 10 migrations, newest `20261008115900`, the table with row-level security and 0 policies, `count_daily_use` present and `security definer`, and `service_role` alone holding EXECUTE. **Applied to production** by the pipeline on the merge of PR #224. `evidence/build-it-22-usage-counts.md`, Appendix B |
+| **Both Edge Functions, on STAGING** | **Deployed by hand by the owner on 2026-10-08, and seen to work.** A before-and-after pair of runs of `scripts/staging/build-it-20-ai-checks.mjs`: before, five simultaneous asks all allowed and the ask after the limit answered 200; after, **429 with the code `daily_limit` and the plan's sentence character for character**. The coach then read two rows off the table — `ai_suggestions` used 4, `invitations` used 1. `evidence/build-it-22-daily-limits-counting.md` § 12 |
+| **Both Edge Functions, on PRODUCTION** | **Deployed by the pipeline on the merge of PR #228**, merge commit `aaec96a`, merged 2026-10-08T16:33:09Z. Run [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847) — read with `gh run view --json jobs` in this session — reports **"Deploy server functions to production: success"** beside "Apply migrations to production: success" and "Smoke-test production from outside: success" |
+| **What NOBODY has read back off production** | **Any row of `usage_counts`, and the EXECUTE grant** ([#222](https://github.com/build-once/team-tasks/issues/222)). A green deploy job says the functions were uploaded, not what the table holds — the same distinction `docs/plan.md` makes at length about the AI consent migration |
+
+**And one thing wrong with the record this correction leans on, found while leaning on it.**
+`evidence/build-it-22-daily-limits-counting.md` says the owner deployed to staging **after** PR #228
+merged, and dates that merge at 14:09. The merge was at **2026-10-08T16:33:09Z** and the coach's comment
+quoted in its section 12 was posted at **16:32**, a minute before it — so the staging deploy came
+**before** the merge, not after, and nothing merged at 14:09 that day. It does not change what is in the
+table above, and it changes the sequence the file records, which is why it is
+[#283](https://github.com/build-once/team-tasks/issues/283) rather than a footnote.
+
+**And three things the staging record does NOT establish, kept because they are the shape of what is
+still unproved rather than a hedge:**
+
+- **The refusal was seen at a temporary limit of 4**, set on an unpushed local branch which the owner
+  then restored to 20 and deleted. **The twentieth has never been reached anywhere.**
+- **The invitation limit has never been reached at all.** One real send was counted on staging; the
+  refused duplicate was not, which is the ordering the plan asks for.
+- **Nobody has seen the limit's sentence on either screen**, which is
+  [#212](https://github.com/build-once/team-tasks/issues/212).
+
+**So the honest one-line answer, and it is the one the rows below now carry:** on **production**,
+`invite-member` counts every send and refuses the twenty-first; `suggest-subtasks` writes no row at
+all, because `not_configured` is decided **before** the count and production still has no
+`AI_API_KEY`. On **staging** both count. In neither project has the twentieth been reached.
 
 ### Supabase Auth's own limits, as published
 
@@ -60,18 +160,80 @@ which this app uses.
 | Verification requests | `/auth/v1/verify` | IP Address | Yes | "Defaults to 30 requests per 5 minutes, with bursts up to 30 requests." |
 | Token endpoint requests | `/auth/v1/token` | IP Address | Yes | "Defaults to 150 requests per 5 minutes, with bursts up to 30 requests. This covers password, refresh token, ID token, and PKCE grants." |
 
-**Where they are set, and why no number above is a fact about this app:** "You can modify
-customizable rate limits by navigating to **Authentication** > **Rate Limits** in your project
-dashboard" (same page). Every row marked *Customizable: Yes* is therefore a **default** that either
-project may already have been moved away from. **Nobody has read either project's Rate Limits page,
-and nothing in this repository can.** So for each of these the honest statement is: *the published
-default is X; what staging and production are set to is unread.* Section 3 puts both readings on the
-owner's by-hand list.
+**Where they are set:** "You can modify customizable rate limits by navigating to **Authentication** >
+**Rate Limits** in your project dashboard" (same page).
+
+### AND THE OWNER HAS NOW READ BOTH DASHBOARDS — decision D, done 2026-10-11
+
+**This section said "Nobody has read either project's Rate Limits page, and nothing in this repository
+can", and asked for it as decision D. The owner read both the same day and reported them from a
+screenshot: BOTH PROJECTS ARE THE SAME, AND EVERY VALUE IS THE DOCUMENTED DEFAULT.** So the figures
+above stop being "a default either project may have been moved away from" and become what staging and
+production are actually set to. **Owner-reported, from a screenshot, 11 October 2026 — nobody writing
+this opened a dashboard, and nothing in this repository can.**
+
+| The dashboard's own label | Value, both projects | Editable there? | The documentation row it matches |
+|---|---|---|---|
+| **sending emails** | **2 per hour** | **No** | "Emails sent by Supabase Auth". Not editable **because the built-in sender is in use** — the page says the limit "can be configured when you use custom SMTP or the Send Email hook", and the custom-SMTP page says saving one imposes 30 an hour and sends you to this screen to change it. **So the dashboard's "not editable" and the documentation's "customizable" agree**, and row 4 of section 3 can only happen after row 3 |
+| **SMS** | **30 per hour** | **No** | "SMS messages sent by Supabase Auth". This app sends none |
+| **token refreshes** | **150 per 5 minutes** | **Yes** | **"Token endpoint requests" — and the names do not match, which is the finding below** |
+| **token verifications** | **30 per 5 minutes** | **Yes** | "Verification requests", `/auth/v1/verify` |
+| **anonymous users** | **30 per hour** | **No** | "Anonymous sign-ins". This app has none, and the documentation's row says that limit "only applies if the endpoint is called without an email or phone number" |
+| **sign-ups and sign-ins** | **30 per 5 minutes** | **Yes** | "Sign-ups and sign-ins" — the six paths, which do **not** include a password sign-in. **Decision E lowers this one to 5** |
+| **Web3** | **30 per 5 minutes** | **No** | "Web3 sign-ups and sign-ins". This app has none |
+
+**SEVEN ROWS WERE REPORTED AND THE DOCUMENTATION'S TABLE HAS ELEVEN, so four are still unread** — and
+two of the four are about this app's own email:
+
+| Not in the report | Why it matters, or does not |
+|---|---|
+| **Signup confirmation request** — "60 seconds window before a new request is allowed for the same user" | **It matters.** It is the per-person throttle on the sign-up email, and this app has no resend control, so somebody whose confirmation did not arrive has nothing to press anyway |
+| **Password reset request** — the same 60-second window | **It matters.** It is the per-person throttle on the reset email, behind the screen that deliberately says one sentence whatever happened |
+| **Send OTPs or magic links** | Does not matter: this app sends neither |
+| **Create or verify an MFA challenge** | Does not matter: no MFA, and the documentation says this one is not customizable anyway |
+
+**Whether the dashboard shows those four at all, or whether they were simply not in the report, is
+unread.** Either way nothing says they are not at their defaults — and nothing says they are.
+
+### THE FINDING THE READING PRODUCED: the dashboard calls it "token refreshes"
+
+**This is the one thing in the reading that is not reassuring, and it lands squarely on decision F.**
+
+The documentation's row is **"Token endpoint requests"**, path `/auth/v1/token`, and its own words are
+that it "covers password, refresh token, ID token, and PKCE grants". **The dashboard's editable field at
+the same number is labelled "token refreshes".** Those are not the same words, and the difference is
+not cosmetic:
+
+- **If the field is the documentation's row under a shorter name**, then decision F does what it
+  intends — it lowers the limit that bounds password guessing — **and it also lowers the limit on
+  REFRESHING A SESSION**, because the same endpoint serves both. That consequence is real and is set out
+  below.
+- **If the field governs refreshes ONLY**, then **nothing editable limits a password sign-in at all**,
+  and decision F would set a careful number on the wrong thing while leaving the actual sign-in path at
+  whatever the platform does. That would be the worst outcome available: a limit that reads as
+  protection and is not.
+
+**Nobody here can tell which.** It is read off a label in a screenshot against a sentence on a
+documentation page, and those are the only two sources. **Two things would settle it**, and the second is
+cheap: the dashboard's own help text beside that field, which the owner can read in the same sitting;
+or, after decision F is applied to **staging**, thirty-one password sign-ins from one address — if the
+thirty-first is refused, the field is the sign-in limit, and if it is not, it never was. **Until one of
+those happens, decision F is a number set on a field whose meaning is inferred**, and this file will not
+claim otherwise.
+
+**And one consequence of F that holds either way, because the owner should have it in front of them: a
+limit of 30 per 5 minutes per IP applies to whatever that field covers, for EVERYBODY behind one
+address.** If it covers refreshes, then several volunteers on one home or office connection share 30
+session refreshes every five minutes between them — which is plenty for six people and is not plenty
+for a number chosen as though it only had to cover sign-ins. It is the same reasoning that moved the
+figure from 20 to 30 in the first place, one step further on, and **it is a reason to watch the figure
+after it is set rather than a reason not to set it.**
 
 **One trap in that table, and it is worth more than its size.** The row called **"Sign-ups and
 sign-ins"** does **not** cover this app's sign-in. Its paths are `/auth/v1/signup`, `/auth/v1/recover`,
 `/auth/v1/resend`, `/auth/v1/magiclink`, `/auth/v1/otp` and `/auth/v1/user` — and a password sign-in goes
-to **`/auth/v1/token?grant_type=password`**, which is the **"Token endpoint requests"** row: **150** per 5
+to **`/auth/v1/token?grant_type=password`**, which is the **"Token endpoint requests"** row — the one the
+dashboard calls **"token refreshes"** — at **150** per 5
 minutes, not 30, and the row's own words say it "covers password, refresh token, ID token, and PKCE
 grants". So **the limit on guessing a password is the loosest of the three** on this app's screens, and
 somebody reading the table by its row names would conclude the opposite.
@@ -105,7 +267,7 @@ today**, with the file it comes from.
 | **Where that limit lives** | Supabase Auth's own limits (dashboard), except the password rule, which is ours |
 | **Nothing of ours limits the rate** | A loop can create accounts up to whatever Auth's per-IP limit is set to, from as many IP addresses as it has |
 | **What the person sees** | "That did not work. Check the email address and password and try again." (`web/src/app/signup/page.tsx:57-58`), or the password sentence "A password needs at least 8 characters." (`web/src/lib/password-reset.ts:100`). **A rate-limit refusal gets the first sentence**, which says nothing about waiting |
-| **PROPOSED** | **Turnstile** (section 3 of `docs/plan.md`, added in this change). And **read, then lower, the per-IP sign-up limit** — 30 per 5 minutes is sized for an app with sign-ups; this one expects **six accounts in total**. A proposal of **5 per 5 minutes** is in the owner's list |
+| **DECIDED 2026-10-11** | **A: Turnstile, yes** — `docs/plan.md` → "A CAPTCHA on the three sign-in screens". **E: the per-IP sign-up limit goes to 5 per 5 minutes**, from a published default of 30, because 30 is sized for an app that expects sign-ups and this one expects **six accounts in total**. **H was already done**: the minimum password length was 8 on both projects from 7 October 2026, four days before this file proposed it. **Set nowhere yet** — section 3, rows 1 and 11 |
 
 | 2. Sign-in |  |
 |---|---|
@@ -113,7 +275,7 @@ today**, with the file it comes from.
 | **What limits it today** | Supabase Auth's token endpoint: 150 requests per 5 minutes **per IP** (published default). **Nothing else.** No lockout after N wrong passwords exists in this repository, and whether Auth has one was not read |
 | **Where that limit lives** | Supabase Auth's own limits (dashboard) |
 | **What the person sees** | "That email and password don't match. Check them and try again." — `web/src/app/login/page.tsx:55`. A rate-limit refusal gets the same sentence, deliberately: `signIn` has one failure path and does not show Supabase's text |
-| **PROPOSED** | **Turnstile.** And **read, then lower, the token-endpoint limit**: 150 per 5 minutes per IP is 30 password guesses a minute against six accounts. **20 per 5 minutes** is in the owner's list. Also **leaked-password protection**, which is a switch rather than a limit — see below |
+| **DECIDED 2026-10-11, AND NOT AS PROPOSED** | **A: Turnstile, yes.** **F: the token-endpoint limit goes to 30 per 5 minutes — not the 20 this file asked for.** The reason is the one the proposal missed: **the limit is per IP address, and this project's own automation shares addresses.** `web/tests/access-rules.test.mjs` signs in three accounts on every pull request from a GitHub-hosted runner, and the eight scripts under `scripts/staging/` sign in repeatedly from wherever the owner runs them — so at 20, two or three pull requests' checks in one five-minute window would fail for a reason that has nothing to do with what they test. **G: leaked-password protection on, on production** (Pro and above), which is a switch rather than a limit. **Set nowhere yet** — section 3 |
 
 | 3. Password reset request |  |
 |---|---|
@@ -122,7 +284,7 @@ today**, with the file it comes from.
 | **Where that limit lives** | Supabase Auth's own limits (dashboard) |
 | **What the person sees** | "If that address has an account, we've sent a link" — `web/src/lib/password-reset.ts:29`. **One sentence for every outcome, including a rate limit**, and that is a deliberate promise rather than an oversight: `requestPasswordReset` has a single exit and `scripts/password-reset-check.mjs` reads its source and refuses a second branch (`web/src/app/auth/actions.ts:150-201`) |
 | **The cost of that promise, stated** | Somebody whose reset email was dropped by the 2-per-hour limit is told the same thing as somebody whose email went. They will wait for a message that is never coming. **Section 4 is the fix**; a different sentence is not, because telling the two apart would also tell somebody which addresses have accounts |
-| **PROPOSED** | **Turnstile**, and **section 4** (custom SMTP), which is what makes the sentence true more often |
+| **DECIDED 2026-10-11** | **A: Turnstile, yes.** **L: custom SMTP on production, yes** — which is what makes the sentence above true more often rather than true-sounding. **Neither is configured anywhere yet** |
 
 | 4. Email confirmation resend |  |
 |---|---|
@@ -156,18 +318,18 @@ today**, with the file it comes from.
 | **The request** | `POST /functions/v1/invite-member`, body `{ team_id, email }` — `web/src/app/teams/actions.ts:318` |
 | **What limits it today** | **20 per person per UTC day** — `supabase/functions/_shared/limits.ts:118-121`, counted immediately before the send (`invite-member/index.ts:1436-1443`), **a retry included**. **At most 20 pending per team** (`:107,1103-1108`). One pending invitation per address per team (`invitations_one_pending_per_email`). A 7-day expiry. Only the team's owner (`:988-990`). Address shape and length (`:945-950`). **And Resend's own quota: 100 emails a day, 3,000 a month, 10 requests a second** |
 | **Where those limits live** | `usage_counts` for the daily 20; database rules for the rest; the vendor for the quota |
-| **THE THING TO KNOW** | **The daily 20 is deployed nowhere.** The function that counts is in this repository and in no Supabase project — `docs/plan.md`'s "Unverified" list says so in full. So **today the only limits actually running are the 20-pending cap and Resend's quota** |
+| **THE THING TO KNOW — CORRECTED 2026-10-11** | **The daily 20 IS running, on staging and on production, and has been since 8 October 2026.** This row said "the daily 20 is deployed nowhere", copied out of three documents that were already known to be stale ([#230](https://github.com/build-once/team-tasks/issues/230)). **On production every send is counted and the twenty-first in a UTC day is refused**: the functions reached it on the merge of PR #228, run [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server functions to production: success". On staging one real send was counted and the refused duplicate was not. **The twentieth has never been reached in either project**, and **nobody has read a row off production's table** ([#222](https://github.com/build-once/team-tasks/issues/222)) |
 | **What the person sees** | "You've reached today's limit. It resets tomorrow." (`_shared/limits.ts:167-168`) — **once it is deployed**. Today: "This team has 20 invitations waiting, the most allowed. Wait for some to be accepted or to expire." (`invite-member/index.ts:1105`) |
-| **PROPOSED** | **Deploy what exists.** No new number. The gap here is not a missing limit, it is a written limit that is not running |
+| **DECIDED 2026-10-11** | **Nothing to decide and nothing to deploy.** The proposal here was "deploy what exists", and it was written against a claim that turned out to be false: it is deployed. What is left is **not a limit at all** — read a row off production's table (#222), and see the refusal on a screen ([#212](https://github.com/build-once/team-tasks/issues/212)) |
 
 | 8. suggest-subtasks |  |
 |---|---|
 | **The request** | `POST /functions/v1/suggest-subtasks`, body `{ task_id }` |
 | **What limits it today** | **20 per person per UTC day** (`_shared/limits.ts:118-121`), counted immediately before the paid call (`suggest-subtasks/index.ts:1620-1627`). A **per-isolate one-call-at-a-time lock** (`beginCall`, `:1512`) — which [#186](https://github.com/build-once/team-tasks/issues/186) records as "a courtesy, not a control". The consent setting, **off for everybody**. **No production key.** And Anthropic's 5-dollar monthly spend limit |
 | **Where those limits live** | `usage_counts`, a `Set` in one isolate's memory, a database column, an absent secret, the vendor |
-| **THE THING TO KNOW** | **The daily 20 is deployed nowhere**, as above. What actually stops production spending money today is that **production has no `AI_API_KEY`** |
+| **THE THING TO KNOW — CORRECTED 2026-10-11** | **The daily 20 is deployed, as above — and on production it writes no row, which is a different fact and the one that matters here.** `not_configured` is decided **before** the count, so with no `AI_API_KEY` on production nothing is counted and nothing is sent. **What stops production spending money is still the absent key**, exactly as this row said; what was wrong was the reason given for it. On **staging** the count is live and was seen to refuse — 429, code `daily_limit` — at a temporary limit of 4 |
 | **What the person sees** | "You've reached today's limit. It resets tomorrow." once deployed; "Suggestions aren't available right now." for `busy` and for `not_configured` |
-| **PROPOSED** | **Deploy what exists**, and nothing else. [#184](https://github.com/build-once/team-tasks/issues/184) is still open: asking is a GET, so a reload asks again |
+| **DECIDED 2026-10-11** | **Nothing to decide, and nothing was ever missing here.** [#184](https://github.com/build-once/team-tasks/issues/184) is still open: asking is a GET, so a reload asks again — and a daily limit does not stop the second ask, it stops the twenty-first |
 
 | 9. Attachment upload |  |
 |---|---|
@@ -176,7 +338,8 @@ today**, with the file it comes from.
 | **Where those limits live** | A `security definer` function a policy calls, and the bucket's own settings |
 | **No rate limit at all** | And here that is a real gap rather than a cheap-attempt one. **Upload, delete, upload, delete never exceeds 100 MB and spends egress and ingress every time.** `docs/costs.md` already records that the attachment limits do **not** keep this app inside Supabase's 5 GB monthly egress allowance; nothing bounds the number of uploads |
 | **What the person sees** | "That task already has 3 files, which is the most it can have. Delete one first." / "That file is too big. Each file can be up to 5 MB." / the no-room sentence — all in `web/src/lib/attachments.ts:418-452`. **Nothing says "too often", because nothing counts** |
-| **PROPOSED, AND IT IS A PLAN CHANGE** | **A daily count of uploads per person, in `usage_counts`, at 30 a day.** `docs/plan.md` currently decides the opposite in as many words — "It is still not the daily limits of Build it 22, and still not counted in `usage_counts`", on the argument that storage is a stock and not a flow. **That argument is sound about storage and silent about traffic**, which is what this proposal is aimed at. It needs a third `feature` word, so a migration, and it needs the plan changed first (rule 9). **The owner's call, and it is in their list** |
+| **DECIDED 2026-10-11, AND IT CHANGES THE PLAN — B** | **Yes: a daily count of uploads per person, in `usage_counts`, at 30 a day.** `docs/plan.md` decided the opposite in as many words — "It is still not the daily limits of Build it 22, and still not counted in `usage_counts`", on the argument that storage is a stock and not a flow. **That argument is sound about storage and silent about traffic**, which is why it was put up again. It needs a third `feature` word, so a migration, and `docs/plan.md` is changed first, in this pull request (rule 9). **AND WHERE THE COUNT GOES IS NOT OBVIOUS, which is the one thing this decision does not settle** — see the row below |
+| **The hard part of B, named rather than assumed** | **There is no server code in the upload path**, so there is nowhere of ours to put a count. Every other counted use in this app is written by an Edge Function immediately before it spends money; an upload goes browser → Storage, with `attachments_may_add()` in the `INSERT` policy as the only thing of ours it passes. So the count would have to be **written from inside a policy's `with check`**, by a `security definer` function calling `count_daily_use()` — and **nobody has established that a check expression may perform a write, or what happens to that write when the statement it is checking then fails.** A count that is kept when the upload is refused is the wrong way round, and a count that is lost when it succeeds is worse. **That is the question Build it 25's code has to answer before it writes a line**, and it is not answered here |
 
 | 10. Adding and changing tasks |  |
 |---|---|
@@ -185,7 +348,7 @@ today**, with the file it comes from.
 | **Where those limits live** | Database rules only |
 | **What the person sees** | The `problem=` sentences in `web/src/lib/tasks.ts`. **None of them is about frequency or quantity** |
 | **The exposure, plainly** | One signed-in volunteer, or one loop with one volunteer's session, can insert rows into production's `tasks` table until the database fills. At 200 characters a row that is slow, and it is not bounded by anything this app has. **Whether Supabase applies any limit of its own to the Data API was not read** (section 5) |
-| **PROPOSED, AND IT IS A PLAN CHANGE** | **A cap on live tasks per person: 500.** Enforceable the way "at most 3 teams" is not — it is a count of the caller's own rows, so a `security definer` function called from the `INSERT` policy does it, exactly as `attachments_may_add()` already does, with no Edge Function and no secret key. 500 is sized for a volunteer's list and is not 20: a person who hits it has done something nobody designed for. **The owner's call** |
+| **DECIDED 2026-10-11, AND IT CHANGES THE PLAN — C** | **Yes: a cap on live tasks per person, 500.** Enforceable the way "at most 3 teams" is not — it is a count of the caller's own rows, so a `security definer` function called from the `INSERT` policy does it, exactly as `attachments_may_add()` already does, with no Edge Function and no secret key. 500 is sized for a volunteer's list and is not 20: a person who hits it has done something nobody designed for. **And unlike B it needs no write inside a policy** — it is a count and nothing else, which is why C is the easier of the two to build despite looking like the bigger change. `docs/plan.md` is changed first, in this pull request (rule 9) |
 
 #### Not an action, but it belongs in this table
 
@@ -193,8 +356,8 @@ today**, with the file it comes from.
 |---|---|
 | **What this app checks** | At least 8 characters, in `passwordProblem` (`web/src/lib/password-reset.ts:107`), called by `signUp` **before** anything is sent and by `setNewPassword` before the change |
 | **What Supabase can check** | A minimum length, required character classes, and leaked passwords. From [Password security](https://supabase.com/docs/guides/auth/password-security), read 2026-10-11: "Set a large minimum password length. Anything less than 8 characters is not recommended"; "Prevent the use of leaked passwords. Supabase Auth uses the open-source HaveIBeenPwned.org Pwned Passwords API to reject passwords that have been leaked and are known by malicious actors"; and "Leaked password protection is available on the Pro Plan and above" |
-| **What either project is set to** | **Unread.** The page does not publish a default minimum length either, so **no number is written here**. Both are dashboard settings |
-| **PROPOSED** | **Switch leaked-password protection on, on production**, which is now a Pro organisation and so can have it. And **set the minimum length to 8 in Auth's own settings**, so the rule this app states on its sign-up screen is kept by the server that stores the password and not only by the app in front of it. Neither is a rate limit; both belong on the same by-hand pass |
+| **What either project is set to — AND THE MINIMUM LENGTH IS 8, WHICH THIS FILE GOT WRONG** | This row said "**Unread** ... no number is written here". **It was read, by the owner, on 7 October 2026** — four days before this file proposed reading it. "Minimum password length" was **changed from 6 to 8 on staging AND on production**, and on **staging** a direct `POST` to `/auth/v1/signup` with the publishable key and a **7-character** password answered **HTTP 422**, `error_code` `weak_password`, "Password should be at least 8 characters." `docs/claims.md` → "SETTLED 2026-10-07" is the record; `evidence/build-it-21-ai-consent-migration.md` is where it was written down. **What is still true from those two sources and must travel with the number:** production's setting is **owner-reported and was not tested** — only staging's was exercised with a real refused request — and **nothing watches either project's setting**, so if one were lowered, this row and `docs/claims.md` would both still say 8 and nothing in this repository would notice. **Leaked-password protection is a separate switch and is still unread** |
+| **DECIDED 2026-10-11** | **H: nothing to do — already done, on both projects, on 7 October 2026.** **G: switch leaked-password protection on, on production**, which is now a Pro organisation and so can have it; it is **not** done, and it is row 10 of section 3. Neither is a rate limit; G belongs on the same by-hand pass as the rest |
 
 ### What nothing in this repository limits, and what that leaves
 
@@ -203,7 +366,8 @@ Said plainly, because the table above is long enough to read as reassurance:
 - **The Data API.** Every read and write of `tasks` and `profiles` goes to `/rest/v1` with the
   publishable key. RLS decides *what* comes back; nothing in this project decides *how often*.
 - **Edge Function invocations.** Four functions, all signed-in-only. Nothing counts invocations
-  except `usage_counts`, which counts two features and is deployed nowhere.
+  except `usage_counts`, which counts two features — live in both projects since 8 October 2026 — and
+  will count a third once decision **B** is built.
 - **Storage reads and writes.** A signed link is made on demand by a server action; nothing counts
   how many a person asks for, and each one is a request to Supabase.
 - **Anything on Vercel.** The pages and server actions are served by Vercel. Whether any firewall or
@@ -383,19 +547,34 @@ read it back.** Every row is a dashboard. The order matters: a CAPTCHA switched 
 keys exist breaks every automated sign-in, and a rate limit lowered before custom SMTP is on makes a
 bad email situation worse.
 
+**REWRITTEN 2026-10-11 against the owner's thirteen decisions.** Three things changed in it, and they
+are named here because a list that quietly grows a row is a list nobody can diff:
+
+- **every figure is now a number somebody chose**, where the first version said "once the owner has
+  chosen them";
+- **the minimum password length came OFF the list**, because it was already set on both projects on
+  7 October 2026 — decision **H**, and the correction is in section 1, row 11;
+- **row 8 is now decided rather than conditional**: decision **J** is one exported constant, so the
+  dummy token is a literal in this repository and **GitHub needs no setting at all.**
+
 | # | Where | What, with the exact name | Why this position in the order |
 |---|---|---|---|
-| 1 | **Supabase → both projects → Authentication → Rate Limits** | **Read and write down** every customizable value, for staging and for production, before changing anything | Section 1's numbers are published **defaults**. Changing a value nobody has read is changing a value nobody knows |
+| 1 | ~~**Supabase → both projects → Authentication → Rate Limits**~~ **DONE 2026-10-11** | **Read and write down** every customizable value, for staging and for production, before changing anything. **Decision D** — and the owner did it the same day, from a screenshot: **both projects identical, every value the documented default.** Section 1 has the seven rows reported and names the four that were not | Changing a value nobody has read is changing a value nobody knows. **It is done, so row 11 may now happen** — and the reading added a question to row 11 rather than removing one |
 | 2 | **Resend** | Confirm the **verified domain**, and create an API key for **SMTP** use. Resend documents SMTP as host `smtp.resend.com`, port `465`, username `resend`, password **your API key** | Custom SMTP needs both before it can be saved |
 | 3 | **Supabase → production → Authentication → Emails → SMTP Settings** | Enable custom SMTP: host, port, username, password, **Sender email** and **Sender name** (both required) | **This is the row that fixes a real breakage**, not an improvement: until it is done, production refuses to deliver to any address not on the project's team |
 | 4 | **Supabase → production → Authentication → Rate Limits** | Set the **emails per hour** to a chosen number. Supabase imposes "a low rate-limit of 30 messages per hour" when custom SMTP is saved | Only possible after 3. And it must stay **under Resend's 100 a day** — 30 an hour is 720 a day |
 | 5 | **Cloudflare → Turnstile** | Create a widget for the production hostname. Keep the **site key** (public) and the **secret key** (secret) | Before anything is switched on in Supabase |
 | 6 | **Supabase → staging → Authentication → Bot and Abuse Protection** | Enable CAPTCHA protection, provider **Cloudflare Turnstile**, secret key **`2x0000000000000000000000000000000AA`** or **`1x0000000000000000000000000000000AA`** — Cloudflare's **dummy** secret keys, which "Only accept the dummy token, reject real tokens" | **Staging first, and with a dummy key**, so the arrangement is tried where it cannot lock anybody out |
 | 7 | **Vercel → the project → Environment Variables** | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. **Preview**: Cloudflare's dummy sitekey `1x00000000000000000000AA`. **Production**: the real site key from row 5 | Per environment, like `NEXT_PUBLIC_SENTRY_DSN` already is |
-| 8 | **GitHub → repository → Settings → Secrets and variables → Actions** | Nothing, **if** the dummy token is a literal in the test helper. **If** the owner decides otherwise, a variable — not a secret: Cloudflare publishes the value | Decided by the owner's answer to decision **C** at the top of the pull request |
+| 8 | **GitHub → repository → Settings → Secrets and variables → Actions** | **NOTHING. Decision J settles it**: the token is one exported constant in this repository, holding Cloudflare's published value, so there is no secret and no variable to create | A value Cloudflare publishes on its own documentation page is not a secret, and a constant every test imports cannot drift the way nine copies could |
 | 9 | **Supabase → production → Authentication → Bot and Abuse Protection** | Enable CAPTCHA protection with the **real** secret key from row 5 | **Last of the CAPTCHA rows, on purpose.** Production is where a mistake locks the owner out of their own app |
-| 10 | **Supabase → production → Authentication** | **Leaked password protection ON** (Pro and above), and **minimum password length 8** | Independent of the rows above; grouped here so it is one sitting |
-| 11 | **Supabase → both projects → Authentication → Rate Limits** | The lowered figures, once the owner has chosen them from section 1's proposals | **Last.** Lowering a limit is the change most likely to lock somebody out, and doing it after everything else means there is only one suspect |
+| 10 | **Supabase → production → Authentication** | **Leaked password protection ON** (Pro and above). **Decision G.** **NOT the minimum password length** — that was set to 8 on both projects on 7 October 2026 and is the one row this list lost rather than gained | Independent of every row above; grouped here so it is one sitting |
+| 11 | **Supabase → both projects → Authentication → Rate Limits** | The two figures the owner chose: **sign-ups and sign-ins, 5 per 5 minutes** (decision **E**, from a published default of 30), and **the token endpoint, 30 per 5 minutes** (decision **F**, from a published default of 150). **Both projects, the same numbers** | **Last.** Lowering a limit is the change most likely to lock somebody out, and doing it after everything else means there is only one suspect. **And the token figure is 30 rather than 20 for a reason that bites here**: CI signs in three accounts per pull request from a shared runner address, so this is the row to come back to if checks start failing for no reason. **READ THE HELP TEXT BESIDE "token refreshes" BEFORE SETTING IT** — the dashboard's label and the documentation's row do not use the same words, and if that field is about refreshes only then this row sets a careful number on the wrong thing. **Do staging first, then try thirty-one sign-ins from one address**: that one run settles what the field means |
+
+**And one row that is NOT on this list and belongs to somebody else: decisions B and C are code.** A
+daily count of uploads and a 500-task cap are a migration and a function, not a dashboard setting, so
+neither appears above. `docs/plan.md` carries both as decided, which is the order rule 9 asks for;
+building them is Build it 25's own work.
 
 **No new secret is created in this repository by any of this.** The Turnstile secret key lives only
 in each Supabase project's Auth settings; the Resend API key used as the SMTP password lives only in
@@ -473,8 +652,21 @@ do, and they are the whole of it:
    being checked". No real account and no real password is involved, so nothing is signed in to and
    nothing is written.
 
-**If the tests must change, these are the files**, and **rule 20 means the owner agrees before any of
-them is touched** — none of them is edited in this change:
+**THE TESTS DO CHANGE, AND THE OWNER AGREED TO IT ON 2026-10-11 — decision J, which is the rule 20
+agreement this change needed and did not have.** Rule 20 says changing a test is the owner's call and
+never the assistant's, and that a test which was allowed to change gets its own line saying what
+changed and who agreed to it. This is that line: **nine files gain one field in their sign-in, as ONE
+EXPORTED CONSTANT every test and script imports**, agreed by the owner on 11 October 2026.
+
+**Why the shape was part of the decision rather than left to whoever builds it.** Nine copies of one
+line is the shape `evidence/build-it-16-suspend-functions.md` already records about
+`checkSuspension` — "a copy that drifts is a script that fails for a reason that has nothing to do
+with what it is testing" — and the thing being copied here is a **magic string from somebody else's
+documentation**, which is the worst kind of value to have nine of. One constant also gives the
+repository one place to grep when Cloudflare ever changes it.
+
+**Nothing below is edited in THIS change**, which is documents-only. The list is what the code change
+has to touch:
 
 | File | What would change |
 |---|---|
@@ -489,11 +681,58 @@ them is touched** — none of them is edited in this change:
 | `scripts/staging/bob-invites-to-alices-team.mjs` | line 210 |
 | `web/tests/access-rules.test.mjs` | **nothing**, if the helper is the only change |
 
-**Nine copies of one line is the shape of the risk**, and it is the same shape
-`evidence/build-it-16-suspend-functions.md` already records about `checkSuspension`: a copy that
-drifts is a script that fails for a reason that has nothing to do with what it is testing. The
-cheapest answer is one exported constant, and where it should live is **decision C** at the top of
-the pull request.
+**Where the constant goes is NOT decided here, and it is the one loose end decision J leaves.** The
+obvious home is `web/tests/staging.mjs`, which already holds every endpoint and helper the tests
+share — but the eight scripts under `scripts/staging/` do not import from `web/tests/` today, and
+nothing has established whether they may. **Two things are true of whatever is chosen**: it is one
+file, and **a new file does not run just because it exists** — `.github/workflows/ci.yml` names each
+staging script by path in its "Staging script self-tests" job (`:523-527`), and `web/package.json`'s
+`test` script names one test file, so anything new has to be named somewhere or it runs nowhere.
+
+---
+
+### Decision K: the widget mode, confirmed from Cloudflare's documentation
+
+**The owner asked for Cloudflare's "managed" mode IF that is one of its widget modes, and asked for
+the modes to be confirmed from Cloudflare's own documentation rather than taken on trust. It is one of
+them, and it is the one Cloudflare recommends.** Read on 2026-10-11 from
+[Widget types](https://developers.cloudflare.com/turnstile/concepts/widget/), and **fetched twice with
+different questions**, which agreed: three modes, and "**Managed** (recommended)".
+
+| Mode | What Cloudflare says a visitor sees |
+|---|---|
+| **Managed** — chosen | "Automatically chooses between non-interactive or checkbox challenge based on visitor risk level." When it does ask, "the visitor will be prompted to select a box" and "There will be no images or text to decipher." |
+| Non-interactive | "Visitors will see a widget with a loading spinner while the challenges run in their browsers", and "visitors will never be required or prompted to interact with the widget." |
+| Invisible | "visitors will never interact with the Turnstile widget", and "Visitors will also not see a widget or any indication that an invisible browser challenge is in progress." |
+
+**So what a person signing in actually sees, in one sentence: a small box below the password field
+that usually settles itself, and sometimes asks them to tick it — never a puzzle, never an image to
+identify, and never a word to retype.**
+
+**Why managed and not invisible, which is the comparison worth making** — invisible is the mode that
+costs a volunteer nothing at all to look at, so it is the obvious choice until you ask what happens
+when it fails. Three things decide it:
+
+- **A visible widget is the only thing that can tell somebody why they are stuck.** The cost named in
+  `docs/plan.md` is that signing in starts needing JavaScript; with an invisible widget a person
+  whose browser blocked the script sees a sign-in form that simply refuses them, with nothing on the
+  screen to connect the refusal to. A box that failed to load is a box they can see failed to load.
+- **Managed is the mode Cloudflare recommends**, and on a control that stands in front of everybody's
+  sign-in, departing from the vendor's own default needs a reason rather than a preference.
+- **The tick is the honest version of what is happening.** Something is being checked about this
+  visitor; a mode chosen so that nobody notices is a mode chosen so that nobody is told.
+
+**What it costs, stated:** on a risky-looking request a volunteer has one extra tap before they can
+sign in, and that will sometimes happen to somebody on a shared or mobile address who has done nothing
+wrong.
+
+**And one thing read off a different page rather than this one: the free plan shows Cloudflare's
+branding.** The [Plans](https://developers.cloudflare.com/turnstile/plans/) page lists "the ability to
+remove Cloudflare branding" among what Enterprise adds, so the free tier keeps it. **The widget page
+says nothing about branding at all** — this is read off the plans page's silence in the other
+direction, which is weaker than a statement, and it is written this way rather than as a fact. What it
+means if it holds: another company's name appears on this app's sign-in screen, which is a thing to
+have decided rather than discovered.
 
 ---
 
@@ -502,12 +741,32 @@ the pull request.
 Everything this file could not settle, with the step that would settle each one. No figure is
 written where none was read.
 
-- **What staging and production are actually set to, for every customizable Auth rate limit.**
-  Published defaults are not settings. Only **Authentication → Rate Limits** in each dashboard says,
-  and nothing in this repository can read it. Section 3, rows 1 and 11.
-- **Supabase Auth's default minimum password length.** The password-security page read on 2026-10-11
-  advises "Anything less than 8 characters is not recommended" and **publishes no default**. Read it
-  off the dashboard.
+- **SETTLED for seven rows, STILL OPEN for four — what the two projects are actually set to.** This
+  bullet said "Published defaults are not settings. Only **Authentication → Rate Limits** in each
+  dashboard says, and nothing in this repository can read it." **The owner read both on 2026-10-11** and
+  reported them identical and at the documented defaults, from a screenshot; the seven rows are in
+  section 1. **What is still unread**: the two 60-second per-user windows on the sign-up and reset
+  emails, the OTP window, and the MFA row — four of the documentation's eleven, and the first two of
+  those are the per-person throttle on this app's own login email. **And it is owner-reported**: nobody
+  writing this opened a dashboard, and no check in this repository can notice if a value changes
+  tomorrow.
+- **WHAT THE DASHBOARD FIELD CALLED "token refreshes" ACTUALLY COVERS, which is the sharpest thing on
+  this list.** The documentation's row at the same number is "Token endpoint requests" and says it
+  "covers password, refresh token, ID token, and PKCE grants"; the dashboard calls it "token refreshes".
+  **If it is refreshes only, nothing editable limits a password sign-in at all and decision F sets a
+  number on the wrong field.** Settled by the help text beside it, or — after F is applied to staging —
+  by thirty-one password sign-ins from one address. **Until then, F is a number set on a field whose
+  meaning is inferred.**
+- **SETTLED, AND IT WAS SETTLED BEFORE THIS FILE ASKED — the minimum password length.** This bullet
+  said it had to be read off the dashboard. **The owner read it and changed it on 7 October 2026**:
+  from **6 to 8**, on staging and on production, with a 7-character sign-up on staging refused **HTTP
+  422**, `weak_password`. `docs/claims.md` → "SETTLED 2026-10-07" and
+  `evidence/build-it-21-ai-consent-migration.md` are the record. **What stays open about it**:
+  production's setting is **owner-reported and untested**, and **nothing watches either project's
+  setting**, so a change would go unnoticed by every check in this repository. The published *default*
+  is still not written anywhere, and no longer matters — what either project is set to is known.
+- **Whether leaked-password protection is on, on either project.** Read on the same dashboard page as
+  the length above, and **not** read when that one was. It is decision **G** and row 10 of section 3.
 - **Whether Supabase Auth refuses a sign-in that carries no CAPTCHA token, once CAPTCHA is on.** The
   CAPTCHA page does not say. Settle it with one request against staging, with a dummy secret key
   configured, posting no `gotrue_meta_security` field.
@@ -539,5 +798,28 @@ written where none was read.
 - **Whether a Supabase project's Auth email rate limit can be set above Resend's daily quota, and
   what happens if it is.** 30 an hour is 720 a day against a 100-a-day quota. Which refuses first,
   and what the person sees, was not read and has not been tried.
+- **Whether a check expression may perform a write, which is what decision B needs.** There is no
+  server code in the upload path, so a daily count of uploads has to be written from inside the
+  `INSERT` policy's `with check` — and **nothing read or tried here says whether that is allowed,
+  or what becomes of the count when the statement it is checking is then refused.** It is the one
+  decision of the thirteen whose implementation is not obvious, and settling it needs a local
+  PostgreSQL sandbox rather than a page: write a `security definer` function that counts, call it
+  from a check, and watch what happens to the row on a refusal.
+- **Whether the eight scripts under `scripts/staging/` may import from `web/tests/`.** Decision J
+  is one exported constant and does not say where it lives; nothing has established whether those
+  scripts can reach that folder. Settled by trying it, or by putting the constant somewhere both
+  already reach.
+- **Whether the free Turnstile plan really shows Cloudflare's branding on the widget.** Read off the
+  Plans page listing branding removal as an Enterprise feature, which is an inference from silence
+  rather than a statement. Only looking at a rendered widget settles it, and nobody has.
 - **Every number in this file about this app was counted or read in this session**, from the commit
-  named at the top. Nothing came from memory, and nothing was run against a project.
+  named at the top. Nothing came from memory, and nothing was run against a project. **And that was
+  not enough twice, which is the honest coda to this list.** Two claims in the first version were
+  wrong — the daily limits being "deployed nowhere", and the minimum password length being unread —
+  and **neither was a guess**: both were read, carefully, out of documents in this repository that
+  happened to be stale. `docs/plan.md` said the first (and [#230](https://github.com/build-once/team-tasks/issues/230)
+  had said so since 8 October), and nothing said the second because the answer was in `docs/claims.md`
+  under a heading this file never opened. **So "read in this session" is a weaker guarantee than it
+  sounds**: reading a sentence in this repository tells you what somebody saw when they wrote it, and
+  rule 14 is about exactly that. What would have caught both is what the next build should do first —
+  grep the *evidence* folder and `docs/claims.md` for each claim before writing it down as a gap.

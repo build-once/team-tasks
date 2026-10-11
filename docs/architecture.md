@@ -412,10 +412,24 @@ what this paragraph exists to keep honest:
   both Edge Functions call `count_daily_use()` through it.
   `evidence/build-it-22-daily-limits-counting.md` has the tests, including the runs where they failed
   first.
-- **And neither function is DEPLOYED.** The assistant deploys nothing (rule 19), staging is the owner's
-  step and production follows a merge. **So nothing is limited in any running app**, both projects' tables
-  are empty, and `docs/costs.md` is still right that the vendor ceilings are the only thing in the way of
-  anything running today.
+- **AND BOTH FUNCTIONS ARE DEPLOYED, WHICH THIS BULLET DENIED UNTIL 2026-10-11.** It said "**And neither
+  function is DEPLOYED** ... **So nothing is limited in any running app**, both projects' tables are
+  empty". [#230](https://github.com/build-once/team-tasks/issues/230) had recorded that as stale since 8
+  October. The two answers, because "deployed" collapses them:
+  - **Staging** — both functions, deployed by the owner on 8 October 2026, and the refusal **seen**: 429
+    with the code `daily_limit`, at a temporary limit of 4 on a branch since deleted. The coach then read
+    **two rows** off the table, so **staging's table is not empty**.
+    `evidence/build-it-22-daily-limits-counting.md` § 12.
+  - **Production** — both functions on the merge of PR #228, run
+    [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), **"Deploy server
+    functions to production: success"**. So `invite-member` there counts every real send. **Whether
+    production's table holds a row has never been read** ([#222](https://github.com/build-once/team-tasks/issues/222)),
+    and neither has the EXECUTE grant.
+  - **What survives of the old sentence, narrowed to where it is true**: the vendor ceiling is the only
+    thing in the way **for `suggest-subtasks` on production**, because `not_configured` is decided before
+    the count and production has no `AI_API_KEY`, so nothing is counted and nothing is sent.
+  - **And the twentieth has not been reached anywhere**, so no deployed function has ever refused at the
+    limit this app actually ships.
 
 The rest of this section is the shape, agreed before anything was typed, which is what the top
 of this file says the whole document is for — and every line of it is now also a description of code that
@@ -457,7 +471,26 @@ sets out why that is the right direction for an unknown to fail in.
 2026-10-08, holding 20 and 20. A `_`-prefixed directory beside the functions rather than inside one,
 because both functions read it and neither owns it.
 
-**Nothing else writes it.** `create-team` and `accept-invite` spend nothing, so they have nothing to
+**AND A THIRD THING WILL WRITE IT, WHICH IS NOT A FUNCTION AT ALL — the owner's decision of
+2026-10-11 (Build it 25).** An **attachment upload** gets a daily count too, **30 a day per person**,
+which `docs/plan.md` records as a reversal of what it decided on 8 October. Two things about it
+belong on this map rather than only in the plan, because they change the shape of this section:
+
+- **It is the first entry in `usage_counts` that is not about a bill.** The two above bound money per
+  press. An upload spends **traffic** — ingress and egress at Supabase — and upload-delete-upload never
+  exceeds the 100 MB per person while spending it every time.
+- **AND THERE IS NO SERVER CODE IN THE UPLOAD PATH TO WRITE IT FROM.** Every row of the table above is
+  written by an Edge Function immediately before it spends money. The upload is
+  **browser → Storage, as the signed-in person** (the owner's decision of 9 October, set out under
+  "Uploading goes through server code" above), so the only thing of ours it passes is
+  `attachments_may_add()`, called from the `INSERT` policy. **So the count would have to be written
+  from inside a policy's `with check`** — and nobody has established that a check expression may
+  perform a write, or what becomes of that write when the statement it is checking is then refused. A
+  count kept on a refused upload is the wrong way round; one lost on a successful upload is worse.
+
+**That is the first question Build it 25's code has to answer**, and it is why the third row is
+described here and not drawn into the table above: nothing about where it is written is settled.
+**Nothing else writes it TODAY.** `create-team` and `accept-invite` spend nothing, so they have nothing to
 count. The web app cannot write it at all — same reason it cannot write `teams`: the table will have no
 insert or update policy, and the browser holds only the publishable key.
 
@@ -1129,6 +1162,29 @@ being deleted — who owns its team — rather than a count of other rows, which
 a policy does well and what needs a function. Nobody can *leave* a team of their own accord; that is
 on `docs/plan.md`'s not-built list and needs deciding rather than assuming.
 
+## A ceiling on how many tasks one person can hold
+
+**Added 2026-10-11: at most 500 live tasks per person**, decided by the owner that day
+(`docs/plan.md` → "A ceiling on how many tasks one person can hold"). **Nothing is built.**
+
+It is on this map for one reason: it is the first limit on **feature 4 itself**, and it goes in the
+place this file keeps saying counted limits have to go. `docs/rate-limits.md` found the gap — adding
+a task is an `INSERT` on `public.tasks` over the Data API with the person's own session, row-level
+security decides **whose** rows, two check constraints decide the title, a trigger decides which columns
+may change, and **nothing at all decides how many**.
+
+**Where it goes: a `security definer` function called from the `INSERT` policy**, counting the
+caller's own rows — the same shape as `attachments_may_add()`, and for the reason this file gives
+about every counted limit: a sum across rows the caller may not be able to see cannot be a plain policy
+expression, and must not be a screen.
+
+**What it does NOT need, which is the useful contrast with the upload count above:** no Edge Function,
+no secret key, and **no write from inside a policy.** It is a **read** — count, compare, allow or refuse
+— so the pattern for it is already applied and proved in this database. That makes it the easier of the
+two limits Build it 25 adds, which is the opposite of how the two look.
+
+**And it adds no arrow to the map and no new store**: no new secret, nothing new leaving the project,
+and no new kind of row. The appendix of `docs/plan.md` gains nothing for it.
 ## Who may touch a task
 
 `supabase/migrations/20261002133637_tasks_join_teams.sql` (Build it 15 part 1) gives `tasks` an

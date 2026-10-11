@@ -185,10 +185,23 @@ Nobody's task title leaves production before there is a setting that lets them s
 
 **Usage counts and daily limits arrive in Build it 22.** They are not designed here and no number for
 them is written here. **They have now arrived** — "Daily limits on what costs money" below is where they
-are designed, and the code for them was written on 2026-10-08 — but they are **deployed nowhere**, so for
-anything actually running the only thing between a loop and a bill is still the 5-dollar spend limit at
-Anthropic. See `docs/costs.md`, and the "Unverified" entry for that section, which says which half stands
-where.
+are designed, and the code for them was written on 2026-10-08.
+
+**AND THEY ARE LIVE IN BOTH PROJECTS, WHICH THIS PARAGRAPH DENIED UNTIL 2026-10-11.** It said they were
+"**deployed nowhere**, so for anything actually running the only thing between a loop and a bill is still
+the 5-dollar spend limit at Anthropic". **Both halves of that are wrong**, and
+[#230](https://github.com/build-once/team-tasks/issues/230) had said so since 8 October: the migration
+reached staging by the owner's hand and production by the pipeline on the merge of PR #224, and **both
+Edge Functions reached staging by the owner's hand and production on the merge of PR #228** — run
+[37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server functions
+to production: success".
+
+**What is true of THIS feature on production, which is the narrow version and still worth having:** the
+5-dollar spend limit **is** the only thing between a loop and a bill **for `suggest-subtasks` on
+production**, because `not_configured` is decided before the count, so with no `AI_API_KEY` there nothing
+is counted and nothing is sent. On **staging** the count is live and was seen to refuse — 429, code
+`daily_limit` — at a temporary limit of 4. `evidence/build-it-22-daily-limits-counting.md` § 12 is the
+record, and `docs/rate-limits.md` is where the correction is set out in full.
 
 **A suspended person gets no suggestions.** The helper is a server function holding a secret key, so
 it belongs with the other three: it reads `account_status` by user id and refuses a suspended caller,
@@ -353,6 +366,19 @@ when this section was written and confirmed on 2026-10-08, read by both `suggest
 change in one file, which is also what makes it reviewable: a limit nobody can find is a limit nobody can
 check.
 
+**AND THERE WILL BE A THIRD NUMBER AND A THIRD FEATURE WORD — the owner's decision of 2026-10-11.**
+**Attachment uploads get a daily count, 30 a day per person**, which "Files attached to a task" below
+sets out in full and which **reverses what that section decided on 8 October**. Three things about it
+belong here, in the section that owns the mechanism:
+
+- **It goes in the same config file**, so the rule above holds: three numbers, one place.
+- **It needs a new migration**, because `usage_counts_feature_allowed` is a check constraint naming two
+  words and the point of a fixed list is that adding to it is deliberate and visible.
+- **And it is the first count here that is NOT about money.** The two above bound money per press; an
+  upload spends **traffic**. So this section's own title stops being the whole of what it covers, and
+  that is said here rather than left for somebody to notice — **where** that count gets written is the
+  part nobody has settled, and "Files attached to a task" says why it is harder than it looks.
+
 **Per person, not per team**: one person who owns three teams has 20 invitations a day in total, not 20
 for each team. The existing limits are untouched and are different things — at most 20 **pending**
 invitations per team, at most 3 teams per person, and a 7-day expiry — none of which caps how many a
@@ -444,6 +470,59 @@ half of its condition 4; its condition 1, "the second ask did not reach the AI s
 needs something this section does not design. **And its condition 3 is departed from on purpose** — see
 the sentence above, and the owner's decision of 2026-10-08 that #184 is what updates.
 
+## A ceiling on how many tasks one person can hold
+
+Added 2026-10-11, for Build it 25, and **decided by the owner on that day**: **at most 500 live tasks
+per person.** Not a sixth feature of the list above, nothing new to press, and **nothing new leaves this
+project or is held about anybody** — it adds no row, no column and no kind of data, which makes it the
+smallest thing in this plan to have its own section. It is here because rule 9 asks for the plan before
+the code, and because it is the first limit this app has ever had on **feature 4 itself**.
+
+**Why. `docs/rate-limits.md` went looking for what limits each thing a bot could abuse, and this is
+the row that came back emptiest:** adding a task is an `INSERT` on `public.tasks` over the Data API,
+with the publishable key and the person's own session. Row-level security decides **whose** rows; two
+check constraints decide the title; a trigger decides which columns may change. **Nothing decides how
+many, and nothing decides how often.** So one signed-in volunteer — or one loop holding one volunteer's
+session — can insert rows into production's database until it fills, and no sentence in this app would
+ever say so.
+
+**Why 500, and why it is not 20.** The two daily limits are 20 because they bound **money per press**.
+This bounds a **list**, and a list is a thing a person uses: 500 is far past any volunteer's morning and
+far short of a problem for the database. Somebody who reaches it has not been organising jobs. The
+number is chosen to be one nobody meets by accident, because a cap a real person hits is a cap that
+teaches them the app is broken.
+
+**Live tasks, not tasks ever created.** Deleting a task frees its place at once. There is no archive in
+this app and no soft delete, so "live" and "in the table" are the same thing — said anyway, because the
+first thing somebody would ask is whether ticking a task off makes room. **It does not**: a done task is
+still on the list, which is the whole point of the list.
+
+**Where it is enforced, which is the half that decides whether it is real.** In the **database**, as a
+count of the caller's own rows, by a `security definer` function called from the `INSERT` policy —
+exactly the shape `attachments_may_add()` already has for "3 files per task" and "100 MB per
+person". **Not in a screen**, because a screen can be bypassed, and **not in an Edge Function**, because
+there is no function in this path and adding one would mean the browser stopped inserting its own rows.
+
+**And that makes it the EASIER of the two limits Build it 25 adds**, which is the opposite of how the two
+look. This one is a **read** — count, compare, allow or refuse — and the pattern for it is already in
+this database, applied and proved. The upload count in "Files attached to a task" above is a **write**
+from inside a policy, and nobody has established that is even allowed.
+
+**What the person sees is not decided here**, beyond the one thing that must be true of it: **it says
+they have reached the most this app will hold and that deleting a task makes room**, rather than "that
+did not save". A refusal a person can act on earns its own words — the same argument the daily limit's
+own sentence rests on, and the same shape as "You own 3 teams, the most allowed."
+
+**What it deliberately is not:**
+
+- **Not a rate limit.** It bounds how many a person holds, not how fast they ask. A loop refused 10,000
+  times at the ceiling still costs 10,000 requests, and nothing in this app bounds that — which
+  `docs/rate-limits.md` says in full and this section does not fix.
+- **Not per team.** A team task belongs to the person who created it, so it counts against theirs. Three
+  people in a team have 1,500 between them, and a team has no ceiling of its own.
+- **Not retrospective.** Nobody has 500 tasks; production has no accounts at all. So **no existing row
+  can violate it**, which is the one thing that makes this cheap to add — and the way to be sure is a
+  `count(*)` per owner before the migration, which `docs/rate-limits.md` shows cannot print a row.
 ## Files attached to a task
 
 Added 2026-10-08. Like "Suggest subtasks" and unlike the two sections between them — the consent setting
@@ -648,17 +727,50 @@ of how a file is *read*, it needs no key, and it cannot enforce either number. *
 stands in front of every upload** — and `docs/architecture.md` says what is settled about that and what is
 still a choice, because "on the server" names where the decision is made and not how the bytes travel.
 
-**It is still not the daily limits of Build it 22, and still not counted in `usage_counts`.** Uploading
-a file spends nobody's money per press — it spends storage, which is a stock rather than a flow, and a
-stock is bounded by a total rather than by a rate. A count per day would be the wrong instrument: somebody
-who uploads nothing for a month and then fills their 100 MB in an afternoon has not done anything the app
-needs to stop. Nothing in "Daily limits on what costs money" above changes, and no new feature name is
-added to that table.
+**AN UPLOAD IS NOW COUNTED TOO — 30 A DAY PER PERSON. DECIDED BY THE OWNER ON 2026-10-11, AND IT REVERSES
+WHAT THIS SECTION DECIDED ON 2026-10-08.** The two paragraphs that stood here said it twice over, in
+nearly the same words, and they are quoted rather than deleted because a reversal is only worth anything
+if the reader can see what was reversed:
 
-**These are not the daily limits of Build it 22, and they are not counted in `usage_counts`.** Uploading
-a file spends nobody's money per press — it spends storage, which is a stock rather than a flow, and a
-stock is bounded by a total rather than by a rate. Nothing in "Daily limits on what costs money" above
-changes, and no new feature name is added to that table.
+> **It is still not the daily limits of Build it 22, and still not counted in `usage_counts`.** Uploading
+> a file spends nobody's money per press — it spends storage, which is a stock rather than a flow, and a
+> stock is bounded by a total rather than by a rate. A count per day would be the wrong instrument:
+> somebody who uploads nothing for a month and then fills their 100 MB in an afternoon has not done
+> anything the app needs to stop. Nothing in "Daily limits on what costs money" above changes, and no new
+> feature name is added to that table.
+
+**That argument is still correct about STORAGE, and it was silent about TRAFFIC, which is what the
+reversal is about.** A stock really is bounded by a total: 100 MB per person is the right instrument for
+how much is kept, and nothing about that changes. But **uploading and deleting the same file forever
+never exceeds 100 MB and spends ingress and egress every time** — and `docs/costs.md` already
+records that the attachment limits do **not** keep this app inside Supabase's 5 GB monthly egress
+allowance. So the 2026-10-08 paragraph answered "what stops somebody keeping too much" and nobody had
+asked "what stops somebody moving too much". `docs/rate-limits.md` asked it, and this is the answer.
+
+**The number is 30 a day, per person**, and it sits beside the two 20s rather than matching them because
+it is bounding a different thing: not money per press, but traffic. Three files per task at ten tasks in
+a day is a volunteer having an unusually busy morning; thirty-one is something nobody designed for.
+
+**So "Daily limits on what costs money" above DOES change**, and in the one way that section said would
+need a migration: **a third feature word**. `usage_counts_feature_allowed` is a check constraint listing
+two values, and the whole point of a fixed list is that adding to it is deliberate and visible. The
+appendix row for `usage_counts` changes with it.
+
+**AND WHERE THE COUNT IS WRITTEN IS THE HARD PART, WHICH THIS DECISION DOES NOT SETTLE.** Every other
+counted use in this app is written by an Edge Function immediately before it spends money. **An upload
+has no Edge Function**: the owner's decision of 9 October was that the browser uploads straight to
+Storage as the signed-in person, so the only thing of ours an upload passes through is
+`attachments_may_add()`, called from the `INSERT` policy. Which means the count would have to be
+**written from inside a policy's `with check`** — and **nobody has established that a check
+expression may perform a write, or what becomes of that write when the statement it is checking is then
+refused.** A count kept on a refused upload is the wrong way round; a count lost on a successful one is
+worse. **That is the first question Build it 25's code has to answer**, it is on the "Unverified" list
+below, and the thing that settles it is a local PostgreSQL sandbox rather than a page.
+
+**Three things this does NOT change**, so the reversal stays the size it is: the 100 MB, the three per
+task and the 5 MB are untouched; an upload still spends **nobody's money** at a vendor, so this is the
+first entry in `usage_counts` that is not about a bill; and **nothing new leaves this project** —
+the count is a row in our own database, four values wide, exactly as the other two are.
 
 ### What the type limit does and does not guarantee
 
@@ -1404,6 +1516,44 @@ is the same reason Sentry, Anthropic and Cloudflare R2 are each here — and bec
 plan before the code. **Nothing is installed on the day this was written:** no package, no site key in any
 environment, no secret key in either project's Auth settings, no widget on any screen, and no code.
 
+**Decided 2026-10-11, and this section was written before those decisions rather than after them.** It
+went to the owner as part of a list of thirteen, with `docs/rate-limits.md` as the inventory behind it,
+and all thirteen came back settled the same day. Each is recorded in its place below; they are gathered
+here so the whole set is in one view, the way "Daily limits on what costs money" gathers its nine and
+"Files attached to a task" gathers its nine. **Nine of the thirteen belong to this section:**
+
+| | Decided |
+|---|---|
+| **A** The CAPTCHA at all | **Yes.** Cloudflare Turnstile, on the three screens |
+| **D** Read both projects' Rate Limits pages before changing anything | **Yes — and DONE the same day.** Both projects identical, **every value at the documented default**, owner-reported from a screenshot |
+| **E** The per-IP sign-up limit | **5 per 5 minutes**, from a default of 30 — now known to be what both projects are actually set to |
+| **F** The per-IP token-endpoint limit | **30 per 5 minutes, NOT the 20 proposed** — because CI and the staging scripts sign in from **shared addresses**, and the limit is per IP |
+| **G** Leaked-password protection on production | **Yes** |
+| **H** Minimum password length 8 | **ALREADY DONE** — the owner set it on both projects on **7 October 2026**, four days before it was proposed |
+| **I** Dummy keys on staging and Preview, real on production | **Yes** |
+| **J** The nine test files change | **Yes, as ONE exported constant** every test and script imports. That is the owner's **rule 20** agreement |
+| **K** The widget mode | **Cloudflare's "Managed"** — confirmed as one of its three modes, and the one Cloudflare recommends |
+
+**Two of the eight did not come back as asked, and both are worth more than a tick.**
+
+**F is a correction of the proposal's own reasoning.** It asked for 20 per 5 minutes, on the argument
+that 150 is thirty password guesses a minute against six accounts. The owner answered **30**, because
+**the limit is per IP address and this project's own automation shares addresses**:
+`web/tests/access-rules.test.mjs` signs in **three** accounts on every pull request from a GitHub-hosted
+runner whose address nobody here chooses, and eight scripts under `scripts/staging/` sign in repeatedly
+from wherever the owner runs them. At 20, two or three pull requests' checks inside one five-minute window
+would start failing **for a reason that has nothing to do with what they test** — which is the failure
+`web/tests/staging.mjs` already guards against in its own words beside `signIn`. So 30 is not a softer
+20; it is the number that does not break the thing that proves the rules.
+
+**H was already true, and the proposal asked for it anyway.** The owner changed "Minimum password length"
+from **6 to 8** on staging **and** on production on **7 October 2026**, and on staging a direct `POST` to
+`/auth/v1/signup` with the publishable key and a **7-character** password answered **HTTP 422**,
+`error_code` `weak_password`. `docs/claims.md` → "SETTLED 2026-10-07" is the record. Two things travel with
+that number and are not softened by it: **production's setting is owner-reported and was not tested**, and
+**nothing watches either project's setting**, so a change would go unnoticed by every check in this
+repository.
+
 **What it is.** **Cloudflare Turnstile** on **sign-up**, **sign-in** and **password reset**, verified by
 **Supabase Auth** rather than by this app. Supabase does the checking: "Supabase authentication has
 support for hCaptcha and Cloudflare Turnstile", and "Supabase provides you with the option of adding
@@ -1413,9 +1563,20 @@ this app's part is to draw the widget and pass the token along; **nothing in thi
 a token is good.**
 
 **Why, in one line, and it is not "bots".** `docs/rate-limits.md` is the inventory, and the sentence it
-produces about these three screens is that **the only thing limiting any of them today is a Supabase
-default nobody has read**. Sign-in's published default is 150 requests per 5 minutes per IP address, which
-is thirty password guesses a minute against an app that will ever have about six accounts.
+produced about these three screens was that **the only thing limiting any of them is a Supabase default
+nobody had read**. **The owner read both dashboards on 2026-10-11 — decision D — and every value is the
+documented default**, so the sentence is now: the only thing limiting any of them is a Supabase default,
+and we know it is the default. For sign-in that is **150 requests per 5 minutes per IP address**, which is
+thirty password guesses a minute against an app that will ever have about six accounts.
+
+**And the reading turned up one thing that is not reassuring, which belongs here rather than only in the
+inventory.** The documentation's row for that 150 is "Token endpoint requests", path `/auth/v1/token`,
+and it says it "covers password, refresh token, ID token, and PKCE grants". **The dashboard's editable
+field at the same number is labelled "token refreshes".** If those are the same thing under two names,
+decision F does what it intends. **If that field is about refreshes only, then nothing editable limits a
+password sign-in at all** — and the CAPTCHA becomes the only thing in front of this app's sign-in rather
+than the second thing. Either way the CAPTCHA is worth having; which of the two it is decides whether it
+is worth having *more*. `docs/rate-limits.md` carries the question and the one run that settles it.
 
 **Where the keys live, and which is which.** The **secret key** goes only into each Supabase project's
 Auth settings, set by the owner by hand, and nowhere else — not in this repository, not in Vercel, not in
@@ -1478,9 +1639,10 @@ check on a pull request that has nothing to do with sign-in.
 | What a real secret key accepts | "Production secret keys: Only accept real tokens, reject dummy tokens." |
 | And therefore | "Production secret keys will reject the dummy token. You must also use a dummy secret key for testing purposes." |
 
-**The proposed arrangement: dummy keys on staging and on Vercel's Preview, real keys on production.** So
-staging keeps CAPTCHA **switched on** — which is the point, because a staging project with the feature off
-proves nothing about the code path — and the nine files keep passing by sending the dummy token.
+**The arrangement, DECIDED 2026-10-11 (I): dummy keys on staging and on Vercel's Preview, real keys on
+production.** So staging keeps CAPTCHA **switched on** — which is the point, because a staging project
+with the feature off proves nothing about the code path — and the nine files keep passing by sending the
+dummy token.
 
 **What the tests would send.** One field, read out of the installed client rather than recalled:
 `gotrue_meta_security: { captcha_token: "XXXX.DUMMY.TOKEN.XXXX" }`, alongside `email` and `password` in the
@@ -1514,9 +1676,67 @@ token**, using a wrong password for an address that has no account, where a real
 dummy token — so a CAPTCHA refusal rather than "wrong password" is what says the check is actually running.
 Neither involves a real account or a real password.
 
-**If the nine files must change, that is the owner's agreement and not the assistant's (rule 20).**
-`docs/rate-limits.md` → "What staging would prove, and what it would not" lists every file and line. Nothing in them is edited by
-the change that adds this section.
+**THE NINE FILES DO CHANGE, AND THE OWNER AGREED TO IT ON 2026-10-11 — decision J. This paragraph is the
+rule 20 line.** Rule 20 says changing a test is the owner's call and never the assistant's, and that a
+test which was allowed to change "gets its own line in the pull request saying what changed and who
+agreed to it". What changed: **nine sign-in helpers each gain one field**,
+`gotrue_meta_security: { captcha_token: … }`. Who agreed: **the owner, 11 October 2026**, in answer to
+the thirteen.
+
+**And the owner decided the SHAPE as well, which is the part that matters a year from now: ONE EXPORTED
+CONSTANT that every test and script imports**, not nine copies of a literal. Nine copies of a magic
+string from another company's documentation is the shape `evidence/build-it-16-suspend-functions.md`
+already records about `checkSuspension` — "a copy that drifts is a script that fails for a reason that
+has nothing to do with what it is testing" — and it gives the repository one place to change if
+Cloudflare ever changes the value.
+
+**Where the constant lives is NOT decided**, and it is the one loose end: `web/tests/staging.mjs` is the
+obvious home, and the eight scripts under `scripts/staging/` do not import from `web/tests/` today.
+`docs/rate-limits.md` lists every file and line, and carries that question in its "Not confirmed" list.
+**Nothing in any of the nine is edited by the change that adds this section**, which is documents-only.
+
+### What a person sees, which is decision K — Cloudflare's "Managed" mode
+
+**The owner asked for Cloudflare's "managed" mode IF that is one of its widget modes, and asked for the
+modes to be confirmed from Cloudflare's own documentation rather than taken on trust. It is one of them,
+and it is the one Cloudflare recommends.** Read on 2026-10-11 from
+[Widget types](https://developers.cloudflare.com/turnstile/concepts/widget/) — **fetched twice with
+different questions, which agreed** — there are three, and the page's own label is "**Managed**
+(recommended)":
+
+| Mode | What Cloudflare says a visitor sees |
+|---|---|
+| **Managed** — chosen | "Automatically chooses between non-interactive or checkbox challenge based on visitor risk level." When it does ask, "the visitor will be prompted to select a box", and "There will be no images or text to decipher." |
+| Non-interactive | "Visitors will see a widget with a loading spinner while the challenges run in their browsers", and "visitors will never be required or prompted to interact with the widget." |
+| Invisible | "visitors will never interact with the Turnstile widget", and "Visitors will also not see a widget or any indication that an invisible browser challenge is in progress." |
+
+**So what a volunteer signing in actually sees, in one sentence: a small box below the password field
+that usually settles itself, and sometimes asks them to tick it — never a puzzle, never an image to
+identify, and never a word to retype.** That sentence is what the three screens have to be built to make
+true, and it is the one a privacy page can repeat to somebody who asks what the box is.
+
+**Why Managed and not Invisible, which is the comparison worth making.** Invisible costs a volunteer
+nothing at all to look at, so it is the obvious choice until you ask what happens when it fails:
+
+- **A visible widget is the only thing that can tell somebody why they are stuck.** The cost named below
+  is that signing in starts needing JavaScript. With an **invisible** widget, a person whose browser
+  blocked the script sees a sign-in form that simply refuses them, with nothing on the screen to connect
+  the refusal to. A box that failed to load is a box they can see failed to load.
+- **It is the mode Cloudflare recommends**, and on a control standing in front of everybody's sign-in,
+  departing from the vendor's own default wants a reason rather than a preference.
+- **The tick is the honest version of what is happening.** Something is being checked about this visitor;
+  a mode chosen so that nobody notices is a mode chosen so that nobody is told.
+
+**What it costs, stated:** on a risky-looking request a volunteer has one extra tap, and that will
+sometimes fall on somebody with a shared or mobile address who has done nothing wrong.
+
+**And one thing read off a different page rather than that one, so it is not written as a fact: the free
+plan probably shows Cloudflare's branding.** The [Plans](https://developers.cloudflare.com/turnstile/plans/)
+page lists "the ability to remove Cloudflare branding" among what Enterprise adds, so the free tier keeps
+it — an inference from what a pricing page says Enterprise buys, not a statement about the widget, and
+the widget page says nothing about branding at all. **If it holds, another company's name appears on this
+app's sign-in screen**, which is a thing to have decided rather than discovered. Nobody has looked at a
+rendered widget.
 
 ### What a person sees if the CAPTCHA cannot load, and the thing it costs
 
@@ -1554,12 +1774,20 @@ note about exactly that.
 
 - **The wording on the three screens.** Decided when the screens are built, with the two requirements above
   kept.
-- **Whether the widget is visible or invisible.** Cloudflare publishes both, and the choice changes what a
-  person sees; nobody has been asked.
+- ~~**Whether the widget is visible or invisible.**~~ **Decided 2026-10-11 — Managed**, which is visible
+  and sometimes asks for a tick. The subsection above is the decision and the reasoning; this line is
+  struck through rather than deleted, because a question that gets answered is worth as much on the record
+  as one that stays open.
+- **Where the one exported constant for the test token lives.** Decision J settled that there is one;
+  `web/tests/staging.mjs` is the obvious home and the eight scripts under `scripts/staging/` do not import
+  from `web/tests/` today.
 - **Whether `/auth/v1/resend` and `/auth/v1/verify` are covered.** The CAPTCHA page names "forms" and no
   endpoints, so this is **not confirmed** and is on `docs/rate-limits.md`'s list.
-- **Anything about the Auth rate limits themselves.** They are dashboard settings nobody has read;
-  `docs/rate-limits.md` proposes figures and the owner decides.
+- ~~**Anything about the Auth rate limits themselves.**~~ **Decided: the two numbers are E and F, and
+  both dashboards have now been read (D).** What is left is neither a decision nor a reading: **the
+  figures are chosen and set nowhere**, which are different things, and one of the two is aimed at a
+  field whose label does not match the documentation's. `docs/rate-limits.md` section 3 is the list of
+  what somebody still has to do by hand, and its row 11 says what to read before touching it.
 
 ## The sign-up and reset emails move to Resend
 
@@ -1569,11 +1797,21 @@ feature, no new button, and **no new company**: Resend already sends this app's 
 **which of this app's emails go through it** — and therefore **what Resend holds about people**, which is
 why it is in the plan and not only in `docs/stack.md`.
 
+**Decided 2026-10-11, and this section was written before those decisions rather than after them.** Two of
+the owner's thirteen belong here, and both came back as proposed:
+
+| | Decided |
+|---|---|
+| **L** Custom SMTP on **production** | **Yes.** Resend, `smtp.resend.com`, port 465, username `resend`, password an API key |
+| **M** Staging keeps the **built-in sender** | **Yes** — so there is no second SMTP configuration and no second place a credential that can send email as this app lives |
+
 **What it is.** The **sign-up confirmation** and the **password-reset** email stop being sent by Supabase's
 built-in sender and start being sent by **Resend, through Supabase Auth's custom SMTP setting**. On
 **production**. The owner sets it by hand in the dashboard; nothing in this repository sends either email,
 and nothing in this change sends them either — `supabase/functions/invite-member` is untouched and keeps its
-own `EMAIL_API_KEY`.
+own `EMAIL_API_KEY`. **Nothing is configured on either project on the day this was written**, so every
+sentence below about what Resend will hold is about what the decision means and not about what has
+happened.
 
 **This is not an improvement. It is a repair, and the plan should say so in the first paragraph.** From
 Supabase's own page: "Unless you configure a custom SMTP server for your project, Supabase Auth will refuse
@@ -1640,7 +1878,7 @@ read the answer. What does change is that the sentence is **true more often**, w
 
 ### What staging does: nothing, and that is the proposal
 
-**PROPOSED, for the owner: staging keeps Supabase's built-in sender and is not given custom SMTP.** Three
+**DECIDED 2026-10-11 (M): staging keeps Supabase's built-in sender and is not given custom SMTP.** Three
 reasons, and the third is the deciding one:
 
 - **Staging's email already goes nowhere real.** `invite-member` on staging redirects every message to
@@ -1654,10 +1892,11 @@ reasons, and the third is the deciding one:
   through Resend would be a second copy of a credential that can send email as this app — for no benefit,
   because nothing on staging needs a real volunteer to receive anything.
 
-**What that costs, stated:** staging cannot be used to check that custom SMTP works. So **the first time
-this arrangement is exercised is on production**, which is the one thing about it the owner should see before
-agreeing. The check is small and it is the owner's: one sign-up with the test mailbox, after the setting is
-saved, and see whether the email arrives.
+**What that costs, stated, and the owner took the decision with it in front of them:** staging cannot be
+used to check that custom SMTP works. So **the first time this arrangement is exercised is on
+production.** The check is small and it is the owner's: one sign-up with the test mailbox, after the
+setting is saved, and see whether the email arrives. **That one sign-up does two jobs** — it is also the
+only thing that would confirm the refusal this section is a repair for, which nobody has observed.
 
 ### What this section deliberately does not decide
 
@@ -1843,7 +2082,7 @@ free text that could contain absolutely anything.
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
 | A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
-| How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
+| How many times a person used each limited feature on each day — **two features today, THREE once Build it 25's upload count is built** | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. **AND THE TWO EDGE FUNCTIONS THAT WRITE IT ARE LIVE IN BOTH PROJECTS, WHICH THIS CELL DENIED UNTIL 2026-10-11.** It said they "are **deployed nowhere**, so the table is empty in both projects", and [#230](https://github.com/build-once/team-tasks/issues/230) had said that was stale since 8 October. What is known, and it is different for each project: **STAGING** has both functions, deployed by the owner on 2026-10-08, and **the table is NOT empty** — the coach read two rows off it through the read-only connector, `ai_suggestions` used 4 and `invitations` used 1 (`evidence/build-it-22-daily-limits-counting.md` § 12). **PRODUCTION** got both functions on the merge of PR #228, run [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server functions to production: success" — and **whether production's table holds a row has never been read by anybody** ([#222](https://github.com/build-once/team-tasks/issues/222)). What can be said about it without reading it: `invite-member` there counts every send, and `suggest-subtasks` there writes nothing, because `not_configured` is decided before the count. **"Empty" was the one kind of error this register must not make**, which is why the correction is written out rather than swapped in. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering. Unchanged by the third feature word | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 | **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **BUILT, THREE COPIES EXIST, ONE HAS BEEN RESTORED, AND COPIES NOW EXPIRE**: `.github/workflows/backup-production.yml`, `.github/workflows/backup-freshness.yml` and `scripts/backup/` are exercised in CI against made-up data on every pull request (`evidence/build-it-24-nightly-copy.md`). This cell has said "**NO COPY HAS EVER BEEN MADE**", then "**the workflow has never run**", then "**NO RESTORE HAS EVER FINISHED**", and all three are gone: the owner made two copies by hand on 10 Oct, **the schedule made the third by itself on 11 Oct** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), success in 38 seconds), and **the drill of 10–11 Oct put one back in 219 seconds** — 47 tables, 269 rows, one file byte for byte, signed into with a real account, project then deleted (`evidence/restore-tested.md`). **A 14-day lifecycle rule exists** on the bucket, named `delete-after-14-days`, owner-reported for 10 Oct, so the 14 days in the next column is now a thing happening rather than only a decision ([#259](https://github.com/build-once/team-tasks/issues/259)). **What is still not done**: no second drill, so 219 seconds is one measurement; no bucket lock; and `evidence/backups-on.md` does not exist, which is the open half of [#249](https://github.com/build-once/team-tasks/issues/249). **And "every night" is nightly-ish**: that first scheduled run started **5h 57m 24s** after its cron time, so the window between copies is about a day and a quarter rather than a day — `docs/backups.md` → "The two targets". The bucket, the token and the three `BACKUP_*` GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
 | **A visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — Cloudflare's "Signals" | "A CAPTCHA on the three sign-in screens" above — the CAPTCHA cannot tell a bot from a person without looking at the request, and today the only thing limiting sign-in is a Supabase default nobody has read (`docs/rate-limits.md`) | Cloudflare Turnstile — **outside this project, and a company that was not part of it the day before.** **NOTHING IS INSTALLED**: no package, no site key in any environment, no secret key in either project's Auth settings, no widget on any screen. Cloudflare's own list of what it processes is "client IP address, TLS Fingerprint, User-Agent Header and Sitekey and associated origin" ([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). **Nothing of ours stores any of it**; the token the widget hands back goes to Supabase Auth and is never written down | Cloudflare. The owner, through Turnstile's analytics, which the free plan keeps for "7 days maximum" ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). **Not this app**: no screen and no table ever holds a Signal | **Not confirmed, and no number is written here.** The addendum read on 2026-10-11 states no retention period. Read Cloudflare's own page and cite it, or write that none could be found | **They cannot**, and there is nothing of ours to remove. It is Cloudflare's record of a request, on Cloudflare's clock | **Yes** — an IP address, which is this table's standing reason for that answer. And it is the **first IP address this app chooses to send out**: the four log rows above it are written whether we want them or not |
 | **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **NOTHING IS CHANGED YET**: custom SMTP is not configured on either project, and both emails are still Supabase's own sending. What widens is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
@@ -2307,14 +2546,17 @@ second rests entirely on one passphrase.
   nothing; what settles a **deployed** refusal is a run of
   `scripts/staging/build-it-20-ai-checks.mjs`, and the production equivalent of that run does not exist,
   because rule 19 does not permit one.
-- **Unverified — "Daily limits on what costs money" is now written in full and DEPLOYED NOWHERE.** The
+- **"Daily limits on what costs money" IS DEPLOYED, IN BOTH PROJECTS, AND THIS ENTRY SAID OTHERWISE FOR
+  THREE DAYS. Rewritten 2026-10-11, which is what
+  [#230](https://github.com/build-once/team-tasks/issues/230) asked for.** Its heading read "**Unverified
+  — 'Daily limits on what costs money' is now written in full and DEPLOYED NOWHERE**". The
   nine decisions in that section's table are the owner's, taken on 2026-10-08. **Rewritten twice that
   day**: once when the migration was written, and again when the counting arrived
-  ([#221](https://github.com/build-once/team-tasks/issues/221)). The sentence this replaces said "there
+  ([#221](https://github.com/build-once/team-tasks/issues/221)). The sentence replaced then said "there
   is no `supabase/functions/_shared/limits.ts`, `suggest-subtasks` and `invite-member` are untouched, and
   no number has ever been counted anywhere but in that sandbox", and the first two clauses stopped being
-  true. Issue #221's sixth condition says this entry "can be removed"; **it cannot yet, and the reason is
-  the last bullet.** Taken one at a time:
+  true. **And then the whole entry went stale on the evening of 8 October and nobody re-read it.** Taken
+  one at a time:
 
   - **The migration is applied to staging and to production.** The owner ran `supabase db push` against
     staging from PR #224's branch on **8 October 2026** (CLI 2.75.0, one migration listed) and the coach
@@ -2335,15 +2577,37 @@ second rests entirely on one passphrase.
   - **The refusal sentence exists in three places and they agree character for character**: the function's
     `DAILY_LIMIT_MESSAGE`, `web/src/lib/suggestions.ts` for My tasks, and `web/src/lib/teams.ts` for My
     teams. `scripts/screen-state-check.mjs` section 9 compares all three.
-  - **AND NOTHING IS DEPLOYED, which is why this entry stays.** Neither Edge Function with the counting in
-    it is on staging or on production — the assistant deploys nothing (rule 19), staging is the owner's
-    step, production follows a merge. So **no number has ever been counted in a running app**, nobody has
-    ever seen the refusal on a screen, and `docs/costs.md` is still right that the vendor ceilings are the
-    only thing in the way of anything actually running.
+  - **AND BOTH FUNCTIONS ARE DEPLOYED, which is what this bullet denied.** It said "**AND NOTHING IS
+    DEPLOYED, which is why this entry stays.** Neither Edge Function with the counting in it is on staging
+    or on production ... So **no number has ever been counted in a running app**, nobody has ever seen the
+    refusal on a screen, and `docs/costs.md` is still right that the vendor ceilings are the only thing in
+    the way of anything actually running." **Every clause of that is now wrong except one.** What is true,
+    and it is two different answers:
 
-  **Decided is not the same as true, written is not the same as applied, and applied is not the same as
-  deployed.** This entry stays until a staging run shows the limit refusing and the count read back off
-  the table — issue #221's fifth condition, which is the owner's step and has not happened.
+    | | What is known, and from where |
+    |---|---|
+    | **Staging** | **Both functions, deployed by the owner on 2026-10-08, and seen to work.** A before-and-after pair of runs of `scripts/staging/build-it-20-ai-checks.mjs`: before, five simultaneous asks all allowed and the ask after the limit answered 200; after, **429, code `daily_limit`, and the plan's sentence character for character**. The coach then read **two rows** off the table — `ai_suggestions` used 4, `invitations` used 1. `evidence/build-it-22-daily-limits-counting.md` § 12 |
+    | **Production** | **Both functions, on the merge of PR #228** — merge commit `aaec96a`, merged 2026-10-08T16:33:09Z, run [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), **"Deploy server functions to production: success"**. So `invite-member` counts every real send there and refuses the twenty-first. **Nobody has read a row, or the EXECUTE grant, off production** ([#222](https://github.com/build-once/team-tasks/issues/222)) |
+
+    **The one clause that survives, narrowed to where it is still true:** the vendor ceiling is the only
+    thing in the way **for `suggest-subtasks` on production**, because `not_configured` is decided before
+    the count, so with no `AI_API_KEY` there nothing is counted and nothing is sent.
+
+    **And three things the staging record does NOT establish**, kept because they are the shape of what is
+    left rather than a hedge: the refusal was seen **at a temporary limit of 4**, on a local branch the
+    owner then restored to 20 and deleted, so **the twentieth has never been reached anywhere**; **the
+    invitation limit has never been reached at all**; and **nobody has seen the sentence on either screen**
+    ([#212](https://github.com/build-once/team-tasks/issues/212)).
+
+  **Decided is not the same as true, written is not the same as applied, applied is not the same as
+  deployed — AND DEPLOYED IS NOT THE SAME AS READ BACK, which is the step this entry now rests on.** Issue
+  #221's fifth condition — a staging run showing the limit refusing, and the count read off the table —
+  **is met**, and #221's sixth condition says this entry "can be removed". **It is kept, narrowed to
+  production**: nobody has read a row or a grant off production's table, and until somebody has, what this
+  app does to a volunteer's twenty-first invitation is a reading of a green deploy job rather than
+  something observed. **The reason this entry outlived its own trigger by three days is worth more than
+  the correction**: it was not a guess, it was a sentence nobody re-read, and rule 14 is about exactly
+  that.
 - **Decided, so no longer open — the four questions this list carried on the morning of 2026-10-08.** How
   long a count is kept (7 days, removed by the counting statement), whether the limits stay at 20 (they
   do), whether a retry counts (it does), and when the count is written (before the paid call, never given
@@ -2735,6 +2999,43 @@ second rests entirely on one passphrase.
   the production project reference: it is an identifier of that kind, and this repository is public.
   **Not set yet** — it is on `docs/backups.md`'s by-hand list.
 
+- **THE THIRTEEN DECISIONS OF 2026-10-11 ARE DECISIONS AND NOTHING MORE. Not one of them is applied
+  anywhere.** The CAPTCHA is not installed, custom SMTP is configured on neither project, the two Auth
+  rate limits are chosen and **set nowhere**, leaked-password protection is not switched on, the upload
+  count and the 500-task cap have no migration, and the nine test files are untouched. **What IS done is
+  two of the thirteen**: the minimum password length, which the owner had already set on 7 October, and
+  the reading of both Rate Limits pages, which the owner did the same day. `docs/rate-limits.md`
+  section 3 is the list of what is left, in the order to do it.
+- **Owner-reported, not seen by anybody writing this — both projects' Authentication → Rate Limits
+  pages.** Read by the owner on **2026-10-11** from a screenshot: **both projects identical, every value
+  at the documented default** — sending emails 2 per hour (not editable), SMS 30 per hour (not editable),
+  token refreshes 150 per 5 minutes, token verifications 30 per 5 minutes, anonymous users 30 per hour
+  (not editable), sign-ups and sign-ins 30 per 5 minutes, Web3 30 per 5 minutes (not editable). **Nobody
+  writing this opened a dashboard and nothing in this repository can.** Two consequences this list has to
+  carry: **seven rows were reported and the documentation's table has eleven**, so the two 60-second
+  per-user windows on the sign-up and reset emails are **still unread** — and they are the per-person
+  throttle on exactly the two emails Build it 25 moves; and **no check in this repository would notice
+  if a value changed tomorrow**, which is the same gap `docs/claims.md` already names about the
+  minimum password length.
+- **NOT CONFIRMED, AND DECISION F RESTS ON IT — what the dashboard field called "token refreshes"
+  actually covers.** The documentation's row at the same number is "Token endpoint requests", path
+  `/auth/v1/token`, and says it "covers password, refresh token, ID token, and PKCE grants". The
+  dashboard calls it **"token refreshes"**. **If it is refreshes only, nothing editable limits a password
+  sign-in at all**, and decision F sets a careful number on the wrong field while the real sign-in path
+  stays at whatever the platform does — which would make the CAPTCHA the *only* thing in front of
+  sign-in rather than the second thing. Settled by the help text beside that field, or, after F is
+  applied to **staging**, by thirty-one password sign-ins from one address.
+- **NOT CONFIRMED, AND DECISION B RESTS ON IT — whether a policy's `with check` may perform a write.**
+  An upload has no Edge Function in its path, so the daily count of uploads would have to be written from
+  inside `attachments_may_add()`, which the `INSERT` policy calls. **Nothing read or tried says
+  that is allowed, or what becomes of the count when the statement it is checking is then refused.** A
+  count kept on a refused upload is the wrong way round; one lost on a successful upload is worse.
+  Settled on a local PostgreSQL sandbox, not by a page — the shape
+  `evidence/build-it-23-attachments-bucket.md` already uses.
+- **Nothing can violate the 500-task cap today, and that is worth one line rather than an assumption.**
+  Production has no accounts at all and staging has three test ones; nobody has 500 tasks. So the
+  migration for decision C cannot fail on existing rows — and the way to be sure is a `count(*)` per
+  owner before it is applied, which `docs/rate-limits.md` shows cannot print a row.
 - **Unverified — the whole CAPTCHA section describes an intention. Nothing is installed.** No Turnstile
   account or widget has been seen by anybody writing this, no site key is in any Vercel environment, no
   secret key is in either project's Auth settings, no widget is on any screen, and no code was written.

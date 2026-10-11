@@ -203,9 +203,15 @@ Unlike the Sentry row, the figures here were read from the vendor's own pages on
   person pressing a button, or a loop in our own code pressing it for them. 2,500 calls is a lot for six
   volunteers and nothing at all for a retry loop, which is why **usage counts and daily limits are
   Build it 22** (`docs/plan.md`). **Those now exist in this repository** (issue
-  [#221](https://github.com/build-once/team-tasks/issues/221)) and are **deployed nowhere**, so for
-  anything actually running the 5-dollar limit is still the only thing in the way. The section "Daily
-  limits per person" below says where each half stands.
+  [#221](https://github.com/build-once/team-tasks/issues/221)) **and are DEPLOYED IN BOTH PROJECTS,
+  which this bullet denied until 2026-10-11.** It said they "are **deployed nowhere**, so for anything
+  actually running the 5-dollar limit is still the only thing in the way"
+  ([#230](https://github.com/build-once/team-tasks/issues/230) had said that was stale since 8 October).
+  **The narrow version is still true and it is the one that matters here**: for `suggest-subtasks` **on
+  production** the 5-dollar limit is the only thing in the way, because `not_configured` is decided
+  before the count and production has no `AI_API_KEY`, so no row is written and nothing is sent. **On
+  staging the count is live and was seen to refuse** — 429, code `daily_limit`, at a temporary limit of
+  4. The section "Daily limits per person" below says where each half stands.
 - **Whether a payment method is on the Anthropic account has not been checked**, and a spend limit
   implies one. Check it in the Console before trusting the banner at the top of this page for this
   service.
@@ -301,12 +307,23 @@ same day**, when the counting arrived (issue
 - **Both functions count** — `suggest-subtasks` immediately before the request to Anthropic,
   `invite-member` immediately before each send including a retry — and refuse with the plan's sentence
   once the day's count is reached.
-- **And none of that is deployed to either project.** The assistant deploys nothing (rule 19); staging is
-  the owner's step and production follows a merge. **So nothing is limited in any running app today**, and
-  the figures below are still arithmetic on a design rather than a measurement of anything that has run.
+- **AND ALL OF IT IS DEPLOYED, IN BOTH PROJECTS — corrected 2026-10-11.** This bullet said "**And none of
+  that is deployed to either project.** ... **So nothing is limited in any running app today**", and it
+  was wrong from the evening of 8 October ([#230](https://github.com/build-once/team-tasks/issues/230)).
+  **Staging** got both functions by the owner's hand that day and the refusal was seen — 429, code
+  `daily_limit` — at a temporary limit of 4, with two rows read back off the table. **Production** got
+  both on the merge of PR #228, run
+  [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server
+  functions to production: success". **Nobody has read a row off production's table**
+  ([#222](https://github.com/build-once/team-tasks/issues/222)).
 
-That last line is the one that matters for this page: until the deploy, the vendor ceilings below are
-still the only thing in the way, exactly as they were yesterday.
+**So what this page has to say is now split, and the split is the useful part.** For **invitations on
+production**, the daily limit is live: every send is counted and the twenty-first in a UTC day is
+refused, so the vendor ceiling is no longer the only thing in the way. For **AI suggestions on
+production**, it is: `not_configured` is decided before the count, so with no key there nothing is
+counted and nothing is sent, and the 5-dollar spend limit is the whole of the protection. **The figures
+below are still arithmetic on a design rather than a measurement** — the twentieth has not been reached
+in either project, so nothing here has been observed at the limit.
 
 > **The owner read this section on 2026-10-08 and kept both limits at 20, and kept this arithmetic as
 > written.** That is worth recording here rather than only in the plan, because the arithmetic says the
@@ -422,10 +439,24 @@ know it is done." Build it 25 part 0 read them. The figures, cited:
 | Both endpoints, per IP | "Defaults to 30 requests per 5 minutes, with bursts up to 30 requests" (same page) |
 | Once custom SMTP is saved | "a low rate-limit of 30 messages per hour is imposed. To adjust this to an acceptable value for your use case head to the Rate Limits configuration page" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp)) |
 
-**Every one of those is a DEFAULT, and the page says the customizable ones are changed in
-"Authentication > Rate Limits" in the dashboard. Nobody has read what either project is set to**, so
-none of the figures above is a fact about this app. `docs/rate-limits.md` is the full inventory and
-section 3 of it is the owner's by-hand list.
+**AND THE OWNER HAS NOW READ BOTH DASHBOARDS, so those figures ARE this app's — 2026-10-11.** This
+paragraph said "**Every one of those is a DEFAULT** ... **Nobody has read what either project is set
+to**, so none of the figures above is a fact about this app." The owner read staging's and production's
+**Authentication → Rate Limits** pages the same day and reported them **identical, with every value at
+the documented default**, from a screenshot. So:
+
+- **the 2 emails an hour is what production is set to**, not what Supabase publishes — and the
+  dashboard shows it as **not editable**, which is consistent: the field becomes editable once custom
+  SMTP is saved, and that is why the by-hand list cannot do it first;
+- **the 30 per 5 minutes on sign-ups and sign-ins is what both projects are set to**, and it is editable;
+- **two of the four figures above were NOT in the report** — the 60-second per-user windows on
+  `/auth/v1/signup` and `/auth/v1/recover`, which are the per-person throttle on exactly the two emails
+  this section is about. **They remain unread.**
+
+**It is owner-reported, from a screenshot**: nobody writing this opened a dashboard, and **no check in
+this repository would notice if a value changed tomorrow.** `docs/rate-limits.md` has the seven rows as
+reported, the four that were not, and the one thing the reading turned up that is not reassuring — the
+dashboard calls the sign-in limit "token refreshes".
 
 **And the reading turned up something worth more than the rate, which is the one thing on this page
 that is not about money.** The same custom-SMTP page: Supabase Auth "will refuse to deliver messages to
@@ -781,15 +812,26 @@ question does not get re-asked from scratch.
     — `evidence/build-it-22-daily-limits-counting.md` has the red runs.
   - **The migration is applied to staging and to production.** The owner applied it to staging on 8
     October 2026 and the production workflow applied it on the same merge; the coach read both back.
-  - **NOTHING IS DEPLOYED.** Neither Edge Function with the counting in it is on staging or on
-    production: the assistant deploys nothing (rule 19). **So no number has ever been counted in a
-    running app, and nothing is limited in one.**
-  - **And no figure in that section is a measurement even after it is deployed.** The per-call cost rests
-    on an assumed input token count (the entry below), and the worst case rests on the limit rather than
-    on observed use. What a deploy would settle is whether the refusal happens, not what it costs.
+  - **IT IS ALL DEPLOYED, IN BOTH PROJECTS — corrected 2026-10-11.** This bullet said "**NOTHING IS
+    DEPLOYED.** Neither Edge Function with the counting in it is on staging or on production ... **So no
+    number has ever been counted in a running app, and nothing is limited in one.**" Every clause of
+    that was wrong from the evening of 8 October, and
+    [#230](https://github.com/build-once/team-tasks/issues/230) had said so. **Staging**: both functions
+    deployed by the owner that day, the refusal seen (429, `daily_limit`) at a temporary limit of 4, and
+    two rows read off the table by the coach. **Production**: both functions on the merge of PR #228, run
+    [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server
+    functions to production: success" — and **no row has ever been read off production's table**
+    ([#222](https://github.com/build-once/team-tasks/issues/222)).
+  - **And no figure in that section is a measurement even now that it is deployed.** The per-call cost
+    rests on an assumed input token count (the entry below), and the worst case rests on the limit rather
+    than on observed use. **The twentieth has not been reached in either project**, so what is observed
+    is a refusal at 4 on staging and nothing at all at 20.
 
-  This entry stays until a staging run shows the limit refusing and the count read back off the table —
-  which is issue #221's fifth condition, is the owner's step, and has not happened.
+  **This entry stays, narrowed.** Issue #221's fifth condition — a staging run showing the limit
+  refusing, and the count read back off the table — **is met**. What is not: a row read off
+  **production**, the twentieth reached anywhere, and the invitation limit reached at all. **The reason
+  it took three days to correct is worth more than the correction**: nothing was guessed, a sentence was
+  simply not re-read, and rule 14 is about exactly that.
 - **Still not confirmed — the input token count the Anthropic worst case rests on.** 1,000 is the same
   assumption carried since 2026-10-07, and the fixed instructions that would let somebody count it now
   exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an
