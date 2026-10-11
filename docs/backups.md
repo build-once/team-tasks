@@ -30,6 +30,29 @@ names is closed for the database *and the one attached file* as of today.
 | **12:56** | **a copy.** 47 tables, 0 files, **138,272 bytes** stored, read back and verified |
 | **15:07** | **a copy with the first attached file in it.** 47 tables, **1 file of 1,178,671 bytes**, 1,309,392 bytes stored |
 
+**AND THE SCHEDULE RAN ITSELF FOR THE FIRST TIME — 11 October 2026**, which is the only version of this
+job that copies anything on a night nobody is watching.
+[38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), event `schedule`,
+**success in 38 seconds**: `Done in 15s: 1 copy, 47 table(s), 1 file(s), 1309424 bytes stored.` The
+`report-failure` job was `skipped`, as `if: failure()` must be on a good night. **Three copies now
+exist.** It also printed production's PostgreSQL version — **17.6**, against a `pg_dump` 17.11 on the
+runner — which is the number [#262](https://github.com/build-once/team-tasks/issues/262) was open for.
+
+**IT STARTED 5h 57m 24s LATE**, and that is this page's business rather than a curiosity, because it is
+the number the data-loss target is made of. The cron line asks for **01:23 UTC** and the run was created
+at **07:20:24Z**. "The two targets" below is reworded for it, and "One more, which is about the schedule
+and not the data" carries GitHub's own sentences — including one this repository had never quoted, that a
+queued job may be **dropped** rather than merely delayed.
+`evidence/build-it-24-nightly-copy.md` section 14 is the whole record.
+
+**One thing the success hid, and it is still true as this is written:**
+[#268](https://github.com/build-once/team-tasks/issues/268) "Backup did not run" — opened by the 12:42
+failure above — **is still open**, three successful copies later, because the job only ever opens or
+comments and nothing closes it. So the public record says this is broken while it works, and the next
+real failure will arrive as a comment on an alarm everybody has stopped reading.
+[#272](https://github.com/build-once/team-tasks/issues/272) is that, and it is the mirror of
+[#264](https://github.com/build-once/team-tasks/issues/264).
+
 **AND THE FIRST RESTORE DRILL FOUND A FAULT, the same day, which is what a drill is for.** The owner
 restored the 15:07 copy into a new project with this repository's 11 migrations applied. The three
 completeness checks passed, the database went in, and then:
@@ -130,16 +153,67 @@ first on the page because a backup with no target is a backup nobody can call ad
 | **How much data we are willing to lose** | **at most one day** | If production is destroyed at 23:00, we accept losing what changed since the last nightly copy. For six volunteers ticking off jobs, that is at worst a day's ticks and a day's new tasks — re-typable. A file attached that day is **not** re-typable, which is the one place this target is uncomfortable |
 | **How long we are willing to be down** | **at most a few hours** | From "production is gone" to "the six can sign in and see their tasks again". Not minutes: there is one owner, no on-call, and the app is a to-do list for a volunteer group |
 
+**AND THE FIRST TARGET IS NOT WHAT THIS DESIGN DELIVERS — MEASURED 2026-10-11, NOT REASONED.** The
+target above is the owner's and stands as the **intention**. What follows is what the mechanism actually
+gives, and the two are not the same number. This paragraph is here rather than in a footnote because
+"at most one day" was the sentence anybody would have quoted.
+
+**The measurement.** The first scheduled run asked for **01:23 UTC** and was created at **07:20:24Z** —
+**5h 57m 24s late** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695)).
+The job itself takes 38 seconds, so none of that is the job: it is the queue. GitHub's own page, read
+**2026-10-11**:
+
+> "The `schedule` event can be delayed during periods of high loads of GitHub Actions workflow runs."
+> "High load times include the start of every hour."
+> **"If the load is sufficiently high enough, some queued jobs may be dropped."**
+
+— [Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+
+**The third sentence is the one that changes the number, and this repository had never quoted it.** A
+late copy stretches the window; a **dropped** copy doubles it, and nothing in this design notices either.
+
+**So the window, stated as the four cases rather than as one word** — arithmetic done in this session
+from the one delay actually observed:
+
+| Between two scheduled copies | The window |
+|---|---|
+| both on time | **24h 00m 00s** |
+| one on time, the next as late as the one delay we have measured | **29h 57m 24s** |
+| a night dropped, the next on time | **48h 00m 00s** |
+| a night dropped, the next that late | **53h 57m 24s** |
+
+**Reworded, and this is the sentence to quote instead of the one above: we lose at most about a day and
+a quarter on a normal night, and about two and a half days if GitHub drops a run — and we would not know
+which had happened.** The first figure is measured once; the second is GitHub's own published behaviour
+and has not been observed here.
+
+**What it does not change.** Nothing about the *database*, which Supabase backs up daily on its own
+clock ([#262](https://github.com/build-once/team-tasks/issues/262)'s run shows production at PostgreSQL
+17.6) — the delay only widens the window for the **attached files**, which this job is the only copy of.
+So the target is met for the database and missed, by hours, for the one thing nobody can retype. That is
+the same asymmetry the map below is built around, with a number on it for the first time.
+
+**Three things could narrow it, none of them built, and the owner decides whether any is worth it:**
+
+| | |
+|---|---|
+| **Run it more than once a night** | Two crons, twelve hours apart, make a dropped or delayed run cost half as much. It costs a second copy's storage and operations — on the free tier's published allowances, nothing at this size (`docs/costs.md`) |
+| **Notice when a copy is overdue** | Does not narrow the window; it means somebody *knows*. This is [#264](https://github.com/build-once/team-tasks/issues/264), and the proposal is at the end of this page |
+| **Accept it and write it down** | Entirely defensible for six volunteers, and it is what this page now does. The point of the rewording is that "about a day" was being read as a guarantee |
+
 **What today's answers actually are, against those two.** This is the whole point of the map below,
 so it is stated before it:
 
 | | Today, for the database | Today, for the attached files |
 |---|---|---|
-| **Data lost** | **about a day at worst** — Supabase takes a daily backup, so the target is met for the database | **about a day, as of 10 October 2026.** This said "everything, permanently. Nothing backs the files up at all", and the 15:07 copy is what changed it: the one file in production is in a copy at Cloudflare |
+| **Data lost** | **about a day at worst** — Supabase takes a daily backup, so the target is met for the database | **about a day and a quarter, and about two and a half days if GitHub drops a run — measured 2026-10-11.** This said "everything, permanently. Nothing backs the files up at all", and the 15:07 copy is what changed it: the one file in production is in a copy at Cloudflare. Then the first scheduled run started **5h 57m 24s** late, which is where the two figures come from — see the rewording above |
 | **Time down** | **STILL NOT KNOWN, and now for a better reason.** A restore has been *tried*: the database went into a new project and the files did not, so there is no measured end-to-end number yet ([#249](https://github.com/build-once/team-tasks/issues/249)). The dashboard's "Restore to new project" is still marked Beta and still unpressed | the same drill, the same answer: not yet |
 
-So one of the four cells is a pass, one is a total gap, and two are unknown. A target nobody has
-timed a restore against is an aspiration.
+**So of the four cells: one is a pass, one MISSES THE TARGET BY A MEASURED AMOUNT, and two are
+unknown.** That middle cell is the change of 11 October 2026 — it has been "everything, permanently", then
+"about a day", and it is now a figure with arithmetic behind it that does not meet the target above. A
+target nobody has timed a restore against is an aspiration; a target contradicted by a measurement is
+worse, which is why the rewording is above the table rather than in a note under it.
 
 ## The map
 
@@ -480,7 +554,7 @@ and the controls on it are worth listing one by one rather than summarising.
 | **The plaintext dump is uploaded as an artifact.** This is the easy mistake and the worst one: an artifact is a downloadable copy of production's whole database, and on a public repository it is downloadable by anybody who can read the repository | **`actions/upload-artifact` is not used, at all.** The only thing that leaves the runner is the encrypted file, and it goes to R2 |
 | **The plaintext dump outlives the job** | It is written to the runner's own temporary directory, never to the checkout, and the runner is destroyed when the job ends. Nothing is written into the repository, so nothing can be committed by accident |
 | **A secret is printed, or ends up in a process list** | Every secret arrives through `env:` and is **never interpolated into a command line** — the pattern the three existing production jobs use, with the reasoning written beside them. The passphrase is passed to the encryption tool on **standard input or a file descriptor**, never as an argument |
-| **A pull request runs it** | It is on a `schedule` trigger with **no `pull_request` and no `workflow_dispatch`**, and it uses the `supabase-production` **environment**, so the secrets are reachable only by the workflow the owner means to run. `permissions: {}` at the top, `contents: read` on the job, exactly as the production workflow does |
+| **A pull request runs it** | It has **no `pull_request` trigger**, and it uses the `supabase-production` **environment**, so the secrets are reachable only by the workflow the owner means to run. `permissions: {}` at the top, `contents: read` on the job, exactly as the production workflow does. **This row said "and no `workflow_dispatch`" until 2026-10-11, and the job has had one since Build it 24 part 1** ([#258](https://github.com/build-once/team-tasks/issues/258) asked for "nightly on a schedule and by hand"). What protects this is the **environment**, not the absence of a trigger: a manual run from any branch but `main` is handed no secrets and stops at the first settings check. The workflow's own header says so at length. **`docs/architecture.md` and `docs/secrets.md` still carry the old sentence** — [#274](https://github.com/build-once/team-tasks/issues/274) |
 | **It fails quietly and nobody notices for a month** | **A silent backup job is worse than none**, because it manufactures confidence. No `continue-on-error`, and the run must go red on any failure — **and then it OPENS A GITHUB ISSUE, as `drift-check.yml` already does, as well as GitHub's own failure email** (the owner's decision of 2026-10-10). Both, because the email reaches a person on the day and the issue is still there next week. The body names what failed and when and carries **no row, no path, no file name and no part of a secret** — an issue on a public repository is as public as the log. `docs/architecture.md` has the pattern it copies, down to the exact-title match that stops thirty issues in a month. **What neither catches** is the workflow not running at all, which GitHub does to a quiet public repository after 60 days |
 | **It encrypts to nothing** — a missing or empty passphrase, so the file lands readable or the upload lands empty | Each of the three secrets gets its **own** "is it set and non-empty" step before anything runs, printing **only the name** — exactly the shape `migrate-production.yml` uses and explains, for exactly the reason it gives: a deleted or renamed GitHub secret expands to an empty string rather than raising an error |
 
@@ -492,13 +566,26 @@ reason the job does as little as possible between the dump and the encryption.
 
 **One more, which is about the schedule and not the data.** GitHub's own words: "The `schedule` event can
 be delayed during periods of high loads of GitHub Actions workflow runs. High load times include the
-start of every hour", and "In a public repository, scheduled workflows are automatically disabled when no
-repository activity has occurred in 60 days"
+start of every hour", **"If the load is sufficiently high enough, some queued jobs may be dropped"**, and
+"In a public repository, scheduled workflows are automatically disabled when no repository activity has
+occurred in 60 days"
 ([Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
-read 2026-10-10). So **a nightly copy is nightly-ish**, and in a quiet repository it **stops happening
-altogether** without anybody being told. Both belong in the gap column of this page rather than in a
-footnote: the first means the window is "about a day" and not "exactly a day", and the second means
-"nothing has run for two months" is a state this design can reach.
+read 2026-10-10 for the first and third, and **2026-10-11** for the second). So **a nightly copy is
+nightly-ish**, a night's copy can **not happen at all**, and in a quiet repository the whole thing
+**stops happening** without anybody being told. All three belong in the gap column of this page rather
+than in a footnote: the first means the window is "about a day" and not "exactly a day", the second means
+it can be two, and the third means "nothing has run for two months" is a state this design can reach.
+
+**AND THE FIRST ONE IS NO LONGER A CAUTION — IT IS MEASURED. 2026-10-11:** the first scheduled run
+started **5h 57m 24s** after its cron time. "The two targets" at the top of this page is reworded for it
+and carries the arithmetic. The off-the-hour minute GitHub recommends was already being used — the cron
+is `23 1 * * *` — and it bought nothing on the one night there is data for, which is worth knowing before
+anybody proposes moving the minute again as a fix.
+
+**The middle one has never been observed here and is the one with no answer at all.** A dropped run and
+a run that was never scheduled look identical from inside this repository: no run, no failure, no email,
+no issue. That is [#264](https://github.com/build-once/team-tasks/issues/264), and the proposal at the
+end of this page is the only thing on this page that would tell the difference.
 
 ## Not confirmed, and how to settle it
 
@@ -597,23 +684,34 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   nothing in this repository can show what any of them is set to. The three marked "set 10 Oct" are the
   owner's word; the five marked **TO SET** or **TO CREATE** have not been done as far as anybody writing
   this knows.
-- **The code exists and has never touched production.** This entry said "Nothing in this file has been
-  built or run. No workflow, no copy, no restore, no evidence file." Three of those four have changed:
-  there is a workflow, there are scripts, and `evidence/build-it-24-nightly-copy.md` records them being
-  run end to end **against made-up data on a throwaway PostgreSQL and a stand-in for both object
-  stores**. What has not changed is the one-line test for this whole page: **no copy of production has
-  ever been made, and no restore has ever been tried.** The arithmetic in `docs/costs.md` is still
-  arithmetic on a design.
-- **PARTLY ANSWERED BY THE FAILED RUN OF 10 OCT, and this is the honest scoreboard.** The entry below
-  listed four things nobody had checked against the real services. Two are now checked, one failed, and
-  one is still untouched:
+- **The code has now touched production three times, and no restore has finished. Rewritten 2026-10-11.**
+  This entry has said two things in turn and both are gone. It said "Nothing in this file has been built
+  or run. No workflow, no copy, no restore, no evidence file" — then, on 10 October, that the one-line
+  test for this whole page was "**no copy of production has ever been made, and no restore has ever been
+  tried**". Where it stands now:
+
+  | | |
+  |---|---|
+  | A workflow and scripts | **yes**, and exercised in CI on every pull request against a throwaway PostgreSQL and a stand-in for both object stores |
+  | A copy of production | **THREE.** Two by hand on 10 Oct, and one **by the schedule** on 11 Oct ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695)) |
+  | A finished restore | **NO.** One drill got the database in and stopped at the files ([#249](https://github.com/build-once/team-tasks/issues/249)). `evidence/restore-tested.md` does not exist |
+  | Anything expiring | **NO.** There is no lifecycle rule ([#259](https://github.com/build-once/team-tasks/issues/259)), so all three copies will sit there |
+
+  **So the one-line test for this page is now the third row, and only the third row: nothing has ever
+  been restored end to end.** The arithmetic in `docs/costs.md` is still arithmetic on a design, because
+  three copies of a near-empty production do not measure what a used one costs.
+- **PARTLY ANSWERED BY THE RUNS OF 10 AND 11 OCT, and this is the honest scoreboard.** The entry below
+  listed four things nobody had checked against the real services. **Three are now checked and two
+  remain**, and the fifth row is one the entry below names in its last sentence without putting it in the
+  table:
 
   | | |
   |---|---|
   | The **region** is accepted by Supabase's S3 gateway | **YES.** `PRODUCTION_SUPABASE_S3_REGION` was set to the project's own region and the signed listing was accepted |
-  | **`ListObjectsV2` paging** | **STILL NOT CHECKED.** The bucket held 0 objects, so one page was all there was. It needs a bucket with more objects than a page |
-  | The **upload** | **NO — HTTP 403**, cause not established. See the section at the top of this page |
-  | R2's **ETag** being the body's MD5 | **not reached** |
+  | **`ListObjectsV2` paging** | **STILL NOT CHECKED.** The bucket held 0 objects, then 1. One page was all there was every time. It needs a bucket with more objects than a page |
+  | The **upload** | **YES, since 10 Oct 12:56** — the 403 was `AccessDenied`, a permission fault, and the owner fixed the credential. Three copies have been written since |
+  | R2's **ETag** being the body's MD5 | **YES.** The scheduled run of 11 Oct printed `Verified by HEAD: 1309424 bytes, and the ETag matches the copy's MD5.` The job checks rather than assuming, so this is the check passing and not an assumption holding |
+  | A **5 GB single `PUT`** being allowed | **STILL NOT CHECKED, and cannot be from here.** The largest copy so far is 1,309,424 bytes — about a 4,000th of it ([#263](https://github.com/build-once/team-tasks/issues/263)) |
 
 - **Not verified — anything about how the job behaves against the real services.** Everything the proof
   establishes, it establishes about **our code**: that it signs correctly for a server that recomputes
@@ -623,3 +721,88 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   that `ListObjectsV2` pages as the stand-in does, not that R2's ETag is the body's MD5 (the job checks,
   and says so rather than assuming), and not that a 5 GB single `PUT` is allowed. The first real run is
   what settles those, which is why it should be started **by hand** and watched.
+
+## Should anything notice when no copy has been made for N hours? — PROPOSED 2026-10-11, FOR THE OWNER
+
+**This is a proposal and nothing is built.** It is written here rather than only in
+[#264](https://github.com/build-once/team-tasks/issues/264) because the delay measured on 11 October
+decides one of its numbers, and that measurement is on this page.
+
+**The question, in one line: should something go red when the newest object in `team-tasks-backups` is
+older than it ought to be — and if so, after how many hours?**
+
+### Why it is being asked now rather than left in the issue
+
+Every control in this design watches a run that **fails**. The run goes red, GitHub emails, and a
+separate job opens or comments "Backup did not run". **A run that never starts trips none of them**,
+because there is no run — and 11 October gave that a second cause rather than one. Until then the only
+known way to get no run was the 60-day rule for a quiet public repository. Now there are two:
+
+| How you get no copy | Noticed today? |
+|---|---|
+| The run fails | **yes** — red, an email, and an issue |
+| GitHub **drops** the queued job: "If the load is sufficiently high enough, some queued jobs may be dropped" ([Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), read 2026-10-11) | **no** |
+| A quiet public repository: "scheduled workflows are automatically disabled when no repository activity has occurred in 60 days" (same page) | **no** |
+| The cron edited, the file renamed, the environment's branch policy changed, the repository archived | **no** |
+
+The second row is new on 11 October and it is the one that makes this more than hygiene: a drop needs
+**no mistake by anybody** and leaves an Actions tab with no failures in it, which looks exactly like a
+backup that is working.
+
+### What the delay decides: the threshold cannot be 24 hours
+
+This is the part the measurement settles, and it would have been got wrong without it. The interval
+between two copies is not 24 hours — **one on time and the next as late as 11 October's gives 29h 57m
+24s**, arithmetic on this page. So:
+
+| Threshold | Against the one delay already measured |
+|---|---|
+| **24h** | **WOULD HAVE FIRED FALSELY.** A perfectly good copy, 5h 57m late |
+| **30h** | Quiet, with **2m 36s** of margin. One worse night and it cries wolf |
+| **36h** | Quiet, 6h 02m of margin. Still inside one skipped night, so it would catch a drop |
+| **48h** | Quiet, 18h 02m of margin. **What #264 already proposes**, and it tolerates one dropped night without a word |
+
+**The recommendation, and the reason it is a recommendation rather than a decision: 36 hours.** It is the
+shortest threshold that is not within one bad night of a false alarm, and it still fires on the **first**
+dropped copy rather than the second — which is the failure this is for. 48 hours is the safer number and
+the cost is that a dropped night is only reported after the following night also passes. **A watcher that
+cries wolf gets ignored, and a watcher nobody reads is worse than none**, so if the owner would rather
+never see a false one, 48 is right and the paragraph above says what it costs.
+
+### What it would be, if the answer is yes
+
+Not designed in detail here. The shape #264 asks for, with what 11 October adds:
+
+- **A scheduled job that lists the bucket and judges the newest object's date**, which
+  `scripts/backup/lib.mjs`'s `objectName()` already makes sortable on purpose.
+- **It holds the two `BACKUP_STORAGE_*` settings and the endpoint, and NOT the passphrase.** That is the
+  point of it: the watcher may see that a copy is there and must not be able to open one. It is the one
+  thing in this design that could read the bucket without being able to read the data.
+- **It opens or comments one issue with its own fixed title**, the way this job and `drift-check.yml` do.
+- **It is seen to fail first** — a case in `scripts/backup/proof.mjs` handed a listing whose newest object
+  is three days old, and one handed an **empty bucket**, which is the state this is really about.
+- **And it must say what it does not cover, in its own header.** A weekly job in a quiet repository is
+  disabled by the same 60-day rule, so **this does not solve itself**. #264's fourth condition says it
+  plainly: the honest end of the chain is an alert outside GitHub, and if that is the answer, say so
+  rather than building a second thing GitHub can switch off.
+
+### Three answers that are all defensible
+
+| | |
+|---|---|
+| **Yes, at 36h** | The recommendation. Catches a drop on the first night, no false alarm on the evidence we have |
+| **Yes, at 48h** | #264's own number. Never cries wolf; reports a dropped night a day later |
+| **No — check it by hand** | Entirely reasonable for six volunteers **if** it is written down as a habit with a date, rather than left as an intention. The owner looking at the bucket once a week is a real control; the owner meaning to is not |
+
+**And one thing that is not an answer: doing nothing and leaving this page saying the window is about a
+day.** That is the combination the rewording at the top of this page exists to prevent.
+
+### A smaller, separate thing the same morning found
+
+**[#268](https://github.com/build-once/team-tasks/issues/268) is still open**, opened by the 12:42
+failure on 10 October, three successful copies later — because the job only ever opens or comments and
+**nothing closes it when a copy succeeds**. That is the mirror of this question and it is
+[#272](https://github.com/build-once/team-tasks/issues/272), filed separately: a watcher can answer #264
+without ever touching an issue's state, and this one cannot be answered without deciding who closes the
+alarm. Both are about the same thing in the end — **the public record of this job currently cannot be
+trusted in either direction.**

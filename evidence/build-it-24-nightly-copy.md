@@ -851,3 +851,156 @@ it was the thing that went red when the error classifier was missing a kind.
 - **The lifecycle rule still does not exist** ([#259](https://github.com/build-once/team-tasks/issues/259)),
   so the two copies that now exist will not expire.
 - **Nothing here was run against production, staging, R2 or the drill project by the assistant.**
+
+---
+
+## 14. THE FIRST SCHEDULED RUN WORKED, AND IT STARTED NEARLY SIX HOURS LATE
+
+**Added 2026-10-11.** Sections 12 and 13 are the owner pressing the button. This is the first time the
+job started **on its own**, which is the only version of it that backs anything up on a night nobody is
+watching.
+
+**Read from the public run log and the Actions API by the assistant. Nothing was started, no credential
+is held, and no backup file has been seen.** Every number below was read or calculated in this session.
+
+### The run
+
+| | |
+|---|---|
+| Run | [38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), attempt 1, run number 6 |
+| Event | **`schedule`** — the first one. The five before it were `workflow_dispatch` |
+| Branch | `main` |
+| Created / finished | `2026-10-11T07:20:24Z` / `2026-10-11T07:21:02Z` — **38 seconds** |
+| Conclusion | **`success`**, and every one of the six real steps succeeded |
+| The `report-failure` job | **`skipped`**, which is what `if: failure()` must do on a good night |
+
+```
+$ gh run view 38121029695 --json databaseId,workflowName,event,status,conclusion,createdAt,startedAt,updatedAt,headBranch,attempt,number,url
+{"attempt":1,"conclusion":"success","createdAt":"2026-10-11T07:20:24Z","databaseId":38121029695,
+"event":"schedule","headBranch":"main","number":6,"startedAt":"2026-10-11T07:20:24Z",
+"status":"completed","updatedAt":"2026-10-11T07:21:02Z",
+"url":"https://github.com/build-once/team-tasks/actions/runs/38121029695","workflowName":"backup-production"}
+
+exit code: 0
+```
+
+**What it printed**, which is the whole of what a copy is allowed to say out loud:
+
+```
+The dump is 655542 bytes and covers 10 schema(s).
+Counted the rows in 47 table(s). The numbers are in the manifest inside the copy and are not printed here.
+The attachments bucket holds 1 object(s). No path is printed.
+Read 1 file(s), 1178671 bytes in total. 1 of them answered with a content type, which the manifest records so a restore can put them back as they were.
+The copy checks out: 3 entries, and the accounts and the file metadata are both in the dump.
+Verified by HEAD: 1309424 bytes, and the ETag matches the copy's MD5.
+Read the object back: 1309424 bytes, SHA-256 matches, and it is encrypted.
+Nothing was deleted. Retention is the bucket's 14-day lifecycle rule, not this job's business.
+Done in 15s: 1 copy, 47 table(s), 1 file(s), 1309424 bytes stored.
+```
+
+**So three copies of production now exist**, and this is the first that nobody asked for.
+
+**And it settled a question in passing** — the one `docs/backups.md` named as the likeliest first-night
+failure, `pg_dump` being older than the server:
+
+```
+The database reports server version 17.6.
+/usr/lib/postgresql/17/bin/pg_dump reports "pg_dump (PostgreSQL) 17.11 (Ubuntu 17.11-1.pgdg24.04+2)".
+The client is major version 17 and the server is 17, so pg_dump will not refuse the server for being newer than itself.
+```
+
+Production's PostgreSQL is **17.6** — a number nobody in this repository had read until this run printed
+it, and the reason [#262](https://github.com/build-once/team-tasks/issues/262) could be closed.
+
+### IT STARTED 5h 57m 24s AFTER ITS CRON TIME
+
+The workflow asks for `23 1 * * *` — **01:23 UTC**. The run was created at **07:20:24Z**.
+
+```
+cron due             2026-10-11T01:23:00.000Z
+run created          2026-10-11T07:20:24.000Z
+LATE BY              5h 57m 24s  (21444 s)
+run duration         0h 00m 38s  (38 s)
+```
+
+**The job is not slow — it is 38 seconds long. It is the queue that was late**, and GitHub says so:
+
+> "The `schedule` event can be delayed during periods of high loads of GitHub Actions workflow runs."
+> "High load times include the start of every hour."
+> **"If the load is sufficiently high enough, some queued jobs may be dropped."**
+> "To decrease the chance of delay, schedule your workflow to run at a different time of the hour."
+
+— [Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
+read **2026-10-11** for this section.
+
+**The third sentence is the one this repository had never quoted**, and it is worse than the delay: a
+night's copy can be **dropped entirely**, not merely moved. `docs/backups.md` and
+`.github/workflows/backup-production.yml` both quoted the first two from 10 October and neither quoted
+that one.
+
+**And the workflow's own comment beside the cron line is now half wrong.** It says the off-the-hour minute
+was chosen because "nothing here needs a particular minute — the window this copy promises is 'about a
+day' either way". The minute did not help: 01:23 is already off the hour, and the run was still almost
+six hours late. What the comment gets right is that it does not matter much; what it gets wrong is the
+implication that the window is therefore still a day.
+
+### What that does to the window, which is the part that is not just trivia
+
+| | |
+|---|---|
+| on-time to on-time | **24h 00m 00s** |
+| on-time, then this late | **29h 57m 24s** |
+| a night **dropped**, then on time | **48h 00m 00s** |
+| a night dropped, then this late | **53h 57m 24s** |
+
+The gap actually observed between the newest two copies is **16h 13m 55s** — the 15:07 manual copy on
+10 October to this one — so no data was at risk for longer than usual this time. **That is luck, not
+design**: the previous copy happened to be a mid-afternoon manual one. Between two *scheduled* copies the
+first row of that table is the promise and the second is what one delay already costs.
+
+**So "at most one day of data lost" is not what this design delivers**, and `docs/backups.md` → "The two
+targets" is reworded in the same change rather than left to be discovered. The target is the owner's and
+is unchanged as an *intention*; what changed is the honest statement of what meets it.
+
+### AND IT EXPOSED SOMETHING THE SUCCESS HIDES
+
+**[#268](https://github.com/build-once/team-tasks/issues/268) "Backup did not run" is still open**, and
+it was opened by the **12:42 failure on 10 October**. Three successful copies have been made since, one
+of them by the schedule, and nothing closed it.
+
+```
+$ gh issue list --state all --limit 15 --json number,title,state ...
+268 OPEN   Backup did not run
+266 CLOSED Backup did not run
+```
+
+The job **only ever opens or comments** — `backup-production.yml` lines 275-282, and there is no path in
+it that closes anything. The owner closed #266 by hand and did not close #268, which is exactly what
+anybody would do with two identically-titled issues on a busy afternoon.
+
+**Two consequences, and the second is the sharp one:**
+
+- **The public record says the backup is broken when it is working.** Anybody asking "is the nightly copy
+  OK?" sees an open issue saying "There is no copy for this date … the files have no copy for as long as
+  this keeps failing."
+- **The next real failure will comment on #268 rather than open a new issue**, because the matcher takes
+  the lowest-numbered open issue with that exact title. So a genuine failure arrives as comment number two
+  on an alarm everybody has already learned to ignore, under a body that links a run from 10 October.
+
+That is the mirror of [#264](https://github.com/build-once/team-tasks/issues/264): #264 is "nothing
+notices when the copies stop", and this is "nothing notices when they start again". It is filed
+separately rather than folded into #264, because #264 can be answered by a watcher that never touches an
+issue's state and this one cannot.
+
+### What this run does NOT establish
+
+- **No restore has finished.** Unchanged. `evidence/restore-tested.md` still does not exist
+  ([#249](https://github.com/build-once/team-tasks/issues/249)).
+- **The lifecycle rule still does not exist** ([#259](https://github.com/build-once/team-tasks/issues/259)),
+  so **all three** copies will sit there until somebody removes them. The run says
+  `Nothing was deleted. Retention is the bucket's 14-day lifecycle rule, not this job's business.` — and
+  that rule is not there, so today the sentence describes an intention.
+- **One scheduled run is not a measured delay distribution.** 5h 57m is one sample. It is enough to prove
+  the delay is hours rather than minutes, and not enough to say what the worst case is.
+- **Nothing here was run against production, R2 or GitHub by the assistant.** The run is the schedule's;
+  everything above was read from a public log and a public API.
