@@ -91,13 +91,25 @@
 # and names NO environment, so it holds not one of the backup secrets: the
 # thing that writes to the public issue tracker cannot read the passphrase.
 #
+# AND A SUCCESS CLOSES IT, which it did not until Build it 24 part 2 (#272).
+# Until then nothing ever closed "Backup did not run": #268 stayed open through
+# three successful copies, saying the files had no backup, and the next real
+# failure would have landed as another comment on an alarm everybody had learned
+# to ignore. A third job does it, with the same separation -- no environment, no
+# secret, just `issues: write`.
+#
 # What neither catches: this workflow not running at all. "In a public
 # repository, scheduled workflows are automatically disabled when no repository
 # activity has occurred in 60 days"
 # (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows,
 # read 2026-10-10), and a job that never starts has no failure to report.
-# drift-check.yml names the same trap. If the backup bucket goes quiet, that is
-# the first thing to look at.
+# drift-check.yml names the same trap.
+#
+# THAT IS WHAT .github/workflows/backup-freshness.yml IS FOR (#264, the owner's
+# threshold of 36 hours, 11 Oct 2026): it goes by what is IN THE BUCKET rather
+# than by what a run said, so a night GitHub drops -- which it publishes that it
+# may -- is noticed. It holds the two storage settings and NOT the passphrase.
+# It cannot catch its own silence, and says so in its own header.
 
 name: backup-production
 
@@ -280,3 +292,61 @@ jobs:
           else
             gh issue create --title "Backup did not run" --body-file "$body"
           fi
+
+  # Runs ONLY when the copy succeeded, and it is the other half of the alarm.
+  # Issue #272: until this job existed, nothing ever closed "Backup did not run",
+  # so #268 sat open through three successful copies saying the files had no
+  # backup -- and the NEXT real failure would have arrived as comment number two
+  # on an issue everybody had learned to ignore. A stale alarm manufactures
+  # indifference, which is how the next real one gets missed.
+  #
+  # WHY IT IS A THIRD JOB AND NOT A STEP IN `copy`, which is #272's own first
+  # condition: the job holding the nine production secrets deliberately holds no
+  # write access to the issue tracker, and the job that writes to the tracker
+  # deliberately holds no secrets. That ordering is not to be broken for
+  # convenience, so this names NO environment and has only GitHub's own job
+  # token.
+  #
+  # IT CLOSES EVERY open issue with that exact title, not just the first. Two
+  # identically-titled issues is exactly what happened on 10 October 2026 (#266
+  # and #268), and closing one of two would leave the alarm half-stale.
+  close-alarm:
+    name: Close the "Backup did not run" issue, because a copy was made
+    needs: copy
+    if: success()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Close any open "Backup did not run" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          open_issues="$(gh issue list --state open --search 'Backup did not run in:title' \
+            --json number,title --jq '[.[] | select(.title == "Backup did not run") | .number] | join(" ")')"
+          if [ -z "$open_issues" ]; then
+            echo "No open \"Backup did not run\" issue, so there is nothing to close. That is the ordinary good night."
+            exit 0
+          fi
+          body="$RUNNER_TEMP/backup-recovered.md"
+          {
+            echo "**A copy of production was made, so this alarm is resolved.**"
+            echo
+            echo "- Run: $RUN_URL"
+            echo "- Started by: ${GITHUB_EVENT_NAME}"
+            echo "- Workflow: .github/workflows/backup-production.yml"
+            echo
+            echo "Closed by the workflow itself rather than by hand, so the next failure opens a FRESH issue instead of arriving as another comment on this one (#272)."
+            echo
+            echo "Nothing about the copy is repeated here: this issue is public, so it carries no row, no path, no file name, no count and no part of any secret. The run log says what it did, in the same terms."
+          } > "$body"
+          for number in $open_issues; do
+            gh issue comment "$number" --body-file "$body"
+            gh issue close "$number"
+            echo "Closed #$number, because this run made a copy."
+          done

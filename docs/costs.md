@@ -203,8 +203,13 @@ Added 2026-10-10, when the owner chose R2 for the nightly copy (`docs/plan.md` �
 production, held by another company"; `docs/backups.md` is the map of what it covers). Like the Anthropic
 row and unlike Sentry's, the figures were read from the vendor's own page on that date.
 
-- **Nothing is built, so nothing has been stored and nothing can be billed today.** No workflow, no copy,
-  no object in the bucket. The bucket itself exists, by the owner's report of 10 October 2026.
+- **Three copies are now stored, and nothing has been billed yet.** This bullet said "**Nothing is
+  built, so nothing has been stored and nothing can be billed today.** No workflow, no copy, no object in
+  the bucket." As of 11 October 2026 the bucket holds **three objects**, the largest **1,309,424 bytes**,
+  and a **14-day lifecycle rule** (owner-reported, 10 Oct) will start removing them. **No invoice has
+  been seen**, and at about 4 MB stored this is thousands of times inside the 10 GB-month free tier. The
+  freshness watcher adds **four listings a day**, against a free allowance of a million Class A and ten
+  million Class B operations a month.
 - **The free tier is the ceiling that matters here, and this design sits well inside it** at the plan's
   six people. The backups section below has the arithmetic, including the **headcount at which it stops**
   — which turns out to be lower than the headcount Supabase's own storage allowance runs out at, and is
@@ -523,9 +528,20 @@ per-person cap on opening files — which does not exist today and is not being 
 ## Backups: what the nightly copy and a restore drill cost
 
 Added 2026-10-10 for Build it 24 part 0 (`docs/plan.md` → "A nightly copy of production, held by another
-company"; `docs/backups.md` is the map of what is covered and what is not). **Documents only: there is no
-workflow, no copy has ever been made, no object exists in the bucket, and no restore has ever been tried.**
-Every figure below is read from a provider's page on that date and cited, or marked not confirmed.
+company"; `docs/backups.md` is the map of what is covered and what is not). Every figure below is read
+from a provider's page on that date and cited, or marked not confirmed.
+
+**THIS SECTION'S OPENING SENTENCE IS NO LONGER TRUE, and the arithmetic in it is still arithmetic.** It
+said: "**Documents only: there is no workflow, no copy has ever been made, no object exists in the
+bucket, and no restore has ever been tried.**" As of 11 October 2026 there is a workflow, **three copies
+of production**, **a 14-day lifecycle rule** (owner-reported, 10 Oct), **a restore drill that finished in
+219 seconds** — and a second workflow, the freshness watcher, which adds four bucket listings a day.
+
+**What that does NOT change is any number below.** Three copies of a production holding **269 rows and
+one file of 1,178,671 bytes** measure nothing about a used one: the largest copy so far is 1,309,424
+bytes, about a 4,000th of the single-`PUT` ceiling nobody has tested. **And no bill has been seen.** So
+every figure here is still a calculation against a published price, not an observation — which is what
+the "Not confirmed" list at the end of this section says, and it is still the honest reading.
 
 **Three things could cost something here, and which of the three it is will surprise you.** Keeping the
 copies is **free**. The restore drill costs **pennies**, because it creates a project. And **reading the
@@ -754,11 +770,19 @@ question does not get re-asked from scratch.
   for each and how somebody else can tell it is settled, the same way
   [#231](https://github.com/build-once/team-tasks/issues/231) gathers the Storage ones. **The S3-egress
   one is the most expensive unknown on this page.**
-- **Unverified — the whole backups section is arithmetic on a design, and NOTHING IS BUILT.** Added
-  2026-10-10 for Build it 24 part 0. There is **no workflow, no copy, no object in the bucket, no lifecycle
-  rule and no restore drill**, so nothing has been stored, nothing has been read and no allowance has been
-  touched. The **14-copy window is a proposal**, not a decision, and every figure in that section moves
-  with it.
+- **Unverified — the whole backups section is still arithmetic, AND IT IS NO LONGER ARITHMETIC ON
+  NOTHING. Rewritten 2026-10-11.** This entry said: "There is **no workflow, no copy, no object in the
+  bucket, no lifecycle rule and no restore drill** ... The **14-copy window is a proposal**, not a
+  decision." Every clause of that is gone: there is a workflow, three copies, a 14-day lifecycle rule
+  (owner-reported, 10 Oct), and a restore drill that finished in 219 seconds. **The 14 days is the
+  owner's decision of 10 October, not a proposal.**
+
+  **What is still unverified is the thing that matters: no bill has been seen, and nothing has been
+  measured at a size that means anything.** The largest copy is **1,309,424 bytes**, of a production
+  holding 269 rows and one file. Every figure in that section is a calculation against a published
+  price. And the freshness watcher adds **four bucket listings a day** — Class A or Class B operations,
+  which the pricing page's free tier covers by a wide margin and which nobody has counted against a
+  real invoice either.
 - **Not confirmed — whether an R2 lifecycle rule or a bucket lock rule is charged for.** The pricing page
   lists four things and neither of those two is among them; neither feature's own page names a price. The
   backups section says "not confirmed" rather than "free", and the only cost either could produce is
@@ -819,7 +843,10 @@ service, the authoritative place is the billing settings page of the real accoun
    tier and the operation counts against the **1 million / 10 million**, and check whether a payment method
    is on the account. While you are there, look for whether a spend cap or a usage alert exists as a
    setting at all — nothing read on 2026-10-10 says it does. **And confirm the lifecycle rule is actually
-   there**, because it is what makes the retention window real rather than intended.
+   there**, because it is what makes the retention window real rather than intended. The owner reports
+   setting it on 10 Oct 2026 — named `delete-after-14-days`, whole bucket, Enabled — and **nobody else
+   has seen it**; the cheap confirmation is whether the copy of 10 October is still in the bucket in
+   about a fortnight.
 8. **Registrar** → record the renewal price, not the introductory price.
 
 Do that before real users arrive, alongside `docs/launch-check.md`.

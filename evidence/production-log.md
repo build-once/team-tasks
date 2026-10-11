@@ -484,6 +484,16 @@ restored a backup into a scratch database and checked the data" — and **neithe
 reports both as TODO. This entry is most of the evidence the first one asks for and **none** of the
 second's. [#249](https://github.com/build-once/team-tasks/issues/249) holds both.
 
+> **Later, 11 October 2026 — the second half of that is done, and this entry is left as it was written.**
+> The owner ran the restore drill on 10–11 October and `evidence/restore-tested.md` now exists: 219
+> seconds, 47 tables, 269 rows, one file byte for byte, signed into with a real account, the project and
+> the local files deleted. **"No restore has ever been tried" was true on 10 October and is not now**, and
+> the sentence above is kept rather than rewritten because this is a log of what was seen on a date.
+> **`evidence/backups-on.md` still does not exist**, so the first half of #249 is still open — what it
+> needs is Supabase's own **retention** read off the Backups page, which is the one thing this entry's
+> own reading did not record. The drill restored a copy of **ours**; Supabase's "Restore to new project"
+> is still marked Beta and still unpressed.
+
 **What the connector read settles, and it is more than it looks.** 11 migrations with
 `20261008191804` newest, against **11 `.sql` files in `supabase/migrations/`** — counted in this
 session by listing the directory. So **production holds every migration in this repository**,

@@ -1,0 +1,231 @@
+# backup-freshness.yml -- ASKS ONE QUESTION, four times a day: is there a recent
+# copy of production in the backup bucket? It reads nothing else, writes nothing
+# anywhere, and CANNOT OPEN A COPY.
+#
+# docs/plan.md -> "A nightly copy of production, held by another company".
+# docs/backups.md -> "Should anything notice when no copy has been made" is the
+# proposal this is built from, including the arithmetic behind the 36 hours.
+# scripts/backup/check-fresh.mjs is the script, and its header is the long form
+# of everything below.
+#
+# ---------------------------------------------------------------------------
+# WHY IT EXISTS: EVERY OTHER CONTROL WATCHES A RUN THAT FAILS
+#
+# Issue #264. backup-production.yml goes red when it fails, GitHub emails, and a
+# job opens "Backup did not run". **A run that never STARTS trips none of them,
+# because there is no run.** Three documented ways to get no run:
+#
+#   * GitHub drops the queued job: "If the load is sufficiently high enough, some
+#     queued jobs may be dropped."
+#   * A quiet public repository: "In a public repository, scheduled workflows are
+#     automatically disabled when no repository activity has occurred in 60
+#     days." Both from
+#     https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows,
+#     read 2026-10-11.
+#   * Somebody edits the cron, renames the file, changes the environment's branch
+#     policy, or archives the repository.
+#
+# In every one of those the Actions tab shows no failures at all, which looks
+# exactly like a backup that is working.
+#
+# AND IT CANNOT CATCH ITS OWN SILENCE, which #264's fourth condition asks to be
+# said here rather than discovered: this is a scheduled workflow in the same
+# public repository, so the 60-day rule switches IT off too, and a bad enough
+# GitHub day drops it as well. The honest end of this chain is an alert from
+# outside GitHub, and nothing here is one.
+#
+# ---------------------------------------------------------------------------
+# 36 HOURS, AND FOUR TIMES A DAY -- WHAT THAT ACTUALLY DELIVERS
+#
+# The threshold is the owner's decision of 11 October 2026, and it is 36 rather
+# than 24 because the first scheduled copy started **5h 57m 24s** after its cron
+# time: two perfectly good copies can be **29h 57m 24s** apart. A 24-hour
+# threshold would have cried wolf over a good copy, and a watcher nobody believes
+# is worse than none.
+#
+# The cron runs it every six hours, so the arithmetic is: a missed copy is
+# reported **between 36 and 42 hours** after the last good one. Stated rather
+# than implied, because "36 hours" read on its own sounds like 36.
+#
+# The minute is 47 and the hours are even multiples of six: GitHub's own page
+# says "High load times include the start of every hour", and nothing here needs
+# a particular minute.
+#
+# ---------------------------------------------------------------------------
+# WHAT IT HOLDS, AND THE ONE THING IT MUST NOT
+#
+# It names the `supabase-production` environment, because that is where the two
+# storage settings live -- and it references **three** of that environment's
+# values and no others. **`BACKUP_PASSPHRASE` appears nowhere in this file**, so
+# nothing in this job can open a copy. That is the whole point of it (#264: "the
+# watcher should not be able to read a copy, only to see that one is there"), and
+# it is the one thing in this design that could read the bucket without being
+# able to read the data.
+#
+# It makes a LISTING and never a GET, so the only bytes it sees are keys and
+# sizes. It prints the newest key, which carries a date and nothing else -- the
+# same thing backup-production.yml already prints, and consistent with what
+# docs/backups.md says Cloudflare knows anyway.
+
+name: backup-freshness
+
+on:
+  # 00:47, 06:47, 12:47 and 18:47 UTC. See the header for why six-hourly and
+  # why minute 47.
+  schedule:
+    - cron: "47 */6 * * *"
+  # So somebody can ask the question on the day rather than waiting for the next
+  # slot -- after a GitHub incident, say.
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: backup-freshness
+  cancel-in-progress: false
+
+jobs:
+
+  check:
+    name: Is there a copy of production newer than 36 hours?
+    runs-on: ubuntu-24.04
+    environment: supabase-production
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      # Three names, and NOTHING BUT THE NAMES is printed. A GitHub secret or
+      # variable that was deleted, renamed or never created expands to an EMPTY
+      # STRING rather than raising an error -- the same reason every other
+      # production job here has a step like this one.
+      - name: The three settings this job needs must be present
+        env:
+          BACKUP_STORAGE_ENDPOINT: ${{ vars.BACKUP_STORAGE_ENDPOINT }}
+          BACKUP_STORAGE_KEY: ${{ secrets.BACKUP_STORAGE_KEY }}
+          BACKUP_STORAGE_SECRET: ${{ secrets.BACKUP_STORAGE_SECRET }}
+        run: |
+          set -u
+          missing=""
+          for name in BACKUP_STORAGE_ENDPOINT BACKUP_STORAGE_KEY BACKUP_STORAGE_SECRET; do
+            value="${!name-}"
+            if [ -z "${value//[[:space:]]/}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These settings are missing or empty, so the backup bucket was not read and nothing was judged:$missing. Set them at Settings -> Environments -> supabase-production; docs/backups.md -> 'What the owner must set by hand' lists every one. If this was a manual run from a branch other than main, that is the cause: the environment releases its secrets to main only. No value is printed by this workflow."
+            exit 1
+          fi
+          echo "All three settings are present. No value is printed. BACKUP_PASSPHRASE is deliberately not one of them."
+
+      - name: Judge the newest copy's age
+        env:
+          BACKUP_STORAGE_ENDPOINT: ${{ vars.BACKUP_STORAGE_ENDPOINT }}
+          BACKUP_STORAGE_KEY: ${{ secrets.BACKUP_STORAGE_KEY }}
+          BACKUP_STORAGE_SECRET: ${{ secrets.BACKUP_STORAGE_SECRET }}
+        run: node scripts/backup/check-fresh.mjs
+
+  # Runs ONLY when the check went red, and holds NO storage credential: it names
+  # no environment, so the thing that writes to a public issue tracker cannot
+  # read the bucket either. Same shape as backup-production.yml's own two
+  # reporting jobs, down to the exact-title match -- `gh issue list --search`
+  # matches WORDS, not titles, so an issue called "No recent copy of production
+  # again" would come back from the search and must not be treated as the one.
+  report-overdue:
+    name: Open or comment the "No recent copy of production" issue
+    needs: check
+    if: failure()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or comment the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/backup-overdue.md"
+          {
+            echo "**No copy of production has been made recently enough.**"
+            echo
+            echo "- Run: $RUN_URL"
+            echo "- Started by: ${GITHUB_EVENT_NAME}"
+            echo "- Workflow: .github/workflows/backup-freshness.yml"
+            echo
+            echo "The run log above says what it found: how many objects are in the bucket, which is the newest, and how old it is against the 36-hour limit. Nothing else is repeated here, on purpose: this issue is public, so it carries no row, no path, no file name and no part of any secret."
+            echo
+            echo "**What it means.** The attachments bucket has no other backup at all (#248), so every night this stays true is a night the files are uncovered. Supabase's own daily backups still cover the database."
+            echo
+            echo "**Where to start, in this order.**"
+            echo "1. The Actions tab, \`backup-production\`. A run that FAILED would have gone red and opened its own issue, so **no failed run means no run at all**."
+            echo "2. GitHub drops queued scheduled jobs under load, and switches scheduled workflows off in a public repository after 60 days with no activity. Either leaves exactly this: no run, no failure, no email."
+            echo "3. Then the ordinary causes: the cron edited, the workflow renamed, the environment's branch policy changed, a revoked R2 token."
+            echo
+            echo "Run \`backup-production\` by hand (it has a \`workflow_dispatch\`) to get a copy today, and this issue closes itself on the next good check."
+            echo
+            echo "docs/backups.md -> \"Should anything notice when no copy has been made\" is why this check exists, and docs/plan.md -> \"A nightly copy of production\" is what it is protecting."
+          } > "$body"
+          existing="$(gh issue list --state open --search 'No recent copy of production in:title' \
+            --json number,title --jq '[.[] | select(.title == "No recent copy of production") | .number] | first // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+            echo "Commented on the open \"No recent copy of production\" issue #$existing rather than opening a second one."
+          else
+            gh issue create --title "No recent copy of production" --body-file "$body"
+          fi
+
+  # And the other half, which the backup job did not have until #272 and which
+  # this one is not going to repeat: a good check CLOSES the alarm, so the public
+  # record is trustworthy in both directions and the next overdue copy opens a
+  # fresh issue instead of commenting on one everybody has stopped reading.
+  close-overdue:
+    name: Close the "No recent copy of production" issue, because there is one
+    needs: check
+    if: success()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Close any open "No recent copy of production" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          open_issues="$(gh issue list --state open --search 'No recent copy of production in:title' \
+            --json number,title --jq '[.[] | select(.title == "No recent copy of production") | .number] | join(" ")')"
+          if [ -z "$open_issues" ]; then
+            echo "No open \"No recent copy of production\" issue, so there is nothing to close. That is the ordinary good day."
+            exit 0
+          fi
+          body="$RUNNER_TEMP/backup-fresh-again.md"
+          {
+            echo "**There is a copy of production inside the limit again, so this alarm is resolved.**"
+            echo
+            echo "- Run: $RUN_URL"
+            echo "- Workflow: .github/workflows/backup-freshness.yml"
+            echo
+            echo "Closed by the workflow itself rather than by hand, so the next overdue copy opens a FRESH issue instead of arriving as another comment on this one. That is the mistake #272 recorded about the backup job's own alarm, not repeated here."
+            echo
+            echo "Nothing about the copy is repeated: this issue is public, so it carries no row, no path, no file name and no part of any secret."
+          } > "$body"
+          for number in $open_issues; do
+            gh issue comment "$number" --body-file "$body"
+            gh issue close "$number"
+            echo "Closed #$number, because there is a recent copy."
+          done

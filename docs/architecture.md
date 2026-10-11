@@ -96,12 +96,15 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
    +-----------------------------------------------------------------------+
    |  THE NIGHTLY COPY  -  CLOUDFLARE R2 chosen 10 Oct 2026.               |
-   |  NOTHING IS BUILT: no workflow, and no copy has ever been made.       |
+   |  BUILT. Three copies exist; one has been RESTORED, in 219 s.          |
+   |  Retention: a 14-day R2 lifecycle rule (owner, 10 Oct).               |
    |  A PRIVATE bucket "team-tasks-backups", region WEUR. Public           |
    |  development URL DISABLED, no custom domain.                          |
    |                                                                       |
-   |  (15) A SCHEDULED GITHUB ACTIONS JOB, nightly, no pull_request and    |
-   |       no workflow_dispatch, in the supabase-production environment.   |
+   |  (15) A SCHEDULED GITHUB ACTIONS JOB, nightly AND by hand, with no    |
+   |       pull_request trigger, in the supabase-production environment    |
+   |       -- whose branch policy is what keeps a branch out, not the      |
+   |       absence of a trigger.                                           |
    |       READS: the whole production DATABASE through                    |
    |              PRODUCTION_SUPABASE_DB_URL -- *** SECRET ***             |
    |              and every FILE in the attachments bucket, through a      |
@@ -121,6 +124,17 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |              way drift-check.yml does, as well as GitHub's own        |
    |              failure email. Decided 10 Oct. A silent backup job       |
    |              manufactures confidence rather than losing data.         |
+   |       ON SUCCESS: a third job CLOSES that issue, so the next real     |
+   |              failure opens a fresh one instead of commenting on an    |
+   |              alarm everybody has stopped reading. #272.               |
+   |                                                                       |
+   |  (16) A SECOND SCHEDULED JOB, four times a day: is the newest copy    |
+   |       younger than 36 HOURS? It holds the two BACKUP_STORAGE_*        |
+   |       secrets and NOT the passphrase, so it can see that a copy is    |
+   |       there and cannot open one. It lists the bucket and never        |
+   |       reads an object. Opens, comments and closes its own issue.      |
+   |       It CANNOT catch its own silence: a quiet public repository      |
+   |       switches a scheduled workflow off after 60 days. #264.          |
    |                                                                       |
    |  OLD COPIES: removed by an R2 LIFECYCLE RULE at 14 days, never by     |
    |  the job. A 13-day BUCKET LOCK is PROPOSED beside it, which would     |
@@ -210,6 +224,13 @@ credentials — the same class as `PRODUCTION_SUPABASE_DB_URL`, which this file 
 run-time side for exactly this reason ("a **deploy credential, not a run-time key**: it never appears in
 a request from a volunteer's browser"). Nothing a person does in the app can make arrow (15) fire, and no
 screen can reach it. It has its own section below.
+
+**And a second one, added 2026-10-11: arrow (16), the freshness check.** Same class as (15) — a scheduled
+job, no screen can reach it — and **it is the narrowest credential-holding arrow on this map.** It holds
+the two `BACKUP_STORAGE_*` secrets and **not `BACKUP_PASSPHRASE`**, so it can see that a copy is in the
+bucket and cannot open one; it makes a listing and never reads an object. That is its whole point
+([#264](https://github.com/build-once/team-tasks/issues/264)): the one thing in this design that can
+check the backups without being able to read them.
 
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
@@ -735,16 +756,26 @@ built: there is no workflow file". There is now:
 
 | | |
 |---|---|
-| `.github/workflows/backup-production.yml` | the nightly job, and the separate job that opens an issue when it fails |
+| `.github/workflows/backup-production.yml` | the nightly job, the separate job that opens an issue when it fails, and the separate job that **closes** it when a copy succeeds (#272) |
+| `.github/workflows/backup-freshness.yml`, `scripts/backup/check-fresh.mjs` | four times a day: is the newest copy in the bucket younger than **36 hours**? It holds the two storage settings and **not the passphrase**, so it can see that a copy is there and cannot open one (#264) |
 | `scripts/backup/make-backup.mjs` | dump, list, read, pack, check, encrypt, upload, verify |
 | `scripts/backup/restore-backup.mjs` | download, decrypt, unpack, check, restore, compare — the tool `docs/restore-runbook.md` uses |
 | `scripts/backup/lib.mjs`, `s3.mjs` | the format, the manifest, the completeness check, the log scanner, SigV4; and the four S3 verbs over `fetch`. **No new dependency** (rule 17) |
 | `scripts/backup/proof.mjs`, `standin-store.mjs` | the whole sequence end to end against a throwaway PostgreSQL and a stand-in for both stores, in CI on every pull request |
 
-**What is still not true, and is the only sentence that matters here: NO COPY OF PRODUCTION HAS EVER
-BEEN MADE.** The workflow has never run — it runs on a schedule from `main`, so it cannot until this
-merges — three of the settings it needs are not set, and no restore has ever been tried.
-`evidence/build-it-24-nightly-copy.md` is what has been seen, which is all of it against made-up data.
+**WHAT HAS ACTUALLY HAPPENED SINCE, AND THE ONE SENTENCE THAT MATTERS HERE IS NOW THE LAST OF THEM.**
+This paragraph said "**NO COPY OF PRODUCTION HAS EVER BEEN MADE.** The workflow has never run ... three
+of the settings it needs are not set, and no restore has ever been tried."
+
+| | |
+|---|---|
+| Copies of production | **three** — two by hand on 10 Oct 2026, one by the schedule on 11 Oct |
+| The settings | all nine work, which a green run proves and nobody's word could |
+| A finished restore | **yes — 219 seconds**, 47 tables, 269 rows, one file byte for byte, signed into with a real account. `evidence/restore-tested.md` |
+| **Still never done** | **a second drill**, and **the freshness watcher has never run against the real bucket** |
+
+`evidence/build-it-24-nightly-copy.md` is the run against made-up data, and still the only thing in this
+repository that anybody writing it has watched happen.
 
 **Why it exists, in one line.** Supabase's own daily backups cover the database and **not** the files:
 "Database backups do not include objects you store via the Storage API, as the database only includes
@@ -1130,7 +1161,7 @@ members of that team stop seeing each other's tasks, and which team a task used 
 | Server functions | Creating a team, the invite flow, and anything else needing a secret key | Supabase Edge Functions | **Secret** — server side only. The key lives in the function's settings on Supabase, never in a file |
 | Where secrets live | Run-time app keys: service-role key, Resend key, Anthropic key. **Credentials CI uses: eight, plus three variables** — the deploy pair, the project ref, the two Supabase S3 halves, the two Cloudflare R2 halves and the backup passphrase. **No run-time app key is among them**, which is the sentence this row exists to protect | Run-time keys in **Supabase Edge Functions secrets**; every CI credential in the **`supabase-production` GitHub environment**, branch-limited to `main`; a git-ignored `.env` locally | **Secret** — never in git, never in Vercel, never in a browser, never in chat. **`BACKUP_PASSPHRASE` is the one that cannot be re-issued** |
 | Email | Sends the one email the app needs: "you have been invited" | Resend — **not set up yet** | **Secret** API key, held in Supabase |
-| Backups | Daily copies of the **database**, so a mistake is survivable — **and they do not include the files**: "Database backups do not include objects you store via the Storage API" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10). **No restore has ever been tried** (#249) | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none. (That claim is in doubt: production had seven dailies dated before its Pro transfer — #247) | **Secret** — owner only |
+| Backups | Daily copies of the **database**, so a mistake is survivable — **and they do not include the files**: "Database backups do not include objects you store via the Storage API" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10). **No SUPABASE backup has been restored** — its "Restore to new project" is marked Beta and unpressed (#249). **A copy of OURS has been**, in 219 seconds, on 10–11 Oct 2026 (`evidence/restore-tested.md`); the files come from the nightly copy to Cloudflare R2, not from here | Supabase automatic backups — **Pro plan only**, so production has them and free staging has none. (That claim is in doubt: production had seven dailies dated before its Pro transfer — #247) | **Secret** — owner only |
 | The nightly copy | Closes the gap in the row above: copies the whole database **and every attached file**, encrypted on GitHub's runner before it leaves, so a restore brings the files back too (#248). Added 10 Oct 2026, **nothing built** | **Cloudflare R2**, a private bucket `team-tasks-backups` in WEUR — **a fifth company, and the only outside service that holds this app's data without being able to read it** | **Secret**, and two of them have to be held together: `BACKUP_STORAGE_KEY` + `BACKUP_STORAGE_SECRET` get the file, `BACKUP_PASSPHRASE` opens it. All three in the `supabase-production` GitHub environment. **The passphrase has one readable copy, in the owner's password manager; lose it and no copy can ever be opened** |
 | CI/CD | Checks every pull request, then deploys `main`, and applies database migrations to production | GitHub Actions, then Vercel | **Public** repo settings. The web app deploy runs through the GitHub–Vercel connection, so there is no deploy key to hold. The migration job holds the single GitHub Actions secret, `PRODUCTION_SUPABASE_DB_URL` |
 | Hosting | Builds and serves the web app | Vercel | **Public** only — the Supabase URL and publishable key. No secret lives here |
@@ -1201,10 +1232,15 @@ Before any real volunteer signs up:
   **Both halves moved on 10 October 2026, in opposite directions.** Production *is* on Pro, by the owner's
   transfer that day. And the first half turns out not to be enough: **those backups do not include the
   files** (#248), so "automatic daily backups exist" covers the database and leaves the one thing in this
-  app nobody can retype uncovered. That is what the nightly copy above is for, and **it is not built.**
-  The restore half is untouched and still undone — `scripts/launch-check.mjs` reports `backups-on` and
-  `restore-tested` as TODO because neither evidence file exists (#249), and the restore drill belongs in a
-  temporary project deleted the same day, **never staging** (`docs/plan.md`, `docs/backups.md`).
+  app nobody can retype uncovered. That is what the nightly copy above is for, and **it is now built and
+  has made three copies.**
+  **AND THE RESTORE HALF IS DONE — 10 to 11 October 2026.** This bullet said it was "untouched and still
+  undone". The owner ran the drill in a temporary project in the Pro organisation, **never staging**
+  (`docs/plan.md`, `docs/backups.md`), and deleted it the same day: **219 seconds**, 47 tables, 269 rows,
+  one file byte for byte, signed into with a real account. So `scripts/launch-check.mjs` no longer reports
+  `restore-tested` as TODO. **`backups-on` still is**, because `evidence/backups-on.md` does not exist —
+  what the owner read on the Backups page is in `evidence/production-log.md` instead of in the file the
+  check reads (#249).
 - `main` protected — still open, see `docs/stack.md` decision D.
 - Invitation email working from a verified domain, not Supabase's built-in test sender.
 - Error monitoring set up — **Sentry** chosen on 5 Oct 2026, **nothing installed yet**, and it needs to

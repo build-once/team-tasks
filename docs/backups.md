@@ -7,16 +7,18 @@ the gap.
 Written 2026-10-10 for Build it 24 part 0 ([#252](https://github.com/build-once/team-tasks/issues/252)),
 against commit `cb58926`.
 
-**IT IS NOW BUILT, and NO COPY OF PRODUCTION HAS EVER BEEN MADE.** This paragraph said "Documents only.
-Nothing in this file is built: there is no backup workflow, no copy has ever been made, and no restore
-has ever been tried." Build it 24 part 1
-([#258](https://github.com/build-once/team-tasks/issues/258)) is the first half of that; the second half
-is unchanged and is the only sentence on this page anybody should quote:
+**A RESTORE HAS NOW FINISHED, AND IT TOOK 219 SECONDS — 10 to 11 October 2026.** This paragraph has
+said three different things in four days and the third is the one to quote. It said "Documents only.
+Nothing in this file is built"; then that the one sentence anybody should quote was "**no restore has
+ever finished**". That stopped being true when the owner restored the 15:07 copy of 10 October into a
+new project in the Pro organisation, compared it, signed in as a real account, opened the attachment,
+and deleted the project. `evidence/restore-tested.md` is the record.
 
 | | |
 |---|---|
-| **Built** | `.github/workflows/backup-production.yml`, `scripts/backup/` (the copy, the restore, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
-| **Not done** | **No restore has ever finished.** The first drill got through the database and stopped at the files; `evidence/restore-tested.md` does not exist, so `restore-tested` is still TODO ([#249](https://github.com/build-once/team-tasks/issues/249)). The lifecycle rule is still not set, so nothing expires |
+| **Built** | `.github/workflows/backup-production.yml`, `.github/workflows/backup-freshness.yml`, `scripts/backup/` (the copy, the restore, the freshness check, the format, the proof), and `docs/restore-runbook.md`. Exercised end to end on every pull request against a throwaway PostgreSQL and a stand-in for both object stores — `evidence/build-it-24-nightly-copy.md` |
+| **Done, and it is new** | **A finished restore**, measured at **219 seconds** wall clock: 47 tables, 269 rows, one file byte for byte, the owner signed in with his own account and opened the attachment. **A 14-day lifecycle rule on the bucket**, so copies now expire. **Three copies of production**, one of them made by the schedule on a night nobody was watching |
+| **Not done** | **No second drill**, so 219 seconds is one measurement and not a range. **No bucket lock** — still the proposal of 10 October, still awaiting the owner. And **`evidence/backups-on.md` does not exist**, so half of [#249](https://github.com/build-once/team-tasks/issues/249) is still TODO: what Supabase's own Backups page says about retention has been read by the owner and is not in the file the launch check reads |
 
 **TWO COPIES OF PRODUCTION NOW EXIST — 10 October 2026.** The owner ran the job by hand five times that
 day: three refusals, then two successes. **So the sentence at the top of this page has changed for the
@@ -45,13 +47,24 @@ and not the data" carries GitHub's own sentences — including one this reposito
 queued job may be **dropped** rather than merely delayed.
 `evidence/build-it-24-nightly-copy.md` section 14 is the whole record.
 
-**One thing the success hid, and it is still true as this is written:**
+**One thing the success hid, AND BOTH HALVES OF IT ARE NOW DEALT WITH.** This paragraph said
 [#268](https://github.com/build-once/team-tasks/issues/268) "Backup did not run" — opened by the 12:42
-failure above — **is still open**, three successful copies later, because the job only ever opens or
-comments and nothing closes it. So the public record says this is broken while it works, and the next
-real failure will arrive as a comment on an alarm everybody has stopped reading.
-[#272](https://github.com/build-once/team-tasks/issues/272) is that, and it is the mirror of
-[#264](https://github.com/build-once/team-tasks/issues/264).
+failure above — **was still open**, three successful copies later, because the job only ever opened or
+commented and nothing closed it. Two things changed:
+
+- **The owner closed #268 by hand on 11 October 2026.** So the public record no longer says this is
+  broken while it works.
+- **And the job now closes it itself.** A third job in `backup-production.yml`, `close-alarm`, closes
+  every open issue with that exact title when a copy succeeds — with the same separation as the failure
+  job: no environment, no secret, only `issues: write`. That is
+  [#272](https://github.com/build-once/team-tasks/issues/272)'s first condition; its third asks for a
+  failure, a success and a second failure to be seen in sequence against the real thing, which has not
+  happened, so **#272 stays open**.
+
+**And its mirror is built too**: [#264](https://github.com/build-once/team-tasks/issues/264) — nothing
+noticing when the copies STOP — is `.github/workflows/backup-freshness.yml`, at the 36-hour threshold
+the owner decided on 11 October. "Should anything notice when no copy has been made" at the end of this
+page is the design; it is no longer a proposal.
 
 **AND THE FIRST RESTORE DRILL FOUND A FAULT, the same day, which is what a drill is for.** The owner
 restored the 15:07 copy into a new project with this repository's 11 migrations applied. The three
@@ -79,6 +92,16 @@ bucket accepts. `evidence/build-it-24-nightly-copy.md` section 13 is the whole r
   one thing it does *not* do, which is repair a half-filled table.
 - **The CI stand-in now holds the bucket's six types**, so this fault fails there first. It could not
   have before: nothing in CI cared what a PUT declared.
+
+**AND THEN THE DRILL WAS FINISHED, 10 to 11 October 2026, AND IT FOUND TWO MORE THINGS.** The owner
+restored the same copy into the same project after the 415 was fixed. `evidence/restore-tested.md` is
+the whole record; what it changed in this repository:
+
+| What the finished drill found | What was done about it |
+|---|---|
+| **Three of psql's 574 ERROR lines were syntax errors at character 1** — "trailing junk after numeric literal", and twice "syntax error at or near" a number. Those are not schema errors. **They are rows of a table being executed as SQL**, after a `COPY` was refused | The dump is no longer replayed with its data inline. Every `COPY … FROM stdin;` block is lifted into a file of its own and replayed with psql's `\copy`, in a second pass. **A row is no longer anywhere in the script psql runs**, so a refused COPY has nothing behind it to execute. "What a restore promises" below has the mechanism and the two things writing it discovered |
+| **Five more of its error kinds were being called "unexpected"** — 52 `permission denied to change default privileges`, 32 `grant options cannot be granted back to your own grantor`, 97 `permission denied for schema` across five schemas, 6 non-superuser event triggers, and two foreign keys on sign-in session rows | Each is now its own **named expected kind**, so the report says which refusal happened instead of lumping them under "not the owner". **The three syntax errors stay unexpected on purpose**: a kind for them would have hidden the bug behind a classification |
+| **`auth.refresh_tokens` came back 0 of 2 and `auth.mfa_amr_claims` 0 of 1**, because the sessions they point at were not restored | The owner's decision of 11 October: **sign-in sessions are not restored, and after a recovery everybody signs in again.** So the restore now promises a **named set** and reports everything else as "not restored, by design" with a count. "What a restore promises" below is that set |
 
 **The earlier record is kept below**, because the first failure is the reason the error code exists.
 
@@ -115,8 +138,13 @@ they need three different fixes. The run named none of them. So:
   one listing limited to a single key. The failed run dumped production's whole database in order to
   throw it away, and for those minutes production's data sat in plaintext on a runner for nothing.
 
-**None of those four is established as the cause.** The first is the one that will say. `#266` is the
-issue that run opened, and it stays open until a later run succeeds.
+**THE CAUSE IS NOW ESTABLISHED, AND IT WAS NONE OF THOSE FOUR.** This paragraph said "None of those
+four is established as the cause. The first is the one that will say." The first one did say: once the
+error code was printed, the answer was `AccessDenied` — and the owner's report of 10 October is that
+**the R2 token had been created with Object Read ONLY, and changing it to Object Read & Write is what
+ended the 403s.** A real credential, not allowed to write. So the fix was a permission and not a
+signing fault, and the one-word error code is what pointed at it; the other three changes stand on
+their own merits. `#266` was closed by the owner.
 
 **The owner settled seven decisions later the same day**, and they are recorded where each belongs rather
 than in a list at the top: the two targets below; the retention window and the restore drill's
@@ -198,7 +226,7 @@ the same asymmetry the map below is built around, with a number on it for the fi
 | | |
 |---|---|
 | **Run it more than once a night** | Two crons, twelve hours apart, make a dropped or delayed run cost half as much. It costs a second copy's storage and operations — on the free tier's published allowances, nothing at this size (`docs/costs.md`) |
-| **Notice when a copy is overdue** | Does not narrow the window; it means somebody *knows*. This is [#264](https://github.com/build-once/team-tasks/issues/264), and the proposal is at the end of this page |
+| **Notice when a copy is overdue** | **BUILT, 11 Oct 2026** — `.github/workflows/backup-freshness.yml`, at 36 hours. It does not narrow the window; it means somebody *knows*. [#264](https://github.com/build-once/team-tasks/issues/264), and the section at the end of this page |
 | **Accept it and write it down** | Entirely defensible for six volunteers, and it is what this page now does. The point of the rewording is that "about a day" was being read as a guarantee |
 
 **What today's answers actually are, against those two.** This is the whole point of the map below,
@@ -207,13 +235,118 @@ so it is stated before it:
 | | Today, for the database | Today, for the attached files |
 |---|---|---|
 | **Data lost** | **about a day at worst** — Supabase takes a daily backup, so the target is met for the database | **about a day and a quarter, and about two and a half days if GitHub drops a run — measured 2026-10-11.** This said "everything, permanently. Nothing backs the files up at all", and the 15:07 copy is what changed it: the one file in production is in a copy at Cloudflare. Then the first scheduled run started **5h 57m 24s** late, which is where the two figures come from — see the rewording above |
-| **Time down** | **STILL NOT KNOWN, and now for a better reason.** A restore has been *tried*: the database went into a new project and the files did not, so there is no measured end-to-end number yet ([#249](https://github.com/build-once/team-tasks/issues/249)). The dashboard's "Restore to new project" is still marked Beta and still unpressed | the same drill, the same answer: not yet |
+| **Time down** | **219 SECONDS, MEASURED — 11 October 2026.** This cell said "STILL NOT KNOWN" until the drill finished. That is the restore script's own wall clock, download to compared, for a 47-table, 269-row copy with one file in it; it is **not** the whole outage, which also needs making the project, applying the migrations and setting what is not in the copy. `evidence/restore-tested.md` has every step's own timing. **One measurement, not a range** — and on a near-empty production | the same drill, and the file came back byte for byte in the same 219 seconds |
 
-**So of the four cells: one is a pass, one MISSES THE TARGET BY A MEASURED AMOUNT, and two are
-unknown.** That middle cell is the change of 11 October 2026 — it has been "everything, permanently", then
-"about a day", and it is now a figure with arithmetic behind it that does not meet the target above. A
-target nobody has timed a restore against is an aspiration; a target contradicted by a measurement is
-worse, which is why the rewording is above the table rather than in a note under it.
+**So of the four cells: two are passes, one MISSES THE TARGET BY A MEASURED AMOUNT, and one has a
+number for the first time.** The middle cell is the change of 11 October — it has been "everything,
+permanently", then "about a day", and it is now a figure with arithmetic behind it that does not meet
+the target above. The last cell changed the same day and in the better direction: **"at most a few
+hours" is now supported by a measurement rather than being an aspiration**, with the caveat that 219
+seconds is one run against a production holding 269 rows, and the number that matters is the one a
+busier production would give.
+
+## What a restore promises, by name — DECIDED 2026-10-11
+
+**A restore does not bring everything back, and until 11 October 2026 it pretended to.** It compared
+every table in the copy against the restored database and called any difference a failure — so the
+first finished drill ended with "every table matched except three", which is not a verdict anybody can
+act on. Two of those three were sign-in sessions.
+
+**The owner's decision, 11 October 2026: sign-in sessions are not restored. After a recovery, everybody
+signs in again.** From that follows everything below.
+
+### What is promised
+
+**A mismatch in any of these FAILS the restore. There is no "mostly".**
+
+| | What it is |
+|---|---|
+| **Every table in `public`** | All of this app's own data: every task, every team, who is in which team, every pending invitation, everybody's nickname and AI-suggestions setting, any suspension and its reason, the daily usage counts — and anything added to `public` later, with no list to keep up to date |
+| **The accounts** | `auth.users` — the account and its hashed password; `auth.identities` — the identity that ties an email address to that account, which is what a password sign-in matches; `auth.mfa_factors` — a second factor somebody enrolled, because without it their sign-in is not the one they set up |
+| **The storage records** | `storage.objects`, which is what Storage keeps about each file — its path, its size, who uploaded it and when — and `storage.buckets`, because a file has nowhere to be without its bucket row |
+| **The files** | Every attached file, byte for byte, checked by SHA-256 against the copy's own manifest, and put back with the content type it had |
+
+### What is not restored, and why that is not a failure
+
+**Reported with a count, every time, and never as a failure.** The restore prints the number of tables
+and the number of rows it did not put back, so "not restored" is a thing you are told rather than a
+thing you discover.
+
+| | Why not |
+|---|---|
+| **Sign-in state**: `auth.sessions`, `auth.refresh_tokens`, `auth.mfa_amr_claims`, `auth.mfa_challenges`, `auth.flow_state`, `auth.one_time_tokens` | The owner's decision. Nobody loses anything they typed — they sign in again. And `auth.one_time_tokens` is a reason in its own right: every row in it is a confirmation or reset link with a clock on it, and restoring one would restart the clock |
+| **The sign-in log**: `auth.audit_log_entries` | It is a log, with IP addresses in it. `docs/plan.md`'s appendix says never to build anything on it, and a restore is not the place to start |
+| **Supabase Auth's own bookkeeping**: `auth.instances`, `auth.schema_migrations`, and the four single-sign-on tables this app does not use | A new project brings its own and refuses ours |
+| **Every other schema**: the storage internals, `realtime`, `vault`, the extensions' tables, the migration records | The same. A new project has its own, and `docs/restore-runbook.md` step 3 has you apply this repository's migrations to it before you start |
+
+**AND A TABLE NAMED IN NEITHER LIST IS PRINTED BY NAME**, which is the honest part. The account list was
+written from this project's knowledge of Supabase Auth and from the constraint names in the drill's own
+error messages — **not by reading a dump**, because the assistant never receives one. So if a Supabase
+release adds an `auth` table, the restore says so in a line of its own rather than quietly leaving it
+out. It is still not a failure; it is a thing for a person to read and decide about.
+[#276](https://github.com/build-once/team-tasks/issues/276) holds that, and the next drill's printed
+output is what settles the names.
+
+### And no row of data is ever executed as SQL again
+
+**This is the fault the finished drill found**, and it is worth its own words because the fix changed how
+a restore runs. Three of the drill's 574 ERROR lines were **syntax errors at character 1**. Reproduced
+against a real psql on 2026-10-11, the whole mechanism in three lines:
+
+```
+psql:oldway.sql:1: ERROR:  relation "public.nope" does not exist
+psql:oldway.sql:4: error: invalid command \.
+psql:oldway.sql:5: ERROR:  syntax error at or near "1" at character 1
+```
+
+A plain `pg_dump` writes a table's data **inline**, after the `COPY … FROM stdin;` line. When the server
+refuses that COPY, the rows are still in the script. psql buffers them, because "input lines are sent to
+the server when a command-terminating semicolon is reached. An end of line does not terminate a
+command"; the `\.` marker is read as a meta-command, because "Anything you enter in psql that begins
+with an unquoted backslash is a psql meta-command"; and **the next real statement's semicolon flushes
+the rows and that statement together as one**, which fails at character 1 quoting the first row's first
+column. (Both quotations:
+[psql](https://www.postgresql.org/docs/17/app-psql.html), read 2026-10-11.) The drill's own words were
+"at character 1" and "at or near" a **number** — a row's first column.
+
+**So the data no longer travels in the script.** Every COPY block is lifted into a file of its own, and
+replayed with psql's `\copy`, which "runs an SQL COPY command, but instead of the server reading or
+writing the specified file, psql reads or writes the file and routes the data between the server and
+the local file system". A refused COPY is then an error with nothing behind it.
+
+**AND NOT EVERY psql DOES IT, which CI found rather than anybody reasoning it out.** The same three-line
+script, the same server, three clients, measured 2026-10-11:
+
+| Client | ERROR lines |
+|---|---|
+| **psql 17.10**, EDB build on Windows — the owner's own machine | **3** — the refused COPY, `invalid command \.`, and the syntax error at character 1 |
+| **psql 17.11**, pgdg build on the Ubuntu runner | **1** — just the refused COPY |
+| **psql 16.15**, same runner | **1** — the same |
+
+**Why they differ is not established**, and the obvious guess is wrong: 16.15 is older than 17.10 and
+behaves like 17.11, so it is not "newer clients are fixed".
+[#280](https://github.com/build-once/team-tasks/issues/280) holds it.
+
+**It changes nothing about the fault or the fix**, and it is worth being exact about why: the client that
+reproduces it is **the one the owner actually restores with**, and a restore that is safe only on
+somebody else's psql is not safe. What it does change is what this page is entitled to claim — the
+mechanism is explained by psql's own documented sentences, and *whether psql discards the pending data
+first* is behaviour seen on one build out of three.
+
+**Two things writing that discovered, neither of them read anywhere first:**
+
+- **PostgreSQL's own `\restrict` hardening.** A current `pg_dump` wraps its whole output in `\restrict
+  <token>` … `\unrestrict <token>`, and inside that region psql answers *"backslash commands are
+  restricted; only \unrestrict is allowed"*. So the `\copy` cannot live in the same file as the dump.
+  **The replay is therefore two psql passes**: the dump with its hardening untouched, then a script of
+  nothing but our own `\copy` lines. Switching that protection off to save a process was considered and
+  refused.
+- **`pg_dump` orders its data section alphabetically**, measured the same day: `auth.identities` is
+  dumped before `auth.users`. A plain dump gets away with that because its own foreign keys are added
+  afterwards — but a restore into a project that already has the schema, which is what the runbook tells
+  you to do, has those keys in place while the data loads, so the child is refused before its parent
+  exists. **The restore now counts the rows and sends the short tables again**, while that number is
+  going down. It is the runbook's "run it again" advice, done by the script.
 
 ## The map
 
@@ -222,7 +355,7 @@ is the question a backup answers; the third is what covers it **today**; the fou
 
 | Where the data lives | What would be lost | What backs it up today | The gap |
 |---|---|---|---|
-| **The seven database tables** — `tasks`, `teams`, `team_members`, `invitations`, `profiles`, `account_status`, `usage_counts`. Counted in this session by reading `supabase/migrations/` | Every task, every team, who is in which team, every pending invitation and its hashed token, everybody's nickname and AI-suggestions setting, any suspension and its reason, and the daily usage counts. In short: the whole app's content | **Supabase's own daily backups.** The owner read production's Database → Backups page on 10 Oct 2026 and saw **seven daily physical backups, 3 to 9 October, each around 12:20 UTC**. Supabase: "Pro Plan projects can access the last 7 days of daily backups" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10) | **Up to a day of writes**, by Supabase's own words: "Even with daily backups, you could still lose a day's worth of data." PITR would close it — "Pro, Team and Enterprise Plan projects can enable PITR as an add-on" — and it is an add-on nobody has priced. **And no restore has been tried**, so "backed up" here means "a file exists that we believe is a backup" |
+| **The seven database tables** — `tasks`, `teams`, `team_members`, `invitations`, `profiles`, `account_status`, `usage_counts`. Counted in this session by reading `supabase/migrations/` | Every task, every team, who is in which team, every pending invitation and its hashed token, everybody's nickname and AI-suggestions setting, any suspension and its reason, and the daily usage counts. In short: the whole app's content | **Supabase's own daily backups.** The owner read production's Database → Backups page on 10 Oct 2026 and saw **seven daily physical backups, 3 to 9 October, each around 12:20 UTC**. Supabase: "Pro Plan projects can access the last 7 days of daily backups" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10) | **Up to a day of writes**, by Supabase's own words: "Even with daily backups, you could still lose a day's worth of data." PITR would close it — "Pro, Team and Enterprise Plan projects can enable PITR as an add-on" — and it is an add-on nobody has priced. **And no SUPABASE backup has been restored**, so "backed up" in this row still means "a file exists that we believe is a backup". A copy of **ours** has been restored, in 219 seconds, which is a different file and a different mechanism |
 | **The user accounts** — Supabase Auth: `auth.users` with each person's **hashed password**, plus sessions, refresh tokens and the sign-in audit log | Everybody's ability to sign in. The tasks would come back owned by user IDs that no longer exist, which is worse than losing them: a restore of the tables alone gives you data nobody can reach | **The same daily backups**, because `auth` is a schema in the same database. **Not separately confirmed**: no page read on 2026-10-10 says in as many words that the `auth` schema is included, and the page's only exclusion sentence is about Storage. It is read off "backups contain database data" plus `auth` being in the database | **A trap for the thing we build ourselves, rather than a gap in Supabase's cover.** `supabase db dump` is the obvious tool for a copy of our own and it **excludes exactly this**: it "Runs `pg_dump` in a container with additional flags to exclude Supabase managed schemas. The ignored schemas include auth, storage, and those created by extensions" ([`supabase db dump`](https://supabase.com/docs/reference/cli/supabase-db-dump), read 2026-10-10). A nightly copy built on that command would quietly contain no accounts at all |
 | **The attached files** — the bytes, in the private `attachments` bucket in the production project | **The files themselves, irrecoverably.** A photograph of a job that has since been done cannot be taken again. `docs/plan.md`'s appendix already calls this the most sensitive row it holds and the one thing in the app nobody read before it was stored | **NOTHING.** Supabase: "Database backups do not include objects you store via the Storage API, as the database only includes metadata about these objects" ([Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10) — and the owner read the same statement on the dashboard page itself on 10 Oct 2026 | **Total, and it is the reason this build exists.** [#248](https://github.com/build-once/team-tasks/issues/248) is this gap. A restore today would bring back `tasks` rows and `storage.objects` rows that both say a file is there, pointing at bytes that are gone — so the app would show files it cannot open. **The bucket is empty right now**, because nobody has signed up and the files panel is deployed nowhere, which is why closing it costs nothing today and gets more expensive every day after the first volunteer attaches something |
 | **What Storage records about each file** — the `storage.objects` rows: the path, the size, `owner_id`, the timestamps | Which file belonged to which task, who attached it and when. Without it, recovered bytes are a pile of files with no owner and no task | **The daily backups**, since `storage` is a schema in the same database — by the same reading as `auth` above, and with the same `supabase db dump` trap: `storage` is on that command's excluded list by name | **The same trap**, plus a sharper one: the metadata and the bytes are backed up by **different mechanisms on different clocks**, so a restore can easily produce rows without files or files without rows. Whatever is built has to take both at as near the same moment as it can, and say which one it took first |
@@ -240,11 +373,22 @@ is the question a backup answers; the third is what covers it **today**; the fou
 Everything else in the map is either covered, re-issuable, or re-creatable by a person who remembers.
 That is not a coincidence — it is why #248 is the issue this build answers.
 
-**"Backed up" and "restorable" are different claims, and only one of them has evidence.** Seven dated
-backups exist, by the owner's reading of the dashboard. Nobody has ever restored one. `checklist/launch.json`
-has carried those as two separate items the whole time — `backups-on` and `restore-tested` — and
-`scripts/launch-check.mjs` reports **both as TODO**, because neither `evidence/backups-on.md` nor
-`evidence/restore-tested.md` exists ([#249](https://github.com/build-once/team-tasks/issues/249)).
+**"Backed up" and "restorable" are different claims, and NOW BOTH HAVE EVIDENCE — ONE OF THEM IN THE
+WRONG FILE.** This paragraph said "Nobody has ever restored one". Where it stands:
+
+| `checklist/launch.json` item | Evidence file | On disk? |
+|---|---|---|
+| `restore-tested` | `evidence/restore-tested.md` | **YES**, as of this change: the finished drill of 10–11 October 2026, 219 seconds, 47 tables, 269 rows, one file |
+| `backups-on` | `evidence/backups-on.md` | **NO.** The owner read production's Backups page on 10 October and saw seven daily physical backups; that observation is in `evidence/production-log.md`, which is not the file the launch check reads |
+
+So [#249](https://github.com/build-once/team-tasks/issues/249) is **half closed and stays open**, and
+the half that keeps it open is a file nobody has written rather than a thing nobody has done. Its own
+first condition asks for the **retention** read off the page rather than inferred from how many backups
+happen to be listed, which is the part still missing.
+
+**Note what the restored copy was, because it bounds the claim**: production holds 269 rows and one
+file. A restore of that is not a measurement of restoring a used production, and nothing here pretends
+it is.
 
 ## What Supabase's own backups do and do not include
 
@@ -364,9 +508,17 @@ file this pull request may not touch.
 ## What the owner must set by hand, and the exact names the workflow will expect
 
 **The owner's decisions of 10 October 2026 turned into a list of things somebody has to go and do.** None
-of it can be done from this repository, none of it can be done by the coding assistant (rules 1, 10 and
-19), and **not one item below has been set or seen by anybody writing this page.** It is written down
-because a decision that lives only in a pull request is a decision nobody can act on later.
+of it can be done from this repository, and none of it can be done by the coding assistant (rules 1, 10
+and 19). It is written down because a decision that lives only in a pull request is a decision nobody
+can act on later.
+
+**EVERY ITEM ON IT IS NOW DONE BUT ONE, and the one is a proposal rather than a task.** This paragraph
+said "**not one item below has been set or seen by anybody writing this page**". The settings the job
+needs are done because **three copies of production exist and a run that reads production and writes to
+R2 cannot succeed without them** — that is the strongest thing this repository can say about a value it
+must never see, and it is stronger than the owner's word. **Nobody writing this page has still seen any
+of them.** What is left is the **13-day bucket lock**, which the owner asked to have proposed and has
+not accepted.
 
 **Read the names as fixed.** A workflow reads a secret by its exact name, and a GitHub secret that was
 deleted, renamed or never created **expands to an empty string rather than raising an error** —
@@ -380,10 +532,23 @@ job that runs and encrypts nothing.
 | `BACKUP_STORAGE_KEY` | secret | **set 10 Oct 2026**, owner-reported | the R2 token's access key id |
 | `BACKUP_STORAGE_SECRET` | secret | **set 10 Oct 2026**, owner-reported | the R2 token's secret |
 | `BACKUP_PASSPHRASE` | secret | **set 10 Oct 2026**, owner-reported | what the copy is encrypted with. **The password manager holds the only readable copy** — see the section below |
-| `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | secret | **TO SET** | the Supabase S3 access key's id, for reading the bucket |
-| `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | secret | **TO SET** | its secret half |
-| `BACKUP_STORAGE_ENDPOINT` | **variable, not a secret** | **TO SET** | the R2 S3 endpoint, `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** |
-| `PRODUCTION_SUPABASE_S3_REGION` | **variable, not a secret** | **TO SET — and this row was not here on 10 October** | the production project's own region, which S3 request signing needs. **It was found by writing the code**, not by designing it: Supabase's page says to use "the region value displayed on the S3 configuration page" ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), so there is nothing to derive it from. The job **refuses and names this variable** rather than signing with a region somebody guessed, which is the fail-closed direction and also the one that produces a readable error on the first night |
+| `PRODUCTION_SUPABASE_S3_ACCESS_KEY_ID` | secret | **set — proved by a green run**, not by anybody's word | the Supabase S3 access key's id, for reading the bucket |
+| `PRODUCTION_SUPABASE_S3_SECRET_ACCESS_KEY` | secret | **set — the same** | its secret half |
+| `BACKUP_STORAGE_ENDPOINT` | **variable, not a secret** | **set — the same** | the R2 S3 endpoint, `https://<cloudflare account id>.r2.cloudflarestorage.com`. **A variable because an endpoint is not a credential, and not in this repository because the value embeds the account id and this repository is public** |
+| `PRODUCTION_SUPABASE_S3_REGION` | **variable, not a secret** | **set — the same** | the production project's own region, which S3 request signing needs. **It was found by writing the code**, not by designing it: Supabase's page says to use "the region value displayed on the S3 configuration page" ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), so there is nothing to derive it from. The job **refuses and names this variable** rather than signing with a region somebody guessed |
+
+**"Proved by a green run" is the strongest thing this repository can say about those four**, and it is
+worth being precise about what it does and does not establish. The scheduled run of 11 October read
+production's database with `pg_dump`, listed the `attachments` bucket with a signed S3 request, and
+wrote 1,309,424 bytes to R2 — none of which is possible with a missing or wrong value, because the
+workflow's first step refuses an empty one by name and the S3 gateway refuses a wrong one. So **the
+four exist and work**. What it does not say is **what they are**, and nobody writing this page has seen
+one.
+
+**And the freshness watcher needs no new setting**, which is deliberate:
+`.github/workflows/backup-freshness.yml` reads `BACKUP_STORAGE_ENDPOINT`, `BACKUP_STORAGE_KEY` and
+`BACKUP_STORAGE_SECRET` — three of the nine above and **not `BACKUP_PASSPHRASE`**, so the thing that
+watches the bucket cannot open what is in it.
 
 **The two `PRODUCTION_SUPABASE_S3_*` names are a naming choice rather than something the owner specified**,
 and the reasoning is in `docs/architecture.md`: this repository prefixes a credential by **which project it
@@ -402,10 +567,10 @@ needs lives in the **workflow file**, which is Build it 24 part 1 and not a sett
 | What | Status | The exact thing |
 |---|---|---|
 | The bucket | **done 10 Oct 2026**, owner-reported | private, region **Western Europe (WEUR)**, public development URL **disabled**, no custom domain. The coach saw that settings page |
-| The API token | **done 10 Oct 2026**, owner-reported | `team-tasks-backup-job`, **Object Read & Write**, limited to that bucket. **Left as it is**, by the owner's decision of 10 Oct |
-| **An object lifecycle rule** | **TO SET** | **delete objects at 14 days**, whole bucket, no prefix. This is what enforces retention — `docs/plan.md`'s decision of 10 Oct is that **the job never deletes anything** |
-| **A bucket lock rule** | **PROPOSED, awaiting the owner** | Age condition, **`maxAgeSeconds` 1123200** — 13 days — whole bucket. `docs/plan.md` has what it buys and the one thing that keeps it a proposal. **If it is taken, set a one-day Age first and watch a delete be refused**, because nothing read says a lock can be removed or shortened |
-| The endpoint | **TO COPY** | into `BACKUP_STORAGE_ENDPOINT` above. Not into this repository |
+| The API token | **done 10 Oct 2026**, owner-reported, **and it had to be changed** | `team-tasks-backup-job`, limited to that bucket. **It was created as Object Read ONLY, and the owner changed it to Object Read & Write — which is what ended the 403s.** That is the cause of the three failed runs above, established rather than guessed: `AccessDenied` meant exactly what it said, a real credential that was not allowed to write. **Left as it is otherwise**, by the owner's decision of 10 Oct |
+| **An object lifecycle rule** | **DONE 10 Oct 2026**, owner-reported | Named **`delete-after-14-days`**, whole bucket, **delete after 14 days**, shown as **Enabled**. This is what enforces retention — `docs/plan.md`'s decision of 10 Oct is that **the job never deletes anything** — and until it existed, "14 days" was a promise in five documents with nothing making it true ([#259](https://github.com/build-once/team-tasks/issues/259)). **Nobody writing this page has seen it**, and nothing in this repository can read an R2 rule; what can be checked is the consequence, in about a fortnight, when the copy of 10 October either goes or does not |
+| **A bucket lock rule** | **STILL PROPOSED, awaiting the owner** | Age condition, **`maxAgeSeconds` 1123200** — 13 days — whole bucket. `docs/plan.md` has what it buys and the one thing that keeps it a proposal. **If it is taken, set a one-day Age first and watch a delete be refused**, because nothing read says a lock can be removed or shortened. [#277](https://github.com/build-once/team-tasks/issues/277) holds it |
+| The endpoint | **DONE** | copied into `BACKUP_STORAGE_ENDPOINT` above. Not into this repository |
 
 **Both rules need a token or a dashboard session that can edit bucket configuration**, which the backup
 job's token is not: the lock page asks for "An API token with permissions to edit R2 bucket
@@ -418,8 +583,8 @@ it.
 
 | What | Status | The exact thing |
 |---|---|---|
-| **An S3 access key** | **TO CREATE** | generated from the project's S3 configuration page ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), then its two halves into the two GitHub secrets above. **Know what it reaches before creating it**: "full access to all S3 operations across all buckets", with row-level security bypassed |
-| **The Spend Cap** | **TO SET**, and it is not strictly a backup setting | Production went on Pro on 10 Oct, so the organisation can bill and nobody has set or seen the Cap ([#250](https://github.com/build-once/team-tasks/issues/250)). It belongs on this list because **the nightly copy is the biggest new consumer of the egress that Cap governs** — `docs/costs.md` puts the worst case at 18.6 GB a month |
+| **An S3 access key** | **DONE — proved by a green run**: the job listed the `attachments` bucket with a signed S3 request on 10 Oct and has done three times since | generated from the project's S3 configuration page ([S3 authentication](https://supabase.com/docs/guides/storage/s3/authentication), read 2026-10-10), then its two halves into the two GitHub secrets above. **Know what it reaches**: "full access to all S3 operations across all buckets", with row-level security bypassed. That cost was accepted on 10 Oct and is unchanged |
+| **The Spend Cap** | **ENABLED 10 Oct 2026**, owner-reported, and it is not strictly a backup setting | Production went on Pro on 10 Oct, so the organisation can bill. The Cap is on; **it excludes compute**, so about $25 a month bills whatever it says ([#250](https://github.com/build-once/team-tasks/issues/250) still holds the figures and the stale sentences on the costs page). It is on this list because **the nightly copy is the biggest new consumer of the egress that Cap governs** — `docs/costs.md` puts the worst case at 18.6 GB a month |
 
 ### And one thing to check rather than set
 
@@ -499,6 +664,22 @@ one more argument for the lock than it had before.
 A backup that has not been restored is a belief about a backup. The drill is what turns the "time down"
 target from an aspiration into a measurement, and it is the only thing that can settle
 [#249](https://github.com/build-once/team-tasks/issues/249)'s `restore-tested`.
+
+**IT HAS NOW BEEN DONE, 10 to 11 October 2026, AND IT SETTLED `restore-tested`.** The owner restored
+the 15:07 copy of 10 October into a new project in the Pro organisation, with this repository's 11
+migrations applied first; compared it; pointed a local copy of the app at it and signed in with his own
+real account; opened the attachment; and **deleted the project on 11 October**, along with the local
+files holding its secrets and the passphrase. `evidence/restore-tested.md` is the record — counts,
+timings and verdicts, which is all this repository is allowed to hold.
+
+**All six of the things a drill has to establish, below, were established.** What it also did is what a
+drill is for: **it found three faults**, two of them in this repository's own code, and they are at the
+top of this page. The one worth repeating here is that the first attempt **stopped at the files** with
+`415 InvalidMimeType` — so the half of the drill the whole build exists for came within one bug of never
+being exercised at all.
+
+**What is still not done: a second drill.** 219 seconds is one measurement, of a production holding 269
+rows and one file. Nothing here knows what a used production costs to restore.
 
 **`docs/restore-runbook.md` is now the step-by-step**, written with the code in Build it 24 part 1:
 which copy, how to open it, how to put it back into a new temporary project, how to check it came back,
@@ -609,9 +790,16 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   and their password hashes are. The pages read on 2026-10-10 say backups contain database data and name
   **Storage** as the exclusion; none says "auth is included". Settle it with a Supabase page that lists
   what a backup contains, or by restoring one and looking.
-- **Not tried — restoring any Supabase backup.** The dashboard's "Restore to new project" is marked
-  **Beta**, by the owner's reading of 10 Oct 2026, and nobody has pressed it.
+- **Not tried — restoring any SUPABASE backup**, which is a different thing from the drill and stays
+  open. The dashboard's "Restore to new project" is marked **Beta**, by the owner's reading of 10 Oct
+  2026, and nobody has pressed it. **A copy of OURS has now been restored** — 219 seconds, the drill of
+  10–11 Oct — so the "how long are we down" target has a measurement behind it; the faster route back
+  for the database alone is still a belief.
   [#249](https://github.com/build-once/team-tasks/issues/249).
+- **Not measured twice — the 219 seconds.** One run, against a production holding 269 rows and one file
+  of 1,178,671 bytes. It is the only number this repository has for "how long are we down", and it is a
+  floor rather than an estimate: it does not include making the project, applying the migrations, or
+  setting what the copy deliberately leaves out. `evidence/restore-tested.md` has each step's timing.
 - **Not established — whether `docs/stack.md` or production's own dashboard is right about dailies being
   Pro-only.** [#247](https://github.com/build-once/team-tasks/issues/247).
 - **Not priced — PITR.** It is named above as the thing that would close the one-day window, quoted from
@@ -679,27 +867,31 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   stays out of the repository. The variable is `BACKUP_STORAGE_ENDPOINT`; the reason is the one
   `evidence/production-log.md`'s header gives for the production project reference, and this repository is
   public.
-- **Still owner-reported and unseen: every setting on the by-hand list above**, including the three
-  secrets already set. **Nobody writing this opened the Cloudflare, GitHub or Supabase dashboard**, and
-  nothing in this repository can show what any of them is set to. The three marked "set 10 Oct" are the
-  owner's word; the five marked **TO SET** or **TO CREATE** have not been done as far as anybody writing
-  this knows.
-- **The code has now touched production three times, and no restore has finished. Rewritten 2026-10-11.**
-  This entry has said two things in turn and both are gone. It said "Nothing in this file has been built
-  or run. No workflow, no copy, no restore, no evidence file" — then, on 10 October, that the one-line
-  test for this whole page was "**no copy of production has ever been made, and no restore has ever been
-  tried**". Where it stands now:
+- **Still owner-reported and UNSEEN: every setting on the by-hand list above.** **Nobody writing this
+  opened the Cloudflare, GitHub or Supabase dashboard**, and nothing in this repository can read a
+  GitHub secret, an R2 lifecycle rule or a Supabase key. What changed on 11 October is the *kind* of
+  evidence for four of them, not the fact that they are unseen: a run that reads production and writes
+  to R2 cannot succeed with a missing or wrong value, and three have. **That is proof they work and no
+  evidence at all of what they are.** The lifecycle rule has no equivalent — nothing checks it, and the
+  first thing that will is the copy of 10 October either disappearing in about a fortnight or not.
+- **The code has now touched production three times, A RESTORE HAS FINISHED, AND COPIES NOW EXPIRE.
+  Rewritten 2026-10-11, for the third time.** This entry said "Nothing in this file has been built or
+  run"; then that the one-line test was "**no copy of production has ever been made, and no restore has
+  ever been tried**"; then that it was "**nothing has ever been restored end to end**". All three are
+  gone. Where it stands now:
 
   | | |
   |---|---|
   | A workflow and scripts | **yes**, and exercised in CI on every pull request against a throwaway PostgreSQL and a stand-in for both object stores |
   | A copy of production | **THREE.** Two by hand on 10 Oct, and one **by the schedule** on 11 Oct ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695)) |
-  | A finished restore | **NO.** One drill got the database in and stopped at the files ([#249](https://github.com/build-once/team-tasks/issues/249)). `evidence/restore-tested.md` does not exist |
-  | Anything expiring | **NO.** There is no lifecycle rule ([#259](https://github.com/build-once/team-tasks/issues/259)), so all three copies will sit there |
+  | A finished restore | **YES — 219 seconds**, 47 tables, 269 rows, one file byte for byte, signed into with a real account, project deleted. `evidence/restore-tested.md` |
+  | Anything expiring | **YES.** A 14-day lifecycle rule named `delete-after-14-days`, on the whole bucket, owner-reported for 10 Oct ([#259](https://github.com/build-once/team-tasks/issues/259)) |
+  | Anything noticing if the copies stop | **YES, and it has never run.** `.github/workflows/backup-freshness.yml`, 36 hours ([#264](https://github.com/build-once/team-tasks/issues/264)) |
 
-  **So the one-line test for this page is now the third row, and only the third row: nothing has ever
-  been restored end to end.** The arithmetic in `docs/costs.md` is still arithmetic on a design, because
-  three copies of a near-empty production do not measure what a used one costs.
+  **So the one-line test for this page is now the last row: the watcher is built and has never run
+  against the real bucket, and a second drill has never been done.** The arithmetic in `docs/costs.md`
+  is still arithmetic on a design, because three copies of a near-empty production do not measure what a
+  used one costs — and neither does a 219-second restore of 269 rows.
 - **PARTLY ANSWERED BY THE RUNS OF 10 AND 11 OCT, and this is the honest scoreboard.** The entry below
   listed four things nobody had checked against the real services. **Three are now checked and two
   remain**, and the fifth row is one the entry below names in its last sentence without putting it in the
@@ -722,13 +914,32 @@ decide what gets built** rather than merely what may be claimed: whether a Supab
   and says so rather than assuming), and not that a 5 GB single `PUT` is allowed. The first real run is
   what settles those, which is why it should be started **by hand** and watched.
 
-## Should anything notice when no copy has been made for N hours? — PROPOSED 2026-10-11, FOR THE OWNER
+## Something DOES notice when no copy has been made for 36 hours — DECIDED AND BUILT 2026-10-11
 
-**This is a proposal and nothing is built.** It is written here rather than only in
-[#264](https://github.com/build-once/team-tasks/issues/264) because the delay measured on 11 October
-decides one of its numbers, and that measurement is on this page.
+**The owner's answer was 36 hours, and it is built.** This section was written the same morning as a
+proposal, with three defensible answers in it; the recommendation was taken.
+`.github/workflows/backup-freshness.yml` and `scripts/backup/check-fresh.mjs` are it, and
+[#264](https://github.com/build-once/team-tasks/issues/264) is what it answers.
 
-**The question, in one line: should something go red when the newest object in `team-tasks-backups` is
+**What it does, in one line: four times a day it lists `team-tasks-backups`, reads the newest object's
+date out of its NAME, and goes red if that is more than 36 hours ago — or if there is no copy at all.**
+
+| | |
+|---|---|
+| **What it holds** | the endpoint, the storage key and the storage secret. **Not `BACKUP_PASSPHRASE`**, which appears nowhere in that workflow — so the thing that watches the bucket cannot open what is in it. It makes a LISTING and never a GET, so the only bytes it sees are keys and sizes |
+| **What it says** | the number of objects, which is the newest, how old it is against the limit, and how many objects it could not date. It prints a key, which carries a date and nothing else |
+| **When it fires** | it opens or comments **one** issue with the fixed title "No recent copy of production", the way the backup job does. **And a good check CLOSES it**, which the backup job's own alarm did not do until #272 — so the record is trustworthy in both directions and the next overdue copy opens a fresh issue instead of commenting on one everybody has stopped reading |
+| **How soon** | **between 36 and 42 hours** after the last good copy, because the threshold is 36 and the check runs every six hours. Said as a range rather than as "36", which read alone sounds like a promise |
+| **Seen to fail** | four cases in `scripts/backup/proof.mjs`, run end to end against the stand-in R2 with no passphrase in the environment: a fresh bucket passes, a three-day-old copy goes red, an **EMPTY** bucket goes red, and a bucket it cannot read goes red rather than reporting "no copy" — because a watcher that could not look has not seen one (rule 8) |
+| **What it cannot catch** | **its own silence.** It is a scheduled workflow in the same public repository, so the 60-day rule switches it off too and a bad enough GitHub day drops it as well. #264's fourth condition asks for that to be said rather than discovered, and the workflow's own header says it. The honest end of this chain is an alert from outside GitHub, and this is not one |
+
+**It has never run against the real bucket**, which is the one thing to hold against it. What has run is
+the judgement, and the script, against a stand-in.
+
+**The reasoning that chose 36 is kept below**, in the shape it was argued in, because that is how every
+other decision on this page is recorded.
+
+**The question, as it was put: should something go red when the newest object in `team-tasks-backups` is
 older than it ought to be — and if so, after how many hours?**
 
 ### Why it is being asked now rather than left in the issue
@@ -769,40 +980,40 @@ the cost is that a dropped night is only reported after the following night also
 cries wolf gets ignored, and a watcher nobody reads is worse than none**, so if the owner would rather
 never see a false one, 48 is right and the paragraph above says what it costs.
 
-### What it would be, if the answer is yes
+### What it is — five things asked for, and what was built against each
 
-Not designed in detail here. The shape #264 asks for, with what 11 October adds:
+| #264 asked for | Built |
+|---|---|
+| A scheduled job that lists the bucket and judges the newest object's date, which `objectName()` already makes sortable on purpose | **`.github/workflows/backup-freshness.yml`** and `scripts/backup/check-fresh.mjs`. `dateFromObjectName()` in `lib.mjs` is the other direction of `objectName()`, and anything in the bucket that is not one of this job's own names is **not dated at all** — so a stray object cannot make the bucket look fresh |
+| It holds the two `BACKUP_STORAGE_*` settings and the endpoint, and **not the passphrase** | **Three values, and `BACKUP_PASSPHRASE` appears nowhere in that workflow.** The proof runs the script with no passphrase in its environment at all, which is how that is a fact rather than a promise |
+| It opens or comments one issue with its own fixed title | **"No recent copy of production"**, matched by exact title the way the backup job and `drift-check.yml` do — `gh issue list --search` matches WORDS, so "No recent copy of production again" must not be mistaken for it. **And a good check closes it**, which is more than was asked for and is the lesson of #272 |
+| It is seen to fail first: a three-day-old copy, and an **empty bucket** | Both, plus two more — a bucket it **cannot read** (which must not report "no copy": a watcher that could not look has not seen one), and a threshold somebody typed in words, which must not be read as zero and alarm every day |
+| It must say what it does not cover, in its own header | The workflow's header and the script's both do, at length. **It cannot catch its own silence**, and the honest end of the chain is an alert from outside GitHub, which this is not |
 
-- **A scheduled job that lists the bucket and judges the newest object's date**, which
-  `scripts/backup/lib.mjs`'s `objectName()` already makes sortable on purpose.
-- **It holds the two `BACKUP_STORAGE_*` settings and the endpoint, and NOT the passphrase.** That is the
-  point of it: the watcher may see that a copy is there and must not be able to open one. It is the one
-  thing in this design that could read the bucket without being able to read the data.
-- **It opens or comments one issue with its own fixed title**, the way this job and `drift-check.yml` do.
-- **It is seen to fail first** — a case in `scripts/backup/proof.mjs` handed a listing whose newest object
-  is three days old, and one handed an **empty bucket**, which is the state this is really about.
-- **And it must say what it does not cover, in its own header.** A weekly job in a quiet repository is
-  disabled by the same 60-day rule, so **this does not solve itself**. #264's fourth condition says it
-  plainly: the honest end of the chain is an alert outside GitHub, and if that is the answer, say so
-  rather than building a second thing GitHub can switch off.
-
-### Three answers that are all defensible
+### Three answers that were all defensible, and the one that was taken
 
 | | |
 |---|---|
-| **Yes, at 36h** | The recommendation. Catches a drop on the first night, no false alarm on the evidence we have |
-| **Yes, at 48h** | #264's own number. Never cries wolf; reports a dropped night a day later |
-| **No — check it by hand** | Entirely reasonable for six volunteers **if** it is written down as a habit with a date, rather than left as an intention. The owner looking at the bucket once a week is a real control; the owner meaning to is not |
+| **Yes, at 36h** | **TAKEN, 11 October 2026.** Catches a drop on the first night, no false alarm on the evidence we have |
+| Yes, at 48h | #264's own number. Never cries wolf; reports a dropped night a day later |
+| No — check it by hand | Entirely reasonable for six volunteers **if** it is written down as a habit with a date, rather than left as an intention. The owner looking at the bucket once a week is a real control; the owner meaning to is not |
 
-**And one thing that is not an answer: doing nothing and leaving this page saying the window is about a
+**And one thing that was not an answer: doing nothing and leaving this page saying the window is about a
 day.** That is the combination the rewording at the top of this page exists to prevent.
 
-### A smaller, separate thing the same morning found
+### A smaller, separate thing the same morning found — AND IT IS FIXED
 
-**[#268](https://github.com/build-once/team-tasks/issues/268) is still open**, opened by the 12:42
-failure on 10 October, three successful copies later — because the job only ever opens or comments and
-**nothing closes it when a copy succeeds**. That is the mirror of this question and it is
-[#272](https://github.com/build-once/team-tasks/issues/272), filed separately: a watcher can answer #264
-without ever touching an issue's state, and this one cannot be answered without deciding who closes the
-alarm. Both are about the same thing in the end — **the public record of this job currently cannot be
-trusted in either direction.**
+**[#268](https://github.com/build-once/team-tasks/issues/268) was still open** — opened by the 12:42
+failure on 10 October, three successful copies later — because the job only ever opened or commented and
+**nothing closed it when a copy succeeded**. Both halves are now done: **the owner closed #268 by hand on
+11 October**, and `backup-production.yml` gained a `close-alarm` job that closes every open issue with
+that exact title when a copy succeeds. It holds no environment and no secret, only `issues: write`,
+which keeps the separation the failure job already had.
+
+**[#272](https://github.com/build-once/team-tasks/issues/272) stays open anyway**, for its own third
+condition: a failure, then a success, then a second failure, seen in sequence against the real thing.
+Nothing in CI can reach `gh`, so only a real run settles that — and the second failure is the one that
+matters, because it is what proves the next alarm is a fresh issue rather than a comment on a closed one.
+
+**So the public record of this job can now be trusted in both directions, and neither direction has been
+watched happen.**
