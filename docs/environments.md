@@ -150,11 +150,52 @@ Four names the **web app** reads — three public, one server-side and optional 
 | `NEXT_PUBLIC_SUPABASE_URL` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The Supabase project's address |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Public** — it reaches the browser | Needed (staging value) | Needed | Needed, a **different** value | The publishable key. Public only because row-level security decides what it may reach |
 | `NEXT_PUBLIC_SENTRY_DSN` | **Public** — it reaches the browser, identifies the Sentry project and grants nothing | **Optional, and normally not set** — with no DSN nothing is sent, which is what a laptop should do | **Needed**, or the Preview build fails | **Needed**, or the Production build fails. The same value is fine for both | Where error reports go. See below |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | **Public** — it reaches the browser, identifies the anti-robot widget and grants nothing | **Optional, and normally not set** — with no site key no widget is drawn and the three sign-in screens work as they did | **Needed**, or the Preview build fails. **Cloudflare's published dummy sitekey `1x00000000000000000000AA`** | **Needed**, or the Production build fails. The **real** site key from the Turnstile widget | The anti-robot check on sign-in, sign-up and password reset. Added 2026-10-11 (**#284**). See below |
 | `SITE_URL` | Not secret, but **not public either** — no `NEXT_PUBLIC_` prefix, so Next.js never puts it in the browser bundle | **Optional** — set it to `http://localhost:3000` to test password reset locally | **Optional**, the preview's own address | **Optional**, the production address, and `https` | The site's own address, used for one thing: the `<SITE_URL>/auth/reset` link in a password-reset email. **Read only from this setting, never from a request header** — see below |
 
 **Secret: none in the web app.** It talks to Supabase with the publishable key and lets the database
 rules decide, which is why nothing secret belongs in Vercel. The Sentry DSN does not change that: it
-is public in the same way the publishable key is.
+is public in the same way the publishable key is. **Nor does the Turnstile site key**, and the
+distinction there is worth one sentence because the pair of keys is easy to muddle: the **site** key
+is public and belongs in Vercel; the **secret** key is pasted by hand into each Supabase project's
+own Auth settings and belongs nowhere in this repository and nowhere in Vercel.
+
+### `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, and why the build refuses without it
+
+Added 2026-10-11 with the anti-robot check (**issue #284**; the owner's decisions A, I and K of that
+day). `docs/plan.md` → "A CAPTCHA on the three sign-in screens" is the decision this implements, and
+`docs/rate-limits.md` section 3 is the order the owner has to do things in; read that before setting
+anything, because **a CAPTCHA switched on in Supabase before this setting exists refuses everybody**.
+
+**It is public**, exactly as the Sentry DSN is: it travels in the browser bundle, it identifies a
+widget, and it grants nothing. `docs/plan.md` says so in as many words.
+
+**Empty is a valid answer locally**, and that is what lets a laptop need no setting: `turnstileView`
+in `web/src/lib/turnstile.ts` answers `"off"`, no script is fetched, no widget is drawn, and
+`/login`, `/signup` and `/forgot-password` are exactly what they were. The same property is what
+lets this code reach **production before the owner has made a widget** — which is the order
+`docs/plan.md` requires, where production is last.
+
+**And `web/src/lib/env.ts` is what stops that being true of a real deployment.** It refuses a Vercel
+build whose `VERCEL_ENV` is `production` or `preview` and whose site key is empty, naming the
+setting — the same function, and the same one list of environments, as the Sentry DSN's check. CI's
+`app-build` job sets the dummy sitekey as a placeholder; it is **not** what makes that job pass,
+because GitHub Actions sets no `VERCEL_ENV`, and it is there so the build compiles the widget's code
+path rather than only ever compiling the empty-key branch.
+
+**Preview gets a DUMMY key, and it has to.** Cloudflare's test keys work only as a matched pair:
+"Test secret keys: Only accept the dummy token, reject real tokens", and "Production secret keys will
+reject the dummy token"
+([Testing](https://developers.cloudflare.com/turnstile/troubleshooting/testing/), read 2026-10-11).
+Staging's Auth settings get the dummy **secret**; Preview and every automated sign-in in this
+repository send the dummy **token**, from `scripts/lib/captcha.mjs`. Put a real secret on staging and
+every check in CI that signs in stops working.
+
+**ONE WINDOW TO KNOW ABOUT, between two dashboards.** Setting this in Vercel while Supabase's CAPTCHA
+is still off means a widget is drawn and waited for by a screen whose token nothing checks — so
+somebody with JavaScript switched off is refused by this app for a check that was not being applied.
+It is harmless and brief, and the way to keep it brief is to do the Vercel row and the Supabase row in
+one sitting: rows 7 and 9 of `docs/rate-limits.md` section 3 for production, 7 and 6 for staging.
 
 ### `NEXT_PUBLIC_SENTRY_DSN`, and why the build refuses without it
 
@@ -453,20 +494,23 @@ Where each copy keeps them:
 
 ### Where the app reads them
 
-**Seven files**, thirteen `process.env` lines between them, plus one line in `web/next.config.ts`.
-Counted on 2026-10-06 by searching the whole of `web/src` for `process.env.<NAME>`; the only other
+**Eight files**, fifteen `process.env` reads between them, plus one line in `web/next.config.ts`.
+Counted on 2026-10-11 by searching the whole of `web/src` for `process.env.`, after Build it 25 part 1
+(**#284**) added the Turnstile site key and the confirm action's one `NODE_ENV` read. It said "seven
+files, thirteen lines", counted on 2026-10-06; the only other
 hits are explanatory comments inside `env.ts`, `sentry/options.ts` and `app-version.ts`, which name
 settings without reading them.
 
 | File | What it reads |
 |---|---|
-| `web/src/lib/env.ts` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `NEXT_PUBLIC_SENTRY_DSN`, once each — and `VERCEL_ENV`, to decide whether a missing DSN should stop the build |
+| `web/src/lib/env.ts` | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SENTRY_DSN` and — since 2026-10-11 — `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, once each; and `VERCEL_ENV`, read in one helper now rather than twice, to decide whether a missing DSN **or a missing site key** should stop the build |
 | `web/src/lib/password-reset.ts` | `SITE_URL`, once, and nothing else |
 | `web/src/instrumentation-client.ts` | `NEXT_PUBLIC_VERCEL_ENV`, for the deployment tag on a browser report |
 | `web/src/sentry/server-init.ts` | `VERCEL_ENV`, for the same tag on a server report |
 | `web/src/sentry/edge-init.ts` | `VERCEL_ENV`, for the same tag on an edge report |
 | `web/src/instrumentation.ts` | `NEXT_RUNTIME`, three times — Next.js' own name for which runtime is loading the file, not a setting anybody sets |
 | `web/src/app/components/Footer.tsx` | `APP_COMMIT` and `VERCEL_ENV`, for the version in the footer — see the section below |
+| `web/src/app/auth/confirm/actions.ts` | `NODE_ENV`, once, to decide whether the reset marker cookie is marked `secure` — Next.js' own name for which kind of build is running, not a setting anybody sets. Added 2026-10-11 (**#284**) |
 | `web/next.config.ts` | `VERCEL_GIT_COMMIT_SHA`, once, to set `APP_COMMIT` at build time |
 
 This table used to name `client.ts`, `server.ts` and `proxy.ts` with line numbers, and it had gone
@@ -520,8 +564,9 @@ searching the whole repository, not only `web/`.
 
 ### What `.env.example` lists, and what was taken out of it
 
-`.env.example` lists **four** names with empty values, and nothing else: the two Supabase ones,
-`SITE_URL`, and — since 2026-10-05 — `NEXT_PUBLIC_SENTRY_DSN`. It used to carry ten. The eight that
+`.env.example` lists **five** names with empty values, and nothing else: the two Supabase ones,
+`SITE_URL`, `NEXT_PUBLIC_SENTRY_DSN` since 2026-10-05, and — since 2026-10-11 —
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` (**#284**), which the app reads in `web/src/lib/env.ts`. It used to carry ten. The eight that
 went were removed because the app does not use them, and because a host reads this file: importing
 the project into Vercel turned all ten into environment variables, five of them secret names. A name
 written here in advance becomes an empty slot in a dashboard, waiting for somebody to fill it.

@@ -5,6 +5,7 @@ import { setNewPassword } from "@/app/auth/actions";
 import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { refusalSentence } from "@/lib/auth-messages";
 import { BUTTON_IDS } from "@/lib/buttons";
 import {
   DEAD_LINK_MESSAGE,
@@ -36,8 +37,19 @@ import { createClient } from "@/lib/supabase/server";
 export default async function ResetPasswordPage({
   searchParams,
 }: PageProps<"/reset-password">) {
-  const { link, problem } = await searchParams;
+  const { link, problem, refused } = await searchParams;
   const supabase = await createClient();
+
+  // THE SENTENCE THAT WAS MISSING UNTIL BUILD IT 25 (issue #284). Saving a new
+  // password can be refused by Supabase for reasons that have nothing to do
+  // with the link -- the owner was told "That link didn't work" for HTTP 422
+  // `same_password` on production on 11 October 2026, with the link working
+  // perfectly and a password they could have changed in seconds.
+  //
+  // So `setNewPassword` now chooses a code, and these are its words. The dead
+  // link screen below is reached by exactly one kind of answer: the recovery
+  // session being gone. An unrecognised word in the address bar draws nothing.
+  const refusal = refusalSentence(refused);
 
   // getClaims() verifies the token's signature every time; getSession() would
   // trust a cookie anyone can forge -- the same reason the other private pages
@@ -89,6 +101,10 @@ export default async function ResetPasswordPage({
         {problem ? (
           <Banner tone="bad" icon="alert">
             {PASSWORD_TOO_SHORT}
+          </Banner>
+        ) : refusal ? (
+          <Banner tone="bad" icon="alert">
+            {refusal}
           </Banner>
         ) : null}
 

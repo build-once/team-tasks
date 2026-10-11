@@ -2,9 +2,10 @@ import Link from "next/link";
 
 import { requestPasswordReset } from "@/app/auth/actions";
 import { Banner } from "@/app/components/Banner";
-import { ActButton } from "@/app/components/ActButton";
+import { CaptchaGate } from "@/app/components/CaptchaGate";
 import { Header } from "@/app/components/Header";
 import { BUTTON_IDS } from "@/lib/buttons";
+import { TURNSTILE_SITE_KEY } from "@/lib/env";
 import { RESET_SENT_MESSAGE } from "@/lib/password-reset";
 
 // Ask for a password-reset email.
@@ -62,12 +63,31 @@ export default async function ForgotPasswordPage({
             </p>
           </div>
 
-          <ActButton
-            className="btn btn--primary btn--block"
+          {/* The anti-robot check and the submit button, as one thing (issue
+              #284).
+
+              THIS SCREEN IS THE ONE THAT CANNOT REPORT A CAPTCHA REFUSAL, and
+              that is deliberate rather than an oversight. Issue #120 rule 1 is
+              that this page says one sentence whatever happened, and
+              scripts/password-reset-check.mjs reads the action's own source and
+              requires it to have no branch at all -- so there is nowhere for a
+              second sentence to come from, and a second banner here would turn
+              that check red. The honest fix for a red check is the code and
+              never the check (AGENTS.md rule 20), and the code that is actually
+              right is this: the words about the check live in the component,
+              beside the box, where somebody can act on them BEFORE pressing
+              anything. A token that is spent or expired by the time the form
+              posts means no email and the usual sentence -- the same cost the
+              2-emails-an-hour limit already has, written down in
+              docs/rate-limits.md rather than discovered -- and in issue #288,
+              which is where the owner decides whether to accept it as it stands
+              or to design a sentence this screen may say. */}
+          <CaptchaGate
+            siteKey={TURNSTILE_SITE_KEY}
             act={BUTTON_IDS.resetRequest}
           >
             Email me a link
-          </ActButton>
+          </CaptchaGate>
         </form>
 
         <p className="switch">

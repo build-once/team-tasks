@@ -1,10 +1,12 @@
 import Link from "next/link";
 
 import { signUp } from "@/app/auth/actions";
-import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
+import { CaptchaGate } from "@/app/components/CaptchaGate";
 import { Header } from "@/app/components/Header";
+import { refusalSentence } from "@/lib/auth-messages";
 import { BUTTON_IDS } from "@/lib/buttons";
+import { TURNSTILE_SITE_KEY } from "@/lib/env";
 // The same number as the reset form, from one place, so "the same password rules
 // as sign-up" (issue #120 rule 3) stays true after somebody changes one of them.
 //
@@ -18,7 +20,19 @@ import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT } from "@/lib/password-reset";
 export default async function SignUpPage({
   searchParams,
 }: PageProps<"/signup">) {
-  const { problem, confirm } = await searchParams;
+  const { problem, confirm, refused } = await searchParams;
+
+  // The refusals that are facts about the ATTEMPT rather than about the
+  // account, chosen from Supabase's error code in
+  // web/src/lib/auth-messages.ts (issue #284). Six of them, and two matter on
+  // production: the email limit, and an address the sender will not deliver to,
+  // which is what production answers today for anybody who is not on the
+  // Supabase project's team (docs/rate-limits.md).
+  //
+  // `email_exists` is deliberately NOT one of them and arrives as the generic
+  // sentence below instead. An unrecognised word in the address bar draws
+  // nothing at all.
+  const refusal = refusalSentence(refused);
 
   return (
     <>
@@ -51,6 +65,10 @@ export default async function SignUpPage({
         {problem === "password" ? (
           <Banner tone="bad" icon="alert">
             {PASSWORD_TOO_SHORT}
+          </Banner>
+        ) : refusal ? (
+          <Banner tone="bad" icon="alert">
+            {refusal}
           </Banner>
         ) : problem ? (
           <Banner tone="bad" icon="alert">
@@ -101,12 +119,11 @@ export default async function SignUpPage({
             </p>
           </div>
 
-          <ActButton
-            className="btn btn--primary btn--block"
-            act={BUTTON_IDS.signUp}
-          >
+          {/* The anti-robot check and the submit button, as one thing (issue
+              #284). See web/src/app/components/CaptchaGate.tsx. */}
+          <CaptchaGate siteKey={TURNSTILE_SITE_KEY} act={BUTTON_IDS.signUp}>
             Create account
-          </ActButton>
+          </CaptchaGate>
         </form>
 
         <p className="switch">

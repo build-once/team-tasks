@@ -540,11 +540,18 @@ check(
 // Attach beside them is `type="button"` with an onClick, because the file's bytes
 // go from the browser straight to Storage and no form is posted -- so there is
 // nothing for an identifier to travel to. web/src/app/components/ActButton.tsx
-// names all three of the app's buttons that are not that component and why.
+// names every button in the app that is not that component and why.
+//
+// 19 -> 20 WITH BUILD IT 25 PART 1 (issue #284), and the one new button is
+// `link_use` -- the Use this link on /auth/confirm. IT IS THE ONE BUTTON IN THIS
+// APP WHOSE WHOLE POINT IS THAT A GET CANNOT PRESS IT: the owner's mail provider
+// fetched a reset link before anybody clicked it, so the page now verifies
+// nothing and the token is spent only by the action this identifier reaches.
+// Counted from the list in this session.
 check(
   "the buttons that actually exist, counted from the list",
   ALL_BUTTON_IDS.length,
-  19,
+  20,
 );
 
 // ---- readButtonId -------------------------------------------------------

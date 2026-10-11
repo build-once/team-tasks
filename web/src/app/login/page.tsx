@@ -1,13 +1,26 @@
 import Link from "next/link";
 
 import { signIn } from "@/app/auth/actions";
-import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
+import { CaptchaGate } from "@/app/components/CaptchaGate";
 import { Header } from "@/app/components/Header";
+import { refusalSentence } from "@/lib/auth-messages";
 import { BUTTON_IDS } from "@/lib/buttons";
+import { TURNSTILE_SITE_KEY } from "@/lib/env";
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
-  const { problem, confirmed } = await searchParams;
+  const { problem, confirmed, refused } = await searchParams;
+
+  // A refusal that is NOT about the email and password: a rate limit, a failed
+  // anti-robot check, an address that has not been confirmed. All three used to
+  // be told "that email and password don't match", which was a sentence about
+  // the one thing that had not gone wrong (issue #284).
+  //
+  // The sentence comes from this app's own table keyed by a short code
+  // (web/src/lib/auth-messages.ts). An unrecognised word in the address bar
+  // draws nothing, so nothing a caller types is ever printed -- issue #45's
+  // lesson, and the same property the invitation page has.
+  const refusal = refusalSentence(refused);
 
   return (
     <>
@@ -50,7 +63,11 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           </Banner>
         ) : null}
 
-        {problem ? (
+        {refusal ? (
+          <Banner tone="bad" icon="alert">
+            {refusal}
+          </Banner>
+        ) : problem ? (
           <Banner tone="bad" icon="alert">
             That email and password don&apos;t match. Check them and try again.
           </Banner>
@@ -85,12 +102,13 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             />
           </div>
 
-          <ActButton
-            className="btn btn--primary btn--block"
-            act={BUTTON_IDS.signIn}
-          >
+          {/* The anti-robot check and the submit button, as one thing (issue
+              #284). It owns the button because "it never submits without a
+              token" is a property of the button, and with no site key set it
+              draws exactly the plain button that was here before. */}
+          <CaptchaGate siteKey={TURNSTILE_SITE_KEY} act={BUTTON_IDS.signIn}>
             Sign in
-          </ActButton>
+          </CaptchaGate>
         </form>
 
         {/* Outside the form, so pressing Enter in the password box signs in

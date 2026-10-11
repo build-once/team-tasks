@@ -185,6 +185,16 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 
+// THE CAPTCHA TOKEN EVERY AUTOMATED SIGN-IN IN THIS REPOSITORY NOW SENDS, from
+// the one place it is spelled -- Build it 25 part 1 (issue #284), and the
+// owner's decision J of 11 October 2026, which is the AGENTS.md rule 20
+// agreement for this change. With CAPTCHA switched on in staging's Auth
+// settings a sign-in with no token stops working, and this script would fail
+// for a reason that has nothing to do with what it checks.
+// scripts/lib/captcha.mjs has Cloudflare's own words and the reason there is
+// one constant rather than nine copies.
+import { captchaBody } from "../lib/captcha.mjs";
+
 // The staging project's reference, and the exact host it is served at. This
 // script may run against NOTHING ELSE. AGENTS.md rules 1 and 10.
 //
@@ -2499,7 +2509,7 @@ async function signIn(person) {
     response = await fetch(`${authUrl}/token?grant_type=password`, {
       method: "POST",
       headers: { apikey: publishableKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...captchaBody() }),
     });
   } catch (cause) {
     return { error: `${person.label} could not reach the auth endpoint (${cause.message})` };

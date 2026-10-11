@@ -1516,6 +1516,19 @@ is the same reason Sentry, Anthropic and Cloudflare R2 are each here — and bec
 plan before the code. **Nothing is installed on the day this was written:** no package, no site key in any
 environment, no secret key in either project's Auth settings, no widget on any screen, and no code.
 
+**AND THE CODE ARRIVED THE SAME DAY — Build it 25 part 1, [#284](https://github.com/build-once/team-tasks/issues/284).**
+The sentence above is kept in the tense it was written in, because the order it records is the order rule
+9 asks for; what is true now is different and is said here rather than by rewriting it. **What exists:**
+the widget and the submit button that waits for it, on all three screens
+(`web/src/app/components/CaptchaGate.tsx`); the token travelling to Supabase with all three requests;
+the setting `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, which a Vercel Production or Preview build now refuses to
+go without; and **no new package** — rule 17 never came up, because the whole of the interface is a
+script tag and three function calls. **What still does not exist, and it is everything that is not
+code:** no Turnstile account or widget, no site key in any environment, no secret key in either
+project's Auth settings, and nobody has seen a rendered widget. **With no site key the three screens are
+exactly what they were**, which is what lets this reach production before the owner's last step rather
+than instead of it.
+
 **Decided 2026-10-11, and this section was written before those decisions rather than after them.** It
 went to the owner as part of a list of thirteen, with `docs/rate-limits.md` as the inventory behind it,
 and all thirteen came back settled the same day. Each is recorded in its place below; they are gathered
@@ -1772,15 +1785,23 @@ note about exactly that.
 
 ### What this section deliberately does not decide
 
-- **The wording on the three screens.** Decided when the screens are built, with the two requirements above
-  kept.
+- ~~**The wording on the three screens.**~~ **WRITTEN 2026-10-11, in Build it 25 part 1**, and the two
+  requirements are kept: four sentences in one constant (`TURNSTILE_WORDS`, `web/src/lib/turnstile.ts`),
+  drawn by one component on all three screens so they cannot drift into saying three things, and **not one
+  of them names Cloudflare, Supabase or the word CAPTCHA** — "the check that you are not a robot" is what
+  is happening, said in words. `docs/claims.md` §1i is the row for each, with what makes it true.
 - ~~**Whether the widget is visible or invisible.**~~ **Decided 2026-10-11 — Managed**, which is visible
   and sometimes asks for a tick. The subsection above is the decision and the reasoning; this line is
   struck through rather than deleted, because a question that gets answered is worth as much on the record
   as one that stays open.
-- **Where the one exported constant for the test token lives.** Decision J settled that there is one;
-  `web/tests/staging.mjs` is the obvious home and the eight scripts under `scripts/staging/` do not import
-  from `web/tests/` today.
+- ~~**Where the one exported constant for the test token lives.**~~ **DECIDED BY BUILDING IT, 2026-10-11:
+  `scripts/lib/captcha.mjs`.** Not `web/tests/staging.mjs`, which was the obvious home: the eight scripts
+  under `scripts/staging/` do not import from `web/tests/`, and `scripts/lib/` is a folder that already
+  exists for shared script code (`scripts/lib/secrets.mjs`) and that BOTH sides reach with a plain
+  relative path — `../lib/captcha.mjs` from the scripts, `../../scripts/lib/captcha.mjs` from the tests.
+  So neither side imports from the other's folder, and nothing about `web/` depends on `scripts/` at build
+  time, because `web/tests/` is not part of `next build`. **All nine files import it and not one spells
+  the token**, which `scripts/auth-screens-check.mjs` asserts by name.
 - **Whether `/auth/v1/resend` and `/auth/v1/verify` are covered.** The CAPTCHA page names "forms" and no
   endpoints, so this is **not confirmed** and is on `docs/rate-limits.md`'s list.
 - ~~**Anything about the Auth rate limits themselves.**~~ **Decided: the two numbers are E and F, and
@@ -1788,6 +1809,101 @@ note about exactly that.
   figures are chosen and set nowhere**, which are different things, and one of the two is aimed at a
   field whose label does not match the documentation's. `docs/rate-limits.md` section 3 is the list of
   what somebody still has to do by hand, and its row 11 says what to read before touching it.
+
+## Login emails that work in any browser
+
+Added 2026-10-11, for Build it 25, at the owner's instruction after watching a reset link fail on
+production. **Not a sixth feature, no new button that anybody goes looking for, no new company, and
+nothing new leaves this project** — it adds no row, no column and no kind of data, and the appendix is
+untouched by it. It is in the plan for one reason: it is **how features 1 and 3 actually reach a person**,
+and until today they reached them in a way that worked only on one device.
+
+**What the owner saw on production, 11 October 2026.** Custom SMTP through Resend was on and reset emails
+were arriving. Then:
+
+- **a reset link opened in a DIFFERENT browser from the one that asked for it:** Supabase accepted the
+  link (303) and the app showed "That link didn't work";
+- **a reset link opened in the SAME browser:** the exchange succeeded, the new-password page loaded, and
+  **saving was refused with HTTP 422, code `same_password`** — and the app said "That link didn't work"
+  again. That half is "True messages" below;
+- **the owner's mail provider rewrites links through a scanner**, which made a HEAD request to the link
+  before anybody clicked it.
+
+**Why the first one happened, because it is not a bug in either side.** The links are **PKCE** links: the
+library asks for the reset with a code challenge and keeps the matching verifier in a cookie **in the
+browser that asked**, so the code that comes back is one only that browser can exchange. A volunteer who
+asks on their phone and opens their mail on a laptop is the ordinary case, not the odd one.
+
+**THE OWNER'S DECISION: sign-up confirmation and password-reset links must work when the email is opened
+in a different browser or on another device.**
+
+**How, and it is Supabase's own documented answer rather than an invention.** The email carries a **token
+hash** to a page of this app instead of an authorization code to Supabase, and a token hash carries no
+verifier. Supabase documents the shape for server-rendered apps, and documents the scanner problem
+separately — "certain email providers may have spam detection or other security features that prefetch URL
+links from incoming emails", with one of its two remedies being to "create a custom link that redirects to
+a confirmation page where users click a button containing the actual confirmation link". So:
+
+- **`/auth/confirm` is a PAGE, and a GET verifies NOTHING.** It reads the token hash and the kind of link,
+  decides whether they are the right shape, and draws a **button**. A scanner's GET or HEAD costs the
+  person nothing.
+- **The token is spent only by the press**, in a server action that checks the button's identifier first.
+- **No destination comes out of the link.** Supabase's documented route reads a `next` parameter; this one
+  will not, because a destination taken out of a link is a destination somebody else chooses. Each kind of
+  link goes to one of two fixed paths written in the app.
+- **Only two kinds of link are accepted** — `recovery` and `signup` — and the password form is still gated
+  on the marker cookie this app sets, which is set only on the recovery path.
+- **The link's host still comes only from a setting on the server**, never from a request header: the
+  template names `{{ .SiteURL }}`, which is the Supabase project's own Site URL.
+
+**What it costs, stated rather than discovered.** A sign-up made on a Vercel **Preview** deploy now gets a
+confirmation link pointing at the project's Site URL host rather than at the preview's own address,
+because the template does not use the per-request value the app passes today. The alternative,
+`{{ .RedirectTo }}`, keeps the preview behaviour and produces a **broken** link whenever no redirect was
+sent — and `SITE_URL` is optional — which is the worse failure of the two, on production of all places.
+
+**Nothing of this happens until the owner edits two email templates by hand**, and the exact words are in
+`docs/rate-limits.md` section 3, rows 12 and 13, compared on every pull request against the path this app
+actually serves. **Links sent before that edit keep working:** `/auth/reset` and `/auth/callback` are
+untouched and still accept the old shape in the browser that asked, so there is no window in which
+somebody's reset email is dead.
+
+## True messages on the login screens
+
+Added 2026-10-11, for Build it 25, and it is the smallest thing in this plan: **no new data, no new
+company, no new button, and not one new thing anybody can do.** It is here because the plan is the
+register of what this app tells people, and on 11 October 2026 the owner watched it tell them something
+false — "That link didn't work", drawn over a link that had worked, for a password that was simply the one
+they already had.
+
+**The rule, in one line: every refusal Supabase Auth can give when a password is set or an account is made
+gets its own plain sentence, chosen from the error CODE and never from the text the service sent — and only
+a link that is really dead says the link did not work.**
+
+**Why the code and not the message.** A message this app did not write, in this app's styling, is a
+sentence nobody here can be held to: it changes on somebody else's release, and it can name a company, a
+status, a column or the address that was typed. The same argument `web/src/lib/teams.ts` already makes at
+length, applied to the one place in the app that had not had it.
+
+**What is now told apart, and two of them matter on production today:**
+
+- **the email limit**, which is per project and not per person — so the third person to ask for a reset in
+  an hour was told nothing at all about why;
+- **an address the sender will not deliver to**, which is what production answers for every address that is
+  not on the Supabase project's team. Before this it got "Check the email address and password", which is
+  advice that could not possibly have helped.
+
+**What is deliberately NOT told apart, and it is a privacy decision rather than an omission: an address
+that already has an account.** "That address is already registered" is how somebody sorts a list of
+addresses into accounts and not-accounts, one sign-up at a time, so it falls through to the sign-up
+screen's existing generic sentence — the same reason the reset-request screen says one sentence whatever
+happened.
+
+**And one screen cannot report a refusal at all, which is the cost of an older promise.** The reset-request
+screen says "If that address has an account, we've sent a link" for every outcome, and that is enforced by
+having no branch in it to add one to. So a failed anti-robot check there means no email and that same
+sentence. The words beside the box are what a person gets instead, in the place they can act on them, and
+`docs/rate-limits.md` already records the same cost for the email limit.
 
 ## The sign-up and reset emails move to Resend
 
@@ -2999,13 +3115,24 @@ second rests entirely on one passphrase.
   the production project reference: it is an identifier of that kind, and this repository is public.
   **Not set yet** — it is on `docs/backups.md`'s by-hand list.
 
-- **THE THIRTEEN DECISIONS OF 2026-10-11 ARE DECISIONS AND NOTHING MORE. Not one of them is applied
-  anywhere.** The CAPTCHA is not installed, custom SMTP is configured on neither project, the two Auth
-  rate limits are chosen and **set nowhere**, leaked-password protection is not switched on, the upload
-  count and the 500-task cap have no migration, and the nine test files are untouched. **What IS done is
-  two of the thirteen**: the minimum password length, which the owner had already set on 7 October, and
-  the reading of both Rate Limits pages, which the owner did the same day. `docs/rate-limits.md`
-  section 3 is the list of what is left, in the order to do it.
+- **THE THIRTEEN DECISIONS OF 2026-10-11: FOUR NOW HAVE SOMETHING BEHIND THEM, AND NOT ONE IS APPLIED TO
+  A PROJECT.** This entry said "**Not one of them is applied anywhere**" and listed every one as
+  outstanding; Build it 25 part 1 ([#284](https://github.com/build-once/team-tasks/issues/284)) changed
+  part of that the same day, and the distinction between **code in this repository** and **a setting in a
+  dashboard** is the whole of what has and has not moved.
+
+  | | Where it stands |
+  |---|---|
+  | **A** the CAPTCHA | **CODE EXISTS, deployed nowhere, and there is no widget, no site key and no secret key.** The widget and the waiting button on all three screens, the token travelling with all three requests, and a build that refuses without the setting |
+  | **J** one exported constant | **DONE**: `scripts/lib/captcha.mjs`, imported by all nine files that sign in. Nothing in a dashboard to do |
+  | **I** dummy keys on staging and Preview | **HALF**: the dummy sitekey is CI's build placeholder and is written down for Preview, and **neither project's Auth settings nor Vercel has been touched** |
+  | **K** managed mode | **RECORDED, not set.** The mode is a property of the widget in Cloudflare, and there is no widget |
+  | **D**, **H** | **Already done before this**: both dashboards read, and the minimum password length set, by the owner on 11 and 7 October |
+  | **E**, **F**, **G**, **L**, **M** | **Still set nowhere.** Two Auth rate limits, leaked-password protection, custom SMTP on production, staging left alone |
+  | **B**, **C** | **Still no migration.** The upload count and the 500-task cap are Build it 25's remaining code |
+
+  `docs/rate-limits.md` section 3 is the list of what is left, in the order to do it, and it gained two
+  rows that are not limits at all: the redirect allow-list and the two email templates.
 - **Owner-reported, not seen by anybody writing this — both projects' Authentication → Rate Limits
   pages.** Read by the owner on **2026-10-11** from a screenshot: **both projects identical, every value
   at the documented default** — sending emails 2 per hour (not editable), SMS 30 per hour (not editable),
@@ -3036,14 +3163,54 @@ second rests entirely on one passphrase.
   Production has no accounts at all and staging has three test ones; nobody has 500 tasks. So the
   migration for decision C cannot fail on existing rows — and the way to be sure is a `count(*)` per
   owner before it is applied, which `docs/rate-limits.md` shows cannot print a row.
-- **Unverified — the whole CAPTCHA section describes an intention. Nothing is installed.** No Turnstile
-  account or widget has been seen by anybody writing this, no site key is in any Vercel environment, no
-  secret key is in either project's Auth settings, no widget is on any screen, and no code was written.
+- **Unverified — the CAPTCHA's CODE exists and nothing else about it does. Rewritten 2026-10-11 the same
+  day it was written.** The sentence this replaces was "**Nothing is installed.** No Turnstile account or
+  widget has been seen by anybody writing this, no site key is in any Vercel environment, no secret key is
+  in either project's Auth settings, no widget is on any screen, and **no code was written**." Only the
+  last clause has changed, and the rest is still exactly true: **no Turnstile account or widget exists, no
+  site key is in any Vercel environment, no secret key is in either project's Auth settings, and nobody
+  writing this has seen a rendered widget.**
+
+  **What that leaves unverified is everything a browser would tell you**, and the list is short because it
+  is the whole of what cannot be checked here: that the widget loads; that it draws a tick rather than a
+  puzzle; whether the free plan puts Cloudflare's name on this app's sign-in screen (read off the Plans
+  page's silence, not stated anywhere); and what any of the four sentences in `TURNSTILE_WORDS` looks like
+  on a phone. What **is** established without a browser is 90 checks in
+  `scripts/auth-screens-check.mjs` over the four states, the one place the field's name is spelled, the
+  three screens drawing the component, and the fact that only two of the four states may post.
+
   The four Cloudflare pages and the Supabase CAPTCHA page cited in it were read on **2026-10-11** through
   this session's page-fetching tool, which converts a page to text and answers a question about it — the
   testing page was fetched twice, with different questions, and agreed both times. `docs/rate-limits.md`
   says the same about its own quotations, and anybody about to depend on an exact wording should open the
   page.
+- **Unverified — "Login emails that work in any browser" is BUILT and PROVED NOWHERE.** The page, the
+  action, the two fixed destinations and the words exist, and
+  `scripts/auth-screens-check.mjs` establishes that `/auth/confirm` calls Supabase nowhere and that the
+  token is spent only after a button's identifier is checked. **Three things nobody has done**, and all
+  three are the owner's: **the two email templates have not been edited**, so every link Supabase sends
+  today is still the PKCE `code=` shape; **nobody has opened a link in a second browser**, so "works in
+  any browser" is a reading of what a token hash is and not an observation; and **nobody has watched a
+  mail scanner fetch the new link** and then used it. `docs/rate-limits.md` section 3 rows 12 and 13 are
+  what makes any of it live, and they are deliberately last.
+  [#285](https://github.com/build-once/team-tasks/issues/285) is the checklist of all eleven things the
+  owner has to observe, and [#286](https://github.com/build-once/team-tasks/issues/286) is the one cost
+  this shape carries: a sign-up on a Preview deploy gets a link pointing at the project's Site URL host.
+- **NOT CONFIRMED — whether `verifyOtp` refuses a token of the wrong kind** ([#287](https://github.com/build-once/team-tasks/issues/287)). `/auth/confirm` reads the
+  kind of link from the address bar, which `/auth/reset` deliberately does not, and the fixed list of two
+  plus a fixed destination per word is what keeps that safe. The one thing left: if Supabase were to
+  accept a **sign-up** token under `type=recovery`, somebody holding that token could reach the password
+  form — which would be their own account's form, on a screen this plan already says is not a security
+  boundary, so the exposure is not larger than holding the token already is. **No page read says either
+  way and nobody has tried it.** `web/src/lib/email-links.ts` carries the whole argument.
+- **Unverified — "True messages on the login screens" is checked without a screen and observed on none.**
+  Twelve sentences, each chosen from an error code read off
+  `web/node_modules/@supabase/auth-js/src/lib/error-codes.ts` at version 2.117.2, with 90 checks over
+  which code gets which. **What nobody has seen is any of them drawn**: no screen has been opened, and the
+  only one of the twelve anybody has watched the OLD behaviour of is `same_password`, on production, which
+  is what started this. **And two of the twelve are mapped on reasoning rather than on an observed answer**
+  — `captcha_failed`, whose code nobody has seen Supabase send, and `email_not_confirmed`, where "Supabase
+  answers it only after the password matched" is how the code is described and not something tried.
 - **NOT CONFIRMED, AND THE WHOLE CAPTCHA RESTS ON IT — whether Supabase Auth refuses a
   sign-in that carries no CAPTCHA token once CAPTCHA is on.** [Enable CAPTCHA
   protection](https://supabase.com/docs/guides/auth/auth-captcha) says what to switch on and **does not
@@ -3051,6 +3218,15 @@ second rests entirely on one passphrase.
   accepted", the feature protects nothing. **One request against staging settles it**, with a dummy secret
   key configured: post to `/auth/v1/token?grant_type=password` with no `gotrue_meta_security` field and
   see what comes back. It should be written as a check before production is switched on, not after.
+
+  **THE CHECK IS NOW WRITTEN — 2026-10-11, and that sentence was the last clause of this entry.**
+  `scripts/staging/build-it-25-captcha-checks.mjs` section 1 is that one request, and the owner runs it
+  **before and after** switching CAPTCHA on for staging: before, an acceptance is the right answer and the
+  evidence the check is not there yet; after, an acceptance is the finding. Its selftest already feeds that
+  judgement the answer a project with CAPTCHA on but unchecked would give — 200 with a session — and
+  requires FAIL. **It has not been run against staging**, because that is the owner's and because nothing
+  is switched on. The question is open exactly as it was; what has changed is that there is now a thing to
+  run rather than a paragraph saying somebody should write one.
 - **Not confirmed — which Auth endpoints CAPTCHA covers.** The page names "your sign-in, sign-up, and
   password reset forms" and names no endpoint, so `/auth/v1/resend` and `/auth/v1/verify` are
   unknown. Same one-request method, per endpoint.

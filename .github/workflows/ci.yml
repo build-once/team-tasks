@@ -190,7 +190,7 @@ jobs:
     # The display name carries both script names on purpose: this is the string
     # that shows in the checks list on a pull request, and issue #87 asks that a
     # red check name tasks-filter-check rather than leave you opening logs.
-    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check, screen-state-check, friendly-words-check, approved-model-check)
+    name: Pure-function checks (tasks-filter-check, password-reset-check, sentry-scrub-check, screen-state-check, friendly-words-check, approved-model-check, auth-screens-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -324,6 +324,59 @@ jobs:
       # the pattern it uses to recognise a model name still telling
       # claude-code-action from a model id.
       EXPECTED_APPROVED_MODEL_CHECKS: "6"
+      # THE SEVENTH ARRIVED WITH BUILD IT 25 PART 1 (issue #284), and the thing
+      # it exists for is a sentence that was WRONG on production on 11 October
+      # 2026: the owner followed a real reset link, the form loaded, and saving
+      # the password was refused with HTTP 422 and the code `same_password` --
+      # and the screen said "That link didn't work." Nothing in this repository
+      # would have noticed, because the action sent every answer Supabase could
+      # give down one path.
+      #
+      # So the checks are over three new modules, all three import-free so a
+      # plain `node` run can load them: web/src/lib/auth-messages.ts (one plain
+      # sentence per refusal, chosen from the error CODE and never from the
+      # service's text), web/src/lib/email-links.ts (a link that works in any
+      # browser and that a mail scanner cannot spend), and
+      # web/src/lib/turnstile.ts (the anti-robot check's four states).
+      #
+      # The groups worth naming, because each one is a way the thing could
+      # quietly stop being true:
+      #
+      #   * ONLY A LINK THAT IS REALLY DEAD SAYS THE LINK DID NOT WORK. Six
+      #     answers that mean the recovery session is gone must take the
+      #     dead-link path, and four that do not -- including the two the owner
+      #     saw -- must not. There is a CONTROL that reproduces the old
+      #     behaviour and requires it NOT to be what the code does.
+      #   * NO SENTENCE NAMES A COMPANY, A STATUS OR A CODE, derived from the
+      #     table rather than written out, with a control that finds those words
+      #     when they are there.
+      #   * AN ADDRESS THAT ALREADY HAS AN ACCOUNT IS NOT TOLD SO. `email_exists`
+      #     is deliberately not one of the six sign-up refusals, because telling
+      #     somebody is how a list of addresses gets sorted into accounts and
+      #     not-accounts.
+      #   * THE CONFIRM PAGE CALLS SUPABASE NOWHERE -- no client, no verifyOtp,
+      #     no cookie -- and the action behind it checks the button BEFORE it
+      #     spends the token. That pair is the whole of "a scanner's GET or HEAD
+      #     spends nothing", and /auth/reset is the control, because it does call
+      #     Supabase and still serves links sent before the change.
+      #   * THE TWO EMAIL TEMPLATES ARE COMPARED WITH THE DOCUMENT THE OWNER
+      #     FOLLOWS. The `href` lines are exported from the module and
+      #     docs/rate-limits.md must contain both verbatim, so an instruction
+      #     pointing at a path this app no longer serves turns a pull request red
+      #     rather than being found by a volunteer.
+      #   * THREE STRINGS SPELLED IN TWO MODULES ARE COMPARED. The dead-link
+      #     path, the new-password screen's path and the reset marker's name are
+      #     each written twice, because both modules have to stay import-free;
+      #     this is the only thing that would notice a drift.
+      #   * AND IT NEVER SUBMITS WITHOUT A TOKEN: only "off" and "solved" may
+      #     post, with a control that lists what `maySubmit` lets through.
+      #
+      # Written before the code and seen to fail: seven of them were red against
+      # the half-finished change, including the one that found this script's own
+      # comment stripper eating the second half of every URL in the file it was
+      # asked to find a URL in. evidence/build-it-25-sign-in-screens.md has the
+      # runs.
+      EXPECTED_AUTH_SCREENS_CHECKS: "90"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -333,7 +386,7 @@ jobs:
           node-version: "22"
       - name: Which Node ran these
         run: node --version
-      - name: Run all five scripts, and count what each one actually checked
+      - name: Run all seven scripts, and count what each one actually checked
         run: |
           set -euo pipefail
 
@@ -363,6 +416,7 @@ jobs:
           run_and_count screen-state-check   scripts/screen-state-check.mjs   "$EXPECTED_SCREEN_STATE_CHECKS"
           run_and_count friendly-words-check scripts/friendly-words-check.mjs "$EXPECTED_FRIENDLY_WORDS_CHECKS"
           run_and_count approved-model-check scripts/approved-model-check.mjs "$EXPECTED_APPROVED_MODEL_CHECKS"
+          run_and_count auth-screens-check  scripts/auth-screens-check.mjs   "$EXPECTED_AUTH_SCREENS_CHECKS"
 
   # The --selftest of the five staging scripts that have one: issues #114, #136,
   # #167, #183 and the coach's review of PR #241. A selftest here is the thing that
@@ -379,6 +433,9 @@ jobs:
   #
   # The staging runs themselves are NOT here and cannot be: they need the
   # staging URL and the three test accounts. Those belong to Build it 17.
+  # THE SIXTH ARRIVED WITH BUILD IT 25 PART 1 (issue #284):
+  # scripts/staging/build-it-25-captcha-checks.mjs. Its own expected count and
+  # the reason for it are beside the others in the env block below.
   staging-script-selftests:
     name: Staging script self-tests (can these checks fail?)
     runs-on: ubuntu-latest
@@ -490,6 +547,29 @@ jobs:
       # readStorageAnswer, which is the one place the order now lives -- remove
       # the registration from it and two of them go red, which was seen.
       EXPECTED_ATTACHMENT_CASES: "107"
+      # THE SIXTH ARRIVED WITH BUILD IT 25 PART 1 (issue #284), which asks for
+      # it here by name. scripts/staging/build-it-25-captcha-checks.mjs is the
+      # script the owner runs BEFORE and AFTER switching CAPTCHA on for staging,
+      # and its 31 cases are what make either run mean something.
+      #
+      # THE ONE THAT MATTERS feeds judgeNoToken the answer a project with CAPTCHA
+      # switched on BUT NOT CHECKED gives -- HTTP 200 and a session, for a
+      # sign-in carrying no token at all -- and requires FAIL. That is the world
+      # docs/rate-limits.md names as the one that would make the whole feature
+      # protect nothing, and it is a thing no page read says either way.
+      #
+      # The rest: the dummy token refused, which is what a REAL secret key in
+      # staging's settings would do and which breaks every automated sign-in in
+      # this repository; thirty-one wrong-password sign-ins with no 429 anywhere,
+      # which is the answer that would sink decision F; and a run that created an
+      # account, asked for a reset email, or signed somebody out with
+      # scope=global -- which would end the owner's own browser session.
+      #
+      # This job makes no request of any kind: --selftest returns before a
+      # setting is read, so it needs no key, no account and no network, the same
+      # as the five beside it. The staging run itself is NOT here and cannot be:
+      # it signs in as Alice and spends most of a five-minute rate-limit budget.
+      EXPECTED_CAPTCHA_CASES: "31"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -497,7 +577,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all five self-tests, and count the cases each one ran
+      - name: Run all six self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -525,6 +605,7 @@ jobs:
           run_and_count build-it-18-invitation-status-checks scripts/staging/build-it-18-invitation-status-checks.mjs "$EXPECTED_INVITATION_STATUS_CASES"
           run_and_count build-it-20-ai-checks                scripts/staging/build-it-20-ai-checks.mjs                "$EXPECTED_AI_CASES"
           run_and_count build-it-23-attachment-checks        scripts/staging/build-it-23-attachment-checks.mjs        "$EXPECTED_ATTACHMENT_CASES"
+          run_and_count build-it-25-captcha-checks           scripts/staging/build-it-25-captcha-checks.mjs           "$EXPECTED_CAPTCHA_CASES"
 
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the
@@ -953,10 +1034,24 @@ jobs:
     #   * It is shaped like a real DSN but points at a host that does not exist,
     #     so if anything in the build did try to send a report it would fail at
     #     DNS rather than reach anybody's project.
+    #   * The FOURTH arrived with Build it 25 part 1 (issue #284), and it is the
+    #     one value on this list that is not a placeholder at all: it is
+    #     Cloudflare's own published dummy sitekey, which "Always passes" with a
+    #     visible widget
+    #     (https://developers.cloudflare.com/turnstile/troubleshooting/testing/).
+    #     Like the DSN above it is NOT what makes this job pass --
+    #     web/src/lib/env.ts only insists on a site key when VERCEL_ENV is
+    #     "production" or "preview", and GitHub Actions sets no VERCEL_ENV -- it
+    #     is here so the build COMPILES the widget's code path with a key
+    #     present rather than only ever compiling the empty-key branch. It is
+    #     not a secret: Cloudflare publishes it, and
+    #     scripts/auth-screens-check.mjs requires this line to carry the same
+    #     value the app's own TURNSTILE_DUMMY_SITE_KEY holds.
     env:
       NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "placeholder-key"
       NEXT_PUBLIC_SENTRY_DSN: "https://placeholder@placeholder.ingest.sentry.io/0"
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
     defaults:
       run:
         working-directory: web

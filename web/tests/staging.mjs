@@ -39,6 +39,13 @@
 // package -- `node:buffer` is a built-in, so `npm test` installs nothing.
 import { Buffer } from "node:buffer";
 
+// THE ONE EXTRA FIELD EVERY AUTOMATED SIGN-IN IN THIS REPOSITORY SENDS, from
+// the one place it is spelled (AGENTS.md rule 20, and the owner's decision J of
+// 11 October 2026 -- see the note beside `signIn` below). Still no package:
+// scripts/lib/captcha.mjs is three constants and a function, and it is reached
+// by a relative path rather than by anything in web/node_modules.
+import { captchaBody } from "../../scripts/lib/captcha.mjs";
+
 // ---------------------------------------------------------------------------
 // The guard -- run at import, before any network call
 // ---------------------------------------------------------------------------
@@ -532,6 +539,18 @@ export const describeStorage = (answer) =>
 // and start failing for a reason that has nothing to do with the rules. The
 // test file calls this once per person in a before() hook and passes the
 // session around.
+//
+// AND IT NOW CARRIES A CAPTCHA TOKEN -- Build it 25 part 1, issue #284, and the
+// owner's decision J of 11 October 2026, which is the AGENTS.md rule 20
+// agreement for this change. When CAPTCHA is switched on in staging's Auth
+// settings, a sign-in with no token stops working, and the first symptom would
+// be a red check on a pull request that has nothing to do with sign-in. The
+// value is Cloudflare's published dummy token, which only a Cloudflare dummy
+// SECRET key accepts -- so staging gets that secret, by hand, and production
+// keeps a real one. scripts/lib/captcha.mjs has the quotations.
+//
+// THIS IS THE ONLY PLACE IN web/tests THAT SIGNS IN, which is why that change
+// is one line here and none in web/tests/access-rules.test.mjs.
 export async function signIn(person) {
   const password = (process.env[person.passwordSetting] ?? "").trim();
 
@@ -540,7 +559,11 @@ export async function signIn(person) {
     response = await fetch(`${AUTH_URL}/token?grant_type=password`, {
       method: "POST",
       headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ email: person.email, password }),
+      body: JSON.stringify({
+        email: person.email,
+        password,
+        ...captchaBody(),
+      }),
     });
   } catch (cause) {
     throw new Error(
