@@ -500,6 +500,61 @@ so it does not live only here.
 
 ---
 
+## 8a. AND THE REAL CI RUN, read after the pull request was opened
+
+Run [38161681527](https://github.com/build-once/team-tasks/actions/runs/38161681527) on PR #289. **All
+fifteen GitHub jobs `success`, including `required`.** The two jobs with new counts, read out of their
+own logs with `gh run view --job … --log` rather than inferred from a green tick:
+
+```
+tasks-filter-check:    counted  47 PASS lines; at least  47 expected.
+password-reset-check:  counted  92 PASS lines; at least  84 expected.
+sentry-scrub-check:    counted 119 PASS lines; at least 119 expected.
+screen-state-check:    counted 286 PASS lines; at least 286 expected.
+friendly-words-check:  counted  45 PASS lines; at least  45 expected.
+approved-model-check:  counted   6 PASS lines; at least   6 expected.
+auth-screens-check:    counted  90 PASS lines; at least  90 expected.   <- NEW
+
+build-it-16-checks:                   counted  39 cases; at least  39 expected.
+build-it-16-suspend-checks:           counted  40 cases; at least  40 expected.
+build-it-18-invitation-status-checks: counted  57 cases; at least  57 expected.
+build-it-20-ai-checks:                counted 140 cases; at least 140 expected.
+build-it-23-attachment-checks:        counted 107 cases; at least 107 expected.
+build-it-25-captcha-checks:           counted  31 cases; at least  31 expected.   <- NEW
+```
+
+**`App tests (access rules on staging)` passed**, which is the one job in this repository that signs in
+to a real project — three accounts, now each sending the dummy CAPTCHA token. So the change to the nine
+files was exercised against staging by CI, with CAPTCHA still switched off there: the field is ignored,
+which is what makes it safe to merge before any dashboard is touched.
+
+### AND THE VERCEL PREVIEW DEPLOY FAILED, which is the new guard doing its job
+
+**UNVERIFIED — the Vercel build log was not read, and no hosting dashboard was opened (rule 10).** The
+commit status carries no reason beyond "Deployment has failed — run this Vercel CLI command", and
+`npx vercel inspect` needs a credential this session does not have and must not ask for.
+
+**What was done instead: the only cause this change could have, reproduced locally.**
+
+```
+$ VERCEL_ENV=preview … NEXT_PUBLIC_TURNSTILE_SITE_KEY= npm run build --prefix web
+> Build error occurred
+Error: Setting NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set, and VERCEL_ENV is "preview".
+    at requireTurnstileSiteKeyWhereItMatters (web/src/lib/env.ts:100:11)
+exit=1
+```
+
+Three facts, and the conclusion drawn from them rather than from the log: a Preview build with no site
+key stops with a message naming the setting; **nobody has set that variable in Vercel**, because it did
+not exist before this branch and it is row S2 of the by-hand list; and the Preview build stopped. `App
+build` in CI passed, because GitHub Actions sets no `VERCEL_ENV` and so is deliberately not bound by
+this guard.
+
+**It was not softened to make the check green.** Issue #284 asks for the site key to be "required at
+build on Production and Preview like the Sentry setting", and a Preview that built happily with no site
+key would draw no widget — so the on-screen check "a small box appears" would pass by the box being
+absent. PR #289's comment has the whole of it, and the alternative, which is the owner's to choose.
+
 ## 9. Redaction (rule 18)
 
 **Nothing was captured from production.** The three observations in section 0 are the owner's report
