@@ -790,16 +790,23 @@ jobs:
       #     with no passphrase anywhere in its environment: a fresh bucket, a
       #     three-day-old copy, an EMPTY bucket, and a bucket it cannot read.
       #
-      # WHY 265 AND NOT 268, which is what a developer's machine counts: three
-      # of the new checks reproduce the drill's fault against a real psql, and
-      # **whether they run depends on the CLIENT'S VERSION**. They passed on
-      # psql 17.10 locally and produced nothing at all on psql 17.11 here, so a
-      # current client appears to discard the data of a refused COPY rather than
-      # reading it as SQL. The case therefore tries the configured client, then
-      # an older one if the machine has one -- the image's own 16.15 -- and says
-      # UNVERIFIED and counts nothing if neither reproduces it. The floor is the
-      # number this job is MEASURED to reach, and the three checks that only run
-      # where an older pg_dump exists make up the difference the other way.
+      # WHY 265 AND NOT 268, AND THE ANSWER IS MEASURED RATHER THAN CHOSEN.
+      # Three of the new checks reproduce the drill's fault against a real psql
+      # -- a refused COPY's rows being read as SQL -- and **not every psql does
+      # it**. Measured 2026-10-11:
+      #
+      #   psql 17.10 (EDB, Windows)  -> reproduces it: 3 ERROR lines
+      #   psql 17.11 (pgdg, Ubuntu)  -> does NOT: 1 ERROR line
+      #   psql 16.15 (pgdg, Ubuntu)  -> does NOT: 1 ERROR line
+      #
+      # Both clients on this image swallow the rows, so the case says UNVERIFIED
+      # here and counts nothing; it runs on the owner's own machine, which is
+      # the client the owner actually restores with. **Why they differ is not
+      # established** and it is not "newer is fixed", because 16.15 is older
+      # than 17.10 and behaves like 17.11. So this floor is 265 on both: this
+      # job's three "client too old" checks make up the difference the other
+      # way. Raising it to 268 would turn the runner red for a reason that has
+      # nothing to do with the backup.
       EXPECTED_BACKUP_CHECKS: "265"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

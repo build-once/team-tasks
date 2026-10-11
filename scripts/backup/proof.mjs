@@ -1252,17 +1252,26 @@ async function endToEnd() {
     const oldWayFile = join(work, "the-old-way.sql");
     writeFileSync(oldWayFile, faultDump);
 
-    // WHICH psql REPRODUCES IT IS A VERSION QUESTION, and that was found the
-    // hard way: this case passed on **psql 17.10** on a developer's machine and
-    // FAILED on **psql 17.11** in CI, which produced neither the syntax error
-    // nor the `invalid command \.`. So a current client appears to discard the
-    // data of a refused COPY instead of reading it as SQL.
+    // NOT EVERY psql REPRODUCES IT, and that was found by CI rather than by
+    // thinking. Measured on 2026-10-11:
     //
-    // THAT DOES NOT MAKE THE FAULT HISTORICAL, and it is the reason the fix
-    // stands: the drill hit it on a real client against real data, and which
-    // psql anybody has in front of them on the day is not something this
-    // project chooses. A restore that is only safe on a client newer than the
-    // one the owner happens to have is not safe.
+    //   psql 17.10, EDB build on Windows  -> 3 ERROR lines: the refused COPY,
+    //                                        `invalid command \.`, and
+    //                                        `syntax error … at character 1`
+    //                                        quoting the row's first column
+    //   psql 17.11, pgdg build on Ubuntu  -> 1 ERROR line: the refused COPY
+    //   psql 16.15, pgdg build on Ubuntu  -> 1 ERROR line: the refused COPY
+    //
+    // So the two on the runner swallow the rows AND the `\.`, and the one on the
+    // owner's own machine reads them as SQL. **WHY IS NOT ESTABLISHED**, and the
+    // first guess was wrong: it is not "newer clients are fixed", because 16.15
+    // is older than 17.10 and behaves like 17.11. Build, platform or patch —
+    // nobody here knows, and nothing in this project depends on knowing.
+    //
+    // WHAT IT DOES NOT CHANGE IS THE FAULT OR THE FIX. The owner's drill hit it
+    // on a real client against real data, and **the client that reproduces it is
+    // the one the owner actually restores with.** A restore that is safe only on
+    // somebody else's psql is not safe.
     //
     // So this tries the configured client first and then an older one if the
     // machine has one -- on the ubuntu-24.04 runner the image's own 16.15 is
@@ -1289,7 +1298,8 @@ async function endToEnd() {
       console.log(
         `UNVERIFIED  no psql on this machine reads a refused COPY's rows as SQL, so the drill's own fault was not reproduced here and nothing is counted for it. ` +
           `Tried: ${attempts.map((a) => `${a.version} -> ${classifyPsqlErrors(a.errors).total} ERROR line(s), the row's first column absent`).join("; ")}. ` +
-          "That is a CLIENT behaviour and it changed between 17.10 and 17.11; the fault is still what the owner's drill hit, and the fix does not depend on which client anybody has. " +
+          "It is a CLIENT behaviour and WHY SOME CLIENTS DIFFER IS NOT ESTABLISHED -- it is not simply 'newer is fixed' (#280). " +
+          "The fault is still what the owner's drill hit, on the client the owner restores with, and the fix does not depend on which client anybody has. " +
           "Set BACKUP_PSQL_OLD to a client that does reproduce it to run these three checks elsewhere.",
       );
     } else {

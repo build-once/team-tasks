@@ -1042,8 +1042,10 @@ Three faults, and the second is the one worth reading:
 
 | | |
 |---|---|
-| `scripts/backup/proof.mjs`, full run on a throwaway PostgreSQL 17.10 | **265 PASS, 0 FAIL** |
-| Of those, new in this session | **72** — 42 pure, 30 end to end. `EXPECTED_BACKUP_CHECKS` in `ci.yml` goes 196 → **268**, which is 265 plus the three cases that only run where an older `pg_dump` exists |
+| `scripts/backup/proof.mjs`, full run on a throwaway PostgreSQL 17.10 on this machine | **265 PASS, 0 FAIL** |
+| The same script in CI, on PostgreSQL 17.11 | **265 PASS, 0 FAIL** ([38133296097](https://github.com/build-once/team-tasks/actions/runs/38133296097)) |
+| Of those, new in this session | **72** — 42 pure, 30 end to end. `EXPECTED_BACKUP_CHECKS` in `ci.yml` goes 196 → **265**, which is the number both runs are measured to reach |
+| **And the two 265s are not the same 265**, which is worth knowing | three checks reproduce the drill's fault against a real psql and run only where a client does that — **17.10 on this machine does, and both 17.11 and 16.15 on the runner do not**; three others run only where an older `pg_dump` exists, which is the runner and not this machine. Why the clients differ is **not established** and is not "newer is fixed", because 16.15 is older than 17.10 and behaves like 17.11 ([#280](https://github.com/build-once/team-tasks/issues/280)) |
 | `npm test` | **exit 0** |
 | `node scripts/check-workflows.mjs` | 6 workflow files, 27 jobs, **0 problems, 0 warnings** |
 | Of the 199 error lines the owner itemised from the drill, how many the classifier now calls unexpected | **3** — the syntax errors, and deliberately only those. Under the kinds as they were, **43** of the 199 were unexpected, so **9** of the owner's 52 are not itemised and nothing here classifies them |
@@ -1052,6 +1054,9 @@ Three faults, and the second is the one worth reading:
 
 - **The freshness watcher has never run against the real bucket.** What has run is its judgement and the
   script itself, against a stand-in R2 on 127.0.0.1.
+- **Why some psql clients read a refused COPY's rows as SQL and others do not is not established**
+  ([#280](https://github.com/build-once/team-tasks/issues/280)). The mechanism is explained by psql's own
+  documented sentences; the discarding is behaviour seen on one build out of the three measured.
 - **The `close-alarm` job has never run either**, so [#272](https://github.com/build-once/team-tasks/issues/272)
   stays open for its own third condition: a failure, a success and a second failure, in sequence.
 - **No second restore drill.** 219 seconds is one measurement, of a production holding 269 rows.

@@ -314,6 +314,25 @@ replayed with psql's `\copy`, which "runs an SQL COPY command, but instead of th
 writing the specified file, psql reads or writes the file and routes the data between the server and
 the local file system". A refused COPY is then an error with nothing behind it.
 
+**AND NOT EVERY psql DOES IT, which CI found rather than anybody reasoning it out.** The same three-line
+script, the same server, three clients, measured 2026-10-11:
+
+| Client | ERROR lines |
+|---|---|
+| **psql 17.10**, EDB build on Windows — the owner's own machine | **3** — the refused COPY, `invalid command \.`, and the syntax error at character 1 |
+| **psql 17.11**, pgdg build on the Ubuntu runner | **1** — just the refused COPY |
+| **psql 16.15**, same runner | **1** — the same |
+
+**Why they differ is not established**, and the obvious guess is wrong: 16.15 is older than 17.10 and
+behaves like 17.11, so it is not "newer clients are fixed".
+[#280](https://github.com/build-once/team-tasks/issues/280) holds it.
+
+**It changes nothing about the fault or the fix**, and it is worth being exact about why: the client that
+reproduces it is **the one the owner actually restores with**, and a restore that is safe only on
+somebody else's psql is not safe. What it does change is what this page is entitled to claim — the
+mechanism is explained by psql's own documented sentences, and *whether psql discards the pending data
+first* is behaviour seen on one build out of three.
+
 **Two things writing that discovered, neither of them read anywhere first:**
 
 - **PostgreSQL's own `\restrict` hardening.** A current `pg_dump` wraps its whole output in `\restrict
