@@ -207,6 +207,49 @@ the pieces will sit, so that the shape is agreed before anything is typed.
    |  Never sent to Sentry or to Anthropic, and a FILE NAME never          |
    |  appears in an error report.                                          |
    +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  THE CAPTCHA  -  CLOUDFLARE TURNSTILE chosen 11 Oct 2026.             |
+   |  NOTHING INSTALLED. Free plan: unlimited challenges, 20 widgets.      |
+   |  On THREE SCREENS ONLY: sign-up, sign-in, password reset.             |
+   |                                                                       |
+   |  (17) THE BROWSER loads Cloudflare's script and gets a TOKEN          |
+   |       SITE KEY -- PUBLIC, in Vercel per environment as                |
+   |       NEXT_PUBLIC_TURNSTILE_SITE_KEY                                  |
+   |       The token then goes to SUPABASE AUTH with the sign-in, and      |
+   |       SUPABASE AUTH checks it with Cloudflare, holding the            |
+   |       SECRET KEY -- *** SECRET ***                                    |
+   |                                                                       |
+   |  THE SECRET KEY IS NOT IN EDGE FUNCTIONS SECRETS. It lives in each    |
+   |  project's AUTH SETTINGS - a NEW PLACE a secret of ours lives, the    |
+   |  first since this map was drawn. No code of ours ever reads it.       |
+   |  WHAT CLOUDFLARE SEES: the visitor's IP ADDRESS, TLS fingerprint,     |
+   |  User-Agent and the sitekey. NEVER an address, a password, a task.    |
+   |  STAGING AND PREVIEW use Cloudflare's DUMMY KEYS, so the nine         |
+   |  automated sign-ins keep working with CAPTCHA switched ON.            |
+   |  COST: SIGNING IN NOW NEEDS JAVASCRIPT. Nothing else here does.       |
+   +-----------------------------------------------------------------------+
+
+   +-----------------------------------------------------------------------+
+   |  THE LOGIN EMAILS  -  RESEND, over SUPABASE AUTH's CUSTOM SMTP.       |
+   |  PROPOSED 11 Oct 2026 for PRODUCTION. NOT CONFIGURED ANYWHERE.        |
+   |                                                                       |
+   |  (18) SUPABASE AUTH sends the SIGN-UP CONFIRMATION and the            |
+   |       PASSWORD-RESET email through smtp.resend.com                    |
+   |       A RESEND API KEY as the SMTP PASSWORD -- *** SECRET ***         |
+   |       in PRODUCTION'S AUTH SETTINGS, not Edge Functions secrets,      |
+   |       and SEPARATE from invite-member's own EMAIL_API_KEY.            |
+   |                                                                       |
+   |  WHY: without custom SMTP, Supabase Auth refuses to deliver to any    |
+   |  address that is not part of the project's team - so TODAY A          |
+   |  VOLUNTEER GETS NEITHER EMAIL. It is a REPAIR, not an improvement.    |
+   |  AND THE BUILT-IN SENDER IS 2 EMAILS AN HOUR, PER PROJECT.            |
+   |  STAGING KEEPS THE BUILT-IN SENDER - proposed, because its only       |
+   |  addresses are Alice, Bob and Carol, and a second SMTP setting is a   |
+   |  second place a sending credential lives.                             |
+   |  WHAT RESEND THEN HOLDS: every person's OWN address, not only the     |
+   |  addresses of people who were INVITED. 30-day sending log.            |
+   +-----------------------------------------------------------------------+
 ```
 
 ## The arrows that carry a secret key
@@ -232,6 +275,23 @@ bucket and cannot open one; it makes a listing and never reads an object. That i
 ([#264](https://github.com/build-once/team-tasks/issues/264)): the one thing in this design that can
 check the backups without being able to read them.
 
+**AND TWO MORE, ADDED 2026-10-11, WHICH BREAK THIS TABLE'S PATTERN IN A NEW WAY: ARROWS (17) AND (18)
+CARRY KEYS THAT ARE NOT IN EDGE FUNCTIONS SECRETS.** Every arrow above holds its key in the one store
+this map has had since it was drawn, and the box at the top of the map calls Edge Functions secrets "the
+only place an app secret key lives at run time". These two put a secret in **each Supabase project's
+AUTH SETTINGS** instead. That is worth a paragraph rather than only two rows, because it changes what
+the map says about itself:
+
+- **No code of ours reads either one.** Supabase Auth holds them and uses them. There is no function to
+  review, no `Deno.env.get` to find, and nothing in this repository that could print one — which is a
+  better position than arrows (5), (7), (12) and (14) are in rather than a worse one.
+- **But the list of places a secret of this app can live is now one longer**, and that is the thing to
+  carry away. Somebody auditing "where are the secrets" from this table alone would miss both.
+- **Neither is counted into the six.** They are not run-time arrows that a press sets off through our
+  code: (17) fires in the browser and inside Supabase Auth, and (18) fires inside Supabase Auth.
+  **Nothing of ours is on either path**, which is also why neither can be checked by any test in this
+  repository — and why `docs/rate-limits.md` says what the owner has to do by hand instead.
+
 | Arrow | Key it carries | Starts at | Where the key is stored | Why it has to be there |
 |---|---|---|---|---|
 | **create a team** — not drawn on the map above yet | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | Both limits in `docs/plan.md` — a name of 1 to 60 characters, and at most 3 teams per person — have to hold even if the request does not come from our own screens. A browser cannot be trusted to enforce its own limit, and counting somebody's teams is not something a person should have to be able to read rows to do. (An earlier version of this row said creating a team also makes its owner its first member. It does not: `create-team` writes only to `teams`, and an owner has no `team_members` row.) |
@@ -240,6 +300,8 @@ check the backups without being able to read them.
 | **accept an invitation** — not drawn on the map yet | Supabase **service-role key** | Supabase Edge Function (`accept-invite`) | Supabase Edge Functions secrets | Marking an invitation accepted and writing the `team_members` row both have to happen for somebody who is not yet in the team, so no policy on either table can allow it. The claim also has to be atomic, or two clicks both succeed. |
 | **(14)** accept a file onto a task — **nothing is built yet** | Supabase **service-role key** | Supabase Edge Function | Supabase Edge Functions secrets | The owner decided on 2026-10-08 that **100 MB per person is enforced on the server at upload**, and a total is a sum across rows the caller may not be able to see — the same reason "at most 3 teams per person" needs a function and cannot be a policy. The three-per-task count is the same shape. A row-level rule on `storage.objects` can say "this file belongs to a task you may see"; it cannot say "and you are under your 100 MB". **This arrow adds a key to an existing store rather than a new store**, and it is the only arrow on this map whose *reason* is arithmetic rather than authority. **How the bytes travel is not decided** — through the function, or a signed upload URL the function hands back — and the section below sets out both |
 | **(12)** ask for subtask suggestions — **nothing is installed yet** | **Anthropic Claude API key** (`AI_API_KEY`) | Supabase Edge Function | Supabase Edge Functions secrets, **per project** | Anyone holding this key can spend the owner's money at Anthropic, so it must never reach a browser — which is the whole reason this is a server function and not a `fetch` from a screen. The function is also where the three limits live that a browser could not be trusted with: only the one task's title goes out, nothing identifying the asker goes with it, and a suspended caller is refused. **Staging holds a key from Build it 20; production holds none until the consent setting lands in Build it 21**, so on production the function answers that suggestions are not available. See `docs/plan.md` → "Suggest subtasks — an outside AI service". |
+| **(17)** check a CAPTCHA token — **nothing is installed yet** | **Cloudflare Turnstile secret key** | **Supabase Auth**, not a function of ours | **Each Supabase project's Auth settings** — set by the owner by hand, and **nowhere else**: not in this repository, not in Vercel, not in a `.env` file | The secret key is what turns a token into a yes or a no, so a browser holding it could answer its own question. The **site key** beside it is public and goes in Vercel per environment as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, for the reason the Sentry DSN is public: it identifies a widget and grants nothing. **Staging and Preview hold Cloudflare's DUMMY secret and sitekey**, which is what lets CAPTCHA stay switched on where the automated sign-ins run. See `docs/plan.md` → "A CAPTCHA on the three sign-in screens" and `docs/rate-limits.md` |
+| **(18)** send the sign-up and reset emails — **not configured anywhere** | **A Resend API key, used as an SMTP password** | **Supabase Auth**, not a function of ours | **Production's Auth settings only** — staging is proposed to keep the built-in sender and so to hold nothing | Supabase Auth sends both emails itself, so the credential has to be somewhere Supabase Auth can reach. **It is a SEPARATE key from `EMAIL_API_KEY`**, which arrow (7) uses from Edge Functions secrets — same company, same account, two credentials, and that is deliberate: either can be rotated without stopping the other, and the one in Auth settings can be read by nothing of ours. See `docs/plan.md` → "The sign-up and reset emails move to Resend" |
 
 "Service-role key" and "secret key" are the same thing: the Supabase key that bypasses every
 row-level security rule. It is the most damaging value in this project to lose.

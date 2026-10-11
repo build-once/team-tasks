@@ -1394,6 +1394,284 @@ read 2026-10-10), so **"nothing has run for two months" is a state this design c
 state in which there is no failed run to open an issue about. `drift-check.yml`'s own comment names the
 same trap: "If this check goes quiet, that is the first thing to look at."
 
+## A CAPTCHA on the three sign-in screens
+
+Added 2026-10-11, for Build it 25, at the owner's instruction in
+[#281](https://github.com/build-once/team-tasks/issues/281). Not a sixth feature of the list above, and
+nobody gets a new button: it is a box that appears on three screens people already use. It is in the plan
+because it is a **new outside company that sees something about every visitor to those screens**, which
+is the same reason Sentry, Anthropic and Cloudflare R2 are each here — and because rule 9 asks for the
+plan before the code. **Nothing is installed on the day this was written:** no package, no site key in any
+environment, no secret key in either project's Auth settings, no widget on any screen, and no code.
+
+**What it is.** **Cloudflare Turnstile** on **sign-up**, **sign-in** and **password reset**, verified by
+**Supabase Auth** rather than by this app. Supabase does the checking: "Supabase authentication has
+support for hCaptcha and Cloudflare Turnstile", and "Supabase provides you with the option of adding
+CAPTCHA to your sign-in, sign-up, and password reset forms"
+([Enable CAPTCHA protection](https://supabase.com/docs/guides/auth/auth-captcha), read 2026-10-11). So
+this app's part is to draw the widget and pass the token along; **nothing in this project decides whether
+a token is good.**
+
+**Why, in one line, and it is not "bots".** `docs/rate-limits.md` is the inventory, and the sentence it
+produces about these three screens is that **the only thing limiting any of them today is a Supabase
+default nobody has read**. Sign-in's published default is 150 requests per 5 minutes per IP address, which
+is thirty password guesses a minute against an app that will ever have about six accounts.
+
+**Where the keys live, and which is which.** The **secret key** goes only into each Supabase project's
+Auth settings, set by the owner by hand, and nowhere else — not in this repository, not in Vercel, not in
+a `.env` file, exactly as the Resend and AI keys live only in function settings. The **site key** is
+**public**: it travels in the browser and identifies the widget, like the Supabase publishable key and the
+Sentry DSN. It goes in Vercel, **per environment**, as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`.
+
+### What Cloudflare sees, and what it keeps
+
+**What it collects, cited rather than remembered:** "Cloudflare Turnstile processes a variety of
+client-side signals ("Signals") such as client IP address, TLS Fingerprint, User-Agent Header and Sitekey
+and associated origin", and "The purpose of collecting these Signals is not to identify, profile or target
+any individuals but solely to detect and block bots"
+([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). The
+developer documentation adds "Turnstile processes only the data strictly necessary to provide this security
+function" and "Turnstile does not access, store, or transmit user communications, form entries, or other
+page inputs" ([Turnstile](https://developers.cloudflare.com/turnstile/), read 2026-10-11) — so **the
+password typed into the box beside it is not part of this.**
+
+**So the new thing this app sends out is an IP ADDRESS, and that is worth being exact about** because this
+plan has been careful about IP addresses from the first page. The appendix already lists four log stores
+that record one — Supabase's sign-in audit, Vercel's access logs, Supabase's own logs, and Sentry's, which
+the owner is switching off. Those four are things **nobody chose**: they are written whether we want them
+or not. **This one is chosen**, by us, on purpose, and it is the first time an IP address leaves this
+project to a company whose only job is to look at it.
+
+**What is NOT sent:** an email address, a password, a task, a team name, a user ID. The widget sits beside
+the form; it is not given the form.
+
+**How long Cloudflare keeps a Signal: NOT CONFIRMED, and no number is written here.** The addendum read on
+2026-10-11 states no retention period. `docs/rate-limits.md` → "Not confirmed" carries it with the page to
+read, and the privacy page ([#204](https://github.com/build-once/team-tasks/issues/204)) cannot describe
+this until somebody has.
+
+**Whether Turnstile sets a cookie: NOT CONFIRMED either.** The addendum points elsewhere — "For more
+information about the cookies used by Cloudflare, please check our Cookie Policy and our Turnstile
+Developer Docs" — and says nothing itself. It matters because a cookie set by a third party on this app's
+sign-in page is a thing a privacy page has to mention.
+
+**It costs £0 at any size this app will be.** Cloudflare's free plan is "Up to 20 widgets", "Unlimited
+challenges (traffic or verification requests)" and "10 hostnames per widget"
+([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). `docs/costs.md` has the
+row.
+
+### THE TESTS, which is the half that decides whether this can be switched on at all
+
+**Every automated sign-in in this project is a password sign-in with no CAPTCHA token** — nine files,
+counted on 2026-10-11: `web/tests/staging.mjs`, which `web/tests/access-rules.test.mjs` is built on and
+which **runs against staging in CI on every pull request**, and eight scripts under `scripts/staging/`.
+Switch CAPTCHA on at staging with a real key and all nine stop working, and the first symptom is a red
+check on a pull request that has nothing to do with sign-in.
+
+**Cloudflare publishes keys for exactly this**, and they work as a matched pair:
+
+| | Cloudflare's own words, read 2026-10-11 |
+|---|---|
+| What the dummy keys are for | "Use dummy sitekeys and secret keys to test your Turnstile implementation without triggering real challenges that would interfere with automated testing suites." |
+| The token a test sitekey produces | "Test sitekeys generate a dummy token: `XXXX.DUMMY.TOKEN.XXXX`" |
+| What a test secret key accepts | "Test secret keys: Only accept the dummy token, reject real tokens." |
+| What a real secret key accepts | "Production secret keys: Only accept real tokens, reject dummy tokens." |
+| And therefore | "Production secret keys will reject the dummy token. You must also use a dummy secret key for testing purposes." |
+
+**The proposed arrangement: dummy keys on staging and on Vercel's Preview, real keys on production.** So
+staging keeps CAPTCHA **switched on** — which is the point, because a staging project with the feature off
+proves nothing about the code path — and the nine files keep passing by sending the dummy token.
+
+**What the tests would send.** One field, read out of the installed client rather than recalled:
+`gotrue_meta_security: { captcha_token: "XXXX.DUMMY.TOKEN.XXXX" }`, alongside `email` and `password` in the
+body of `POST /auth/v1/token?grant_type=password`
+(`web/node_modules/@supabase/auth-js/src/GoTrueClient.ts:1243-1251`).
+
+**What staging would then prove: that the field is sent, in the right place and the right shape, and that
+Supabase Auth takes it.** That is the half that breaks loudly and the half a later code change can
+regress, so it is worth having.
+
+**What staging would NOT prove, said plainly because the list is the point:**
+
+- **that a real CAPTCHA refuses anybody.** A dummy secret key accepts the dummy token by definition, so
+  this is a check staging is incapable of failing;
+- **that a sign-in with no token at all is refused** — see the next paragraph;
+- **that a person on a phone can solve one.** A widget, its script and its appearance are not reachable
+  from a `fetch`.
+
+**And one thing nobody has established in either direction: whether Supabase Auth refuses a sign-in that
+carries no token once CAPTCHA is on.** The CAPTCHA page says what to switch on and **does not say what
+happens to a request that arrives without one**. It is the most important sentence missing from this
+design, because if the answer is "it is accepted" then the whole thing protects nothing. **Staging with a
+dummy secret key can settle it with one request**, and that check should be written before production is
+switched on, not after.
+
+**How production's real CAPTCHA gets seen to refuse — by the owner, and not by a script.** Rule 19 permits
+no production command and nothing in this project opens a browser. Two things, and they are the whole of
+it: **open production's sign-in page with JavaScript switched off** and see what it says, which is the
+refusal path observed rather than reasoned about; and **post to production's token endpoint with the dummy
+token**, using a wrong password for an address that has no account, where a real secret key must reject the
+dummy token — so a CAPTCHA refusal rather than "wrong password" is what says the check is actually running.
+Neither involves a real account or a real password.
+
+**If the nine files must change, that is the owner's agreement and not the assistant's (rule 20).**
+`docs/rate-limits.md` → "What staging would prove, and what it would not" lists every file and line. Nothing in them is edited by
+the change that adds this section.
+
+### What a person sees if the CAPTCHA cannot load, and the thing it costs
+
+**Signing in would need JavaScript, and nothing else in this app does.** Every screen today is a
+server-rendered page and a form posting to a server action; the one exception is attaching a file, which
+`docs/architecture.md` already records as needing JavaScript and says so in a `<noscript>` line beside the
+box. Turnstile is a script that renders a widget — the script is
+`https://challenges.cloudflare.com/turnstile/v0/api.js`, and the token arrives in a hidden field the widget
+creates ([Client-side rendering](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/),
+read 2026-10-11) — so with no JavaScript there is no token, and with no token there is no sign-in.
+
+**That is a real loss and the plan is not going to pretend otherwise.** This app is for a phone browser, and
+a volunteer on a slow connection or a locked-down work laptop would go from "sign-in works" to "sign-in does
+not work, and the screen had better say why".
+
+**So the one thing required of the screens: they say what happened, and they do not look broken.** Three
+cases, and the wording belongs with the screens rather than here:
+
+- **The widget has not been solved yet.** The button says so, rather than posting and coming back with
+  "that email and password don't match" — which is the sentence those screens have today, and it would be a
+  lie about the password.
+- **The widget could not load**, or JavaScript is off. A sentence that says the check could not load and
+  that signing in needs it, in the place the box would have been. Not a blank space, and not a form that
+  posts into a refusal.
+- **The token expired before the form was sent.** Cloudflare's own figure: "Tokens expire after 300 seconds
+  (5 minutes). Each token can only be validated once." Five minutes is less than somebody can plausibly take
+  over a password field, so this will happen, and the honest answer is "that check timed out, here it is
+  again" rather than a wrong-password sentence.
+
+**What the screens must never do is show Cloudflare's or Supabase's own words.** Same rule as everywhere
+else in this app: a message this app did not write, in this app's styling, is `web/src/lib/teams.ts`'s long
+note about exactly that.
+
+### What this section deliberately does not decide
+
+- **The wording on the three screens.** Decided when the screens are built, with the two requirements above
+  kept.
+- **Whether the widget is visible or invisible.** Cloudflare publishes both, and the choice changes what a
+  person sees; nobody has been asked.
+- **Whether `/auth/v1/resend` and `/auth/v1/verify` are covered.** The CAPTCHA page names "forms" and no
+  endpoints, so this is **not confirmed** and is on `docs/rate-limits.md`'s list.
+- **Anything about the Auth rate limits themselves.** They are dashboard settings nobody has read;
+  `docs/rate-limits.md` proposes figures and the owner decides.
+
+## The sign-up and reset emails move to Resend
+
+Added 2026-10-11, for Build it 25, and it is what
+[#219](https://github.com/build-once/team-tasks/issues/219) has been holding since 8 October. Not a sixth
+feature, no new button, and **no new company**: Resend already sends this app's invitations. What changes is
+**which of this app's emails go through it** — and therefore **what Resend holds about people**, which is
+why it is in the plan and not only in `docs/stack.md`.
+
+**What it is.** The **sign-up confirmation** and the **password-reset** email stop being sent by Supabase's
+built-in sender and start being sent by **Resend, through Supabase Auth's custom SMTP setting**. On
+**production**. The owner sets it by hand in the dashboard; nothing in this repository sends either email,
+and nothing in this change sends them either — `supabase/functions/invite-member` is untouched and keeps its
+own `EMAIL_API_KEY`.
+
+**This is not an improvement. It is a repair, and the plan should say so in the first paragraph.** From
+Supabase's own page: "Unless you configure a custom SMTP server for your project, Supabase Auth will refuse
+to deliver messages to addresses that are not part of the project's team"
+([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11). Read against this app,
+that says: **on production as it stands, a volunteer signing up or asking for a password reset receives
+nothing at all** — not late, not rate-limited, nothing — because their address is not on the Supabase
+project's team. Nobody has observed it, because nobody has signed up on production, so it is a reading of
+that sentence rather than a measurement; `docs/rate-limits.md` names the one sign-up that settles it and
+fixes it in the same act.
+
+**And the rate is the smaller of the two problems, which is the thing #219 asked to be read.** The built-in
+sender's limit is "2 emails per hour with the built-in email provider"
+([Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits), read 2026-10-11) — **per project,
+not per person**. The custom-SMTP page cited above says the default service is "provided as best-effort
+only and intended for the following non-production use cases", and lists "Exploring and getting started with Supabase Auth",
+"Setting up and testing email templates with the members of the project's team", and "Building toy
+projects, demos or any non-mission-critical application". `docs/stack.md` decided on 2026-09-27 that
+"Supabase's built-in email is for testing only"; this is that decision reaching the two emails it had not
+yet reached.
+
+**What happens to Supabase's own email rate limit once custom SMTP is on: it becomes a number the owner
+chooses, and until they choose it is 30 an hour.** Both halves are published. The rate-limits table's own
+row reads "2 emails per hour with the built-in email provider. You can configure this limit when you use
+custom SMTP or the Send Email hook"; and the custom-SMTP page says "To protect the reputation of your newly
+set up service a low rate-limit of 30 messages per hour is imposed. To adjust this to an acceptable value
+for your use case head to the Rate Limits configuration page." **So the limit does not go away** — it stops
+being 2 and starts being a setting, and **nobody has read what either project is set to**, which is the
+first row of `docs/rate-limits.md`'s by-hand list.
+
+**One number to keep in step, and it is not obvious.** 30 messages an hour is **720 a day**, and Resend's
+free plan allows **100 a day**. So the Auth setting, left at its imposed default, permits seven times what
+the email service will accept. At six volunteers neither is reachable; the figures are written down because
+**a limit that is looser than the thing behind it is a limit that reports the wrong failure**, and
+`docs/costs.md` carries the arithmetic.
+
+### What Resend then holds, which is the part that is about people
+
+**Today Resend sees only the addresses of people who have been INVITED.** After this, it sees **the address
+of everybody who uses this app** — on sign-up, and again on every password reset — because those messages
+pass through it.
+
+That is a genuine widening and this plan's habit is to state it rather than fold it into "we already use
+Resend":
+
+- **What is sent:** the recipient's address, the sender address and name, a subject, and Supabase's own
+  email body carrying a **confirmation or reset link**. That link is a credential with a clock on it, in the
+  same class as an invitation token — `docs/architecture.md` already puts it that way about invitations, and
+  the appendix's row for "Confirmation and reset links in flight" is the same thing seen from the restore
+  side.
+- **What Resend keeps:** its sending log, **30 days on the free plan**, which the appendix already records
+  for invitations. The log is a record of **which addresses were sent what, when** — so it becomes a record
+  of who signed up and who has been resetting their password.
+- **Who can see it:** the owner, through Resend, and Resend.
+- **What this app keeps about it: nothing.** No row, no status, no log line. Unlike an invitation, which has
+  a `status` column and a failure code, these two emails leave no trace in this project at all — which is
+  also why the app cannot tell somebody their reset email failed.
+
+**And the password-reset promise is untouched, which is the one thing this change must not break.** The
+reset screen says one sentence whatever happened — "If that address has an account, we've sent a link" —
+and `scripts/password-reset-check.mjs` reads the action's source and refuses a second branch. Moving the
+sender changes nothing about that: **the app still learns nothing it could leak**, because it still does not
+read the answer. What does change is that the sentence is **true more often**, which is the whole point.
+
+### What staging does: nothing, and that is the proposal
+
+**PROPOSED, for the owner: staging keeps Supabase's built-in sender and is not given custom SMTP.** Three
+reasons, and the third is the deciding one:
+
+- **Staging's email already goes nowhere real.** `invite-member` on staging redirects every message to
+  `EMAIL_TEST_INBOX`, and the function's own comment says why that setting wins over every other: "If a test
+  inbox is set at all, that is somebody saying 'do not send to real people from here'". The two login emails
+  are Supabase's, so that redirect does not cover them — but the accounts staging signs in as are **Alice,
+  Bob and Carol**, test accounts whose addresses the owner owns.
+- **The built-in sender's refusal is harmless there.** It refuses addresses "not part of the project's
+  team", and on staging the only addresses used are the three test ones.
+- **A second SMTP configuration is a second place for a key to be**, and a staging project whose Auth sends
+  through Resend would be a second copy of a credential that can send email as this app — for no benefit,
+  because nothing on staging needs a real volunteer to receive anything.
+
+**What that costs, stated:** staging cannot be used to check that custom SMTP works. So **the first time
+this arrangement is exercised is on production**, which is the one thing about it the owner should see before
+agreeing. The check is small and it is the owner's: one sign-up with the test mailbox, after the setting is
+saved, and see whether the email arrives.
+
+### What this section deliberately does not decide
+
+- **The email templates.** Supabase's defaults carry this app's links today and no template for either
+  email exists in this repository. `docs/claims.md` already says so.
+- **The sender address and name**, which custom SMTP requires. The owner chooses both; they appear in
+  everybody's inbox.
+- **Whether "Confirm email" is on at all.** `docs/claims.md` records it as **not verified** — nobody has
+  read the setting — and this section does not change it.
+- **Counting these two emails.** The owner decided on 2026-10-08 that they are **not** counted in
+  `usage_counts`, because there is no signed-in person to key a count by and counting per address would
+  rebuild the distinction the reset screen refuses to make. **Unchanged.** What holds them is the Auth
+  setting above, which is now a number somebody chose rather than a number nobody read.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. Payments. A phone app.
@@ -1433,7 +1711,13 @@ than five, counted here rather than remembered.
 - **A nightly encrypted copy of every line above it** — every table, the accounts with their password
   hashes, and every attached file — held by Cloudflare, outside this project, as ciphertext only, and
   removed after about a fortnight. It adds no new *kind* of data and it is the only line here that
-  contains all the others, which is why it is last
+  contains all the others, which is why the two lines below it were added after it rather than before
+- **Every visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — sent
+  to Cloudflare by the CAPTCHA, outside this project, and the **first IP address this app chooses to send
+  anywhere**. "A CAPTCHA on the three sign-in screens" above. Added 2026-10-11
+- **Every person's own email address at the email service**, once the sign-up and reset emails go through
+  Resend — where today Resend sees only the addresses of people who were **invited**. "The sign-up and
+  reset emails move to Resend" above. Added 2026-10-11
 
 Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
 2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is
@@ -1443,7 +1727,10 @@ sensitive information in task text, and the app does not need it.
 
 Supabase and Vercel also record IP addresses, and Sentry would record one with every error report
 unless the owner switches that off, which is what "Error reports to an outside service" above says
-they will do. The appendix lists everything.
+they will do. **And from 2026-10-11 there is a fourth kind of IP address in this plan, which is the one
+to notice**: those three are recorded by companies that were going to log the request anyway, and the
+CAPTCHA's is one this app **sends on purpose, to a company whose only job is to look at it.** The
+appendix lists everything.
 
 Point 5 protects all of this: a person sees their own personal tasks and their own
 teams' tasks, and nothing more. That must be true in the database, not just the screens.
@@ -1487,6 +1774,16 @@ on that page too. `docs/costs.md` → "Backups: what the nightly copy and a rest
 arithmetic, and the one thing here that is **not** £0: **a restore drill creates a project, and a project
 on a paid organisation is billed by the hour.** It is pennies, it is named on that page, and it is a
 decision rather than a surprise.
+
+The CAPTCHA, added 2026-10-11, brings in **a fifth outside company and adds £0**, which is the cheapest
+thing on this page: Cloudflare's Turnstile free plan is "Up to 20 widgets", "Unlimited challenges (traffic
+or verification requests)" and "10 hostnames per widget"
+([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11) — and "unlimited" is a word
+no other service on this page offers, so there is no arithmetic to do and no headcount at which it stops.
+The sign-up and reset emails moving to Resend, added the same day, add **no new service and no new bill**:
+Resend is already here, and the two emails fit inside the free plan's 100 a day beside the invitations.
+`docs/costs.md` has both rows, and the one number on them worth keeping in step — Supabase's imposed
+30-messages-an-hour Auth limit is 720 a day against Resend's 100.
 
 **And one sentence of this section is now out of date for a reason that has nothing to do with backups.**
 "Before real users arrive, production moves to a Supabase Pro organisation at about $25 a month" is what
@@ -1548,6 +1845,8 @@ free text that could contain absolutely anything.
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. The two Edge Functions that write it through `count_daily_use()` are **deployed nowhere**, so the table is empty in both projects. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 | **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **BUILT, THREE COPIES EXIST, ONE HAS BEEN RESTORED, AND COPIES NOW EXPIRE**: `.github/workflows/backup-production.yml`, `.github/workflows/backup-freshness.yml` and `scripts/backup/` are exercised in CI against made-up data on every pull request (`evidence/build-it-24-nightly-copy.md`). This cell has said "**NO COPY HAS EVER BEEN MADE**", then "**the workflow has never run**", then "**NO RESTORE HAS EVER FINISHED**", and all three are gone: the owner made two copies by hand on 10 Oct, **the schedule made the third by itself on 11 Oct** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), success in 38 seconds), and **the drill of 10–11 Oct put one back in 219 seconds** — 47 tables, 269 rows, one file byte for byte, signed into with a real account, project then deleted (`evidence/restore-tested.md`). **A 14-day lifecycle rule exists** on the bucket, named `delete-after-14-days`, owner-reported for 10 Oct, so the 14 days in the next column is now a thing happening rather than only a decision ([#259](https://github.com/build-once/team-tasks/issues/259)). **What is still not done**: no second drill, so 219 seconds is one measurement; no bucket lock; and `evidence/backups-on.md` does not exist, which is the open half of [#249](https://github.com/build-once/team-tasks/issues/249). **And "every night" is nightly-ish**: that first scheduled run started **5h 57m 24s** after its cron time, so the window between copies is about a day and a quarter rather than a day — `docs/backups.md` → "The two targets". The bucket, the token and the three `BACKUP_*` GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
+| **A visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — Cloudflare's "Signals" | "A CAPTCHA on the three sign-in screens" above — the CAPTCHA cannot tell a bot from a person without looking at the request, and today the only thing limiting sign-in is a Supabase default nobody has read (`docs/rate-limits.md`) | Cloudflare Turnstile — **outside this project, and a company that was not part of it the day before.** **NOTHING IS INSTALLED**: no package, no site key in any environment, no secret key in either project's Auth settings, no widget on any screen. Cloudflare's own list of what it processes is "client IP address, TLS Fingerprint, User-Agent Header and Sitekey and associated origin" ([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). **Nothing of ours stores any of it**; the token the widget hands back goes to Supabase Auth and is never written down | Cloudflare. The owner, through Turnstile's analytics, which the free plan keeps for "7 days maximum" ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). **Not this app**: no screen and no table ever holds a Signal | **Not confirmed, and no number is written here.** The addendum read on 2026-10-11 states no retention period. Read Cloudflare's own page and cite it, or write that none could be found | **They cannot**, and there is nothing of ours to remove. It is Cloudflare's record of a request, on Cloudflare's clock | **Yes** — an IP address, which is this table's standing reason for that answer. And it is the **first IP address this app chooses to send out**: the four log rows above it are written whether we want them or not |
+| **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **NOTHING IS CHANGED YET**: custom SMTP is not configured on either project, and both emails are still Supabase's own sending. What widens is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
 
 ## Collecting less — decided
 
@@ -1743,6 +2042,37 @@ whether anybody can print it.**
   resets a day's counts, which is a worse failure than holding them. **The copy is as readable as the
   database it came from, and the passphrase is the whole of what stands in front of it.**
 
+### Added 2026-10-11 — collecting less at the door, and in the two login emails
+
+Kept apart again, and this one is a different shape from all six above: **both of today's additions are
+things somebody else collects, not things this app composes or stores.** Every list above reduces what we
+write down or what we send. Here the app writes down nothing at all — no Signal, no delivery record, no row
+— and what is left to reduce is **who else gets to see it, and how long for.**
+
+- **No CAPTCHA anywhere but the three sign-in screens.** Not on the invite form, not on Suggest subtasks,
+  not on the upload box. Every one of those is behind a sign-in already, and the limits that belong there
+  are counts in our own database (`usage_counts`) rather than a third party watching a signed-in person
+  work.
+- **Nothing of a Signal is stored by this app, and nothing of it is logged.** The token the widget produces
+  goes to Supabase Auth and is never written to a row, a log line or an error report. There is no column
+  anywhere in this project for anything Cloudflare collects.
+- **No Enterprise features, and the reason is this list's reason rather than the price.** Turnstile's
+  Enterprise tier offers "ephemeral IDs", which is a per-visitor identifier this app has no use for and
+  would rather not have the option of.
+- **The reset screen's one sentence survives the move to Resend**, which is the reduction that was hardest
+  to keep: the app still does not read the answer, still has no branch, and `scripts/password-reset-check.mjs`
+  still refuses a second one. So the app learns nothing about which addresses have accounts, even though
+  what now sends the email keeps a log that would say.
+- **Staging is NOT given custom SMTP**, proposed 2026-10-11. One fewer place holding a credential that can
+  send email as this app, and nothing on staging needs a real person to receive anything.
+- **And two reductions that are NOT taken, written here so they are decisions rather than oversights.**
+  The first: **an IP address leaves this project on purpose for the first time**, and that is the whole of
+  what the CAPTCHA costs. The alternative was to lower Supabase's own rate limits and nothing else — which
+  collects least and stops nobody who has more than one IP address. The second: **Resend's log becomes a
+  record of who signed up and who resets their password**, where today it holds only invited addresses.
+  There is no version of custom SMTP that does not do that; the alternative is the built-in sender, which
+  on production **delivers nothing at all** to the people this app is for.
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -1768,6 +2098,16 @@ numbers was counted in the session that wrote it, not carried forward.) That is 
 report, not a suggestion: as written,
 this app collects personal data and offers no way out. Decide whether that is acceptable for six
 volunteers, or whether the plan changes.
+
+**AND IT IS TWENTY-ONE AS OF 2026-10-11, because Build it 25 added two rows and both answer "they
+cannot".** What was counted in this session, and what was not, said exactly: the table now holds **32**
+data rows, counted here by reading it; the two added today — Cloudflare's Signals, and everybody's own
+address at the email service — both say **they cannot** in the "How a user deletes it" column, so the
+figure goes up by two. **The nineteen itself was counted on 2026-10-10 against 30 rows and is carried
+rather than re-made**, which is the one place this paragraph departs from its own rule, and it says so
+rather than quietly re-asserting a number. Both new rows are **outside this project**, which is the
+harder version of the gap: there is nothing of ours to delete, and for the CAPTCHA there is nothing to
+search by either.
 
 **Attachments added two rows to that table and nothing to this gap, which nothing else added to this plan
 has managed.** Error reports added four rows that nobody can delete; the AI sections added two; the usage
@@ -2394,3 +2734,56 @@ second rests entirely on one passphrase.
   already holds the site address. The reason is the one `evidence/production-log.md`'s header gives for
   the production project reference: it is an identifier of that kind, and this repository is public.
   **Not set yet** — it is on `docs/backups.md`'s by-hand list.
+
+- **Unverified — the whole CAPTCHA section describes an intention. Nothing is installed.** No Turnstile
+  account or widget has been seen by anybody writing this, no site key is in any Vercel environment, no
+  secret key is in either project's Auth settings, no widget is on any screen, and no code was written.
+  The four Cloudflare pages and the Supabase CAPTCHA page cited in it were read on **2026-10-11** through
+  this session's page-fetching tool, which converts a page to text and answers a question about it — the
+  testing page was fetched twice, with different questions, and agreed both times. `docs/rate-limits.md`
+  says the same about its own quotations, and anybody about to depend on an exact wording should open the
+  page.
+- **NOT CONFIRMED, AND THE WHOLE CAPTCHA RESTS ON IT — whether Supabase Auth refuses a
+  sign-in that carries no CAPTCHA token once CAPTCHA is on.** [Enable CAPTCHA
+  protection](https://supabase.com/docs/guides/auth/auth-captcha) says what to switch on and **does not
+  say what happens to a request that arrives without one**. If the answer turns out to be "it is
+  accepted", the feature protects nothing. **One request against staging settles it**, with a dummy secret
+  key configured: post to `/auth/v1/token?grant_type=password` with no `gotrue_meta_security` field and
+  see what comes back. It should be written as a check before production is switched on, not after.
+- **Not confirmed — which Auth endpoints CAPTCHA covers.** The page names "your sign-in, sign-up, and
+  password reset forms" and names no endpoint, so `/auth/v1/resend` and `/auth/v1/verify` are
+  unknown. Same one-request method, per endpoint.
+- **Not confirmed — how long Cloudflare keeps a Turnstile Signal, and whether Turnstile sets a cookie.**
+  The [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11,
+  states **no retention period**, and on cookies it points elsewhere — "For more information about the
+  cookies used by Cloudflare, please check our Cookie Policy and our Turnstile Developer Docs". Both
+  belong on the privacy page ([#204](https://github.com/build-once/team-tasks/issues/204)), so both have
+  to be read and cited before it can be written. **No number and no answer is written here from memory.**
+- **Not confirmed — whether Cloudflare sells Signals or uses them for advertising.** The addendum says the
+  purpose "is not to identify, profile or target any individuals" and carries **no sentence** saying the
+  data is not sold. Read the main Cloudflare privacy policy for that, or write that it could not be found.
+- **Unverified — what either Supabase project's Auth settings are actually set to.** Every rate limit in
+  `docs/rate-limits.md` is the **published default**, and the page says the customizable ones are changed
+  in **Authentication → Rate Limits** in the dashboard. Nobody has read either project's page and nothing
+  in this repository can. The same goes for the minimum password length, for leaked-password protection,
+  and for whether "Confirm email" is on at all — which `docs/claims.md` already carries.
+- **Unverified — the whole "sign-up and reset emails move to Resend" section describes an intention.**
+  Custom SMTP is configured on **neither** project; both emails are still sent by Supabase's built-in
+  sender. Nothing in this repository sends either one, and nothing in this change touches
+  `supabase/functions/invite-member`, which keeps its own key.
+- **Not observed, only read — that production refuses to deliver to a non-team address today.** It is a
+  reading of one sentence on [Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) (read
+  2026-10-11): Supabase Auth "will refuse to deliver messages to addresses that are not part of the
+  project's team". **Nobody has signed up on production**, so nobody has watched an email not arrive.
+  One sign-up to the test mailbox, after custom SMTP is saved, both settles it and fixes it.
+- **Not read, and not tried — what happens when Supabase's Auth email limit is set above Resend's daily
+  quota.** The imposed default once custom SMTP is saved is "a low rate-limit of 30 messages per hour",
+  which is 720 a day against Resend's free 100 a day. Which refuses first, and what the person sees, is
+  unknown.
+- **Decided, so no longer open — what Supabase's rate limits on the sign-up and reset emails are.** This
+  list and `docs/costs.md` both carried it as "not read, and now scheduled ... reading them is Build it
+  25" ([#219](https://github.com/build-once/team-tasks/issues/219)). They were read on **2026-10-11** and
+  are in `docs/rate-limits.md`: **2 emails per hour with the built-in provider, per project**, and a
+  60-second window per user on each of the two endpoints. The reading also produced something the issue
+  did not ask for and which matters more than the rate — the refusal to deliver to a non-team address,
+  two bullets above.

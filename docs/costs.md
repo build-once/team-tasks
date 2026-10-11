@@ -47,6 +47,7 @@ said £0/month while building until 2026-10-07, when the Claude API — which ha
 | **Sentry** — error reports (chosen 2026-10-05, not installed) | **NOT CONFIRMED.** Whether the free plan is metered at all, what allowance of error reports it carries, and whether going past that allowance drops the extra reports or starts charging — none of it has been read. It must come from Sentry's own pricing page; no figure is written here from memory | **NOT CONFIRMED** — whether the free plan can bill at all, and whether Sentry offers a spend cap or a "stop at quota" switch, has not been read | **NOT CONFIRMED** — whether quota-warning emails exist, and at what percentages | **NOT READ — Sentry's own pricing page, and its documentation on event quotas and data retention.** No link is given: a URL written from memory is a guess (rule 15). Find them from the vendor's site, paste the exact pages here, and fill this row in |
 | **Anthropic Claude API** — the AI helper (chosen 2026-10-07, not installed) | **Yes, per token, and there is no free plan.** Claude Haiku 4.5 is listed at **$1 / MTok input and $5 / MTok output** on [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), read 2026-10-07 | **Yes, and it stops rather than warns — the strongest control of any service on this page.** A spend limit you set yourself is enforced: "When usage reaches a spend limit you set, requests return HTTP 400 with error type `invalid_request_error`." Limits can be set **per workspace**, which is what the Team Tasks workspace is for. The owner reports setting **5 USD a month**; that figure has not been seen in a dashboard here | **Not confirmed.** The pages read on 2026-10-07 describe what happens when a limit is *reached*, not any notification threshold. The owner reports notifications at **1** and **3** dollars; nothing read here confirms the feature exists or fires | [Pricing](https://platform.claude.com/docs/en/about-claude/pricing) · [Rate limits → Spend limits](https://platform.claude.com/docs/en/api/rate-limits#spend-limits) · [Setting your own spend limit](https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit) |
 | **Cloudflare R2** — where the nightly copy is kept (chosen 2026-10-10, nothing built) | **Yes, above the free tier**, and the free tier is generous for this: **10 GB-month of storage, 1 million Class A and 10 million Class B operations a month**, with **data transfer out free** across all storage classes. Past it, Standard storage is **$0.015 / GB-month**, Class A **$4.50 / million** and Class B **$0.36 / million** ([R2 pricing](https://developers.cloudflare.com/r2/pricing/), read 2026-10-10) | **NOT CONFIRMED** — whether Cloudflare offers a spend cap or a stop-at-quota switch was **not read** on 2026-10-10, and no page is cited for it. Whether a payment method is on the account has **not been checked**. What *is* known is that the usage this design can generate is far below the free tier at this group's size — see the backups section below for the headcount at which that stops being true | **NOT CONFIRMED** — whether usage alerts exist, and at what thresholds | [R2 pricing](https://developers.cloudflare.com/r2/pricing/) · [Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) |
+| **Cloudflare Turnstile** — the CAPTCHA on the three sign-in screens (chosen 2026-10-11, nothing installed) | **No, on the free plan, and it is the only row on this page whose free tier says "unlimited".** The plan is "Free", with "Up to 20 widgets", "Unlimited challenges (traffic or verification requests)", "10 hostnames per widget" and "7 days maximum" of analytics ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). The tier above it is "Contact Sales" | **None exists, and none is needed**: there is no metered item to cap. The free plan's limits are a widget count and a hostname count, and passing either refuses a configuration rather than producing a charge | **Not applicable** — there is no spend to alert on | [Plans](https://developers.cloudflare.com/turnstile/plans/) · [Turnstile](https://developers.cloudflare.com/turnstile/) |
 | **Domain registrar** — not chosen | **UNSURE** — depends entirely on the registrar. Domains are normally a fixed annual fee, not metered | **UNSURE** — and a spending cap is usually not applicable to a fixed annual fee | **UNSURE** | **UNSURE — no registrar chosen, so there is no documentation to link.** Fill this row in once one is picked |
 
 ## Notes per service
@@ -118,6 +119,18 @@ said £0/month while building until 2026-10-07, when the Claude API — which ha
 - **UNSURE what happens on the free plan when the quota is hit** — the docs describe
   overage behaviour for paid plans only and do not say whether free sending pauses or
   fails.
+- **There is a per-second limit as well as the daily and monthly ones, read 2026-10-11:** "The default
+  maximum rate limit is 10 requests per second per team", and exceeding it returns "a `429` response error
+  code" ([API reference introduction](https://resend.com/docs/api-reference/introduction)). Nothing this
+  app does approaches it — `invite-member` sends one email per press — and it is written down because it
+  is the one Resend limit this page did not have.
+- **And from 2026-10-11 Resend is proposed to carry two more of this app's emails**: the sign-up
+  confirmation and the password reset, through Supabase Auth's custom SMTP setting, on production
+  (`docs/plan.md` → "The sign-up and reset emails move to Resend"). **No new bill**: they share the same
+  free plan as the invitations, and six volunteers cannot approach 100 a day with three kinds of message
+  rather than one. **What it does add is a number to keep in step** — Supabase imposes 30 messages an hour
+  on a newly configured SMTP sender, which is 720 a day — and **what Resend then holds about people**,
+  which is `docs/plan.md`'s business and not this page's.
 
 ### Sentry
 
@@ -236,6 +249,33 @@ row and unlike Sentry's, the figures were read from the vendor's own page on tha
 - **Whether a spend cap or an alert exists was not read**, which is the gap in its row above, and it is
   smaller than it looks for exactly the reason in the bullet before this one. Still worth filling in before
   a payment method goes on the account.
+
+### Cloudflare Turnstile
+
+Added 2026-10-11, when the owner put a CAPTCHA on the three sign-in screens for Build it 25
+(`docs/plan.md` → "A CAPTCHA on the three sign-in screens"; `docs/rate-limits.md` is the inventory
+that produced it). Like the Anthropic and R2 rows and unlike Sentry's, the figures were read from the
+vendor's own page on that date.
+
+- **Nothing is installed, so nothing can be billed, and on this one the second clause survives
+  installation.** No widget, no site key in any Vercel environment, no secret key in either Supabase
+  project, no code.
+- **It is the cheapest thing on this page by a distance, and the reason is "unlimited challenges".**
+  Every other free tier here is an allowance with a number on it — 3,000 emails, 1 GB of storage, 5 GB
+  of egress, 2,000 Actions minutes. This one has no per-request allowance to run out of, so **there is
+  no arithmetic to do and no headcount at which it stops being free.** That is unusual enough on this
+  page to be worth saying rather than leaving as a blank row.
+- **What could run out are widgets and hostnames: 20 and 10.** This app needs **one widget** and, at
+  most, the production hostname plus Vercel's preview hostnames. Preview deploys get a different
+  hostname each time, which is the one way a 10-hostname limit could bite — and it does not, because
+  the proposal in `docs/plan.md` puts Cloudflare's **dummy** sitekey on Preview, and a dummy key is
+  not a widget of ours at all.
+- **Whether a payment method is on the Cloudflare account has not been checked.** It is the same
+  account as R2's, so the R2 row's gap is this row's gap. With nothing metered here it changes nothing
+  about this service.
+- **The cost of this service is not money**, and this page is the wrong place for it in full:
+  signing in starts needing JavaScript, and an IP address starts leaving this project.
+  `docs/plan.md` is where both are written down.
 
 ### Domain registrar
 
@@ -369,16 +409,38 @@ address has an account (`docs/plan.md`, and `scripts/password-reset-check.mjs` e
 per address would rebuild exactly the distinction that screen refuses to make. A limit that undid a
 privacy promise to save an email would be the wrong trade.
 
-What holds them is **Supabase's own rate limits on its built-in email**, and **what those are has not
-been read.** No figure is written here. **Reading them is Build it 25** — the owner's decision of
-2026-10-08, and [#219](https://github.com/build-once/team-tasks/issues/219) holds it with what to read
-and how we will know it is done.
+**THEY HAVE NOW BEEN READ — 2026-10-11, and this paragraph is what changed.** It said: "What holds them
+is **Supabase's own rate limits on its built-in email**, and **what those are has not been read.** No
+figure is written here. **Reading them is Build it 25** — the owner's decision of 2026-10-08, and
+[#219](https://github.com/build-once/team-tasks/issues/219) holds it with what to read and how we will
+know it is done." Build it 25 part 0 read them. The figures, cited:
 
-The nearest thing to a number this project has today is `docs/stack.md`'s decision that the built-in
-sender is for testing only and is "rate-limited and Supabase documents it as unsuitable for production".
-The cost today is **£0**: it is Supabase's own sending on the free plan, not Resend's quota. **Which is
-also why this is Build it 25 rather than urgent** — nothing here can produce a bill, so what is at risk
-is a volunteer not getting a reset email, not money.
+| What | As published, read 2026-10-11 |
+|---|---|
+| The built-in sender | "2 emails per hour with the built-in email provider. You can configure this limit when you use custom SMTP or the Send Email hook" — **per project, not per person** ([Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits)) |
+| Each of the two endpoints | "Defaults to a 60 seconds window before a new request is allowed for the same user", for `/auth/v1/signup` and for `/auth/v1/recover` (same page) |
+| Both endpoints, per IP | "Defaults to 30 requests per 5 minutes, with bursts up to 30 requests" (same page) |
+| Once custom SMTP is saved | "a low rate-limit of 30 messages per hour is imposed. To adjust this to an acceptable value for your use case head to the Rate Limits configuration page" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp)) |
+
+**Every one of those is a DEFAULT, and the page says the customizable ones are changed in
+"Authentication > Rate Limits" in the dashboard. Nobody has read what either project is set to**, so
+none of the figures above is a fact about this app. `docs/rate-limits.md` is the full inventory and
+section 3 of it is the owner's by-hand list.
+
+**And the reading turned up something worth more than the rate, which is the one thing on this page
+that is not about money.** The same custom-SMTP page: Supabase Auth "will refuse to deliver messages to
+addresses that are not part of the project's team" unless custom SMTP is configured. So on production as
+it stands, **a volunteer signing up or resetting their password receives nothing** — not late, nothing.
+`docs/plan.md` → "The sign-up and reset emails move to Resend" is the repair, and it is section 4 of
+issue [#281](https://github.com/build-once/team-tasks/issues/281).
+
+**The cost is still £0 either way, and the number to keep in step is new.** The two emails move onto
+Resend's free plan beside the invitations, where 3,000 a month and 100 a day are not reachable by six
+volunteers. What is reachable on paper is the mismatch: **Supabase's imposed 30 messages an hour is 720
+a day against Resend's 100.** Which of the two refuses first, and what the person sees, **was not read
+and has not been tried** — the "Unverified" section below carries it. **Which is also why this was Build
+it 25 rather than urgent as a BILL** — nothing here can produce one — **and why it turned out to be
+urgent as a BREAKAGE**, which is a different thing and is not this page's business beyond saying so.
 
 ## Attachments: the storage and egress allowance, and what the limits mean against it
 
@@ -733,10 +795,27 @@ question does not get re-asked from scratch.
   exist in `supabase/functions/suggest-subtasks/index.ts`. The 300-token output figure is **not** an
   assumption: it is `MAX_OUTPUT_TOKENS` in that file, read in this session. So **$9.30 is an upper bound
   on a guess**, and the owner's decision to keep the limits at 20 was taken knowing that.
-- **Not read, and now scheduled — Supabase's rate limits on the sign-up and password-reset emails it
-  sends.** They are the one email path no daily limit here covers, by the owner's decision of
-  2026-10-08, and no figure for them is written on this page. **Reading them is Build it 25**:
-  [#219](https://github.com/build-once/team-tasks/issues/219).
+- **READ, 2026-10-11, so no longer scheduled — Supabase's rate limits on the sign-up and password-reset
+  emails it sends.** This entry said "**Not read, and now scheduled** ... no figure for them is written on
+  this page. **Reading them is Build it 25**: [#219](https://github.com/build-once/team-tasks/issues/219)."
+  Build it 25 part 0 read them, and the figures are in the "One email path these limits do not cover"
+  section above, cited to Supabase's own pages. **What remains unverified is not the published figure but
+  the setting**: see the next two entries.
+- **Unverified — what either Supabase project's Auth rate limits are actually set to.** Every figure read
+  on 2026-10-11 is a **default**, and the page says the customizable ones are changed in "Authentication >
+  Rate Limits" in the dashboard. Nobody has opened either project's page and nothing in this repository
+  can. It is row 1 of `docs/rate-limits.md`'s by-hand list, and until it is done no rate on this page is a
+  fact about this app.
+- **Not read, and not tried — which refuses first when Supabase's Auth email limit is above Resend's daily
+  quota.** The limit Supabase imposes when custom SMTP is saved is 30 messages an hour, which is 720 a day
+  against Resend's free 100 a day. Nothing read on 2026-10-11 says what happens at the point they
+  disagree, and custom SMTP is configured on neither project, so nothing has been tried.
+- **Unverified — the whole Cloudflare Turnstile row and section.** Added 2026-10-11 for Build it 25 part 0.
+  **Nothing is installed**: no widget, no site key in any environment, no secret key in either Supabase
+  project, no code — so nothing has been used and no allowance has been touched. The plan figures are
+  cited from Cloudflare's own Plans page, read that day, which is how Cloudflare describes the tier rather
+  than what this account is set to. **Whether a payment method is on the Cloudflare account has not been
+  checked**, the same gap the R2 row carries, and with nothing metered it changes nothing here.
 - **Unverified — nothing in the attachments section exists, and none of it has been measured.** Added
   2026-10-08 for Build it 23 part 0. There is **no bucket, no storage rule, no code and no uploaded
   file**, so nothing has been stored or served and no allowance has been touched. **Rewritten later the
