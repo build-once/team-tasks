@@ -1251,23 +1251,62 @@ async function endToEnd() {
     ].join("\n");
     const oldWayFile = join(work, "the-old-way.sql");
     writeFileSync(oldWayFile, faultDump);
-    const oldWay = spawnSync(PSQL, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", oldWayFile], {
-      env: { ...process.env, ...pgEnvFromUrl(urlWithDatabase(admin, restoreDb)), PGCONNECT_TIMEOUT: "30" },
-      encoding: "utf8",
-    });
-    const oldWayErrors = String(oldWay.stderr || "");
-    checkRefuses(
-      /syntax error/i.test(oldWayErrors) && oldWayErrors.includes(faultFirstColumn) && /at character 1/.test(oldWayErrors),
-      `THE OLD WAY, AGAINST A REAL psql: with the rows inline, a refused COPY leaves them to be parsed as SQL -- and psql answers "syntax error at or near \\"${faultFirstColumn}\\" at character 1", quoting a made-up row's own first column. That is what the drill's three syntax errors at character 1 were.`,
-    );
-    checkRefuses(
-      /invalid command \\\./.test(oldWayErrors),
-      "AND A SECOND ERROR NOBODY HAD NOTICED: the `\\.` end-of-data marker is itself read as a psql meta-command, so every refused block also costs an `invalid command \\.` line. Measured here, not reasoned.",
-    );
-    checkRefuses(
-      classifyPsqlErrors(oldWayErrors).unexpected >= 2,
-      "and the classifier calls both of them UNEXPECTED, which is what would now fail a restore rather than letting it pass with three lines nobody read.",
-    );
+
+    // WHICH psql REPRODUCES IT IS A VERSION QUESTION, and that was found the
+    // hard way: this case passed on **psql 17.10** on a developer's machine and
+    // FAILED on **psql 17.11** in CI, which produced neither the syntax error
+    // nor the `invalid command \.`. So a current client appears to discard the
+    // data of a refused COPY instead of reading it as SQL.
+    //
+    // THAT DOES NOT MAKE THE FAULT HISTORICAL, and it is the reason the fix
+    // stands: the drill hit it on a real client against real data, and which
+    // psql anybody has in front of them on the day is not something this
+    // project chooses. A restore that is only safe on a client newer than the
+    // one the owner happens to have is not safe.
+    //
+    // So this tries the configured client first and then an older one if the
+    // machine has one -- on the ubuntu-24.04 runner the image's own 16.15 is
+    // there beside the 17 that install-pg17.sh adds. Where nothing reproduces
+    // it, this says UNVERIFIED and counts nothing, the way the "client too old"
+    // case below does.
+    const runOldWay = (binary) =>
+      String(
+        spawnSync(binary, ["--no-psqlrc", "--quiet", "--set=VERBOSITY=terse", "--file", oldWayFile], {
+          env: { ...process.env, ...pgEnvFromUrl(urlWithDatabase(admin, restoreDb)), PGCONNECT_TIMEOUT: "30" },
+          encoding: "utf8",
+        }).stderr || "",
+      );
+    const attempts = [];
+    for (const binary of [PSQL, process.env.BACKUP_PSQL_OLD, "/usr/lib/postgresql/16/bin/psql", "/usr/lib/postgresql/15/bin/psql"].filter(Boolean)) {
+      if (binary !== PSQL && !existsSync(binary)) continue;
+      const version = ((spawnSync(binary, ["--version"], { encoding: "utf8" }).stdout || "").trim() || "a psql that would not say its version").split("\n")[0];
+      const errors = runOldWay(binary);
+      attempts.push({ binary, version, errors, reproduced: errors.includes(faultFirstColumn) });
+      if (attempts.at(-1).reproduced) break;
+    }
+    const reproduced = attempts.find((attempt) => attempt.reproduced);
+    if (!reproduced) {
+      console.log(
+        `UNVERIFIED  no psql on this machine reads a refused COPY's rows as SQL, so the drill's own fault was not reproduced here and nothing is counted for it. ` +
+          `Tried: ${attempts.map((a) => `${a.version} -> ${classifyPsqlErrors(a.errors).total} ERROR line(s), the row's first column absent`).join("; ")}. ` +
+          "That is a CLIENT behaviour and it changed between 17.10 and 17.11; the fault is still what the owner's drill hit, and the fix does not depend on which client anybody has. " +
+          "Set BACKUP_PSQL_OLD to a client that does reproduce it to run these three checks elsewhere.",
+      );
+    } else {
+      const oldWayErrors = reproduced.errors;
+      checkRefuses(
+        /syntax error/i.test(oldWayErrors) && /at character 1/.test(oldWayErrors),
+        `THE OLD WAY, AGAINST A REAL psql -- "${reproduced.version}": with the rows inline, a refused COPY leaves them to be parsed as SQL, and psql answers "syntax error at or near \\"${faultFirstColumn}\\" at character 1", quoting a made-up row's own first column. That is what the drill's three syntax errors at character 1 were.`,
+      );
+      checkRefuses(
+        /invalid command \\\./.test(oldWayErrors),
+        "AND A SECOND ERROR NOBODY HAD NOTICED: the `\\.` end-of-data marker is itself read as a psql meta-command, so every refused block also costs an `invalid command \\.` line. Measured here, not reasoned.",
+      );
+      checkRefuses(
+        classifyPsqlErrors(oldWayErrors).unexpected >= 2,
+        "and the classifier calls both of them UNEXPECTED, which is what would now fail a restore rather than letting it pass with lines nobody read.",
+      );
+    }
     // THE NEW WAY: the same dump, planned, with the rows in a file of their own
     // and the `\copy` in a pass of its own.
     const newWayPlan = planReplay(faultDump, { dataPath: (index) => join(work, `the-new-way-${index}.dat`).replace(/\\/g, "/") });

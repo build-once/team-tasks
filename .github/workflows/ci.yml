@@ -789,7 +789,18 @@ jobs:
       #   * THE FRESHNESS WATCHER (#264), end to end against the stand-in R2
       #     with no passphrase anywhere in its environment: a fresh bucket, a
       #     three-day-old copy, an EMPTY bucket, and a bucket it cannot read.
-      EXPECTED_BACKUP_CHECKS: "268"
+      #
+      # WHY 265 AND NOT 268, which is what a developer's machine counts: three
+      # of the new checks reproduce the drill's fault against a real psql, and
+      # **whether they run depends on the CLIENT'S VERSION**. They passed on
+      # psql 17.10 locally and produced nothing at all on psql 17.11 here, so a
+      # current client appears to discard the data of a refused COPY rather than
+      # reading it as SQL. The case therefore tries the configured client, then
+      # an older one if the machine has one -- the image's own 16.15 -- and says
+      # UNVERIFIED and counts nothing if neither reproduces it. The floor is the
+      # number this job is MEASURED to reach, and the three checks that only run
+      # where an older pg_dump exists make up the difference the other way.
+      EXPECTED_BACKUP_CHECKS: "265"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
