@@ -21,6 +21,16 @@ constraints** in section 2 were never among the thirteen. They are open.
 **Nothing in this file is applied anywhere.** A decision is not a dashboard setting and not a
 migration. Section 3 is the list of what somebody still has to do by hand.
 
+**AND FOUR OF THE THIRTEEN HAVE CODE AS OF 2026-10-11 — Build it 25 part 1,
+[#284](https://github.com/build-once/team-tasks/issues/284), the same day this file went up.** The
+sentence above is still true of every project: nothing is set in either dashboard. What exists in this
+repository is **A** (the widget, the waiting button and the token travelling with all three requests),
+**J** (one exported constant, in `scripts/lib/captcha.mjs`, imported by all nine files that sign in),
+half of **I** (the dummy sitekey as CI's build placeholder and as what Preview is to be set to), and
+**K** recorded rather than set, because the mode belongs to a widget nobody has created. **E, F, G, L,
+M are set nowhere; B and C have no migration.** Section 3 is the list, and it gained two rows that are
+not limits at all — the redirect allow-list, and the two email templates word for word.
+
 ### The thirteen, in one view
 
 | | Decided 2026-10-11 |
@@ -571,6 +581,72 @@ are named here because a list that quietly grows a row is a list nobody can diff
 | 10 | **Supabase → production → Authentication** | **Leaked password protection ON** (Pro and above). **Decision G.** **NOT the minimum password length** — that was set to 8 on both projects on 7 October 2026 and is the one row this list lost rather than gained | Independent of every row above; grouped here so it is one sitting |
 | 11 | **Supabase → both projects → Authentication → Rate Limits** | The two figures the owner chose: **sign-ups and sign-ins, 5 per 5 minutes** (decision **E**, from a published default of 30), and **the token endpoint, 30 per 5 minutes** (decision **F**, from a published default of 150). **Both projects, the same numbers** | **Last.** Lowering a limit is the change most likely to lock somebody out, and doing it after everything else means there is only one suspect. **And the token figure is 30 rather than 20 for a reason that bites here**: CI signs in three accounts per pull request from a shared runner address, so this is the row to come back to if checks start failing for no reason. **READ THE HELP TEXT BESIDE "token refreshes" BEFORE SETTING IT** — the dashboard's label and the documentation's row do not use the same words, and if that field is about refreshes only then this row sets a careful number on the wrong thing. **Do staging first, then try thirty-one sign-ins from one address**: that one run settles what the field means |
 
+| 12 | **Supabase → both projects → Authentication → URL Configuration → Redirect URLs** | Add `/auth/confirm` for every address the app is served at, beside the `/auth/reset` and `/auth/callback` entries already there: `http://localhost:3000/auth/confirm` for the owner's own machine, the preview address, and the production address. **Nothing is removed** — the two existing paths still serve links sent before row 13 | **Before row 13 and after the code is deployed.** A template pointing at a page the host does not serve is a link that goes nowhere, and a `redirect_to` that is not on the allow-list is one Supabase ignores |
+| 13 | **Supabase → both projects → Authentication → Emails → Templates** | **The two email bodies, word for word, in the subsection below.** "Reset Password" and "Confirm signup". This is what makes a link work when the email is opened in a different browser, and what stops a mail scanner spending it | **LAST, and after the pull request is merged and deployed**, because the link it produces points at `/auth/confirm`, which does not exist on a host running the old build. Independent of every CAPTCHA row above, so it can be its own sitting |
+
+**Rows 12 and 13 were added on 2026-10-11 and they are the only two rows on this list that are not a
+limit.** [#285](https://github.com/build-once/team-tasks/issues/285) is the checklist of what the owner
+has to **observe** once they are done, including the one reading that answers whether the CAPTCHA
+refuses anything at all. They are here because the list is "what the owner must set by hand, in order" and these two
+are both of those; the owner's decision they carry out is the one taken the same day, after watching a
+reset link fail in a second browser on production.
+
+### The two email templates, word for word — rows 12 and 13
+
+**Copy these exactly.** Each replaces the whole body of one template.
+
+**Supabase → Authentication → Emails → Templates → "Reset Password":**
+
+```html
+<h2>Reset your password</h2>
+
+<p>Follow the link below to set a new password for Team Tasks. It works once.</p>
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a>
+</p>
+<p>If you did not ask for this, you can ignore this email.</p>
+```
+
+**Supabase → Authentication → Emails → Templates → "Confirm signup":**
+
+```html
+<h2>Confirm your email address</h2>
+
+<p>Follow the link below to finish creating your Team Tasks account.</p>
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup">Confirm my email address</a>
+</p>
+```
+
+**The one line in each that matters, and it is checked.** The `href` is exported from
+`web/src/lib/email-links.ts` as `RECOVERY_LINK_HREF` and `SIGNUP_LINK_HREF`, and
+`scripts/auth-screens-check.mjs` requires **this document** to contain both strings verbatim. So an
+instruction that told the owner to point a link at a path this app no longer serves turns a pull
+request red, instead of being found by a volunteer whose reset link went nowhere.
+
+**Three things about the shape, each of them a decision rather than a copy:**
+
+- **`{{ .TokenHash }}` and not `{{ .ConfirmationURL }}`.** This is the shape Supabase documents for a
+  server-rendered app — "Follow the link below to set a new password" with
+  `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/account/update-password`
+  and a route calling `verifyOtp({ type, token_hash })`
+  ([Passwords](https://supabase.com/docs/guides/auth/passwords), read 2026-10-11). A token hash carries
+  **no PKCE verifier**, which is the whole reason the link then works in a second browser.
+- **NO `next` PARAMETER**, which is where this departs from the documented example. Where each kind of
+  link goes is `destinationAfter` in `web/src/lib/email-links.ts` — two fixed paths — because a
+  destination taken out of a link is a destination somebody else chooses. Issue #120 rule 2 settled that
+  for `/auth/reset` and the same answer holds here.
+- **`{{ .SiteURL }}` and not `{{ .RedirectTo }}`**, so the link's host comes from a setting on the
+  server and from nothing in a request. The cost, stated: a sign-up made on a Vercel **Preview** deploy
+  gets a confirmation link pointing at the project's Site URL host rather than at the preview's own
+  address. `{{ .RedirectTo }}` would keep that and would produce a **broken** link whenever no redirect
+  was sent — `SITE_URL` is optional (`docs/environments.md`) — which is the worse failure of the two,
+  on production of all places.
+
+**And links sent BEFORE row 13 keep working.** `/auth/reset` and `/auth/callback` are untouched and
+still accept the `code=` shape the old templates produce, in the browser that asked for it. So there is
+no window in which somebody's reset email is dead.
+
 **And one row that is NOT on this list and belongs to somebody else: decisions B and C are code.** A
 daily count of uploads and a 500-task cap are a migration and a function, not a dashboard setting, so
 neither appears above. `docs/plan.md` carries both as decided, which is the order rule 9 asks for;
@@ -689,6 +765,39 @@ file, and **a new file does not run just because it exists** — `.github/workfl
 staging script by path in its "Staging script self-tests" job (`:523-527`), and `web/package.json`'s
 `test` script names one test file, so anything new has to be named somewhere or it runs nowhere.
 
+### DONE 2026-10-11 — the nine files changed, and the constant lives in `scripts/lib/captcha.mjs`
+
+**Build it 25 part 1 ([#284](https://github.com/build-once/team-tasks/issues/284)) carried out decision
+J the same day this file proposed the shape of it.** The paragraph above is kept as the question it
+was; this is the answer.
+
+**Not `web/tests/staging.mjs`, and the reason is the one that paragraph names.** `scripts/lib/` already
+exists for shared script code (`scripts/lib/secrets.mjs`), and **both sides reach it with a plain
+relative path** — `../lib/captcha.mjs` from `scripts/staging/`, `../../scripts/lib/captcha.mjs` from
+`web/tests/`. So neither side imports from the other's folder, and nothing about `web/` depends on
+`scripts/` at build time, because `web/tests/` is not part of `next build`.
+
+| What changed | Where |
+|---|---|
+| One import and one spread in the sign-in body | all nine files in the table above, exactly as listed |
+| `web/tests/access-rules.test.mjs` | **nothing**, as predicted: `signIn` in `web/tests/staging.mjs` is the only place that file signs in |
+| The constant itself | `scripts/lib/captcha.mjs` — `DUMMY_CAPTCHA_TOKEN`, `CAPTCHA_BODY_FIELD`, and `captchaBody()`, which returns a **fresh object** so no two callers can share and mutate one |
+| GitHub | **nothing**, as row 8 of section 3 says. Cloudflare publishes the value |
+
+**And the thing decision J was for is asserted rather than hoped for.**
+`scripts/auth-screens-check.mjs` requires that all nine import it, that all nine call it, that **not
+one of them spells the token itself**, and that the token appears exactly once in the whole repository
+— in the module that exports it — with a control that finds a tenth copy if somebody pastes one.
+
+**The five scripts with a `--selftest` were run after the change and their case counts are unmoved**:
+39, 40, 57, 140, 107. A change to a sign-in helper that had quietly broken a selftest would have shown
+there.
+
+**AND THE NEW SIXTH SCRIPT IS NAMED IN CI**, which is the trap the paragraph above names:
+`scripts/staging/build-it-25-captcha-checks.mjs`, 31 cases, in the same `run_and_count` list. A script
+nobody added to that list runs nowhere — which is exactly what happened to
+`build-it-18-invitation-status-checks.mjs` and its 57 cases until issue #167.
+
 ---
 
 ### Decision K: the widget mode, confirmed from Cloudflare's documentation
@@ -769,7 +878,17 @@ written where none was read.
   the length above, and **not** read when that one was. It is decision **G** and row 10 of section 3.
 - **Whether Supabase Auth refuses a sign-in that carries no CAPTCHA token, once CAPTCHA is on.** The
   CAPTCHA page does not say. Settle it with one request against staging, with a dummy secret key
-  configured, posting no `gotrue_meta_security` field.
+  configured, posting no `gotrue_meta_security` field. **THE REQUEST IS NOW WRITTEN, 2026-10-11:**
+  `scripts/staging/build-it-25-captcha-checks.mjs` section 1, run before and after the owner switches
+  CAPTCHA on, and its selftest already requires FAIL for the world where an unchecked CAPTCHA accepts
+  it. **Nobody has run it against staging**, and the question is open exactly as it was. The script also
+  reports **which code** the refusal carries, which is a second unknown the first one hides: the app's
+  three screens draw their own sentence for `captcha_failed` and the generic one for anything else.
+- **Whether the eight scripts under `scripts/staging/` may import from `web/tests/`: SETTLED by not
+  needing to, 2026-10-11.** This list carried it as decision J's loose end. The constant went in
+  `scripts/lib/captcha.mjs` instead, which both sides reach with a relative path, so the question is
+  moot rather than answered — nobody established whether those scripts can reach `web/tests/`, and
+  nothing in this project needs to know. Section 4 has the detail.
 - **Which Auth endpoints CAPTCHA actually covers.** The page says "your sign-in, sign-up, and
   password reset forms" and names no endpoint. `/auth/v1/resend` and `/auth/v1/verify` are therefore
   unknown. Same one-request method, per endpoint.
@@ -805,10 +924,6 @@ written where none was read.
   decision of the thirteen whose implementation is not obvious, and settling it needs a local
   PostgreSQL sandbox rather than a page: write a `security definer` function that counts, call it
   from a check, and watch what happens to the row on a refusal.
-- **Whether the eight scripts under `scripts/staging/` may import from `web/tests/`.** Decision J
-  is one exported constant and does not say where it lives; nothing has established whether those
-  scripts can reach that folder. Settled by trying it, or by putting the constant somewhere both
-  already reach.
 - **Whether the free Turnstile plan really shows Cloudflare's branding on the widget.** Read off the
   Plans page listing branding removal as an Enterprise feature, which is an inference from silence
   rather than a statement. Only looking at a rendered widget settles it, and nobody has.

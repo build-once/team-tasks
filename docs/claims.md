@@ -32,6 +32,21 @@ gate for the production `AI_API_KEY` — the consent screen is **not** a privacy
 subtasks sends, because somebody switching that on needs to know, and nothing about the rest of what this
 app holds. [#204](https://github.com/build-once/team-tasks/issues/204) is unchanged.
 
+**Updated 2026-10-11 for [#284](https://github.com/build-once/team-tasks/issues/284), Build it 25 part 1,**
+and this update is a repair rather than an addition. **One sentence in this register was simply false on
+production**, and the owner watched it be false: `That link didn't work` was drawn for HTTP 422
+`same_password` — the link had worked, the form had loaded, and what had gone wrong was a password the
+person could have changed in seconds. §1f's row now says so, and twelve new sentences in
+`web/src/lib/auth-messages.ts` are what replaced one path for everything. Two new sections: **§1h**, the
+`/auth/confirm` page, which exists so that a mail scanner's GET spends nothing; and **§1i**, the
+anti-robot check's four sentences, listed once because one component draws them on all three screens.
+
+**And one general fact that makes those rows checkable rather than asserted:** every sentence added
+today lives in a table keyed by a short code, and `scripts/auth-screens-check.mjs` — new, in CI's
+pure-checks job — reads the real modules and the real pages. It is the first check in this repository
+that compares a screen's words with the **error code** that causes them, and the first that compares a
+string in the code with an instruction in a document (`docs/rate-limits.md`'s email templates).
+
 **What this file is.** Two lists. The first is every factual claim the app makes on a screen, with the
 file and line where the words are and the file and line that makes them true. The second is every email
 Team Tasks sends or causes to be sent. Nothing here changes any behaviour: the register is a reading of
@@ -102,6 +117,13 @@ a fact is below.
 | `A password needs at least 8 characters.` | `web/src/app/signup/page.tsx:53`, from `PASSWORD_TOO_SHORT` in `web/src/lib/password-reset.ts:100` | **ENFORCED IN THE APP, AND NOW AT THE ACCOUNT LEVEL TOO — staging tested, production owner-reported.** New with #197. The sentence is drawn for `?problem=password` only (`web/src/app/signup/page.tsx:51`), and that code is sent by `signUp` at `web/src/app/auth/actions.ts:127-129` — which calls `passwordProblem` **before** `createClient()` and before `auth.signUp`, so a password this app refuses never reaches Supabase. **Same constant as the reset screen**, so the two cannot drift. Checked by `scripts/password-reset-check.mjs` §7b, including both orderings and three controls. **The path this file cannot reach is no longer unguarded:** a caller using the publishable key against Supabase Auth directly, who never passes through this action, now meets the project's own minimum of 8 — the owner changed it from 6 to 8 on both projects on 7 Oct 2026, and a direct `POST` to staging's `/auth/v1/signup` with a 7-character password answered HTTP 422, `weak_password`. **Nothing in this repository enforces that and nothing in it can; production's setting was not tested.** See §6 |
 | `That did not work. Check the email address and password and try again.` | `web/src/app/signup/page.tsx:55-59` | `web/src/app/auth/actions.ts:139` sends `?problem=1` for any error Supabase returned, and `:88-90` for a post that did not come from this page's button. Deliberately does not say which half was wrong — unlike the password sentence above, which is safe to be specific because it is about the password just typed and says nothing about the address |
 | `Check your email. We've sent you a link to confirm your account.` | `web/src/app/signup/page.tsx:62-67` | `web/src/app/auth/actions.ts:144` draws it only when Supabase returned no session, which is what a project that asks people to confirm does. **Whether an email actually went is not verified** — the sending, and the project's "Confirm email" setting, are Supabase's, and no template or setting for them exists in this repository (see §5). |
+| `That password was refused. Try a longer one, or one you have not used anywhere else.` | `REFUSAL_SENTENCES.password_refused`, `web/src/lib/auth-messages.ts`, drawn at `web/src/app/signup/page.tsx` for `?refused=password_refused` | **NEW, Build it 25 part 1 (#284).** `signUpRefusedPath` sends that code for Supabase's `weak_password` (`web/node_modules/@supabase/auth-js/src/lib/error-codes.ts:71`, and `AuthWeakPasswordError` at `errors.ts:347-357`). **Both halves of the sentence are things `weak_password` really covers**: Supabase's own page lists a minimum length, required character classes AND leaked passwords — "Supabase Auth uses the open-source HaveIBeenPwned.org Pwned Passwords API to reject passwords that have been leaked" ([Password security](https://supabase.com/docs/guides/auth/password-security), read 2026-10-11 and quoted in `docs/rate-limits.md`). It says neither which one, because the code does not say |
+| `This app has sent as much email as it is allowed to for now. Wait a while and ask again.` | `REFUSAL_SENTENCES.email_limit`, same place | **NEW (#284), and it is the refusal production would really hit.** Sent for `over_email_send_rate_limit` (`error-codes.ts:73`). **"As much as it is allowed to"** is exact rather than vague on purpose: the limit is **per project, not per person** — "2 emails per hour with the built-in email provider" ([Auth Rate Limits](https://supabase.com/docs/guides/auth/rate-limits)), and a number the owner chooses once custom SMTP is on. A sentence naming an hour would be wrong after row 4 of `docs/rate-limits.md` section 3 |
+| `This app could not send email to that address. That is a fault in the app rather than in your address, so please tell the owner.` | `REFUSAL_SENTENCES.address_blocked`, same place | **NEW (#284), and it is the one that was silently fatal.** Sent for `email_address_not_authorized` (`error-codes.ts:94`). It is what production answers today for any address not on the Supabase project's team, because the built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11). Before this, that got "That did not work. Check the email address and password" — advice that could not possibly help. **Not observed**: nobody has signed up on production, so this is a reading of that sentence (`docs/rate-limits.md` section 5) |
+| `That email address was not accepted. Check it and try again.` | `REFUSAL_SENTENCES.address_refused`, same place | **NEW (#284).** `email_address_invalid` (`error-codes.ts:95`). Claims nothing about whether the address has an account — it is about the string just typed |
+| `New accounts are switched off at the moment.` | `REFUSAL_SENTENCES.signup_off`, same place | **NEW (#284).** `signup_disabled` (`error-codes.ts:22`), which is a project setting. **"At the moment"** rather than "are not allowed", because nothing in this app knows whether it is permanent |
+| `Too many tries from your internet connection. Wait a few minutes and try again.` | `REFUSAL_SENTENCES.too_many`, same place; also on `/login` and `/reset-password` | **NEW (#284).** Sent for `over_request_rate_limit` **or any HTTP 429 whatever code rides with it** — the status is asked first, because `AuthRetryableFetchError` carries `undefined` for the code (`errors.ts:290-293`). **"From your internet connection"** is exact: every customizable Auth limit on these endpoints is **per IP address** (`docs/rate-limits.md` section 1), so two volunteers on one home connection share it |
+| `The check that you are not a robot did not pass. Reload the page and try again.` | `REFUSAL_SENTENCES.robot_check`, same place; also on `/login` and `/reset-password` | **NEW (#284).** Sent for `captcha_failed` (`error-codes.ts:44`). **"Reload the page"** is the right advice and not a shrug: a Turnstile token is single-use and expires in 300 seconds ([client-side rendering](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)), so a fresh widget is what fixes it. **Not verified that `captcha_failed` is the code a tokenless sign-in gets** — the CAPTCHA page does not say, and `scripts/staging/build-it-25-captcha-checks.mjs` section 1 is the one request that would settle it |
 | `At least 8 characters. A password manager can make one for you.` | `web/src/app/signup/page.tsx:99`, the number from `PASSWORD_MIN_LENGTH` in `web/src/lib/password-reset.ts:91` | **ENFORCED IN THE APP, AND THE ACCOUNT-LEVEL FLOOR IS NOW 8 AS WELL (#197, done; the setting settled 7 Oct 2026).** Two paths, and only one of them is this repository's to keep. **Through this app**: `signUp` refuses a short password at `web/src/app/auth/actions.ts:127-129`, before `createClient()` and before `auth.signUp`, with the same message the screen shows. It used to be kept only by the browser attribute `minLength={PASSWORD_MIN_LENGTH}` (`:95`), which a direct post skips; the attribute stays as the rule stated where somebody is typing, but is no longer the only thing applying it. **Round this app**: the publishable key is public and reaches the browser (`web/src/lib/env.ts:44`), so anybody holding it can call Supabase Auth's sign-up endpoint directly, bypass this action entirely, and get whatever minimum the **project** is set to. **Nothing in this repository applies on that path and nothing in it can** — but the project's minimum is no longer unknown: the owner changed it from 6 to 8 on staging and on production, and on staging a 7-character password was refused HTTP 422 `weak_password`. So the two paths now agree on 8. **Production's setting was not tested.** See §6 |
 
 ### 1d. Sign in, `/login`
@@ -111,7 +133,10 @@ a fact is below.
 | `See what's done, what's left, and which list it's on.` | `web/src/app/login/page.tsx:23` | **ENFORCED (#196, done)** — the same three citations as the home-page row in §1b |
 | `Please sign in to finish.` | `web/src/app/login/page.tsx:49` | **ENFORCED, by asserting nothing about the account (#198, done)** — which is the whole repair. What has to be citable is only that signing in is available and does something: the form at `web/src/app/login/page.tsx:59-94` and `signIn` at `web/src/app/auth/actions.ts:68-85`, which signs the person in and sends them to `/tasks` at `:84`. **True on both paths that reach it** — a failed code exchange (`web/src/app/auth/callback/route.ts:24-27`) and a request with no code (`:16`). **One loose edge, named rather than hidden:** on the no-code path nothing was started, so "finish" is imprecise. It states no falsehood about the account, which is what #198 was filed for |
 | ~~`Your email is confirmed. Please sign in.`~~ | **REMOVED (#198)** | **Recorded as a removal.** It was NOT ENFORCED: `?confirmed=1` is set only by the fall-through at `web/src/app/auth/callback/route.ts:37`, reached when the exchange **failed** (`:24-27`) and when there was **no code at all** (`:16`), while the success path goes to `/tasks` (`:25`). So it was drawn exactly where nothing in this app had seen a confirmation. The comment at `web/src/app/login/page.tsx:25-47` keeps the reasoning beside the new sentence |
-| `That email and password don't match. Check them and try again.` | `web/src/app/login/page.tsx:55` | `web/src/app/auth/actions.ts:81` redirects here for any `signInWithPassword` error. **Note, not a defect:** `web/src/app/auth/actions.ts:74-76` gives the same sentence to a post that carried no recognised button identifier, where the stated cause is not the cause. That path is not reachable from this screen, and the file's comment at 78-81 says the single sentence is deliberate — telling the two apart would help somebody sort addresses into accounts and not-accounts. |
+| `That email and password don't match. Check them and try again.` | `web/src/app/login/page.tsx` | **NARROWED, and still the default (#284).** `signInRefusedPath` (`web/src/lib/auth-messages.ts`) sends `?problem=1` for `invalid_credentials`, for every code it does not recognise, and for a post that carried no recognised button identifier — so the generic sentence survives, deliberately, because telling an address apart from a password is how somebody sorts addresses into accounts and not-accounts. **What changed is that three refusals which are NOT about the credentials stopped getting it**: the three rows below. `scripts/auth-screens-check.mjs` asserts both halves — that the three are told apart, and that `invalid_credentials`, `user_banned` and a stray press are not. |
+| `Too many tries from your internet connection. Wait a few minutes and try again.` | `REFUSAL_SENTENCES.too_many`, `web/src/lib/auth-messages.ts`, drawn at `web/src/app/login/page.tsx` for `?refused=too_many` | **NEW (#284), and the sharpest of the three.** A rate limit used to be told its password did not match, on the one screen where that is the most misleading thing to say. Sent for `over_request_rate_limit` or any HTTP 429. §1c's row has the full citation |
+| `The check that you are not a robot did not pass. Reload the page and try again.` | `REFUSAL_SENTENCES.robot_check`, same place | **NEW (#284).** `captcha_failed`. §1c's row has the full citation, including what about it is not verified |
+| `That account still needs its email address confirmed. Open the link in the email sent when it was created.` | `REFUSAL_SENTENCES.confirm_first`, same place | **NEW (#284), and the one row here that says something about an account — which is safe, and the reason is worth writing down.** Supabase answers `email_not_confirmed` (`web/node_modules/@supabase/auth-js/src/lib/error-codes.ts:48`) only **after the password matched**, so it tells nothing to anybody who did not already hold the password. Without it somebody who signed up and never confirmed is told their password is wrong, forever, with no way to find out otherwise. **Not verified that Supabase sends it only on a correct password** — it is how the code is described and nobody has tried a wrong password against an unconfirmed account; `scripts/staging/build-it-25-captcha-checks.mjs` does not test it either |
 
 ### 1e. Forgot password, `/forgot-password`
 
@@ -125,11 +150,23 @@ a fact is below.
 
 | The exact words | Where they appear | What makes them true |
 |---|---|---|
-| `That link didn't work` | `web/src/app/reset-password/page.tsx:66` | `newPasswordView` (`web/src/lib/password-reset.ts:201-208`) returns `"dead"` for every state that is not a marker plus a session, so the heading is drawn exactly when the link did not work. |
-| `That link has expired, has already been used, or was opened in a different browser. Ask for a new one.` | `DEAD_LINK_MESSAGE`, `web/src/lib/password-reset.ts:168-169`, drawn at `web/src/app/reset-password/page.tsx:67` | True because it names three causes and claims none of them, which is what one constant for four different failures requires (`web/src/lib/password-reset.ts:161-167`). |
+| `That link didn't work` | `web/src/app/reset-password/page.tsx` | `newPasswordView` (`web/src/lib/password-reset.ts:201-208`) returns `"dead"` for every state that is not a marker plus a session, so the heading is drawn exactly when the link did not work. **AND IT USED TO BE DRAWN WHEN IT HAD WORKED, which is what #284 repaired** — see the block below this table |
+| `That link has expired, has already been used, or was opened in a different browser. Ask for a new one.` | `DEAD_LINK_MESSAGE`, `web/src/lib/password-reset.ts:168-169`, drawn at `web/src/app/reset-password/page.tsx` | True because it names three causes and claims none of them, which is what one constant for four different failures requires (`web/src/lib/password-reset.ts:161-167`). **AND THE THIRD CAUSE IS THE ONE #284 SET OUT TO STOP HAPPENING.** "Opened in a different browser" is a true description of a PKCE link and was the ordinary case, not the odd one; `docs/rate-limits.md` section 3 row 13 is the template change that makes a link work in any browser, and this sentence stays as written because an old-style link sent before that change can still fail that way |
+| `That is the password you are already using. Choose a different one.` | `REFUSAL_SENTENCES.same_as_old`, `web/src/lib/auth-messages.ts`, drawn at `web/src/app/reset-password/page.tsx` for `?refused=same_as_old` | **NEW, AND IT IS THE REASON ISSUE #284 EXISTS.** On production on 11 October 2026 the owner followed a real reset link in the browser that asked for it, the form loaded, and Supabase refused the change with **HTTP 422, code `same_password`** — and the screen said "That link didn't work." `setNewPassword` sent every `updateUser` error to `newPasswordPath("stale")`. It now asks `newPasswordRefusedPath`, which sends this code for `same_password` (`web/node_modules/@supabase/auth-js/src/lib/error-codes.ts:66`). **And the marker cookie is kept for this refusal**, which is the half that is easy to miss: without that the right sentence would still have been drawn on the dead-link screen, because the marker is what lets the form exist at all |
+| `That password was refused. Try a longer one, or one you have not used anywhere else.` | `REFUSAL_SENTENCES.password_refused`, same place | **NEW (#284).** `weak_password`. §1c's row has the full citation. The same sentence on both password screens, from one constant, which is what §1f has always required of `PASSWORD_TOO_SHORT` |
+| `Too many tries from your internet connection. Wait a few minutes and try again.` / `The check that you are not a robot did not pass. Reload the page and try again.` | `REFUSAL_SENTENCES.too_many` / `.robot_check`, same place | **NEW (#284).** §1c's rows have the citations. Nothing is known to send `captcha_failed` on this endpoint — it is mapped because the table is shared and a refusal with no sentence would draw nothing |
+| `That did not work. Please try again.` | `REFUSAL_SENTENCES.try_again`, same place | **NEW (#284), and it is the fallback that replaced a false claim.** An answer `newPasswordRefusedPath` does not recognise is told it did not work and offered another go. **It deliberately does NOT say the link is dead**, because nothing about such an answer says so — and that is the whole of the issue's rule "only a link that is really dead says the link did not work". `scripts/auth-screens-check.mjs` asks it of four unrecognised answers and carries a control that reproduces the old behaviour and requires it not to be what the code does |
 | `Choose a new password for your account. This link works once.` | `web/src/app/reset-password/page.tsx:85-87` | The app's half: `web/src/app/auth/actions.ts:239` deletes the marker after a successful change, and `mayChangePassword` (`web/src/lib/password-reset.ts:187-192`) is asked by both the page and the action, so a second attempt is refused by the action and not only hidden by the screen. Supabase's own single-use recovery token is a project behaviour — **not verified** here. |
 | `A password needs at least 8 characters.` | `PASSWORD_TOO_SHORT`, `web/src/lib/password-reset.ts:100`, drawn at `web/src/app/reset-password/page.tsx:89-93` | `passwordProblem` (`web/src/lib/password-reset.ts:107-113`), called at `web/src/app/auth/actions.ts:223` before `updateUser`. |
 | `At least 8 characters. A password manager can make one for you.` | `web/src/app/reset-password/page.tsx:109-112` | Enforced on the server here, unlike sign-up: `web/src/app/auth/actions.ts:223`. |
+
+**WHICH ANSWER STILL EARNS THE DEAD-LINK SCREEN, after #284, and it is now exactly one kind.** Four
+codes that mean the recovery session is gone — `session_expired`, `session_not_found`,
+`refresh_token_not_found`, `bad_jwt` — and two error names that carry no code at all,
+`AuthSessionMissingError` and `AuthInvalidJwtError`. Nothing else.
+`scripts/auth-screens-check.mjs` asks all six, and asks four answers that are **not** that and
+requires none of them to take the path. The dead-link path itself is spelled in two modules that
+cannot import each other, and the script compares the two strings.
 
 ### 1g. The invitation page, `/invite/[token]`
 
@@ -154,6 +191,54 @@ a fact is below.
 chosen from a fixed list keyed by a short code (`web/src/app/invite/[token]/page.tsx:24-59`), and an
 unrecognised code shows nothing. Nothing from the address bar is printed, so a crafted link cannot make
 this site display words somebody else wrote.
+
+### 1h. Using a link from an email, `/auth/confirm` — NEW, Build it 25 part 1 (#284)
+
+**A new page, and the one page in this app that exists so that a GET does nothing.** The owner's mail
+provider fetched a reset link before anybody clicked it (a HEAD request, answered 405), and Supabase
+names that problem on its own documentation: "certain email providers may have spam detection or other
+security features that prefetch URL links from incoming emails"
+([Email Templates](https://supabase.com/docs/guides/auth/auth-email-templates), read 2026-10-11). So
+this page verifies **nothing**; the token is spent by a press.
+
+| The exact words | Where they appear | What makes them true |
+|---|---|---|
+| `Set a new password` (heading, for a recovery link) | `LINK_WORDS.recovery.heading`, `web/src/lib/email-links.ts`, drawn at `web/src/app/auth/confirm/page.tsx:117` | **ENFORCED.** The press reaches `useEmailLink` (`web/src/app/auth/confirm/actions.ts`), which calls `verifyOtp` and then — for `recovery` only — sets the marker cookie and redirects to `destinationAfter("recovery")`, which is `/reset-password`. `scripts/auth-screens-check.mjs` requires that destination to equal `NEW_PASSWORD_PATH` from the other module, so the heading cannot promise a screen the action does not reach |
+| `Confirm your email address` (heading, for a sign-up link) | `LINK_WORDS.signup.heading`, drawn at the same line | **ENFORCED** by the same `verifyOtp` call with `type: "signup"`. **What it does NOT claim** is that the address was previously unconfirmed, or that anything is wrong — it says what the button will do |
+| `Press the button to use this link. It works once, and it works in any browser.` | `LINK_WORDS.<kind>.lede`, drawn at `web/src/app/auth/confirm/page.tsx:118` | **Three claims, and each has something behind it.** **"Press the button"**: the page calls Supabase nowhere — no `createClient`, no `verifyOtp`, no cookie — and `scripts/auth-screens-check.mjs` counts all four at 0, with `/auth/reset` as the control that really does call all three. **"Works once"**: `verifyOtp` spends the token, and the marker cookie the recovery path sets is deleted the moment a password is set or refused (`web/src/app/auth/actions.ts`). **"In any browser"** is the one that needed the change: the link carries a `{{ .TokenHash }}` and no PKCE verifier, which is why it is not tied to the browser that asked. **Not verified on a second browser** — nobody has opened one; `docs/rate-limits.md` section 3 row 13 is the template edit that makes it so, and it is the owner's |
+| `Use this link` / `Confirm my email address` (the buttons) | `LINK_WORDS.<kind>.button` | Label rather than a claim, listed because the lede points at it. The button carries `BUTTON_IDS.linkUse` and `pressed()` is checked **before** the token is read — `scripts/auth-screens-check.mjs` asserts the order |
+| `That link didn't work` (heading, when there is nothing usable) | `web/src/app/auth/confirm/page.tsx:85` | **ENFORCED by `confirmView`** (`web/src/lib/email-links.ts`), which returns `"dead"` for every state that is not a token-shaped value plus one of the two known kinds. The same heading the new-password screen uses, for the same state |
+| `That link has expired. Ask for a new one.` | `REFUSAL_SENTENCES.link_expired`, `web/src/lib/auth-messages.ts`, drawn at `web/src/app/auth/confirm/page.tsx:93` | **ENFORCED, and it is a definite claim rather than a hedge**, which is why it gets its own code: `linkRefusedPath` returns it only for Supabase's `otp_expired` (`web/node_modules/@supabase/auth-js/src/lib/error-codes.ts:68`). Everything else gets the hedged sentence below |
+| `That link did not work. It may have been used already, or it may be incomplete. Ask for a new one.` | `REFUSAL_SENTENCES.link_dead`, same place | **True because it names two possibilities and claims neither** — the same technique as `DEAD_LINK_MESSAGE` in §1f, and the same reason: one sentence covers several causes this app cannot tell apart. It is `linkRefusedPath`'s default, and **this is the one place in the app where "the link did not work" is still a fallback**, because the thing that failed really is a link |
+
+### 1i. The anti-robot check, on all three sign-in screens — NEW, Build it 25 part 1 (#284)
+
+**Four sentences, in one component, on `/login`, `/signup` and `/forgot-password`.** They are listed
+once rather than three times because they come from one constant
+(`TURNSTILE_WORDS`, `web/src/lib/turnstile.ts`) drawn by one component
+(`web/src/app/components/CaptchaGate.tsx`), which is what keeps the three screens from saying three
+things about one check.
+
+**NOTHING HERE IS DRAWN AT ALL unless a site key is set.** With `NEXT_PUBLIC_TURNSTILE_SITE_KEY` empty
+— local development, and production until the owner sets it — `turnstileView` answers `"off"`, no
+script is fetched, no widget is drawn, and the screens are exactly what they were. So every row below
+is a claim about a build that **has** the setting.
+
+| The exact words | Where they appear | What makes them true |
+|---|---|---|
+| `There is a quick check below that you are not a robot. It usually finishes by itself.` | `TURNSTILE_WORDS.waiting`, drawn at `web/src/app/components/CaptchaGate.tsx` for the `waiting` state | **"Below"**: the widget's own box is rendered above this line in the same component. **"Usually finishes by itself"** rests on Cloudflare's Managed mode, which "Automatically chooses between non-interactive or checkbox challenge based on visitor risk level" ([Widget types](https://developers.cloudflare.com/turnstile/concepts/widget/), read 2026-10-11) — **and that mode is a property of the widget the owner creates in Cloudflare, not of this repository, so it is owner-set and not verified here.** `TURNSTILE_MODE` in `web/src/lib/turnstile.ts` records the decision; nothing in this app can read it back |
+| `The check that you are not a robot could not be completed. Try it again below.` | `TURNSTILE_WORDS.failed`, drawn for the `failed` state | **ENFORCED** by three listeners in the same component: the script tag's `error` event, and Turnstile's own `error-callback` and `expired-callback`. **"Try it again below"** is the button in the next row, which is drawn in the same branch — so the sentence cannot appear without it |
+| `Try the check again` (the button) | `TURNSTILE_WORDS.retry` | **ENFORCED.** It calls `turnstile.reset(widgetId)` when there is a widget, and reloads the page when the script never loaded at all — because with no widget there is nothing to reset and a button that silently did nothing would be worse than the sentence above it |
+| `This page needs JavaScript to run a quick check that you are not a robot, and signing in needs that check. Switch JavaScript on for this site, or use a different browser.` | `TURNSTILE_WORDS.noScript`, drawn inside a `<noscript>` at `web/src/app/components/CaptchaGate.tsx` | **ENFORCED, and it is the honest half of a real loss.** With JavaScript off there is no widget, so `turnstileView` stays `waiting`, so `maySubmit` is false, so `ActButton` is rendered with `disabled` — the attribute is what stops the form posting, not the sentence. `docs/plan.md` calls the loss what it is: signing in starts needing JavaScript, and nothing else on these screens does |
+
+**And one claim the three screens make by what they DON'T do.** The submit button is drawn **disabled**
+rather than hidden, and only `"off"` and `"solved"` may post — `maySubmit` in
+`web/src/lib/turnstile.ts`, with a control in `scripts/auth-screens-check.mjs` that lists what it lets
+through. That is the whole of issue #284's "it never submits without a token".
+
+**NOT VERIFIED, and it is the same gap every screen row in this file has:** nobody has opened any of
+these three screens in a browser with a site key set, so no rendered widget has been seen. Four
+Cloudflare pages were read; a widget was not. §6 carries it.
 
 ---
 
@@ -628,6 +713,39 @@ Collected so it is not buried in a table. Each one names what would settle it.
 - **Not verified — the three Supabase email templates** (sign-up confirmation, password reset, address
   change). No template text is in this repository. Settled by reading Authentication → Emails in each
   Supabase project's dashboard and recording the subject and first line for both projects.
+
+  **NARROWED 2026-10-11 (#284), and the narrowing is the important half.** Two of the three now have a
+  **body this repository tells the owner to paste**, word for word, in `docs/rate-limits.md` section 3
+  → "The two email templates, word for word" — and the `href` in each is exported from
+  `web/src/lib/email-links.ts`, so `scripts/auth-screens-check.mjs` compares the instruction with the
+  path this app actually serves. **What is still unverified is unchanged**: nobody has opened either
+  dashboard, so what the templates currently contain is unread, and until the owner does rows 12 and 13
+  the links are still the PKCE `code=` shape that only works in the browser that asked.
+- **Not verified — that an emailed link works in a second browser** ([#285](https://github.com/build-once/team-tasks/issues/285)). It is the whole point of #284 and
+  it is a reading rather than an observation: a `{{ .TokenHash }}` link carries no PKCE verifier, which
+  is why `@supabase/auth-js` raises "This can happen if the auth flow was initiated in a different
+  browser or device" for the `code=` shape and cannot for this one
+  (`web/node_modules/@supabase/auth-js/src/lib/errors.ts:260-272`). **Settled by the owner, in two
+  browsers, after `docs/rate-limits.md` section 3 rows 12 and 13.** Nothing in this repository can.
+- **Not verified — that a mail scanner's fetch now spends nothing** (#285). What IS established is that
+  `/auth/confirm` calls Supabase nowhere, asserted by `scripts/auth-screens-check.mjs` with
+  `/auth/reset` as its control. What nobody has watched is a scanner fetching the new link and the
+  person then using it. The owner's own mail provider is the test, and it is one reset email.
+- **Not verified — whether Supabase Auth refuses a sign-in that carries no CAPTCHA token** (#285). The
+  [CAPTCHA page](https://supabase.com/docs/guides/auth/auth-captcha) says what to switch on and does
+  not say what happens to a request arriving without one. **If the answer is "it is accepted", the
+  whole thing protects nothing**, and `docs/rate-limits.md` calls it "the sharpest thing on this list".
+  `scripts/staging/build-it-25-captcha-checks.mjs` section 1 is the one request that settles it, and
+  its selftest already requires FAIL for exactly that world.
+- **Not verified — that `captcha_failed` is the code such a refusal carries** (#285), which is what decides
+  whether a person gets §1i's sentence or the generic one. The same staging run reports it, and its
+  judgement answers UNVERIFIED rather than PASS for any other code.
+- **Not verified — that any Turnstile widget has ever been rendered** (#285). No site key is set in any
+  environment, no widget exists in Cloudflare, and nobody writing this has opened one of the three
+  screens in a browser. Four Cloudflare pages were read on 2026-10-11 and quoted; a widget was not
+  seen. In particular **whether the free plan shows Cloudflare's branding on this app's sign-in screen
+  is read off the Plans page's silence** rather than stated anywhere — `docs/rate-limits.md` says so at
+  length.
 - **SETTLED 2026-10-07 — Supabase's own minimum password length is 8**, which since #197 is the
   **account-level** floor rather than "the only" one. The distinction is why the two §1c password rows are
   worded as they are: `signUp` refuses a short password (`web/src/app/auth/actions.ts:127-129`), but that

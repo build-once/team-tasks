@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import {
+  newPasswordRefusedPath,
+  signInRefusedPath,
+  signUpRefusedPath,
+} from "@/lib/auth-messages";
 import { ACT_FIELD, BUTTON_IDS, pressed } from "@/lib/buttons";
 import {
   RESET_MARKER_COOKIE,
@@ -15,6 +20,23 @@ import {
   resetRedirectTo,
 } from "@/lib/password-reset";
 import { createClient } from "@/lib/supabase/server";
+import { TURNSTILE_TOKEN_FIELD, readCaptchaToken } from "@/lib/turnstile";
+
+// THE ANTI-ROBOT TOKEN, read off the form and handed straight on (issue #284).
+//
+// Cloudflare's widget puts its own hidden field in the form, named
+// `cf-turnstile-response`, so the token arrives in the FormData these actions
+// already receive -- there is nothing to wire up and nothing of ours to store.
+// web/src/lib/turnstile.ts is the one place that name is spelled.
+//
+// NOTHING HERE DECIDES WHETHER A TOKEN IS GOOD. Supabase Auth does that, with
+// the secret key in the project's own Auth settings, which exists nowhere in
+// this repository. All three calls below therefore pass whatever arrived --
+// including `undefined`, which is what every request sent before Build it 25
+// sent -- and report Supabase's refusal with this app's own words.
+function captchaToken(formData: FormData): string | undefined {
+  return readCaptchaToken(formData.get(TURNSTILE_TOKEN_FIELD));
+}
 
 function credentials(formData: FormData) {
   return {
@@ -71,14 +93,32 @@ export async function signIn(formData: FormData) {
   // The button, by identifier, never by its wording (Build it 19 rule 6). Nothing
   // is sent to Supabase for a press this page did not make -- the ternary is what
   // makes that true, because the call is on the branch that is not taken.
-  const { error } = pressed(formData.get(ACT_FIELD), [BUTTON_IDS.signIn])
-    ? await supabase.auth.signInWithPassword(credentials(formData))
+  //
+  // THE ANSWER IS NAMED RATHER THAN DESTRUCTURED, and that is not a style
+  // choice. scripts/password-reset-check.mjs uses this function as its CONTROL
+  // -- the one in this file that legitimately has two redirects, one branch and
+  // two mentions of an outcome, which is how it proves its searches are
+  // specific rather than matching everywhere. Destructuring `error` and then
+  // passing it to signInRefusedPath would have made that THREE mentions and
+  // turned the control red, and the honest fix for a red check is the code and
+  // never the check (AGENTS.md rule 20). Naming the answer keeps the count at
+  // two and reads no worse.
+  const answer = pressed(formData.get(ACT_FIELD), [BUTTON_IDS.signIn])
+    ? await supabase.auth.signInWithPassword({
+        ...credentials(formData),
+        options: { captchaToken: captchaToken(formData) },
+      })
     : NOT_THIS_BUTTON;
 
-  // On purpose, the person is not told which half was wrong, and the text Supabase
-  // sent is not shown. Either would help someone guess at accounts. A press from
-  // somewhere else lands here too, and gets the same sentence, for the same reason.
-  if (error) redirect("/login?problem=1");
+  // STILL NOT TOLD WHICH HALF WAS WRONG, and still none of Supabase's text on
+  // the screen: either would help somebody sort addresses into accounts and
+  // not-accounts. What changed with issue #284 is that three refusals which are
+  // NOT about the credentials now say what they are -- a rate limit, a failed
+  // anti-robot check, and an address that has not been confirmed -- instead of
+  // being told their password did not match. signInRefusedPath chooses from the
+  // error CODE, and `invalid_credentials` and a press from somewhere else both
+  // still get the one generic sentence.
+  if (answer.error) redirect(signInRefusedPath(answer.error));
 
   revalidatePath("/", "layout");
   redirect("/tasks");
@@ -133,10 +173,25 @@ export async function signUp(formData: FormData) {
 
   const { data, error } = await supabase.auth.signUp({
     ...credentials(formData),
-    options: emailRedirectTo ? { emailRedirectTo } : undefined,
+    // ALWAYS AN OPTIONS OBJECT NOW, where it used to be `undefined` when there
+    // was no redirect to pass: the anti-robot token lives in there too, and it
+    // has to travel whether or not a redirect does.
+    options: {
+      ...(emailRedirectTo ? { emailRedirectTo } : {}),
+      captchaToken: captchaToken(formData),
+    },
   });
 
-  if (error) redirect("/signup?problem=1");
+  // CHOSEN FROM THE ERROR CODE (issue #284), where this used to be one path for
+  // everything Supabase could say. Six refusals now have their own sentence,
+  // and two of them are the ones production would really hit: the email limit,
+  // and an address the sender will not deliver to -- which is what production
+  // answers today for any address that is not on the Supabase project's team
+  // (docs/rate-limits.md). `email_exists` is deliberately NOT one of the six
+  // and falls through to the generic sentence below, because telling somebody
+  // an address already has an account is how a list of addresses gets sorted
+  // into accounts and not-accounts.
+  if (error) redirect(signUpRefusedPath(error));
 
   // If the project asks people to confirm their email address, signing up does
   // not sign them in. There is no session to use yet, so say so instead of
@@ -188,9 +243,26 @@ async function askForResetEmail(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
 
+  // The anti-robot token rides along here too, and it is the one of the three
+  // whose refusal this app CANNOT report: the screen below says one sentence
+  // whatever happened, which is issue #120 rule 1, and a different sentence for
+  // a failed check would be a second branch in a function that is checked for
+  // having none. So the widget's own words on the screen
+  // (web/src/app/components/CaptchaGate.tsx) are the whole of what a person
+  // gets told here, and a spent or expired token means no email and the usual
+  // sentence -- the same cost the 2-emails-an-hour limit already has, written
+  // down in docs/rate-limits.md rather than discovered.
+  //
+  // `resetPasswordForEmail` takes a FLAT options object -- `{ redirectTo,
+  // captchaToken }` -- where signUp and signInWithPassword take `options: {
+  // captchaToken }`. Read off the installed client rather than assumed:
+  // web/node_modules/@supabase/auth-js/src/GoTrueClient.ts:4468-4500.
   await supabase.auth.resetPasswordForEmail(
     String(formData.get("email") ?? ""),
-    { redirectTo: resetRedirectTo(SITE_URL) },
+    {
+      redirectTo: resetRedirectTo(SITE_URL),
+      captchaToken: captchaToken(formData),
+    },
   );
 }
 
@@ -264,12 +336,41 @@ export async function setNewPassword(formData: FormData) {
 
   const { error } = await supabase.auth.updateUser({ password });
 
-  // No Supabase error text on screen. The realistic cause is a recovery session
-  // that lapsed while the form was open, and the honest answer for that is the
-  // dead-link screen: ask for another email.
+  // THIS IS THE LINE THE OWNER WATCHED LIE, on production on 11 October 2026
+  // (issue #284). It used to be `redirect(newPasswordPath("stale"))` for every
+  // answer Supabase could give, with the comment above it saying "the realistic
+  // cause is a recovery session that lapsed". The real answer that morning was
+  // HTTP 422, code `same_password` -- the link had worked, the form had loaded,
+  // and the person was told the link didn't work when what was wrong was a
+  // password they could have changed in five seconds.
+  //
+  // Still no Supabase error text on screen. What changed is that the sentence
+  // is chosen from the CODE: `same_password`, `weak_password` and a rate limit
+  // each get their own words, a genuinely gone session still gets the dead-link
+  // screen -- `newPasswordRefusedPath` returns exactly what
+  // `newPasswordPath("stale")` returns for that one case, and
+  // scripts/auth-screens-check.mjs compares the two strings so they cannot
+  // drift -- and an answer nobody recognises is told it did not work and
+  // offered another go, rather than being called a dead link on no evidence.
+  //
+  // AND THE MARKER IS NOW KEPT FOR A REFUSAL THE PERSON CAN FIX, which is the
+  // other half of the repair and is easy to miss. This used to delete the
+  // marker for every error, so even with the right sentence the page would have
+  // drawn the dead-link screen instead of the form -- the marker is what lets
+  // the form be drawn at all (web/src/lib/password-reset.ts). Somebody told
+  // "that is the password you are already using" needs the form back, with
+  // their recovery session intact, to type a different one.
+  //
+  // The test is the destination itself: the one path that means the link is
+  // gone is the one `newPasswordPath("stale")` builds, and that is exactly the
+  // string newPasswordRefusedPath returns for a session that has lapsed. So
+  // there is no second list of codes here to drift out of step with the first.
   if (error) {
-    cookieStore.delete(RESET_MARKER_COOKIE);
-    redirect(newPasswordPath("stale"));
+    const refusedPath = newPasswordRefusedPath(error);
+    if (refusedPath === newPasswordPath("stale")) {
+      cookieStore.delete(RESET_MARKER_COOKIE);
+    }
+    redirect(refusedPath);
   }
 
   // One use per link. The session stays -- the person is signed in, which is

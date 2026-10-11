@@ -44,6 +44,7 @@ export function ActButton({
   act,
   className,
   ariaPressed,
+  disabled,
   children,
 }: {
   act: ButtonId;
@@ -51,6 +52,16 @@ export function ActButton({
   // Only on the tick toggle on My tasks, which is a pressed/unpressed control
   // rather than a plain button.
   ariaPressed?: boolean;
+  // ADDED WITH BUILD IT 25 (issue #284), and used in exactly one place:
+  // web/src/app/components/CaptchaGate.tsx, where the submit button on the
+  // three sign-in screens waits for the anti-robot check. A disabled submit
+  // button cannot post the form, which is the whole of "it never submits
+  // without a token" -- the enforcement is the attribute, not a sentence.
+  //
+  // It is drawn DISABLED and not hidden: a button that is not there reads as a
+  // broken screen, and a faded one with a sentence beside it reads as a screen
+  // waiting for something.
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -60,6 +71,7 @@ export function ActButton({
       name={ACT_FIELD}
       value={act}
       aria-pressed={ariaPressed}
+      disabled={disabled}
     >
       {children}
     </button>

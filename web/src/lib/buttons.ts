@@ -80,6 +80,12 @@ export const BUTTON_IDS = {
   resetRequest: "reset_request",
   passwordSave: "password_save",
 
+  // Spending an emailed link (Build it 25, issue #284). THE ONE BUTTON IN THIS
+  // APP WHOSE WHOLE POINT IS THAT A GET CANNOT PRESS IT: a mail scanner that
+  // fetches the link gets a page and spends nothing, because the token is only
+  // handed to Supabase by the action this identifier reaches.
+  linkUse: "link_use",
+
   // Everywhere: the account menu, and the error look on any screen
   signOut: "sign_out",
   tryAgain: "try_again",
