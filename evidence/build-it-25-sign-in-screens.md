@@ -484,6 +484,31 @@ Nothing in this list is a hedge; each one names what would settle it, and every 
 owner's. **[#285](https://github.com/build-once/team-tasks/issues/285) is this table as a checklist**,
 so it does not live only here.
 
+> **FIVE OF THESE ELEVEN WERE SETTLED ON 11 OCTOBER 2026, AND THE RECORD IS
+> `evidence/captcha.md`.** This table is left exactly as it was written, because it is what was true on
+> the day this pull request was opened; the new file is where the answers are, with a table of who saw
+> what. **#285 asks for them "written down, with its answer, in `evidence/build-it-25-sign-in-screens.md`"
+> — this pointer is how that condition is met without two files carrying the same facts and drifting
+> apart.** The short version, every line of it owner-reported:
+>
+> | What | Answer |
+> |---|---|
+> | **Supabase Auth refuses a sign-in with no CAPTCHA token** | **YES — HTTP 400, `captcha_failed`.** Accepted (200) before CAPTCHA was switched on, refused after. **This was the one that decided whether the feature protects anything** |
+> | **The code is one the app has a sentence for** | **YES**, `captcha_failed`, so nothing in `web/src/lib/auth-messages.ts` had to change |
+> | **The dummy token is accepted on staging with CAPTCHA on** | **YES**, both runs — which is what keeps the nine automated sign-ins alive |
+> | **A rendered widget** | **SEEN**, on a Preview and on production. Not on a phone, and the branding was not noted |
+> | **An emailed reset link in a second browser** | **WORKED, on production**, after the two templates were replaced |
+> | **Which attempt a 429 arrives at** | **STILL OPEN.** 31 attempts against a limit still set at 150 — [#291](https://github.com/build-once/team-tasks/issues/291) |
+> | **A real secret rejecting the dummy token on production** | **SEEN, BY ACCIDENT**, because the Production build carried the dummy site key — [#290](https://github.com/build-once/team-tasks/issues/290) |
+>
+> Still untouched: a mail scanner's fetch, a sign-up confirmation link, production with JavaScript off,
+> and a phone.
+>
+> **And one thing section 8a below was right about and could not name.** It recorded the Vercel Preview
+> deploy failing and reproduced the only cause this change could have — an empty site key. **The
+> Production deploy then failed differently, on a cause nothing here guards against**: a site key that is
+> present and is Cloudflare's dummy.
+
 | What | Why it could not be settled here | What settles it |
 |---|---|---|
 | **That an emailed link works in a second browser** | the two email templates have not been edited, so every link Supabase sends today is still the PKCE `code=` shape | `docs/rate-limits.md` section 3 rows 12 and 13, then one reset email opened on a second device |

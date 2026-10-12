@@ -678,19 +678,94 @@ end**, which is what it is for.
 
 ---
 
+## 2026-10-11 — the anti-robot check switched on, and the first password actually changed
+
+**Recorded on 12 Oct 2026, a day late, and that is a fault in this file rather than in the actions.**
+Rule 19 says every production action goes here **in the same session it happened**; these happened on
+11 October and are written on the 12th, from the owner's own account of them given in the session that
+wrote `evidence/captcha.md`. It is **not backdated**: the heading is the day of the actions, and this
+paragraph is when they were written down. The same fault, with the same wording, is recorded against
+the 2026-10-09 section above.
+
+**Where these lines come from.** **The owner's own words**, except the first row (read by the
+assistant from a public run log and the Actions API) and the last (the coach's report). As with every
+entry above: **the assistant has no production access of any kind, opened no dashboard, ran no command
+against production and used no connector**, and has verified nothing below except the first row. The
+instructions for this change forbade the connector and the browser tool in as many words.
+
+**On the times.** The owner gave none. The run in the first row carries its own timestamps and they are
+printed; everything after it is in the **order** the owner gave, which is what the rows are ordered by.
+No clock time is invented.
+
+**The production project's reference is not written here**, as this file's header requires. Nor is the
+real Turnstile secret key, which was never given to the assistant and never asked for.
+
+| # | Time (UTC) | Who | What | Why | Result |
+|---|---|---|---|---|---|
+| 1 | 18:50:26 → 18:51:07 | **The pipeline**, on the merge of PR #289 to `main` | `.github/workflows/migrate-production.yml` — migrations, every function deployed, and the outside smoke test. **A change, through the pipeline, which is the one path rule 10 allows** | Build it 25 part 1 reaching production | Run [38165493741](https://github.com/build-once/team-tasks/actions/runs/38165493741), event `push`, head `aff6ca1`, **`success`**. All three jobs and every step `success`. **Part 1 carries no migration**, so "Apply migrations to production" applied none |
+| 2 | No time given | **The owner**, in the Supabase dashboard — **A CHANGE** | **Enabled CAPTCHA protection on production**, provider Cloudflare Turnstile, with the **real** secret key | Row 9 of `docs/rate-limits.md` section 3, and decision **I**: production gets the real keys | Enabled |
+| 3 | After 2 | **The owner**, in a browser | Tried to **sign in** to the live site | Checking the thing that had just been switched on | **REFUSED** — "The check that you are not a robot did not pass. Reload the page and try again." |
+| 4 | After 3 | **The owner**, in a browser | Read the live sign-in page | Finding the cause | **Cloudflare's "For testing only" line was showing**, so the production build was serving the **dummy** site key, which a real secret key rejects |
+| 5 | After 4 | **The owner**, in the Supabase dashboard — **A CHANGE** | **Turned CAPTCHA off** on production | Stopping the lock-out before fixing the cause | Disabled |
+| 6 | After 5 | **The owner**, in the **Vercel** dashboard — **A CHANGE** | Corrected the **Production** value of `NEXT_PUBLIC_TURNSTILE_SITE_KEY` to the real site key, and **redeployed production** | The site key is public and belongs in Vercel per environment (`docs/environments.md`); the wrong one was what refused everybody | Corrected and redeployed |
+| 7 | After 6 | **The owner**, in the Supabase dashboard — **A CHANGE** | **Turned CAPTCHA on** again, with the real secret key | Finishing row 9 | Enabled, and **the owner signed in** |
+| 8 | After 7 | **The owner**, in the Supabase dashboard — **A CHANGE** | **Replaced the "Reset Password" and "Confirm signup" email templates** with the two bodies in `docs/rate-limits.md` section 3 | Rows 12 and 13: what makes an emailed link work in a browser other than the one that asked | Replaced |
+| 9 | After 8 | **The owner**, in two browsers — **A CHANGE, AND IT IS THE FIRST ROW OF REAL DATA ANYTHING IN THIS FILE HAS WRITTEN** | Requested a password reset in one browser, **opened the link in a different browser**, pressed the button, **set a new password**, and signed in with it | The whole point of the token-hash links: on 11 Oct a PKCE link opened in a second browser had been accepted by Supabase and reported as "That link didn't work" | **It worked, end to end.** And it **changed an account's password on production** — see below |
+| 10 | No time given | The coach (claude.ai), via the read-only connectors | **Three attempted reads of the Auth logs**, on **both** projects — read-only, and nothing but paths, statuses and codes was ever wanted | To corroborate the statuses and codes in rows 2–9 from the service's own record rather than from a report | **EVERY CALL RETURNED A BACKEND ERROR AND NO DATA.** No cause is established, and nothing here can say whether it is retention, the project, the connector or the service |
+
+**Row 9 is the one that changes a sentence this file has carried since 1 October.** The closing section
+below said "Nothing has changed production's data. No row of real data has been written". **A password
+reset writes one** — `auth.users`' password hash for the account that asked, and its sessions with it.
+It is the owner's own account rather than a volunteer's, nothing in `public` was touched, and no row
+was read back or printed by anybody. **It is still a write, and the sentence is corrected rather than
+stretched to cover it.**
+
+**Row 10 is recorded as an attempted read that returned nothing, not left out.** Rule 8: a check that
+could not run is not a pass. What it was for is the one thing that would have corroborated the owner's
+report independently, so its absence is why `evidence/captcha.md` labels every status and code in it as
+**reported**. What would settle it later: the same read working, or the owner reading Logs → Auth in
+each dashboard and reporting paths, statuses and codes only.
+
+**And rows 2 to 7 are a lock-out and a recovery, in about the time it takes to read them.** Every
+sign-in, sign-up and password reset on production was refused for as long as row 2's setting and row
+6's wrong value were both in place — so there was no way into the app for anybody not already signed
+in. **The only person affected was the owner**, because nobody else uses production yet. The build that
+made it possible should not have been possible:
+[#290](https://github.com/build-once/team-tasks/issues/290) is the guard that would have stopped it at
+`next build`, and `evidence/captcha.md` section 2.3 is the whole argument.
+
+**What was NOT done in any of this**, so the absences are on the record: **no rate-limit figure was
+changed on either project** (by-hand row 11 is on hold — [#291](https://github.com/build-once/team-tasks/issues/291)),
+**leaked-password protection was not reported as switched on** (row 10 of that list, decision **G**),
+and **no production function secret was set**, so rule 19's one permission for the assistant is still
+unused.
+
+---
+
 ## What has been written to production, and by whom
 
-**TWO entries in this file changed something, both on 10 Oct 2026, both by the owner in the dashboard:
-the transfer between organisations, and enabling the Spend Cap.** Every other entry is a read. (This
-said "One entry" until the Cap was enabled later the same day.) Three things stay true, and they are the three this section
-has always been for:
+**EIGHT entries in this file are the owner changing something: two on 10 Oct 2026 — the transfer
+between organisations and enabling the Spend Cap — and SIX on 11 Oct 2026**, which are rows **2, 5, 6,
+7, 8 and 9** of the section above. Every other entry is a read, except **row 1 of 11 Oct, which is the
+pipeline** — counted separately here as it always has been, because a merge to `main` reaching
+production is the one path rule 10 asks for rather than somebody acting on production by hand. (This
+said "One entry" until the Cap was enabled on 10 Oct, and "TWO entries" until 11 Oct.) Three things
+this section has always been for, and **one of them has changed**:
 
 - **The assistant has never run a production command of any kind**, and rule 19's one permission —
   `supabase secrets set` against production — has not been used. The first time it is, it goes here,
-  in that session, before the session ends.
-- **Nothing has changed production's data.** No row of real data has been written, read back in full,
-  or deleted by anybody recorded here.
+  in that session, before the session ends. **Still true.**
+- **PRODUCTION'S DATA HAS NOW BEEN CHANGED ONCE, and this bullet used to say it never had.** It read
+  "Nothing has changed production's data. No row of real data has been written, read back in full, or
+  deleted by anybody recorded here." On **11 Oct 2026** the owner reset a password on production and
+  set a new one — row 9 above — which writes `auth.users`' password hash for that account and ends its
+  sessions. It was the owner's own account, it was done to prove the emailed link worked in a second
+  browser, and **nothing in `public` was touched.** What stays true, and is the part worth keeping:
+  **no row of real data has been read back in full, printed, or deleted by anybody recorded here**, and
+  nothing recorded here has written a volunteer's data because there are no volunteers yet.
 - **Nothing has changed production's schema outside the pipeline.** Every migration reached it through
   `.github/workflows/migrate-production.yml` on a merge to `main`, which is what rule 10 asks for. The
-  transfer moved the project between organisations and enabling the Spend Cap changed a billing setting;
-  **neither applied a statement**, and neither touched a row.
+  transfer moved the project between organisations, the Spend Cap changed a billing setting, and the
+  five dashboard changes of 11 Oct changed **Auth settings, a hosting variable and two email
+  templates**; **not one of them applied a statement**, and the only one that touched a row is named
+  in the bullet above.

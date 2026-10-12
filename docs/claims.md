@@ -146,6 +146,22 @@ a fact is below.
 | `If that address has an account, we've sent a link` | the constant `RESET_SENT_MESSAGE`, `web/src/lib/password-reset.ts:29-30`, drawn at `web/src/app/forgot-password/page.tsx:39-43` | One constant, one exit: `outcomeAfterRequest` takes Supabase's answer and drops it (`web/src/lib/password-reset.ts:71-79`), and `requestPasswordReset` has no branch (`web/src/app/auth/actions.ts:158-162`). `scripts/password-reset-check.mjs` reads that action's source and requires no `if`, no ternary and no `&&` in it. |
 | `The link lasts a short while and can be used once. Asking again sends a new one.` | `web/src/app/forgot-password/page.tsx:59-62` | Three claims. **"Asking again sends a new one"**: `web/src/app/auth/actions.ts:152` is called on every press. **"Can be used once"** in this app: the marker cookie is deleted the moment a password is set or refused (`web/src/app/auth/actions.ts:215`, `233`, `239`), so the form is not offered again. **"Lasts a short while"**: the recovery token's lifetime is a Supabase project setting — **not verified**, nothing in this repository states or constrains it. |
 
+**AND THIS SCREEN CANNOT REPORT A REFUSAL AT ALL — THE OWNER ACCEPTED THAT AS IT STANDS, 11 October
+2026.** [#288](https://github.com/build-once/team-tasks/issues/288) asked for one of two answers, and this
+is the first: the one-sentence promise is kept, and **a failed anti-robot check on this screen means no
+email and `If that address has an account, we've sent a link` anyway.** So does a rate limit, and the two
+are indistinguishable from outside. **No sentence is added and
+`scripts/password-reset-check.mjs` is not loosened** — it reads `requestPasswordReset`'s source and
+refuses a second `if`, ternary or `&&`, which is what makes this a decision the code enforces rather than
+one somebody has to remember.
+
+**What a person gets instead**: §1i's four sentences, beside the box, **before** they press anything, and
+a submit button that is disabled until there is a token. The realistic path to the refusal is therefore a
+token that expired while somebody was typing an address — Cloudflare's figure is 300 seconds — and the
+widget's expired-callback already replaces it. `docs/plan.md` → "True messages on the login screens"
+carries the decision, and `docs/rate-limits.md` section 1 row 3 has recorded the same cost for the
+2-emails-an-hour limit since 11 October.
+
 ### 1f. Set a new password, `/reset-password`
 
 | The exact words | Where they appear | What makes them true |
@@ -236,9 +252,33 @@ rather than hidden, and only `"off"` and `"solved"` may post — `maySubmit` in
 `web/src/lib/turnstile.ts`, with a control in `scripts/auth-screens-check.mjs` that lists what it lets
 through. That is the whole of issue #284's "it never submits without a token".
 
-**NOT VERIFIED, and it is the same gap every screen row in this file has:** nobody has opened any of
-these three screens in a browser with a site key set, so no rendered widget has been seen. Four
-Cloudflare pages were read; a widget was not. §6 carries it.
+**~~NOT VERIFIED, and it is the same gap every screen row in this file has:~~ NARROWED 2026-10-11 — A
+RENDERED WIDGET HAS NOW BEEN SEEN, TWICE.** This paragraph said "nobody has opened any of these three
+screens in a browser with a site key set, so no rendered widget has been seen. Four Cloudflare pages were
+read; a widget was not." Both sightings are the **owner's**, on 11 October 2026; nobody writing this has
+opened a browser:
+
+- **On the Preview deploy of `6f94868`: Cloudflare's box was shown**, and Alice signed in through it. A
+  wrong password then drew `That email and password don't match. Check them and try again.`
+  (`web/src/app/login/page.tsx:72`) — which is the one sentence #284 required **not** to change.
+- **On production: the live page showed Cloudflare's own "For testing only" line**, which is how the
+  owner diagnosed that the Production build was carrying the dummy site key
+  ([#290](https://github.com/build-once/team-tasks/issues/290)). A rendered widget, seen because it was
+  saying something about itself.
+
+**What is still NOT VERIFIED, which is narrower and is still real:** **not one of the four sentences in
+this table has been read on a screen** — both sightings were of the widget's own box, not of
+`TURNSTILE_WORDS` — **nothing has been seen on a phone**, which is the device `docs/plan.md` says this app
+is for, **whether Cloudflare's branding appeared was not written down**, and **whether the widget drew a
+tick or settled itself was not noted.** All four are one more look at one screen. §6 carries it.
+
+**And one sentence in this table HAS been seen, on production, in the one situation nobody designed for.**
+`The check that you are not a robot did not pass. Reload the page and try again.` — §1f's row, from
+`REFUSAL_SENTENCES.robot_check`, not one of the four above — was drawn for the owner's own correct-password
+sign-in while the build carried the wrong site key. **It was the right sentence for the code Supabase sent
+and useless advice in that situation**: reloading could not have helped. No sentence chosen from an error
+code could have known. The fix is #290's build guard, so the state never reaches a screen — not a vaguer
+sentence. `evidence/captcha.md` section 4 is the argument.
 
 ---
 
@@ -721,31 +761,62 @@ Collected so it is not buried in a table. Each one names what would settle it.
   path this app actually serves. **What is still unverified is unchanged**: nobody has opened either
   dashboard, so what the templates currently contain is unread, and until the owner does rows 12 and 13
   the links are still the PKCE `code=` shape that only works in the browser that asked.
-- **Not verified — that an emailed link works in a second browser** ([#285](https://github.com/build-once/team-tasks/issues/285)). It is the whole point of #284 and
-  it is a reading rather than an observation: a `{{ .TokenHash }}` link carries no PKCE verifier, which
-  is why `@supabase/auth-js` raises "This can happen if the auth flow was initiated in a different
-  browser or device" for the `code=` shape and cannot for this one
-  (`web/node_modules/@supabase/auth-js/src/lib/errors.ts:260-272`). **Settled by the owner, in two
-  browsers, after `docs/rate-limits.md` section 3 rows 12 and 13.** Nothing in this repository can.
+
+  **AND THE OWNER DID ROWS 12 AND 13 ON PRODUCTION, 11 October 2026 — so for two of the three, on one
+  project, this is no longer unverified.** The "Reset Password" and "Confirm signup" templates were
+  replaced with those two bodies, and the reset link that came out of one of them **was opened in a
+  second browser and used**. Owner-reported; no dashboard was opened by anybody writing this.
+
+  **STAGING CANNOT DO IT, which nobody expected and which this bullet now has to carry.** The dashboard
+  **locks the email templates while a project uses the built-in sender**, and decision **M** keeps
+  staging on it. So on staging all three templates are still unread **and unchangeable**, and
+  `/auth/confirm` has never been exercised there. The third template — address change — is unread on
+  both projects and no body for it exists anywhere in this repository.
+- **SETTLED 2026-10-11 — an emailed RESET link works in a second browser, on production**
+  ([#285](https://github.com/build-once/team-tasks/issues/285)). This bullet said it was "a reading rather
+  than an observation", and named what would settle it: "the owner, in two browsers, after
+  `docs/rate-limits.md` section 3 rows 12 and 13." **The owner did rows 12 and 13 on production and then
+  did exactly that**: a reset requested in one browser, the link opened in a **different** browser, the
+  button pressed, a new password set, and signed in with it. The reading behind it stands — a
+  `{{ .TokenHash }}` link carries no PKCE verifier, which is why `@supabase/auth-js` raises "This can
+  happen if the auth flow was initiated in a different browser or device" for the `code=` shape and
+  cannot for this one (`web/node_modules/@supabase/auth-js/src/lib/errors.ts:260-272`) — and it is now
+  a reading **with an observation behind it**. Owner-reported; nobody writing this opened a browser.
+
+  **Two things it does not cover.** The **sign-up** confirmation link has not been tried in either
+  browser, though its template is in place — no sign-up has been made on production. And **the templates
+  could not be changed on staging at all**: the dashboard locks them while a project uses the built-in
+  sender, which decision **M** keeps staging on, so `/auth/confirm` has never been exercised on staging
+  and cannot be. `docs/rate-limits.md` section 3's correction of 2026-10-12 is the record.
 - **Not verified — that a mail scanner's fetch now spends nothing** (#285). What IS established is that
   `/auth/confirm` calls Supabase nowhere, asserted by `scripts/auth-screens-check.mjs` with
   `/auth/reset` as its control. What nobody has watched is a scanner fetching the new link and the
   person then using it. The owner's own mail provider is the test, and it is one reset email.
-- **Not verified — whether Supabase Auth refuses a sign-in that carries no CAPTCHA token** (#285). The
-  [CAPTCHA page](https://supabase.com/docs/guides/auth/auth-captcha) says what to switch on and does
-  not say what happens to a request arriving without one. **If the answer is "it is accepted", the
-  whole thing protects nothing**, and `docs/rate-limits.md` calls it "the sharpest thing on this list".
-  `scripts/staging/build-it-25-captcha-checks.mjs` section 1 is the one request that settles it, and
-  its selftest already requires FAIL for exactly that world.
-- **Not verified — that `captcha_failed` is the code such a refusal carries** (#285), which is what decides
-  whether a person gets §1i's sentence or the generic one. The same staging run reports it, and its
-  judgement answers UNVERIFIED rather than PASS for any other code.
-- **Not verified — that any Turnstile widget has ever been rendered** (#285). No site key is set in any
-  environment, no widget exists in Cloudflare, and nobody writing this has opened one of the three
-  screens in a browser. Four Cloudflare pages were read on 2026-10-11 and quoted; a widget was not
-  seen. In particular **whether the free plan shows Cloudflare's branding on this app's sign-in screen
-  is read off the Plans page's silence** rather than stated anywhere — `docs/rate-limits.md` says so at
-  length.
+- **SETTLED 2026-10-11 — Supabase Auth DOES refuse a sign-in that carries no CAPTCHA token** (#285).
+  This bullet said the [CAPTCHA page](https://supabase.com/docs/guides/auth/auth-captcha) "does not say
+  what happens to a request arriving without one" and that "if the answer is 'it is accepted', the whole
+  thing protects nothing". **The owner ran
+  `scripts/staging/build-it-25-captcha-checks.mjs` against staging before and after switching CAPTCHA on
+  with a dummy secret key: accepted HTTP 200 before, HTTP 400 `captcha_failed` after.** Owner-reported;
+  nobody writing this ran it. `evidence/captcha.md` section 1.
+- **SETTLED with it — `captcha_failed` IS the code such a refusal carries** (#285), which is what decides
+  whether a person gets §1i's sentence or the generic one. **They get §1i's**: it is mapped on all four
+  screens that choose a refusal (`web/src/lib/auth-messages.ts:225`, `:245`, `:289-290`, `:315`), so
+  nothing in the app had to change. The reported pass count corroborates the code independently — the
+  script's second judgement answers UNVERIFIED for any other, and it passed.
+- **NARROWED 2026-10-11 — a Turnstile widget HAS been rendered and looked at, twice** (#285). This bullet
+  said "No site key is set in any environment, no widget exists in Cloudflare, and nobody writing this has
+  opened one of the three screens in a browser." **A widget exists, site keys are set in Vercel for
+  Preview and Production, and secret keys are in both projects' Auth settings** — all owner-reported.
+  Cloudflare's box was seen on the Preview deploy of `6f94868`, and production's live page showed
+  Cloudflare's own "For testing only" line.
+
+  **What is left of this bullet, narrower and still real:** nobody writing this has opened any of the
+  three screens in a browser; **not one of §1i's four sentences has been read on a screen**; **nothing has
+  been seen on a phone**; and **whether Cloudflare's branding appeared was not written down**, so that
+  question is unrecorded rather than unreadable — it is still read off the Plans page's silence rather
+  than stated anywhere, which `docs/rate-limits.md` says at length. Decision **K**, Managed mode, is also
+  **still recorded rather than read back**: the widget exists but nobody has seen its settings page.
 - **SETTLED 2026-10-07 — Supabase's own minimum password length is 8**, which since #197 is the
   **account-level** floor rather than "the only" one. The distinction is why the two §1c password rows are
   worded as they are: `signUp` refuses a short password (`web/src/app/auth/actions.ts:127-129`), but that
