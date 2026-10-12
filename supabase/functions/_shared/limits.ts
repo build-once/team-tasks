@@ -115,6 +115,30 @@ export type Feature = (typeof FEATURES)[number];
 // rather than a check here: count_daily_use's insert carries `where p_limit > 0`,
 // so nothing is written and nothing comes back. The migration's comment says it is
 // "what somebody switching a feature off in limits.ts would expect it to mean".
+// AND THERE IS A THIRD DAILY LIMIT IN THIS APP THAT IS DELIBERATELY NOT HERE:
+// 30 UPLOADS A DAY. Added 2026-10-12, Build it 25 part 2b, and it lives in
+// supabase/migrations/20261012120000_upload_daily_count.sql as a plpgsql constant
+// called c_uploads_per_day.
+//
+// docs/plan.md ASKED FOR IT TO BE HERE, in as many words -- "It goes in the same
+// config file, so the rule above holds: three numbers, one place" -- and the owner
+// changed that on 2026-10-12 with the reason in front of them. The reason is that
+// it cannot be here and work:
+//
+//   * an upload has no Edge Function in its path. The browser uploads straight to
+//     Storage as the signed-in person (the owner's decision of 9 October), so the
+//     count is written by a BEFORE INSERT trigger on storage.objects;
+//   * a trigger runs inside PostgreSQL and cannot read a TypeScript file.
+//
+// SO PUTTING 30 HERE AS WELL WOULD BE A SECOND COPY THAT NOTHING READS, which is
+// worse than one copy somewhere unexpected: a number in a config file is a number
+// somebody will change, and changing this one here would do nothing at all.
+//
+// THE RULE THIS FILE EXISTS FOR IS UNCHANGED: a limit lives in exactly one place,
+// and `uploads` is not one of DAILY_LIMITS' keys. scripts/screen-state-check.mjs
+// asserts both halves -- that this map still holds exactly ai_suggestions and
+// invitations, and that the migration carries the 30 and the same refusal sentence
+// as DAILY_LIMIT_MESSAGE below. So the departure is checked rather than remembered.
 export const DAILY_LIMITS: Readonly<Record<Feature, number>> = {
   [FEATURE_AI_SUGGESTIONS]: 20,
   [FEATURE_INVITATIONS]: 20,

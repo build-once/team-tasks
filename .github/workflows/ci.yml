@@ -309,7 +309,25 @@ jobs:
       # Written before the code and seen to fail: eight of the nine were red
       # against the unchanged app, each for its own reason.
       # evidence/build-it-23-attachments-screen.md section 9.4 has the run.
-      EXPECTED_SCREEN_STATE_CHECKS: "286"
+      #
+      # 286 -> 290 ON 2026-10-12, Build it 25 part 2b, and the four are all about
+      # ONE DEPARTURE FROM docs/plan.md: the third daily limit, 30 uploads, lives
+      # in a MIGRATION rather than in supabase/functions/_shared/limits.ts,
+      # because a PostgreSQL trigger cannot read a TypeScript file. The owner
+      # agreed to that on 2026-10-12.
+      #
+      # So the four assert the departure rather than trusting it: that `uploads`
+      # is NOT a key in limits.ts, that the 30 is in the migration exactly once as
+      # a named constant, that the migration's refusal sentence is the SAME
+      # characters as the function's DAILY_LIMIT_MESSAGE -- compared across a
+      # language boundary, so the SQL's doubled apostrophe is undone rather than
+      # spelled twice -- and a CONTROL that the same comparison would notice a
+      # different sentence.
+      #
+      # A sentence in two languages is the shape this repository keeps recording
+      # as a thing that drifts, and this is the first one that spans SQL and
+      # TypeScript.
+      EXPECTED_SCREEN_STATE_CHECKS: "290"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and
@@ -567,7 +585,7 @@ jobs:
       #
       # This job makes no request of any kind: --selftest returns before a
       # setting is read, so it needs no key, no account and no network, the same
-      # as the six beside it. The staging run itself is NOT here and cannot be:
+      # as the seven beside it. The staging run itself is NOT here and cannot be:
       # it signs in as Alice and spends most of a five-minute rate-limit budget.
       EXPECTED_CAPTCHA_CASES: "31"
 
@@ -594,6 +612,32 @@ jobs:
       # setting is read. The staging run itself is NOT here and cannot be -- it
       # fills a real account's list to five hundred rows and removes them again.
       EXPECTED_LIMITS_CASES: "48"
+
+      # build-it-25-upload-count-checks: the daily count of attachment uploads.
+      # Build it 25 part 2b.
+      #
+      # THE CASE THAT MATTERS MOST is not a refusal at all -- it is the three
+      # worlds where the thirty-first upload IS refused and the body says
+      # different things. Nobody knows what the Storage API makes of a trigger's
+      # exception, so the judgement REPORTS the status and the body rather than
+      # matching them, and three selftest cases feed it a refusal carrying both
+      # the sentence and the SQLSTATE, one carrying only the sentence, and one
+      # carrying neither. All three must come out usable, because the screen pull
+      # request has to be written against whichever one staging turns out to be.
+      #
+      # The rest: the thirty-first ACCEPTED, which is the world where nothing is
+      # counting; a refused upload that spent a slot anyway, which is the count
+      # being written outside the row's transaction; deleting a file spending the
+      # room it makes; tasks left behind, which the database would then refuse to
+      # delete; and A PRINTED BODY CARRYING A LIVE TOKEN -- that last one matters
+      # here and nowhere else, because this is the only check in this repository
+      # that prints a whole response body on purpose.
+      #
+      # This job makes no request of any kind: --selftest returns before a setting
+      # is read. The staging run itself is NOT here and cannot be -- it spends one
+      # account's whole daily upload allowance, and nothing in this project can
+      # give that back.
+      EXPECTED_UPLOAD_COUNT_CASES: "37"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -601,7 +645,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all seven self-tests, and count the cases each one ran
+      - name: Run all eight self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -631,6 +675,7 @@ jobs:
           run_and_count build-it-23-attachment-checks        scripts/staging/build-it-23-attachment-checks.mjs        "$EXPECTED_ATTACHMENT_CASES"
           run_and_count build-it-25-captcha-checks           scripts/staging/build-it-25-captcha-checks.mjs           "$EXPECTED_CAPTCHA_CASES"
           run_and_count build-it-25-limits-checks            scripts/staging/build-it-25-limits-checks.mjs            "$EXPECTED_LIMITS_CASES"
+          run_and_count build-it-25-upload-count-checks      scripts/staging/build-it-25-upload-count-checks.mjs      "$EXPECTED_UPLOAD_COUNT_CASES"
 
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the
