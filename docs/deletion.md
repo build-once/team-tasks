@@ -73,20 +73,48 @@ task the person owns.
 
 ## 3. What delete-account removes, and in what order
 
-**Eight steps. Each one is refusable, and a refusal stops the whole thing and says so.** Nothing is
-half-done: the account is still there, the person is told, and they can try again.
+**NINE steps, and it was eight until the owner's decisions of 2026-10-12.** Step 4b is new, and step 3
+stopped being a decision. Each step is refusable, and **a refusal stops the whole thing and says so**:
+nothing is half-done, the account is still there, the person is told, and they can try again.
 
 | # | Step | Why it is in this position |
 |---|---|---|
-| **0** | **Read what is about to happen and show it to the person**: how many tasks, how many files, and **the name of every team they own** | The warning in section 5. A deletion that names nothing is a deletion nobody can consent to |
+| **0** | **Read what is about to happen and show it to the person**: how many tasks, how many files, and **the name of every team they own** | The warning in section 5. A deletion that names nothing is a deletion nobody can consent to. **Decision 2: yes** |
 | **1** | **Refuse unless the person has just confirmed** — a typed confirmation, not a single click | It is the only irreversible thing in the app |
 | **2** | **Delete every file on every task they own, through the Storage API, and read back** | Section 2. This is what unblocks the trigger. **It must read back**, exactly as `clearTaskFiles` does |
-| **3** | **Delete every file they uploaded to a task that is going to SURVIVE** — a task somebody else created, in a team — through the Storage API, and read back | **Decision 4.** These are their uploads sitting on other people's tasks. If they are left, `storage.objects.owner_id` points at an account that is about to vanish, and section 7's unknown decides whether that even works |
-| **4** | **Delete the tasks that are not being kept**: every task they own whose `team_id` is null, and every task they own that is in a team they own | Done explicitly, **before** the account goes, so that step 6's `set null` leaves behind only the tasks that are meant to survive. See section 6 |
-| **5** | **Delete every pending invitation addressed to their own email address** | **Decision 5.** These do **not** cascade — they are keyed by an address, not by a user id — so without this step the app keeps the email address of somebody who has just left |
-| **6** | **Delete the `auth.users` row, with the Admin API** | Everything else goes with it: their teams (and those teams' invitations and memberships), the invitations they sent, their profile, their suspension row, their usage counts, and — if decision 1 is taken — the ownership of the tasks that stay |
+| **3** | **Delete every file they uploaded to a task that is going to SURVIVE** — a task somebody else created, in a team — through the Storage API, and read back | **MANDATORY, not a decision, since 2026-10-12.** `storage.objects` has **no foreign key to `auth.users`** (section 7), so nothing in the database removes these files and nothing refuses the deletion over them. Left behind, they are bytes **nobody can reach**: no live account matches their dangling `owner_id`, and the task's-creator branch is the only other way in. **Decision 4: yes** |
+| **4a** | **Delete the tasks that are not being kept**: every task they own whose `team_id` is null, and every task they own that is in a team they own | Done explicitly, **before** the account goes, so that step 6's `set null` leaves behind only the tasks that are meant to survive. See section 6 |
+| **4b** | **In every team they own, delete the tasks whose `owner_id` is already NULL — a former member's — files first, and read back** | **NEW, 2026-10-12, and it is what makes decision 3's "the orphan arises only from a team deleted by hand" true.** Those are the only rows in a doomed team that would become unreachable: when the team goes, `team_id` becomes null beside an `owner_id` that is already null, and nothing can see or delete the row again. Section 6.2. **It is deliberately NOT every task in the team** — see the paragraph below the table, which is a question rather than a decision |
+| **5** | **Delete every pending invitation addressed to their own email address** | **Decision 5: yes.** These do **not** cascade — they are keyed by an address, not by a user id — so without this step the app keeps the email address of somebody who has just left |
+| **6** | **Delete the `auth.users` row, with the Admin API** | Everything else goes with it: their teams (and those teams' invitations and memberships), the invitations they sent, their profile, their suspension row, their usage counts, and — **decision 1: yes** — the ownership of the tasks that stay |
 | **7** | **Sign them out**, and send them to a page that says it is done | Last, because until step 6 succeeds they are still an account |
-| **8** | **Write a line in `evidence/` with no identity in it** — a date and a count | **Decision 6.** The alternative is that nothing anywhere records that a deletion happened, which makes section 8 impossible |
+| **8** | **Write a tombstone, and a line in `evidence/` with no identity in it** — a date and a count | **Decision 6: option A.** Section 9.2 |
+
+### Does step 4 remove a doomed team's tasks? Asked by the owner on 2026-10-12, and the honest answer is "some of them"
+
+**What the order above did before today: NO.** Step 4a deleted only tasks **the departing person
+owns**. Every other task in a team they owned was left to `tasks.team_id`'s `on delete set null`, which
+returns each one **to its own creator as a personal task** — and because those rows have a live
+`owner_id`, none of them becomes an orphan.
+
+**What it does now: step 4b, which is the orphan-producing subset and nothing else.** A task in a
+doomed team becomes unreachable **only if its `owner_id` is already null** — a former member's. Step 4b
+deletes exactly those, files first, so after this change **the orphan in section 6.2 can only arise
+from a team deleted by hand in the dashboard**, which is what the owner asked for.
+
+**And the literal reading — "remove that team's tasks", all of them — is written down as a QUESTION
+rather than taken, because it reverses two decisions that are still standing.** It would destroy
+tasks other members wrote:
+
+- `20261002133637_tasks_join_teams.sql` chose `set null` over `cascade` for this exact case, in these
+  words: "Carol losing her own task because Alice closed her account is a stranger deleting Carol's
+  work, and this database has no point-in-time restore on the free plan to undo it with";
+- and **decision 2, taken as "yes" in the same message**, is the warning that says "**nobody loses a
+  task they wrote themselves**".
+
+So the two cannot both be true. **Question 17** in `docs/plan.md` is which one the owner meant; until
+it is answered, this file is written to the narrow reading, because the narrow reading achieves the
+stated goal in full and the wide one costs somebody else's work.
 
 **"The login last" is step 6, and it is the step everything else exists to make possible.** Two reasons
 it is last rather than first:
@@ -152,10 +180,11 @@ created by "Former member".
 
 **Why that is not free.** `tasks.owner_id` is `uuid not null default auth.uid() references auth.users
 (id) on delete cascade`. As it stands, **deleting the account deletes every one of their tasks**,
-including the ones in other people's teams. Keeping them is a schema change, and it is four changes
-rather than one.
+including the ones in other people's teams. Keeping them is a schema change, and it is **five** changes
+rather than one. **Decision 1, taken as "yes" on 2026-10-12: keep them.** The fifth was found on the
+same day, by working out how step 4b could possibly run.
 
-### 6.1 The four things a migration has to do
+### 6.1 The five things a migration has to do
 
 1. **`alter column owner_id drop not null`**, and **replace the foreign key with `on delete set
    null`.** A null `owner_id` then means "the person who created this has gone" — "Former member" is a
@@ -176,6 +205,27 @@ rather than one.
 4. **A read for it.** `"Creators and team members can read a task"` already returns it through its team
    branch, so nothing is needed for a team task. The screens need to draw "Former member" instead of a
    nickname, which is `web/src/lib/tasks.ts`'s and the roster's business and not the database's.
+5. **AND A BRANCH ON THE STORAGE DELETE POLICY, found 2026-10-12, without which change 3 is useless.**
+   `"Attachments: delete a file you attached, or one on your task"` admits the **uploader** or **the
+   task's creator** — and a former member's task has **no creator left**: `creator.owner_id =
+   auth.uid()` can never hold for a null `owner_id`. So the team's owner, who change 3 has just given
+   the right to delete the task, **cannot clear its files** — and `tasks_refuse_delete_with_files`
+   refuses the task while they are there. **The deadlock the owner's decision of 8 October removed comes
+   straight back**, in the one case nobody looked at.
+
+   The branch: **you may delete a file on a task in a team you own, when that task has no owner.** It
+   reads `teams.owner_id` directly, like change 3, so members gain nothing.
+
+   **What it widens, stated rather than slipped in:** a team's owner can delete a file a **third
+   member** uploaded to a former member's task. That is the same custodianship the 8 October decision
+   already gives a task's creator over everything hanging off their task — handed to the team's owner
+   when the creator is gone, and only then.
+
+   **And the alternative was rejected on purpose.** Step 4b could instead remove those files with the
+   **service-role key**, which needs no policy at all. `docs/plan.md`'s "Unverified" list says in as
+   many words that "a privileged delete path is not needed and is not designed", and the 8 October
+   decision's own virtue is that "no part of this app deletes anything with more authority than the
+   person asking". **A policy branch keeps that true; a key does not.**
 
 ### 6.2 The consequence nobody would find until it happened
 
@@ -188,37 +238,77 @@ then:
 - **the delete policy** matches nobody, for the same reason;
 - so the row sits in the table, invisible and undeletable, until the operator removes it by hand.
 
-**That is a real orphan and this file is not going to hide it.** Three ways out, and it is **decision
-3**:
+**That is a real orphan and this file is not going to hide it.** Three ways out were put to the owner
+as **decision 3**:
 
 | Option | What it costs |
 |---|---|
-| **Accept it.** The operator clears such rows in the dashboard | A row of somebody's task text, kept after they left and after the team went, reachable only by the operator. It is the smallest change and the least honest answer |
-| **Delete former-member tasks when the team goes.** An `after update` trigger on `tasks`: when `team_id` has just become null because the team was deleted **and** `owner_id` is null, delete the row | A second trigger on the busiest table, and a delete performed by the database rather than by a person. It also has to get past `tasks_refuse_delete_with_files`, so the files would have to go first — which a trigger cannot do, because it cannot call the Storage API |
+| **Accept it.** The operator clears such rows in the dashboard | A row of somebody's task text, kept after they left and after the team went, reachable only by the operator. It is the smallest change |
+| **Delete former-member tasks when the team goes.** An `after update` trigger on `tasks`: when `team_id` has just become null because the team was deleted **and** `owner_id` is null, delete the row | A second trigger on the busiest table, and a delete performed by the database rather than by a person. It also has to get past `tasks_refuse_delete_with_files`, so the files would have to go first — **which a trigger cannot do, because it cannot call the Storage API.** So this option cannot actually be built as described |
 | **Do not keep the tasks at all** — decision 1 the other way | "Former member" disappears, and so does this whole section. A team loses the task a departed member wrote, which is a loss the team can see and talk about rather than a row nobody can reach |
 
-**The recommendation, stated as one:** take decision 1 **and** the second option, *but* note that the
-second option cannot clear the files — so the honest combination is decision 1 with **step 3 above made
-unconditional** (every file the departing person uploaded goes, wherever it is) and the orphan accepted
-and swept by the operator. If the owner would rather not have a design with a known orphan in it at
-all, **decision 1 the other way is the cleaner answer** and costs one sentence in the warning.
+**DECIDED BY THE OWNER, 2026-10-12: the first option. Accept the orphan; the operator sweeps it. And
+decision 1 stands — "Former member" is kept.**
+
+**With one addition the owner made in the same breath, and it is what shrinks the orphan to almost
+nothing: `delete-account` removes a doomed team's former-member tasks EXPLICITLY, rather than leaving
+them to the `set null`.** That is step **4b** in section 3. So the orphan is no longer produced by
+anybody deleting their account — **it can arise only from a team deleted by hand in the dashboard**,
+which is the one path with a person standing in front of it who can look at what is left.
+
+**Why that is the right answer rather than merely the owner's.** The second option was the one this
+file leaned towards and it **cannot be built**: a trigger cannot remove the bytes, so it would delete
+the row and leave the file — the exact orphan the 8 October decision forbids, traded for a different
+one. The third option costs a team the work a departed member did. The first costs **a row nobody can
+see, in a case that now requires the operator to have deleted a team by hand** — and the operator is
+the person who can see it.
+
+**What "the operator sweeps it" means in practice**, so it is a procedure rather than a hope: after
+deleting a team by hand, run `select count(*) from public.tasks where owner_id is null and team_id is
+null` and delete what it finds. **A count, not a listing** — the rows hold task text, and this
+repository is public. It belongs in the dashboard notes for deleting a team, which is a thing no
+document in this project has yet, and **PR 4 is where it gets written**.
 
 ---
 
 ## 7. What is NOT confirmed, and one of them decides whether step 6 works
 
-1. **What `storage.objects.owner_id` does when its `auth.users` row is deleted.** Nobody has read the
-   constraint. Three possibilities and they are not equally survivable:
-   - **`on delete set null`** — the file survives with no owner, belongs to nobody's 100 MB, and can be
-     deleted only by the task's creator. Workable, and step 3 makes it moot.
-   - **`on delete cascade`** — the **row** goes and the **bytes stay**, which is the orphan this whole
-     design is built to prevent. Step 3 becomes mandatory rather than a decision.
-   - **no action** — **deleting the account is refused** while any of their uploads exists anywhere.
-     Step 3 becomes mandatory *and* has to cover files on tasks that are not theirs.
+1. ~~**What `storage.objects.owner_id` does when its `auth.users` row is deleted.**~~ **SETTLED
+   2026-10-12, AND THE ANSWER IS "NOTHING AT ALL" — which was not one of the three possibilities this
+   entry listed.** It said: nobody has read the constraint, and offered `on delete set null`, `on
+   delete cascade` and `no action`, calling it "the first thing Build it 26's code has to establish".
 
-   **It is the first thing Build it 26's code has to establish**, and it is one read, not a
-   measurement: the foreign keys on `storage.objects` in a real project. A local sandbox cannot answer
-   it, because that sandbox's `storage` schema is a stand-in this project wrote.
+   **The coach read both projects through the read-only connectors.
+   `storage.objects` has exactly ONE foreign key — `objects_bucketId_fkey` → `storage.buckets(id)`.
+   `owner` is `uuid`, `owner_id` is `text`, and NEITHER has a foreign key to `auth.users`, on staging
+   or on production.** Recorded in `evidence/production-log.md`, 12 Oct, row 6. **Nobody writing this
+   opened a dashboard or used a connector.**
+
+   **So there is no constraint, and three things follow:**
+
+   - **deleting an `auth.users` row neither removes nor is refused by that person's object rows.** The
+     rows and the bytes stay, carrying a user id that no longer exists;
+   - **step 3 is therefore MANDATORY and is no longer a decision** (which is also what decision 4
+     answered: yes). Nothing in the database will remove those files and nothing will refuse the
+     deletion over them, so the function is the only thing that can;
+   - **and a file left behind that way is unreachable by everybody.** The DELETE policy admits the
+     uploader (`objects.owner_id::text = auth.uid()::text` — no live account matches a dangling id) or
+     the task's creator, through `exists (select 1 from public.tasks …)` — and if the file was on one
+     of the departing person's own tasks, that task is gone with the cascade, so the subquery finds
+     nothing. **Permanent orphan bytes, paid for, with no route to them but the dashboard.**
+
+   **And the one guard this app does have is narrower than it looked.**
+   `tasks_refuse_delete_with_files` still refuses the cascade, because it reads `storage.objects` **by
+   path** rather than by owner — so the deletion is still refused while a file sits on one of **that
+   person's own** tasks. It says nothing about a file they uploaded to **somebody else's** task, whose
+   path names a task that is not going anywhere. **That half cannot be closed by a trigger at all**,
+   which is precisely why it is a step in the function and not a rule in the database.
+
+   **It also settles a "not confirmed" that has been in a migration since 8 October.**
+   `20261008191804_attachments_bucket.sql` says twice that "no page read states its type" of
+   `owner_id` and casts both sides to text for that reason. It is **text** — so every one of those
+   casts was right, and `20261012150000`'s `::text::uuid` inside an exception handler was right too: a
+   text column can hold something that is not a uuid, which is the case that handler exists for.
 2. **Whether the Admin API's delete removes `auth.audit_log_entries`** for that user — the sign-in log,
    with its IP addresses. If it does not, this app keeps a log of a deleted person's sign-ins, and the
    policy has to say so.
@@ -276,16 +366,27 @@ people's data is the one thing this design must not create**: it would outlive t
 thing they asked to have removed, and it would be exactly the "permanent record wearing a window's
 label" that `docs/plan.md` rejects about retention everywhere else.
 
-### 9.2 Three ways, and the one this file recommends — **decision 6**
+### 9.2 Three ways, and the one the owner took — **decision 6, taken 2026-10-12: OPTION A, 30 days**
 
 | | What it is | What it costs |
 |---|---|---|
-| **A. A short-lived tombstone** — *recommended* | One table, two columns: the **`auth.users` id** and the **date**. Nothing else — no address, no nickname, no task text, no reason. **No policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. **Rows are removed after 30 days**, by the same statement that writes one, which is the mechanism `count_daily_use` already uses for the 7-day window | It holds a user id and a date about somebody who has left. **But only for 30 days — and 30 is chosen because it outlives the longest-lived copy that could resurrect them (about fifteen days) and nothing more.** So it is not a register of departures; it is a note that expires before the thing it exists to correct does |
+| **A. A short-lived tombstone** — **TAKEN** | One table, two columns: the **`auth.users` id** and the **date**. Nothing else — no address, no nickname, no task text, no reason. **No policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. **Rows are removed after 30 days**, by the same statement that writes one, which is the mechanism `count_daily_use` already uses for the 7-day window | It holds a user id and a date about somebody who has left. **But only for 30 days — and 30 is chosen because it outlives the longest-lived copy that could resurrect them (about fifteen days) and nothing more.** So it is not a register of departures; it is a note that expires before the thing it exists to correct does |
 | **B. Nothing in the app; the owner's own record** | The runbook gains a step: "has anybody asked to be deleted since this copy was made? If so, re-run the deletion afterwards." The record is the request the owner received, in their own mailbox, outside this project | Collects least, which is this plan's bias. **And it cannot work for a self-service deletion**: somebody who presses the button in the app sends the owner nothing, so there is no request to remember and no way to know who to re-delete |
 | **C. Accept it** | A restore brings them back, and the runbook says so | It makes "deleted" conditional on this app never having a bad day, which is not a promise worth making to somebody who asked to be removed |
 
 **Why A rather than B**, in one sentence: B is more private and only works for the people who wrote in,
 and the whole point of Build it 26 is that a person does not have to write in.
+
+**And the tombstone is now the SECOND thing in this project whose retention is enforced by the
+statement that writes it** — `count_daily_use`'s 7 days is the first. That is deliberate rather than
+imitative: `docs/plan.md` rejects a retention period "that depends on somebody doing it" in as many
+words, and a tombstone swept by hand would be the permanent register of departures option A exists to
+avoid. **With one caveat that A inherits from the first**:
+[#223](https://github.com/build-once/team-tasks/issues/223) records that `usage_counts`' sweep only
+runs for somebody who comes back — and a tombstone's subject never comes back, **so the sweep cannot
+be keyed to them.** It has to run on **every** deletion, over **all** tombstones, which is a different
+shape from `count_daily_use`'s and is the one line of PR 4 most likely to be written the wrong way by
+copying the old one.
 
 **What the runbook gains either way — one step, after step 4.** *"Read the tombstones. For every row
 dated after the copy was made, run the deletion again, in the order in section 3. Then check the table
@@ -311,14 +412,27 @@ Two answers, and the owner's call:
   door does **not** check `account_status`, which would be the first of the five doors not to — and that
   needs saying in the function's own comments so nobody "fixes" it later.
 
-**Recommended: leave it, and say so on the deletion-request page**, because the taken-over-account case
-is the one where getting it wrong destroys somebody's data on somebody else's instruction.
+**DECIDED BY THE OWNER, 2026-10-12: leave it. A suspended person asks through the request page.**
+
+Two things follow, and the second is the one to build rather than remember:
+
+- **the new door checks `account_status` like the other four**, so it is not the first of five to skip
+  it — which is also what keeps "a suspended person can read and change nothing" true of a fifth door;
+- **and the refusal has to say where to go.** A suspended person pressing "delete my account" and being
+  told only that they cannot is the shape `docs/plan.md` calls a refusal nobody can act on. The
+  sentence has to point at the request page — which means **the request page is not optional for a
+  suspended person, it is their only route**, and PR 6 cannot come after PR 5 without leaving a window
+  in which that sentence points nowhere. **The order in `docs/plan.md` has PR 6 after PR 5, and this is
+  the one reason to consider swapping them.**
 
 ---
 
 ## 11. The export — one file, their own data, built with their own rights
 
-**Decision 8 is its contents; the shape below is the proposal.**
+**DECIDED BY THE OWNER, 2026-10-12: the contents as recommended — 8a yes, 8b no, 8c no, 8d no, and
+the policy says the two closed tables exist and how to ask for them. Decision 9: the export is NOT
+counted against a daily limit.** The shape below was the proposal and is now the design; each decision
+is marked where it bites.
 
 ### 11.1 What it is
 
@@ -343,7 +457,7 @@ task. It is a server route rather than a server action so that the file is an or
 | **tasks**: for every task they created — title, done, created_at, and the **name** of its team if it has one | `tasks`, their own rows |
 | **teams they own**: name, created_at | `teams` |
 | **teams they belong to**: name, when they joined | `team_roster`, `team_members` |
-| **invitations they sent**: the team, the status, the failure code if any, when it was sent and when it expires — **and the invited address: decision 8a** | `invitations`, through the owner-only read |
+| **invitations they sent**: the team, the status, the failure code if any, when it was sent and when it expires — **and the invited address, because decision 8a is YES**: they typed it, and My teams already shows it to them | `invitations`, through the owner-only read |
 | **files**: for every file on their tasks — the file name, its size, when it was uploaded, and which task it is on | `storage.objects`, through the SELECT policy |
 
 ### 11.3 What is deliberately NOT in it, and why each
@@ -354,9 +468,9 @@ task. It is a server route rather than a server action so that the file is an or
 | **An invitation's `token_hash`** | the same. It is a credential's hash |
 | **The files themselves** | a 100 MB allowance does not fit in a JSON file. The export **lists** them, and the person downloads each one through the app, which already gives them a 5-minute signed link |
 | **Anybody else's tasks**, including team tasks written by other members | they are not this person's data. A team's shared list belongs to the team |
-| **Anybody else's nickname**, and the other members of their teams | **decision 8b.** The person can see their teams' rosters on screen; an export file is a durable artefact and a roster in one is a list of other people |
-| **Their `usage_counts` rows** | **decision 8c.** Nobody can read that table — not even the person it is about — and including them would mean a new privilege and a change to the plan's own sentence. They are four values wide and say which days somebody used the app |
-| **Their `account_status` row and the owner's `reason`** | **decision 8d.** Nobody can read that table either, and the reason is the owner's free text *about* a person, which can name a third party. Including it would publish the owner's note to its subject |
+| **Anybody else's nickname**, and the other members of their teams | **decision 8b: NO.** The person can see their teams' rosters on screen; an export file is a durable artefact and a roster in one is a list of other people |
+| **Their `usage_counts` rows** | **decision 8c: NO.** Nobody can read that table — not even the person it is about — and including them would mean a new privilege and a change to the plan's own sentence. They are four values wide and say which days somebody used the app |
+| **Their `account_status` row and the owner's `reason`** | **decision 8d: NO.** Nobody can read that table either, and the reason is the owner's free text *about* a person, which can name a third party. Including it would publish the owner's note to its subject |
 | **The sign-in log**, and any IP address | `docs/plan.md` says never to build anything on it |
 | **Error reports, Resend's log, and anything at Anthropic** | they are other companies' records. The policy says where to ask |
 
@@ -365,7 +479,12 @@ somebody's own activity and a judgement made about them are exactly the things a
 you hold about me?" most reasonably wants. The reason to leave them out is that the plan decided
 **nobody** may read either through the app, and an export is through the app. **The honest resolution is
 not to quietly omit them: it is for the policy to SAY that both exist, what they contain, and that they
-are available from the owner on request.** That is recommended over including them.
+are available from the owner on request.** **TAKEN, 2026-10-12.** So two sentences join the privacy
+page's list, and they are the kind this project has to hold itself to: *the app counts how many times
+each person used each limited feature on each day, and keeps it for seven days*, and *if the owner has
+suspended an account there is a row saying so, when, and optionally why* — **and both are available by
+asking the owner**, which is a promise somebody will one day hold the owner to. `docs/claims.md` §7d
+carries the rows.
 
 ### 11.4 Three things about it that are not obvious
 
@@ -375,8 +494,11 @@ are available from the owner on request.** That is recommended over including th
   everything and should be kept carefully.
 - **It costs egress and spends nothing at a vendor.** So it is **not** a candidate for
   `usage_counts` on the "money per press" argument — but it is the one new way to pull everything at
-  once, repeatedly. **Decision 9:** count it, or leave it to the per-IP limits. Recommended: leave it,
-  and revisit if it is ever abused, because a fourth feature word means a migration.
+  once, repeatedly. **Decision 9, taken 2026-10-12: NOT counted.** `usage_counts` stays at three
+  feature words, no migration is needed, and what bounds it is Supabase's own per-IP limits and nothing
+  else — **which is stated rather than implied**, because it means a loop holding one person's session
+  can ask for their own file as often as the platform allows. Revisit if it is ever abused; a fourth
+  feature word is a migration, and that is the cost being deferred rather than avoided.
 - **It must not include a file name in an error report** if it fails, which is the rule
   `docs/plan.md` already puts on this app's own code rather than on Sentry's scrub.
 
@@ -393,9 +515,9 @@ no other way of hearing from.
 to nothing, and `docs/plan.md`'s appendix answers "how a user deletes it" with "**They cannot** — not a
 user yet; owner deletes". A public page is the only route such a person has.
 
-### 12.1 The shape — **decision 10**
+### 12.1 The shape — **decision 10, taken 2026-10-12: NO FORM**
 
-| | **A. A page with no form** — *recommended* | **B. A page with a form** |
+| | **A. A page with no form** — **TAKEN** | **B. A page with a form** — not taken |
 |---|---|---|
 | What it is | One public page that says what deleting does, what remains for about a fortnight, and **one address to write to** from the address on the account | A form that takes an email address and sends the owner a message |
 | What it collects | **nothing.** No row, no endpoint, no email sent by this app | an email address, from an unauthenticated stranger |
@@ -425,20 +547,29 @@ the request comes from the address that was invited.
 
 ---
 
-## 13. The decisions this file needs, in one view
+## 13. The decisions, and the owner's answers — ALL TEN TAKEN 2026-10-12
 
-Gathered here and repeated in `docs/plan.md`'s Build it 26 section, so that there is one list to answer
-and one place the answers are recorded.
+Every one came back the same day, and **every one came back as this file recommended.** They are
+gathered here and repeated in `docs/plan.md`'s Build it 26 section, so there is one list to read and
+one place the answers live. **Two of the ten carried something extra with them**, and those two are the
+rows worth re-reading: 3 and 4.
 
-| # | The decision | This file's recommendation |
+| # | The decision | **The owner's answer** |
 |---|---|---|
-| 1 | Do tasks the person created in **other people's teams** survive, shown as "Former member"? | **Yes** — it is what the owner asked for. Section 6 is what it costs |
-| 2 | Does the warning name **every team they own**, and say other members keep their own tasks? | yes |
-| 3 | What happens to a former member's task when **its team is later deleted**? | accept the orphan and let the operator sweep it, or take decision 1 the other way |
-| 4 | Does the deletion remove files they uploaded to **tasks that survive**? | **yes, unconditionally** — and section 7's first unknown may make it mandatory |
-| 5 | Are **invitations addressed to them** deleted? | yes. Step 5 |
-| 6 | **Tombstones** (A), the owner's own record (B), or accept that a restore brings them back (C)? | **A**, 30 days, two columns, no privilege for anybody |
-| 7 | May a **suspended** person delete their own account? | no — the request page instead |
-| 8 | The export's contents: **8a** the invited addresses on invitations they sent; **8b** their teams' rosters; **8c** their usage counts; **8d** their suspension row | 8a **yes** (they typed it and the app already shows it to them); 8b **no**; 8c and 8d **no, and the policy says both exist and are available from the owner** |
-| 9 | Is the **export** counted against a daily limit? | no, for now |
-| 10 | Does the **deletion-request page** have a form? | **no** |
+| 1 | Do tasks the person created in **other people's teams** survive, shown as "Former member"? | **YES.** Section 6 is the five schema changes it costs, and the fifth was found after this answer |
+| 2 | Does the warning name **every team they own**, and say other members keep their own tasks? | **YES.** Section 5 |
+| 3 | What happens to a former member's task when **its team is later deleted**? | **ACCEPT THE ORPHAN; the operator sweeps it** — *and* `delete-account` removes a doomed team's former-member tasks **explicitly**, so the orphan can arise only from a team deleted by hand. That second half is **step 4b**, which is new, and section 3 says what it covers and what it deliberately does not |
+| 4 | Does the deletion remove files they uploaded to **tasks that survive**? | **YES — and it is now MANDATORY rather than a decision**, because `storage.objects` turns out to have **no foreign key to `auth.users`** at all. Section 7 |
+| 5 | Are **invitations addressed to them** deleted? | **YES.** Step 5 |
+| 6 | **Tombstones** (A), the owner's own record (B), or accept that a restore brings them back (C)? | **A** — 30 days, two columns, no privilege for anybody. Section 9.2 |
+| 7 | May a **suspended** person delete their own account? | **NO** — the request page. Section 10, which also names the one ordering consequence it has |
+| 8 | The export's contents: **8a** the invited addresses on invitations they sent; **8b** their teams' rosters; **8c** their usage counts; **8d** their suspension row | **8a YES. 8b, 8c, 8d NO** — and **the policy says the two closed tables exist and how to ask for them.** Section 11.3 |
+| 9 | Is the **export** counted against a daily limit? | **NO.** Three feature words, no migration, and the per-IP limits are all that bound it — said plainly in section 11.4 |
+| 10 | Does the **deletion-request page** have a form? | **NO.** Section 12.1 |
+
+**And one thing the answers produced that is a question rather than a decision: question 17** in
+`docs/plan.md`. Decision 3's instruction, read literally, would have `delete-account` remove **every**
+task in a doomed team rather than only the orphan-producing ones — which would destroy other members'
+work and reverse both `20261002133637_tasks_join_teams.sql`'s choice of `set null` over `cascade` and
+decision 2's own promise that "nobody loses a task they wrote themselves". This file is written to the
+narrow reading, and says so where it matters (section 3).

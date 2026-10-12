@@ -784,6 +784,48 @@ no code checks it.
 **Nothing in row 4 wrote anything. Rows 1 to 3 are settings, not data**: no statement was applied, no
 schema changed and no row of anybody's data was written, read back in full, or deleted.
 
+### Later on 12 Oct — two more reads, both the coach's, and the second settles a design question
+
+**Where these lines come from.** Both are **the coach's** reads through the **Supabase production
+read-only connector**, reported to the assistant in the session that planned Build it 26. **The
+assistant has no production access of any kind, opened no dashboard, ran no command and used no
+connector in that session** — the instructions for it forbade the connector and the browser tool in as
+many words. **No time was given for either**, and neither is invented here.
+
+| # | Who | What | Why | Result |
+|---|---|---|---|---|
+| 5 | The coach (claude.ai), via the production read-only connector — **read-only** | Read back what the merge of PR #296 left: the migration count, the trigger on `storage.objects`, what the trigger's function identifies the uploader by, and the EXECUTE privileges on both counting functions | A green deploy job says the statements ran, not what they left behind — the distinction this file's AI-consent and usage-counts entries both make at length | **14** migrations recorded; `attachments_count_upload` **present and enabled** on `storage.objects`; the function **reads `owner_id`**, which is the whole of what `20261012150000` changed; `attachments_count_upload` and `uploads_used_today` **both `security definer`**, with **EXECUTE false for `authenticated` and for `service_role`** |
+| 6 | The coach (claude.ai), via the production read-only connector, **and the staging one** — **read-only** | Read every foreign key on `storage.objects`, and the types of its two ownership columns, **on both projects** | `docs/deletion.md` §7 named this as the first unknown Build it 26 has to settle, and the one that decides whether deleting an account works at all | **`storage.objects` has exactly ONE foreign key: `objects_bucketId_fkey` → `storage.buckets(id)`.** `owner` is **uuid** and `owner_id` is **text**, and **NEITHER has a foreign key to `auth.users`** — on staging or on production |
+
+**What row 6 settles, and it is more than it looks.** Three things, and the third is the one that
+changes the design:
+
+- **deleting an `auth.users` row neither removes nor is refused by that person's object rows.** The
+  rows and the bytes stay, carrying a user id that no longer exists. So of the three possibilities
+  `docs/deletion.md` §7 listed — `set null`, `cascade`, `no action` — **the answer is none of them:
+  there is no constraint at all**;
+- **so `docs/deletion.md`'s step 3 is MANDATORY, not a decision.** Removing every file the person
+  uploaded, wherever it is, through the Storage API, is the only thing that stops a file surviving its
+  uploader with nobody able to reach it;
+- **and the one guard this app does have is narrower than it appeared.**
+  `tasks_refuse_delete_with_files` still refuses the cascade — it reads `storage.objects` by path, not
+  by owner — so an account deletion is still refused while a file sits on one of **that person's own
+  tasks**. It says nothing about a file they uploaded to **somebody else's** task, because that file's
+  path names a task that is not going anywhere. **That gap cannot be closed by a trigger**, which is
+  exactly why it is a step in the function.
+
+**And it settles a "not confirmed" that has been in a migration since 8 October.**
+`20261008191804_attachments_bucket.sql` says of `owner_id`, twice, that "no page read states its type"
+and casts both sides to text for that reason — "the comparison that is correct whichever it is". It is
+**text**, so every one of those casts was right, and `20261012150000`'s `::text::uuid` wrapped in an
+exception handler was right as well: a text column can hold something that is not a uuid, which is the
+case that handler exists for.
+
+**Nothing in either row wrote anything, and no row of anybody's data was read.** Row 5 read a
+migration list, a catalogue entry, a function body and four privilege answers; row 6 read
+`pg_constraint` and two column types. Production holds no accounts and no tasks, so there was nothing
+of anybody's to read in any case.
+
 ---
 
 ## What has been written to production, and by whom
@@ -815,6 +857,10 @@ said "One entry" until the Cap was enabled on 10 Oct, "TWO entries" until 11 Oct
   five dashboard changes of 11 Oct changed **Auth settings, a hosting variable and two email
   templates**, and the three recorded on 12 Oct changed **an SMTP configuration, a rate figure and one
   switch**; **not one of them applied a statement**, and the only one that touched a row is named
-  in the bullet above. **The next migration to reach production is
-  `20261012094500_task_cap_and_input_limits.sql`, and it goes through the pipeline on a merge like every
-  one before it.**
+  in the bullet above. **AND THE THREE MIGRATIONS THIS BULLET WAS STILL WAITING FOR HAVE ARRIVED.** It
+  said "The next migration to reach production is `20261012094500_task_cap_and_input_limits.sql`, and
+  it goes through the pipeline on a merge like every one before it." It did, and so did
+  `20261012120000_upload_daily_count.sql` and `20261012150000_upload_count_from_owner_id.sql`: row 5 of
+  12 Oct read **14** migrations off production, and `git ls-files supabase/migrations` counts **14**
+  files in this repository. **All three went through the pipeline**, which is what rule 10 asks for, and
+  nobody applied a statement to production by hand.

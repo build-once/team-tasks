@@ -178,13 +178,34 @@ page, cited in the migration: `id`, `bucket_id`, `name`, `created_at`, `updated_
 |---|---|
 | `name` | the whole path — so **the task's id and the file name the person's device gave it**. A file name is free text somebody's phone chose or somebody typed |
 | `metadata` | holds the size, as `{"size": 1234}` |
-| `owner_id` | the uploader. **Another place this project holds a user id**, and on a team task it need not be the same person as the task's creator |
+| `owner_id` | the uploader. **Another place this project holds a user id**, and on a team task it need not be the same person as the task's creator. **It is a `text` column, and it has NO foreign key to `auth.users`** — see below |
 | `created_at`, `updated_at` | exact timestamps |
 | `last_accessed_at` | **NOT CONFIRMED whether this column exists.** Supabase's schema page does not list it; its self-hosting reference shows it; the installed client declares it and marks it `@deprecated`. **If it exists and is maintained, this project holds when each person last opened each file** — a fact about people that nothing in the plan has decided to collect. [#232](https://github.com/build-once/team-tasks/issues/232) |
 
+**AND THE UPLOADER'S ID IS NOT A REFERENCE TO ANYTHING — read on both projects, 2026-10-12.** The
+coach read every foreign key on `storage.objects` through the read-only connectors:
+**`objects_bucketId_fkey` → `storage.buckets(id)` and nothing else.** `owner` is `uuid`, `owner_id` is
+`text`, and **neither points at `auth.users`**, on staging or on production
+(`evidence/production-log.md`, 12 Oct, row 6).
+
+Three things that means for this register:
+
+- **a file can outlive the account that uploaded it**, carrying a user id that no longer exists.
+  Nothing in the database removes it and nothing refuses the deletion over it;
+- **and such a file is then unreachable by everybody through the app** — the delete rule admits the
+  uploader (no live account matches a dangling id) or the task's creator, and if the task went with the
+  account there is no creator left to ask. So **removing a departing person's uploads is a step in
+  `delete-account`, not something the database can be trusted with**: `docs/deletion.md` §3, step 3;
+- **it also settles a "not confirmed" the attachments migration has carried since 8 October**, which
+  says twice that "no page read states its type" of `owner_id` and casts both sides to text for that
+  reason. It is **text**, so those casts were right.
+
 **How long:** with the file, and the file goes with its task — the database **refuses** to delete a task
 that still has files (`tasks_refuse_delete_with_files`), so there is no state in which a file outlives
-the thing it was attached to. **Removing a person's files when their account goes is Build it 26's job**
+the thing it was attached to. **With one limit on that, now that the foreign keys are known:** that
+trigger reads `storage.objects` **by path**, so it guards files on the departing person's **own** tasks
+and says nothing about files they uploaded to **somebody else's** task, whose path names a task that is
+not going anywhere. **Removing a person's files when their account goes is Build it 26's job**
 ([#235](https://github.com/build-once/team-tasks/issues/235)) and is designed in `docs/deletion.md`.
 
 ---

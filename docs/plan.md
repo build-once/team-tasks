@@ -2169,11 +2169,14 @@ Three, and each gets a row in the appendix:
 - **The export file.** Not stored anywhere — it is built on request and handed to the browser — but it
   is the first artefact this app creates that holds **everything about one person at once**, and
   somebody holding a session can take it.
-- **A tombstone row**, if decision 6 in `docs/deletion.md` is taken: **two columns**, a user id and a
-  date, with **no policy and no privilege for any role**, removed after **30 days** by the same
-  statement that writes one. It exists for exactly one reason — a restore from a copy taken before a
-  deletion would otherwise **bring a deleted person back** — and 30 days is chosen because it outlives
-  the longest-lived backup that could do that (about fifteen days) and nothing more.
+- **A tombstone row. DECIDED 2026-10-12** (question 10, and `docs/deletion.md`'s decision 6): **two
+  columns**, a user id and a date, with **no policy and no privilege for any role**, removed after
+  **30 days** by the same statement that writes one. It exists for exactly one reason — a restore from
+  a copy taken before a deletion would otherwise **bring a deleted person back** — and 30 days is
+  chosen because it outlives the longest-lived backup that could do that (about fifteen days) and
+  nothing more. **One thing it must not copy from `count_daily_use`**: that function sweeps only the
+  caller's own rows, and a tombstone's subject never calls anything again, so the sweep has to run over
+  **all** tombstones on **every** deletion.
 - **The deletion-request mailbox.** A public page with **no form** (decision 10) collects nothing in the
   app — and it makes **the owner's own mailbox** the place where a stranger's address and their request
   sit. That is outside this project, it is a real store of personal data, and the appendix says so
@@ -2206,6 +2209,12 @@ the one failure this whole build exists to avoid:
 Five the owner named, and the rest from writing the design. The documents cannot be drafted without 1
 to 5, and the code cannot be written without 6 to 16.
 
+**NINE OF THEM WERE ANSWERED ON 2026-10-12 — 6 to 14, all as recommended — and answering them produced
+a seventeenth.** Each answer is marked below and recorded in full where its design is, in
+`docs/deletion.md` §13. **What is still open is 1 to 5, 15, 16 and 17**: the five only the owner can
+answer, the two that need somebody to look at a dashboard or a rendered screen, and the one the answers
+themselves raised.
+
 1. **Who is the data controller** — a person, or `DHTA Ltd`? — and **what contact address is published
    on the page**? It will be a public address on a public page.
 2. **Which law governs the terms**, and where disputes are heard.
@@ -2216,33 +2225,72 @@ to 5, and the code cannot be written without 6 to 16.
 5. **Who is the real person reading both documents before launch**, and by when? `docs/plan.md` has
    said since 7 October that writing the words is the owner's, "not least because they carry legal
    weight" — and a page written by an assistant and reviewed by nobody is the worst of the options.
-6. **Do tasks somebody created in other people's teams survive their account, shown as "Former
-   member"?** `docs/deletion.md` section 6 is what it costs: a nullable `owner_id`, a new branch in
-   `tasks_enforce_column_rules` **without which the deletion is refused outright**, a new delete
-   policy, and one known orphan.
-7. **What happens to a former member's task when its team is later deleted** — accept the orphan, or
-   do not keep the tasks at all.
-8. **Does the deletion remove files they uploaded to tasks that survive?**
-9. **Are invitations addressed to them deleted?** They do not cascade, so without a step they stay.
-10. **Tombstones, the owner's own record, or accept that a restore brings a deleted person back?**
-11. **May a suspended person delete their own account?**
-12. **The export's contents**, four parts: the invited addresses on invitations they sent; their teams'
-    rosters; their usage counts; their suspension row and the owner's reason for it.
-13. **Is the export counted against a daily limit?**
-14. **Does the deletion-request page have a form?**
+6. ~~**Do tasks somebody created in other people's teams survive their account, shown as "Former
+   member"?**~~ **ANSWERED 2026-10-12: YES.** And it costs **five** schema changes rather than the four
+   this question named — a nullable `owner_id`, a new branch in `tasks_enforce_column_rules` **without
+   which the deletion is refused outright**, a delete policy for the team's owner, the screens' word,
+   **and a fifth found after the answer**: a branch on the storage delete policy, without which the
+   team's owner cannot clear a former member's files and so cannot use the delete policy at all.
+   `docs/deletion.md` §6.1.
+7. ~~**What happens to a former member's task when its team is later deleted?**~~ **ANSWERED
+   2026-10-12: accept the orphan; the operator sweeps it** — **and** `delete-account` removes a doomed
+   team's former-member tasks **explicitly** (step 4b), so the orphan can arise only from a team
+   deleted by hand in the dashboard. The option this plan leaned towards turned out to be unbuildable:
+   a trigger cannot call the Storage API, so it would delete the row and leave the bytes.
+8. ~~**Does the deletion remove files they uploaded to tasks that survive?**~~ **ANSWERED 2026-10-12:
+   YES — and it is MANDATORY rather than a decision**, because the coach's read of both projects found
+   that `storage.objects` has **no foreign key to `auth.users` at all**. Nothing in the database
+   removes those files and nothing refuses the deletion over them.
+9. ~~**Are invitations addressed to them deleted?**~~ **ANSWERED 2026-10-12: YES.** They do not
+   cascade, so without a step the app would keep the address of somebody who had just left.
+10. ~~**Tombstones, the owner's own record, or accept that a restore brings a deleted person back?**~~
+    **ANSWERED 2026-10-12: tombstones, 30 days**, two columns, no privilege for any role, removed by
+    the statement that writes one.
+11. ~~**May a suspended person delete their own account?**~~ **ANSWERED 2026-10-12: NO** — the request
+    page is their route, and the new door checks `account_status` like the other four. **One
+    consequence, and it changes the order below**: the refusal has to point somewhere, so the request
+    page must exist first.
+12. ~~**The export's contents**, four parts.~~ **ANSWERED 2026-10-12: the invited addresses on
+    invitations they sent, YES; their teams' rosters, NO; their usage counts, NO; their suspension row,
+    NO — and the privacy page says the two closed tables exist and how to ask for what is in them.**
+    That last clause adds two sentences the owner can be held to, and `docs/claims.md` §7d carries
+    them.
+13. ~~**Is the export counted against a daily limit?**~~ **ANSWERED 2026-10-12: NO.** So
+    `usage_counts` stays at three feature words and needs no migration, and **what bounds the export is
+    Supabase's per-IP limits and nothing else** — said plainly rather than implied.
+14. ~~**Does the deletion-request page have a form?**~~ **ANSWERED 2026-10-12: NO FORM.** Nothing is
+    collected in the app; the cost is that the owner's own mailbox is the store, and that the owner has
+    to check the request came from the address on the account.
 15. **Is the cookie answer "no banner"?** It cannot be settled from this repository: it needs one look
     at a rendered sign-in screen and a legal judgement.
 16. **May the privacy page say Sentry does not store an IP address?** Today it may not: the SDK does
     not attach one, and the Sentry setting that stops Sentry recording the sending address is **"owner
     to set, not yet reported"**.
+17. **AND ONE THE ANSWERS THEMSELVES RAISED, added 2026-10-12. When a team's owner deletes their
+    account, does `delete-account` remove EVERY task in that team, or only the orphan-producing ones?**
+    Answer 7 says "removes that team's tasks … rather than leaving them to the set-null", and read
+    literally that destroys tasks **other members wrote**. It would reverse two things that are still
+    standing: `20261002133637_tasks_join_teams.sql` chose `on delete set null` over `cascade` for this
+    exact case — "Carol losing her own task because Alice closed her account is a stranger deleting
+    Carol's work" — and `docs/deletion.md`'s decision 2, taken as yes in the same message, is the
+    warning that promises **"nobody loses a task they wrote themselves"**. **`docs/deletion.md` is
+    written to the narrow reading** — step 4b removes only the tasks whose `owner_id` is already null,
+    which is the whole of the orphan-producing set and achieves answer 7's stated goal in full —
+    **because the wide reading costs somebody else's work and this is not the assistant's call to
+    make.**
 
-`docs/deletion.md` section 13 holds 6 to 14 with a recommendation each; this list is where the answers
-are recorded when they come.
+`docs/deletion.md` section 13 holds 6 to 14 with the answer each came back with; this list is where the
+answers are recorded, and **1 to 5, 15, 16 and 17 are what is still open.**
 
 ### The order of the work
 
 Documents first, then the read-only feature, then the schema, then the thing that destroys data. **One
 pull request per row.**
+
+**REORDERED 2026-10-12 by answer 11.** The request page was row 6 and is now row 5, and the reason is
+in that answer: a suspended person may not delete their own account, so the refusal has to point
+somewhere — and a refusal pointing at a page that does not exist is the shape this plan calls a refusal
+nobody can act on.
 
 | | What | Needs a staging run? |
 |---|---|---|
@@ -2250,15 +2298,20 @@ pull request per row.**
 | **1** | The **privacy page** and the **terms page**: two public pages, footer links, and `"/privacy"`, `"/terms"` added to `PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` — **without which a signed-out visitor is sent to `/login`**. Plus a `docs/claims.md` row for every sentence | **no** — nothing touches the database. **But a look in a browser, on a phone**, which is the device this plan says the app is for |
 | **2** | The **cookie answer**: the list published on the privacy page, and a banner only if question 15 says so | no |
 | **3** | The **export**. Read-only, no migration, no secret key, a route handler so the download needs no JavaScript | **yes.** Dave's export must contain Dave's data and none of Alice's |
-| **4** | The **deletion schema**: nullable `owner_id`, the foreign key as `on delete set null`, the new branch in `tasks_enforce_column_rules`, the team-owner delete policy, and the tombstone table if question 10 takes it | **yes**, and the owner applies it. Plus **one read nobody has done**: what `storage.objects.owner_id` does when its `auth.users` row goes — `docs/deletion.md` section 7 |
-| **5** | **Delete my account**: a fifth server-function door holding the service-role key, the warning screen, and the typed confirmation | **yes — the Dave test**, below |
-| **6** | The **public deletion-request page** | no |
+| **4** | The **deletion schema**: nullable `owner_id`, the foreign key as `on delete set null`, the new branch in `tasks_enforce_column_rules`, **both** new delete policies — the team owner's on `tasks` and the one on `storage.objects` without which the first is unusable — and the **tombstone** table | **yes**, and the owner applies it |
+| **5** | The **public deletion-request page** — **moved up from row 6 by answer 11** | no |
+| **6** | **Delete my account**: a fifth server-function door, the warning screen, the typed confirmation, and the nine steps of `docs/deletion.md` §3 | **yes — the Dave test**, below |
 | **7** | **The evidence files the launch checklist is waiting for**: `evidence/privacy-policy.md`, `evidence/terms-of-service.md`, `evidence/account-deletion.md`. All three are `type: evidence` in `checklist/launch.json` and all three are TODO today | no |
-| **8** | One step added to `docs/restore-runbook.md`: **re-run the deletions a copy predates** | no, until the next drill |
+| **8** | One step added to `docs/restore-runbook.md`: **re-run the deletions a copy predates**; and the dashboard note for deleting a team by hand, which is where answer 7's orphan is swept | no, until the next drill |
 
-**Row 4 before row 5, and that order is forced rather than preferred.** The deletion is refused by
+**Row 4 before row 6, and that order is forced rather than preferred.** The deletion is refused by
 `tasks_enforce_column_rules` the moment it tries to null an `owner_id`, so the function cannot be
 written against today's schema at all.
+
+**And row 4 no longer waits on a read.** This table said it needed "**one read nobody has done**: what
+`storage.objects.owner_id` does when its `auth.users` row goes". The coach did it on 12 October:
+**there is no foreign key**, which is why row 4 gained a second policy and step 3 of the deletion
+stopped being optional.
 
 ### The Dave test, and how Dave gets created
 
@@ -2381,8 +2434,8 @@ than five, counted here rather than remembered.
   Added 2026-10-12
 - **The fact that an account was deleted, and when** — a tombstone row of two values and nothing else,
   kept **30 days** and removed by the statement that writes one. It exists only so that a restore from a
-  copy taken before a deletion cannot bring a deleted person back. **Proposed, and question 10 of that
-  section.** Added 2026-10-12
+  copy taken before a deletion cannot bring a deleted person back. **Decided 2026-10-12 (question 10);
+  not built.** Added 2026-10-12
 - **A deletion request from somebody who cannot sign in** — an email address and whatever they write,
   **in the owner's own mailbox, outside this project**, because the public request page deliberately has
   no form and collects nothing in the app. It is in this list because "no table is involved" is not the
@@ -2517,8 +2570,8 @@ free text that could contain absolutely anything.
 | **A visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — Cloudflare's "Signals" | "A CAPTCHA on the three sign-in screens" above — the CAPTCHA cannot tell a bot from a person without looking at the request, and today the only thing limiting sign-in is a Supabase default nobody has read (`docs/rate-limits.md`) | Cloudflare Turnstile — **outside this project, and a company that was not part of it the day before.** **IT IS ON, IN BOTH PROJECTS, AND THIS CELL SAID "NOTHING IS INSTALLED" UNTIL 2026-10-12.** It listed "no package, no site key in any environment, no secret key in either project's Auth settings, no widget on any screen", and every clause of that stopped being true on the evening of 11 October: the widget is on all three screens, site keys are in Vercel for Preview and Production, both projects' Auth settings hold a secret key — the dummy one on staging, the real one on production — and a sign-in carrying no token is refused **HTTP 400 `captcha_failed`**. All owner-reported; `evidence/captcha.md` is the record, and **nobody writing this opened a dashboard**. Cloudflare's own list of what it processes is "client IP address, TLS Fingerprint, User-Agent Header and Sitekey and associated origin" ([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). **Nothing of ours stores any of it**; the token the widget hands back goes to Supabase Auth and is never written down | Cloudflare. The owner, through Turnstile's analytics, which the free plan keeps for "7 days maximum" ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). **Not this app**: no screen and no table ever holds a Signal | **Not confirmed, and no number is written here.** The addendum read on 2026-10-11 states no retention period. Read Cloudflare's own page and cite it, or write that none could be found | **They cannot**, and there is nothing of ours to remove. It is Cloudflare's record of a request, on Cloudflare's clock | **Yes** — an IP address, which is this table's standing reason for that answer. And it is the **first IP address this app chooses to send out**: the four log rows above it are written whether we want them or not |
 | **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **IT IS DONE ON PRODUCTION, AND THIS CELL SAID "NOTHING IS CHANGED YET" UNTIL 2026-10-12.** Custom SMTP was set on **production** on 11 October 2026, through Resend, and a reset email arrived at the test mailbox; **staging keeps the built-in sender** (decision M). So the widening below is **real rather than planned**, and nothing in this repository can read either project's SMTP setting back. Owner-reported. What widened is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
 | **An export file: every row of this table that is about ONE person, in one JSON file** | "The documents, your own data, and deleting an account" above, and the first of the five rights that section lists — "what do you hold about me?" is not answered by a document that describes the shape of the answer | **Nowhere.** It is built on request from rows the person can already read, **with their own rights and no secret key**, and handed to their browser. Nothing of it is stored, logged or sent anywhere. **NOT BUILT** | The person themselves, and whoever they give the file to. **Nobody else, and no server function assembles it on anybody's behalf** | **Not kept at all.** It exists for the length of one request, and then only on the person's own device | **Not applicable** — there is nothing of ours to delete. The app's part of it is a read | **Yes**, and it is the one row here whose risk is about **concentration** rather than content: every line of it is readable by that person today, and the file is new. Somebody holding a session can take it |
-| **That an account was deleted, and on what date** — a tombstone of two values | "The documents, your own data, and deleting an account" above. **One reason only**: a restore from a copy taken before a deletion would otherwise recreate the account, the tasks, the nickname and the files of somebody who asked to be gone, and nobody would notice, because a successful restore is one where everything matched | A table of **two columns** — the `auth.users` id and a date — with **no policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. No address, no nickname, no task text, no reason. **PROPOSED, NOT BUILT**: question 10 of that section | **Nobody through the app.** The app's operator, in the dashboard, and the restore | **30 days**, removed by the same statement that writes one — the mechanism `count_daily_use` already uses for its 7 days. **30 is chosen because it outlives the longest-lived copy that could resurrect the person** (about fifteen days) and nothing more. So it is a note that expires before the thing it exists to correct does, not a register of departures | **They cannot**, and it is the one row in this table where that is the point: it is the record that their deletion happened | No — it is an id and a date, and it holds nothing a person typed. **But it is a fact about a person held after they asked to be forgotten**, which is why it is bounded at 30 days rather than kept |
-| **A deletion request from somebody who cannot sign in** — their address, and whatever they chose to write | The public request page: somebody who has forgotten their password, whose account is suspended, or **who was invited and never had an account at all** — whose address is in `invitations` and who this app has no other way of hearing from | **The owner's own mailbox, outside this project.** The page deliberately has **no form** (question 14), so nothing is collected in the app: no row, no endpoint, no email sent by this app, no CAPTCHA and no rate limit needed. **NOT BUILT** | The owner; whoever runs that mailbox | **Not decided here, and the owner's to decide**, because it is their mailbox. The request should be deleted once the deletion is done | **They cannot through the app.** They can ask the owner, in the same message | **Yes** — free text somebody wrote, which can say anything, plus the address it came from. **And the address is what proves who is asking**: the request must come from the address on the account, or anybody who knows a volunteer's address could have their account destroyed |
+| **That an account was deleted, and on what date** — a tombstone of two values | "The documents, your own data, and deleting an account" above. **One reason only**: a restore from a copy taken before a deletion would otherwise recreate the account, the tasks, the nickname and the files of somebody who asked to be gone, and nobody would notice, because a successful restore is one where everything matched | A table of **two columns** — the `auth.users` id and a date — with **no policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. No address, no nickname, no task text, no reason. **DECIDED 2026-10-12 (question 10, option A), NOT BUILT** | **Nobody through the app.** The app's operator, in the dashboard, and the restore | **30 days**, removed by the same statement that writes one — the mechanism `count_daily_use` already uses for its 7 days. **30 is chosen because it outlives the longest-lived copy that could resurrect the person** (about fifteen days) and nothing more. So it is a note that expires before the thing it exists to correct does, not a register of departures | **They cannot**, and it is the one row in this table where that is the point: it is the record that their deletion happened | No — it is an id and a date, and it holds nothing a person typed. **But it is a fact about a person held after they asked to be forgotten**, which is why it is bounded at 30 days rather than kept |
+| **A deletion request from somebody who cannot sign in** — their address, and whatever they chose to write | The public request page: somebody who has forgotten their password, whose account is suspended, or **who was invited and never had an account at all** — whose address is in `invitations` and who this app has no other way of hearing from | **The owner's own mailbox, outside this project.** The page deliberately has **no form** — question 14, **decided 2026-10-12** — so nothing is collected in the app: no row, no endpoint, no email sent by this app, no CAPTCHA and no rate limit needed. **NOT BUILT** | The owner; whoever runs that mailbox | **Not decided here, and the owner's to decide**, because it is their mailbox. The request should be deleted once the deletion is done | **They cannot through the app.** They can ask the owner, in the same message | **Yes** — free text somebody wrote, which can say anything, plus the address it came from. **And the address is what proves who is asking**: the request must come from the address on the account, or anybody who knows a volunteer's address could have their account destroyed |
 
 ## Collecting less — decided
 
@@ -2775,9 +2828,10 @@ AWAY**, so "collecting less" here means not adding anything on the way.
   obvious design — a durable list of who has been deleted — is exactly the "permanent record wearing a
   window's label" this plan rejects everywhere else.
 - **And two reductions that are NOT taken, written here so they are decisions rather than oversights.**
-  The first: **the export is not rate-limited** (question 13), so it is the one new way to pull
-  everything about yourself repeatedly — it spends nobody's money, which is why the daily-limit
-  argument does not reach it, and a fourth feature word would need a migration. The second: **a
+  The first: **the export is not rate-limited — question 13, decided 2026-10-12**, so it is the one new
+  way to pull everything about yourself repeatedly. It spends nobody's money, which is why the
+  daily-limit argument does not reach it, and a fourth feature word would need a migration; **what
+  bounds it is Supabase's per-IP limits and nothing of ours.** The second: **a
   deletion does not remove anything from the nightly copies**, and cannot. A backup that honoured
   deletions would have honoured the wrong one too, which is the same sentence "A nightly copy of
   production" already carries, arriving at the one feature it bites hardest on.
