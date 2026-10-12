@@ -414,6 +414,19 @@ export const PER_PERSON_WORDS = `${MAX_BYTES_PER_PERSON / (1024 * 1024)} MB`;
 // docs/plan.md's rule about free text somebody's phone chose; the rest is
 // plumbing.
 
+/**
+ * The SQLSTATE the daily upload limit raises, and the ONE value this app looks
+ * for inside a message the storage service wrote.
+ *
+ * `54000` is `program_limit_exceeded`. It is chosen in
+ * `supabase/migrations/20261012150000_upload_count_from_owner_id.sql` and raised
+ * by the trigger there -- so it is a value THIS PROJECT owns, which is the whole
+ * reason matching on it is not the same as parsing somebody else's prose.
+ * `scripts/screen-state-check.mjs` compares this constant with the migration, so
+ * the two cannot drift.
+ */
+export const UPLOAD_LIMIT_SQLSTATE = "54000";
+
 /** The upload was refused here, before anything was sent: the file is too big. */
 export const FILE_TOO_BIG =
   `That file is too big. Each file can be up to ${MAX_FILE_WORDS}.`;
@@ -462,6 +475,25 @@ export const FILE_NO_ROOM =
  */
 export const FILE_NOT_ALLOWED =
   "You cannot do that. A file belongs to its task, and only the person who attached it or the person who created the task can remove it.";
+
+/**
+ * Refused by the database: this person has used their thirty uploads for the day.
+ *
+ * THE PLAN'S OWN SENTENCE, character for character, and the FOURTH place in this
+ * repository it appears -- `supabase/functions/_shared/limits.ts` sends it for the
+ * other two counted features, `web/src/lib/suggestions.ts` and
+ * `web/src/lib/teams.ts` draw it on their screens, and
+ * `supabase/migrations/20261012150000_upload_count_from_owner_id.sql` raises it.
+ * `scripts/screen-state-check.mjs` compares all of them, so there is one sentence
+ * for the daily limit wherever it comes from.
+ *
+ * IT NAMES NO NUMBER, including the limit, which is the plan's decision of
+ * 2026-10-08: "a person who has run out does not need the arithmetic, they need to
+ * know when it comes back". And "tomorrow" is approximate for anybody not on UTC,
+ * which the plan records rather than fixes.
+ */
+export const FILE_DAILY_LIMIT =
+  "You've reached today's limit. It resets tomorrow.";
 
 /** Something went wrong that is not a refusal. */
 export const FILE_FAILED = "That file could not be attached. Please try again.";
@@ -525,6 +557,7 @@ export const FILE_OUTCOMES = [
   "wrongtype",
   "toomany",
   "noroom",
+  "dailylimit",
   "notallowed",
   "failed",
   "gone",
@@ -542,6 +575,7 @@ export const FILE_SENTENCES: Readonly<Record<FileOutcome, string>> = {
   wrongtype: FILE_WRONG_TYPE,
   toomany: FILE_TOO_MANY,
   noroom: FILE_NO_ROOM,
+  dailylimit: FILE_DAILY_LIMIT,
   notallowed: FILE_NOT_ALLOWED,
   failed: FILE_FAILED,
   gone: FILE_ALREADY_GONE,
@@ -598,6 +632,12 @@ export function uploadRefusal(answer: {
   status?: unknown;
   code?: unknown;
   /**
+   * The service's own message, READ FOR ONE THING ONLY: whether it carries
+   * UPLOAD_LIMIT_SQLSTATE. It is never stored, returned or drawn. The long note
+   * above is why this field exists at all.
+   */
+  message?: unknown;
+  /**
    * What the screen already knew when it offered the upload: how many files the
    * task had. A row-level refusal with the task already full is the three-file
    * limit, and saying so is more use than "you cannot do that".
@@ -605,6 +645,52 @@ export function uploadRefusal(answer: {
   filesAlready?: unknown;
 }): FileOutcome {
   const code = typeof answer.code === "string" ? answer.code.trim() : "";
+
+  // -----------------------------------------------------------------------
+  // THE DAILY LIMIT, FIRST, AND ONLY ON POSITIVE EVIDENCE
+  // -----------------------------------------------------------------------
+  //
+  // The trigger in 20261012150000_upload_count_from_owner_id.sql raises
+  // SQLSTATE 54000, and the Storage API turns that into HTTP 500 with the code
+  // inside a message string. Observed on staging, 12 October 2026:
+  //
+  //   {"statusCode":"500","error":"DatabaseError",
+  //    "message":"database error, code: 54000","code":"DatabaseError"}
+  //
+  // SO THE SENTENCE THE DATABASE CHOSE DOES NOT SURVIVE, and HTTP 500 is shared
+  // with a real outage. A screen reading the status alone cannot tell "you have
+  // used your thirty" from "this app is broken", and those deserve opposite
+  // sentences.
+  //
+  // THE RULE, the owner's of 2026-10-12, and the ORDER is the whole of it: the
+  // daily sentence is reached ONLY when the answer carries 54000. Everything
+  // else -- including every other 500 -- falls through to the sentences below
+  // and ultimately to "that could not be attached". An unknown is never a
+  // limit, which is the direction `create-team` already fails in: an unknown is
+  // not a zero.
+  //
+  // WHAT THIS DEPARTS FROM, said rather than slipped in. The note above says
+  // "NEITHER IS EVER DRAWN" of the status and the code, and `AttachFile.tsx`
+  // says "A status and a code, never the message". This reads the message -- and
+  // only to look for FIVE CHARACTERS THIS PROJECT CHOSE AND RAISES ITSELF, in
+  // its own migration. It is not parsing English and it is not reading
+  // Supabase's words for their meaning; the string is never stored, never
+  // returned and never drawn. The principle is narrowed, deliberately, and the
+  // narrowing is this paragraph.
+  //
+  // AND IF SUPABASE EVER CHANGES THAT WRAPPER, the daily sentence stops
+  // appearing and somebody at their limit gets "that could not be attached"
+  // instead. That is a DEGRADATION AND NOT A LIE, which is why the match is
+  // this way round: matching anything else -- a bare 500, say -- would make
+  // every outage announce a limit. Nothing here could notice such a change;
+  // `scripts/staging/build-it-25-upload-count-checks.mjs` would, because its
+  // "does the SQLSTATE survive it?" judgement would stop passing.
+  if (
+    typeof answer.message === "string" &&
+    answer.message.includes(UPLOAD_LIMIT_SQLSTATE)
+  ) {
+    return "dailylimit";
+  }
 
   // The bucket's own two, by the codes Supabase publishes for them.
   if (code === "InvalidMimeType") return "wrongtype";

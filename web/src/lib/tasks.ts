@@ -288,3 +288,73 @@ export const REFUSED_CODE = "42501";
 // Branched on as a code and never printed, for the reason beside REFUSED_CODE:
 // "Branch on this rather than on message text."
 export const TASK_HAS_FILES_CODE = "23503";
+
+// ---------------------------------------------------------------------------
+// Build it 25 part 2: the cap, and the two constraints on what people type
+// ---------------------------------------------------------------------------
+
+/**
+ * Postgres's check_violation, which both control-character constraints raise.
+ *
+ * Branched on as a code and never printed, for the reason beside REFUSED_CODE.
+ * AND THE CODE ALONE IS NOT ENOUGH HERE, which is the difference from the two
+ * above: `public.tasks` carries four check constraints and `public.profiles`
+ * three, so a 23514 says only "some rule about this value refused it". The
+ * CONSTRAINT'S NAME is what says which, and `constraintNamed` below is how it is
+ * read -- out of the message, which is the one place PostgreSQL puts it.
+ */
+export const CHECK_VIOLATION_CODE = "23514";
+
+/**
+ * The two constraints this screen has a sentence for.
+ *
+ * `supabase/migrations/20261012094500_task_cap_and_input_limits.sql` sections 3.3
+ * and 3.4. Named here so the screen's two sentences are tied to the two rules
+ * that produce them, and so a 23514 from any OTHER constraint -- the title's
+ * length, its blankness, a nickname's length -- falls to the sentences those
+ * already have rather than being described as a control character.
+ */
+export const TITLE_CHARS_CONSTRAINT = "tasks_title_no_control_chars";
+export const NICKNAME_CHARS_CONSTRAINT = "profiles_display_name_no_control_chars";
+
+/**
+ * The constraint a check violation names, or null.
+ *
+ * READING A MESSAGE, WHICH THIS FILE OTHERWISE REFUSES TO DO, and the narrowing
+ * is deliberate and is this paragraph. PostgreSQL puts the constraint's name in
+ * the message and nowhere else a client can reach -- `error.details` and
+ * `error.hint` do not carry it -- so a screen that wants to tell one check from
+ * another has no other source.
+ *
+ * WHAT MAKES IT SAFE: the name being looked for is an identifier THIS PROJECT
+ * CHOSE, in its own migration, and the pattern below only ever yields such a
+ * name. Nothing of the message is returned, stored or drawn; the function's
+ * answer is one of this app's own constants or null. That is the same line
+ * `uploadRefusal` draws about the daily limit's SQLSTATE: reading a value we own
+ * out of a sentence somebody else wrote is not the same as showing their
+ * sentence.
+ *
+ * AND IF POSTGRESQL EVER REWORDS IT, this returns null and both refusals fall to
+ * the ordinary "that did not save" sentence -- a degradation, not a lie, which is
+ * the direction an unknown has to fail in.
+ */
+export function constraintNamed(message: unknown): string | null {
+  if (typeof message !== "string") return null;
+  const found = message.match(/violates check constraint "([a-z0-9_]+)"/i);
+  return found ? found[1] : null;
+}
+
+/**
+ * At most 500 live tasks per person, and the number is NOT the screen's.
+ *
+ * `supabase/migrations/20261012094500_task_cap_and_input_limits.sql` holds it as
+ * `c_tasks_per_person`, and `public.tasks_may_add()` is what the database asks.
+ * This constant exists so the sentence can be written without a number in it and
+ * still be checked against the migration -- `scripts/screen-state-check.mjs`
+ * compares the two, so a cap changed in the database and not here goes red.
+ *
+ * THE SENTENCE NAMES NO NUMBER, for the reason docs/plan.md gives about the daily
+ * limit's: somebody who has reached it does not need the arithmetic, they need to
+ * know what to do. "Delete one" is the whole of what helps.
+ */
+export const TASK_CAP = 500;

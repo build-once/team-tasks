@@ -6,6 +6,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { BUTTON_IDS, ACT_FIELD, pressed } from "@/lib/buttons";
+// From tasks.ts rather than teams.ts, because that is where the two
+// control-character constants and the reader live -- one definition for both
+// screens, so a 23514 is read the same way wherever it arrives.
+import {
+  CHECK_VIOLATION_CODE,
+  constraintNamed,
+  NICKNAME_CHARS_CONSTRAINT,
+} from "@/lib/tasks";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -227,6 +235,25 @@ export async function saveDisplayName(formData: FormData) {
     .eq("user_id", userId)
     .select("display_name");
 
+  // A CONTROL CHARACTER IN THE NICKNAME, new in Build it 25 part 2.
+  // profiles_display_name_no_control_chars, from
+  // supabase/migrations/20261012094500_task_cap_and_input_limits.sql section 3.4.
+  //
+  // CHECKED BY ITS CONSTRAINT AND NOT ONLY BY ITS CODE: public.profiles carries
+  // three check constraints, so a bare 23514 says only that some rule about this
+  // value refused it -- and the length one already has its own sentence on the
+  // screen. constraintNamed() reads the name out of the message, which is the one
+  // place PostgreSQL puts it; its own note is why that narrowing is allowed.
+  //
+  // LESS LIKELY TO BITE THAN THE TITLE ONE, because a nickname is typed rather
+  // than pasted -- which is why docs/plan.md calls it the quieter of the two.
+  if (
+    updateError?.code === CHECK_VIOLATION_CODE &&
+    constraintNamed(updateError?.message) === NICKNAME_CHARS_CONSTRAINT
+  ) {
+    redirect("/teams?problem=namechars");
+  }
+
   if (updateError) redirect("/teams?problem=profile");
 
   if (updated && updated.length > 0) {
@@ -252,6 +279,15 @@ export async function saveDisplayName(formData: FormData) {
   // the primary key refuses it rather than anything being overwritten
   // silently. That is the right way round: the page says it did not save, and
   // saving again works, because by then the update above finds the row.
+  // The same rule on the insert path -- a first nickname is as pasteable as a
+  // changed one.
+  if (
+    insertError?.code === CHECK_VIOLATION_CODE &&
+    constraintNamed(insertError?.message) === NICKNAME_CHARS_CONSTRAINT
+  ) {
+    redirect("/teams?problem=namechars");
+  }
+
   if (insertError) redirect("/teams?problem=profile");
 
   // The same read-back on the insert path, which the old version did not have at

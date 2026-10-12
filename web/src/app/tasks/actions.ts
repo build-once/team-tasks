@@ -13,8 +13,11 @@ import { ACT_FIELD, BUTTON_IDS, pressed, type ButtonId } from "@/lib/buttons";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_PERSONAL,
+  CHECK_VIOLATION_CODE,
+  constraintNamed,
   REFUSED_CODE,
   TASK_HAS_FILES_CODE,
+  TITLE_CHARS_CONSTRAINT,
   TITLE_MAX,
   filterAfterAdd,
   isTeamId,
@@ -103,16 +106,47 @@ export async function addTask(formData: FormData) {
     .select("id, title, team_id");
 
   if (error) {
-    // 42501 is "you may not", and on an insert it has one meaning: a task can
-    // only be added to a team its creator belongs to. Somebody using the screen
-    // cannot provoke it, because the chooser only offers teams the database let
-    // the page read -- but a hand-made request can, and "that did not save"
-    // would describe a refusal as a breakage.
+    // A CONTROL CHARACTER IN THE TITLE, new in Build it 25 part 2. A tab, a
+    // newline or an escape pasted out of a document: the database refuses it
+    // with 23514 and names tasks_title_no_control_chars. Checked BEFORE the
+    // 42501 branch because they cannot both be true, and checked by its
+    // CONSTRAINT and not only by its code -- `public.tasks` has four check
+    // constraints and the other three already have their own sentences.
+    if (
+      error.code === CHECK_VIOLATION_CODE &&
+      constraintNamed(error.message) === TITLE_CHARS_CONSTRAINT
+    ) {
+      redirect(tasksPath({ filter, problem: "titlechars" }));
+    }
+
+    // 42501 is "you may not", and ON AN INSERT IT NOW HAS TWO MEANINGS -- which
+    // is what Build it 25 part 2a changed, and what this comment used to deny.
+    // It said "on an insert it has one meaning". The two are:
     //
-    // This is now the only place that sends problem=refused from an update or
-    // an insert on purpose. A tick or a rename sends problem=stranded, and a
-    // move sends problem=move, because each of those pins a different sentence.
+    //   the task is aimed at a team its creator does not belong to, which a
+    //   hand-made request can provoke and the screen cannot;
+    //   the person already holds 500 tasks, which anybody can reach.
+    //
+    // AND THE ACTION ASKS RATHER THAN INFERRING. The owner's decision of
+    // 2026-10-12: a bare 42501 standing for two meanings is #174 again, so the
+    // cap is not guessed from a status. public.tasks_may_add() answers whether
+    // this person has room -- one bit about themselves, granted to
+    // `authenticated` for exactly this -- and it writes nothing, so asking
+    // costs a count and changes no state.
+    //
+    // AN UNKNOWN IS NOT A CAP. If the call errors, or answers true, the refusal
+    // was the team one and gets the sentence it always had. Only a definite
+    // `false` earns the cap's words. That is the same direction `create-team`
+    // fails in -- an unknown is not a zero -- and it is why a database that has
+    // stopped answering shows "you cannot do that" rather than telling somebody
+    // their list is full.
     if (error.code === REFUSED_CODE) {
+      const { data: hasRoom, error: askFailed } = await supabase.rpc("tasks_may_add");
+
+      if (!askFailed && hasRoom === false) {
+        redirect(tasksPath({ filter, problem: "cap" }));
+      }
+
       redirect(tasksPath({ filter, problem: "refused" }));
     }
 
@@ -265,6 +299,18 @@ export async function renameTask(formData: FormData) {
     .select("id");
 
   if (error) {
+    // A CONTROL CHARACTER IN THE NEW TITLE. The same rule as on an insert, and
+    // it has to be here too: renaming is the other way a title is typed, and
+    // paste is at least as likely in a field somebody is editing. It keeps the
+    // row open with `rename: id`, as the length refusal above does, so the
+    // person does not lose what they were typing.
+    if (
+      error.code === CHECK_VIOLATION_CODE &&
+      constraintNamed(error.message) === TITLE_CHARS_CONSTRAINT
+    ) {
+      redirect(tasksPath({ filter, problem: "titlechars", rename: id }));
+    }
+
     // Same single meaning as on a tick, and the same way out: a rename refused
     // because the task sits in a team its creator has left (issue #91).
     //
