@@ -275,7 +275,7 @@ export function judgeAtTheCap(lastAllowed, oneTooMany, cap) {
     });
   }
 
-  const whatRefused = `AND THE ${cap + 1}th IS REFUSED`;
+  const whatRefused = `AND THE NEXT ONE (${cap + 1}) IS REFUSED`;
   if (oneTooMany.error) {
     results.push({ what: whatRefused, verdict: UNVERIFIED, detail: oneTooMany.error });
     return results;
@@ -378,7 +378,7 @@ export function judgeMayAddRpc(atCap, withRoom) {
 // whole statement is refused and nothing partial lands; this is the same question
 // asked of the real Data API, which is a different thing from a psql session.
 export function judgeMultiRow(answer, before, after, batch, cap) {
-  const what = `one POST of ${batch} rows from ${cap - 1} is refused, and nothing partial lands`;
+  const what = `ONE POST of ${batch} rows from ${cap - 1} is refused, and nothing partial lands`;
 
   if (answer.error) {
     return [{ what, verdict: UNVERIFIED, detail: answer.error }];
