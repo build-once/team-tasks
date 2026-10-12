@@ -29,12 +29,16 @@ instructions for this change forbade the connector and the browser in as many wo
 | Replacing the two email templates on production | **The owner** |
 | Every browser observation — the widget, the sentences, the reset link in a second browser | **The owner** |
 | Three attempted reads of the Auth logs on both projects | **The coach (claude.ai)**, through the read-only connectors |
-| Reading the conclusions of CI run 38165493741 with `gh run view --json` | **the assistant** — the one thing in this file the assistant saw |
+| Reading the conclusions of CI run 38165493741 with `gh run view --json` | **the assistant** |
+| Reading **this pull request's own check results** — which corroborate two of the owner's reports from outside. **Section 9**, and it is the only independent evidence here | **the assistant** |
 | Reading the sentences and the arithmetic quoted below out of this repository | **the assistant** |
 
-**So every figure, status and code below is REPORTED, not observed here.** Where this file says a
-number is consistent with something, that is the assistant checking the owner's report against this
-repository's own code — which is a different and weaker thing than having watched the request.
+**So every figure, status and code below is REPORTED, not observed here — with one exception, which is
+section 9.** Where this file says a number is consistent with something, that is the assistant checking
+the owner's report against this repository's own code, which is a different and weaker thing than
+having watched the request. **Section 9 is different**: this pull request's own CI signed in to staging
+three times with the dummy token and built a Vercel Preview, both of which only work if two of the
+owner's reports are true.
 
 **The production project's reference is not written in this file**, for the reason
 `evidence/production-log.md`'s header gives about itself: it is already in `.claude/guard/local.json`
@@ -385,7 +389,34 @@ Nothing here is a hedge; each line names what would settle it, and every one is 
 
 ---
 
-## 9. Redaction (rule 18)
+## 9. AND TWO THINGS THIS PULL REQUEST'S OWN CI CORROBORATED, WHICH IS THE ONLY INDEPENDENT EVIDENCE IN THIS FILE
+
+**Added after this change's checks ran. Read by the assistant from the public check results of run
+[38220333124](https://github.com/build-once/team-tasks/actions/runs/38220333124)** — event
+`pull_request`, head `08344f4`, created **2026-10-12T07:53:54Z**, **every check `pass`**. The assistant
+started nothing, holds no credential of either project, and read nothing but the run's own status.
+
+**Section 0 says every figure in this file is reported rather than observed. These two are the
+exception**, and they land on the two reported facts that mattered most:
+
+| What CI did | What it corroborates |
+|---|---|
+| **`App tests (access rules on staging)` passed** — the one job in this repository that signs in to a real project, **three accounts**, each sending Cloudflare's dummy token from `scripts/lib/captcha.mjs` | **That staging's CAPTCHA is on AND that the dummy pair works.** On PR #289's run the same job passed with CAPTCHA **off**, where the token field is simply ignored — so that run said nothing. This run is **after** the owner switched CAPTCHA on with the dummy secret key, and three sign-ins still succeeded. **Had the secret been a real one, or the field been in the wrong place, this job would be red.** It is check 2 of §1, seen from outside |
+| **`Vercel` passed — "Deployment has completed"** | **That `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is now set for Vercel Preview.** On PR #289 this deploy **failed**, and `evidence/build-it-25-sign-in-screens.md` section 8a reproduced the only cause that change could have: a Preview build with no site key is stopped by `web/src/lib/env.ts`. The setting did not exist then; this Preview built, so it exists now. **Row 7 of the by-hand list, observed rather than reported** |
+
+**What neither of them says.** Nothing about **production** — CI never touches it, and the one production
+fact in this file remains the owner's report. Nothing about the **real** keys, the Turnstile widget's
+mode, or anything a browser would show. And `App tests` passing is **not** evidence that a tokenless
+sign-in is refused: it only ever sends the token.
+
+**Why this is worth its own section rather than a footnote.** `docs/rate-limits.md`'s own coda says
+reading a sentence in this repository tells you what somebody saw when they wrote it. A green check on
+**this** pull request is the opposite kind of thing: a running project answering today, read off a public
+log. It is the only such thing in this file, and it is small — which is the honest size of it.
+
+---
+
+## 10. Redaction (rule 18)
 
 **Three values were given to the assistant in this session that are not written in this file**, and
 they are named rather than printed:
