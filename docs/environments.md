@@ -197,6 +197,21 @@ somebody with JavaScript switched off is refused by this app for a check that wa
 It is harmless and brief, and the way to keep it brief is to do the Vercel row and the Supabase row in
 one sitting: rows 7 and 9 of `docs/rate-limits.md` section 3 for production, 7 and 6 for staging.
 
+**AND THE WINDOW THAT ACTUALLY BIT WAS A DIFFERENT ONE — 11 October 2026: THE PRODUCTION VALUE CARRIED
+THE DUMMY SITEKEY.** Both environments were set, CAPTCHA was switched on with the real secret key, and
+**every sign-in, sign-up and password reset on production was refused** — because a dummy sitekey
+produces the dummy token and "Production secret keys will reject the dummy token". The owner read
+Cloudflare's own **"For testing only"** line off the live page, turned CAPTCHA off, corrected the
+Production value, redeployed and switched it on again.
+
+**So the sentence in the table above — Preview gets the dummy, Production gets the real one — is the one
+thing in this file somebody got wrong on the first try**, and `web/src/lib/env.ts` did not catch it: it
+refuses an **empty** site key on Production and accepts any non-empty one, including the dummy this
+repository spells out at `web/src/lib/turnstile.ts:105`.
+[#290](https://github.com/build-once/team-tasks/issues/290) is the guard that would refuse it at
+`next build`, and it must leave **Preview** alone, because Preview carrying the dummy is decision **I**.
+`evidence/captcha.md` section 2.3.
+
 ### `NEXT_PUBLIC_SENTRY_DSN`, and why the build refuses without it
 
 Added 2026-10-05 with error reporting (**issue #157**). `docs/plan.md`, "Error reports to an outside
@@ -264,9 +279,27 @@ the moment this merged and before anybody had set it.
 ignores it and falls back to the Site URL. The addresses are listed in the pull request for #120.
 Supabase settings are not the assistant's to change (rule 10), so the owner adds them.
 
-**Unverified — what is on either project's allow-list today.** Nothing in this repository records it;
-`supabase/config.toml` has no `[auth]` section, and no document here lists a Site URL or a redirect
-address. The Supabase dashboard is the only authoritative place.
+**~~Unverified — what is on either project's allow-list today.~~ READ BY THE OWNER, 11 October 2026.**
+This paragraph said "Nothing in this repository records it; `supabase/config.toml` has no `[auth]`
+section, and no document here lists a Site URL or a redirect address. The Supabase dashboard is the only
+authoritative place." The dashboard is still the only authoritative place and **nobody writing this
+opened one**; what follows is the **owner's report**, read off both dashboards while doing rows 12 and 13
+of `docs/rate-limits.md` section 3:
+
+| | Site URL | Redirect URLs |
+|---|---|---|
+| **Staging** | `http://localhost:3000` | `http://localhost:3000/**` and `https://*-info423.vercel.app/**` |
+| **Production** | `https://team-tasks-virid.vercel.app` | `https://team-tasks-virid.vercel.app/**` and `.../auth/reset` |
+
+**And the row that asked for `/auth/confirm` to be added turned out to need nothing**, on either
+project: the `/**` wildcards already cover it. That is convenient and it is worth noticing rather than
+being pleased about — **an allow-list permissive enough that a new path needs no entry is one that would
+also cover a path nobody meant to serve.** It is recorded rather than acted on, because an allow-list is
+the owner's and narrowing one would be a change nobody has asked for.
+
+**What is still unverified**: `supabase/config.toml` still has no `[auth]` section, so **nothing in this
+repository constrains or can check either list**, and a change tomorrow would go unnoticed by every check
+here. `evidence/captcha.md` section 5 is the record.
 
 ### What the server functions read, from Supabase Edge Functions secrets
 

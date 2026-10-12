@@ -18,18 +18,32 @@ decisions of "Daily limits on what costs money" and the nine of "Files attached 
 **Still a set of proposals in one place, and it is named so nobody has to guess:** the **four check
 constraints** in section 2 were never among the thirteen. They are open.
 
-**Nothing in this file is applied anywhere.** A decision is not a dashboard setting and not a
-migration. Section 3 is the list of what somebody still has to do by hand.
+**~~Nothing in this file is applied anywhere.~~ THAT STOPPED BEING TRUE ON 11 OCTOBER 2026, and the
+sentence is struck through rather than deleted because what changed is most of this file's point.** A
+decision is not a dashboard setting and not a migration; **seven of section 3's thirteen rows are now
+done**, the CAPTCHA is **switched on in both projects**, and the two email templates are **in place on
+production**. Section 3 is still the list of what is left, and what is left is row 2, rows 3 and 4
+(unless [#292](https://github.com/build-once/team-tasks/issues/292) finds row 3 already done), row 10,
+and **row 11 on hold**.
+
+**AND THE FINDING THE WHOLE FEATURE RESTED ON IS IN: Supabase Auth REFUSES a sign-in that carries no
+CAPTCHA token.** HTTP **400**, code **`captcha_failed`**, seen on staging on 11 October 2026 with a
+dummy secret key. Section 5's bullet called it "the sharpest thing on this list" and
+`docs/plan.md` called it "the most important sentence missing from this design" — because if the answer
+had been "accepted", the widget on the screen would have been the only thing in the way.
+**`evidence/captcha.md` is the record**, and every figure in it is **owner-reported**: nobody writing
+this ran it, opened a dashboard or used a connector.
 
 **AND FOUR OF THE THIRTEEN HAVE CODE AS OF 2026-10-11 — Build it 25 part 1,
-[#284](https://github.com/build-once/team-tasks/issues/284), the same day this file went up.** The
-sentence above is still true of every project: nothing is set in either dashboard. What exists in this
-repository is **A** (the widget, the waiting button and the token travelling with all three requests),
-**J** (one exported constant, in `scripts/lib/captcha.mjs`, imported by all nine files that sign in),
-half of **I** (the dummy sitekey as CI's build placeholder and as what Preview is to be set to), and
-**K** recorded rather than set, because the mode belongs to a widget nobody has created. **E, F, G, L,
-M are set nowhere; B and C have no migration.** Section 3 is the list, and it gained two rows that are
-not limits at all — the redirect allow-list, and the two email templates word for word.
+[#284](https://github.com/build-once/team-tasks/issues/284), the same day this file went up.** What
+exists in this repository is **A** (the widget, the waiting button and the token travelling with all
+three requests), **J** (one exported constant, in `scripts/lib/captcha.mjs`, imported by all nine files
+that sign in), half of **I** (the dummy sitekey as CI's build placeholder and as what Preview is to be
+set to), and **K** recorded rather than set, because the mode belongs to a widget nobody writing this
+has seen the settings of. **E and F are set nowhere and row 11 is on hold; G is not done; L and M are
+[#292](https://github.com/build-once/team-tasks/issues/292); B and C have no migration.** Section 3 is
+the list, and it gained two rows that are not limits at all — the redirect allow-list, and the two
+email templates word for word.
 
 ### The thirteen, in one view
 
@@ -277,7 +291,8 @@ today**, with the file it comes from.
 | **Where that limit lives** | Supabase Auth's own limits (dashboard), except the password rule, which is ours |
 | **Nothing of ours limits the rate** | A loop can create accounts up to whatever Auth's per-IP limit is set to, from as many IP addresses as it has |
 | **What the person sees** | "That did not work. Check the email address and password and try again." (`web/src/app/signup/page.tsx:57-58`), or the password sentence "A password needs at least 8 characters." (`web/src/lib/password-reset.ts:100`). **A rate-limit refusal gets the first sentence**, which says nothing about waiting |
-| **DECIDED 2026-10-11** | **A: Turnstile, yes** — `docs/plan.md` → "A CAPTCHA on the three sign-in screens". **E: the per-IP sign-up limit goes to 5 per 5 minutes**, from a published default of 30, because 30 is sized for an app that expects sign-ups and this one expects **six accounts in total**. **H was already done**: the minimum password length was 8 on both projects from 7 October 2026, four days before this file proposed it. **Set nowhere yet** — section 3, rows 1 and 11 |
+| **DECIDED 2026-10-11** | **A: Turnstile, yes** — `docs/plan.md` → "A CAPTCHA on the three sign-in screens". **E: the per-IP sign-up limit goes to 5 per 5 minutes**, from a published default of 30, because 30 is sized for an app that expects sign-ups and this one expects **six accounts in total**. **H was already done**: the minimum password length was 8 on both projects from 7 October 2026, four days before this file proposed it |
+| **WHERE IT STANDS, 2026-10-12** | **A IS ON, IN BOTH PROJECTS** — staging with a dummy secret key, production with the real one. So this screen now carries a CAPTCHA, and a sign-up posted by hand with no token is refused HTTP 400 `captcha_failed` (`evidence/captcha.md`). **E IS STILL SET NOWHERE**: section 3 row 11 is on hold behind [#291](https://github.com/build-once/team-tasks/issues/291), so the per-IP limit on this screen is still the documented default of 30 per 5 minutes |
 
 | 2. Sign-in |  |
 |---|---|
@@ -285,7 +300,8 @@ today**, with the file it comes from.
 | **What limits it today** | Supabase Auth's token endpoint: 150 requests per 5 minutes **per IP** (published default). **Nothing else.** No lockout after N wrong passwords exists in this repository, and whether Auth has one was not read |
 | **Where that limit lives** | Supabase Auth's own limits (dashboard) |
 | **What the person sees** | "That email and password don't match. Check them and try again." — `web/src/app/login/page.tsx:55`. A rate-limit refusal gets the same sentence, deliberately: `signIn` has one failure path and does not show Supabase's text |
-| **DECIDED 2026-10-11, AND NOT AS PROPOSED** | **A: Turnstile, yes.** **F: the token-endpoint limit goes to 30 per 5 minutes — not the 20 this file asked for.** The reason is the one the proposal missed: **the limit is per IP address, and this project's own automation shares addresses.** `web/tests/access-rules.test.mjs` signs in three accounts on every pull request from a GitHub-hosted runner, and the eight scripts under `scripts/staging/` sign in repeatedly from wherever the owner runs them — so at 20, two or three pull requests' checks in one five-minute window would fail for a reason that has nothing to do with what they test. **G: leaked-password protection on, on production** (Pro and above), which is a switch rather than a limit. **Set nowhere yet** — section 3 |
+| **DECIDED 2026-10-11, AND NOT AS PROPOSED** | **A: Turnstile, yes.** **F: the token-endpoint limit goes to 30 per 5 minutes — not the 20 this file asked for.** The reason is the one the proposal missed: **the limit is per IP address, and this project's own automation shares addresses.** `web/tests/access-rules.test.mjs` signs in three accounts on every pull request from a GitHub-hosted runner, and the eight scripts under `scripts/staging/` sign in repeatedly from wherever the owner runs them — so at 20, two or three pull requests' checks in one five-minute window would fail for a reason that has nothing to do with what they test. **G: leaked-password protection on, on production** (Pro and above), which is a switch rather than a limit |
+| **WHERE IT STANDS, 2026-10-12 — AND THIS ROW IS THE ONE THAT CHANGED MOST** | **A IS ON, IN BOTH PROJECTS, AND IT REFUSES.** A sign-in with **no** CAPTCHA token is answered **HTTP 400, `captcha_failed`** — seen on staging on 11 October with a dummy secret key, where the same request had been **accepted (200)** an hour earlier. So this screen is no longer behind one loose platform default alone. On **production**, a real secret key was seen to **reject** the dummy token, which is what says the check is applied and not merely configured. **F IS STILL SET NOWHERE and the question under it is open**: 31 wrong-password sign-ins from one address saw no 429 on either run, which settles nothing, because the limit is still the default **150** and 31 cannot reach it. [#291](https://github.com/build-once/team-tasks/issues/291). **G IS NOT DONE.** `evidence/captcha.md` is the record, and all of it is owner-reported |
 
 | 3. Password reset request |  |
 |---|---|
@@ -573,16 +589,16 @@ are named here because a list that quietly grows a row is a list nobody can diff
 | 2 | **Resend** | Confirm the **verified domain**, and create an API key for **SMTP** use. Resend documents SMTP as host `smtp.resend.com`, port `465`, username `resend`, password **your API key** | Custom SMTP needs both before it can be saved |
 | 3 | **Supabase → production → Authentication → Emails → SMTP Settings** | Enable custom SMTP: host, port, username, password, **Sender email** and **Sender name** (both required) | **This is the row that fixes a real breakage**, not an improvement: until it is done, production refuses to deliver to any address not on the project's team |
 | 4 | **Supabase → production → Authentication → Rate Limits** | Set the **emails per hour** to a chosen number. Supabase imposes "a low rate-limit of 30 messages per hour" when custom SMTP is saved | Only possible after 3. And it must stay **under Resend's 100 a day** — 30 an hour is 720 a day |
-| 5 | **Cloudflare → Turnstile** | Create a widget for the production hostname. Keep the **site key** (public) and the **secret key** (secret) | Before anything is switched on in Supabase |
-| 6 | **Supabase → staging → Authentication → Bot and Abuse Protection** | Enable CAPTCHA protection, provider **Cloudflare Turnstile**, secret key **`2x0000000000000000000000000000000AA`** or **`1x0000000000000000000000000000000AA`** — Cloudflare's **dummy** secret keys, which "Only accept the dummy token, reject real tokens" | **Staging first, and with a dummy key**, so the arrangement is tried where it cannot lock anybody out |
-| 7 | **Vercel → the project → Environment Variables** | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. **Preview**: Cloudflare's dummy sitekey `1x00000000000000000000AA`. **Production**: the real site key from row 5 | Per environment, like `NEXT_PUBLIC_SENTRY_DSN` already is |
+| 5 | ~~**Cloudflare → Turnstile**~~ **DONE 2026-10-11** | Create a widget for the production hostname. Keep the **site key** (public) and the **secret key** (secret). **Owner-reported by consequence rather than directly**: rows 6, 7 and 9 were all done with real and dummy keys in hand, and a rendered widget was seen. **Nobody writing this has seen the widget's own settings page**, so decision **K** — Managed mode — is still recorded rather than read back | Before anything is switched on in Supabase |
+| 6 | ~~**Supabase → staging → Authentication → Bot and Abuse Protection**~~ **DONE 2026-10-11** | Enable CAPTCHA protection, provider **Cloudflare Turnstile**, secret key **`2x0000000000000000000000000000000AA`** or **`1x0000000000000000000000000000000AA`** — Cloudflare's **dummy** secret keys, which "Only accept the dummy token, reject real tokens". **The owner used `1x…AA`** | **Staging first, and with a dummy key**, so the arrangement is tried where it cannot lock anybody out. **It worked exactly as the pair is documented**: a sign-in with no token refused, the dummy token accepted — `evidence/captcha.md` section 1 |
+| 7 | ~~**Vercel → the project → Environment Variables**~~ **DONE 2026-10-11, AT THE SECOND ATTEMPT** | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. **Preview**: Cloudflare's dummy sitekey `1x00000000000000000000AA`. **Production**: the real site key from row 5. **THE PRODUCTION VALUE WAS WRONG FIRST** — it carried the dummy sitekey, which a real secret key rejects, so every sign-in, sign-up and password reset on production was refused until the owner corrected it and redeployed | Per environment, like `NEXT_PUBLIC_SENTRY_DSN` already is. **And "per environment" is exactly what went wrong**: both values are public, both are written down, and they belong in one setting under two environments. [#290](https://github.com/build-once/team-tasks/issues/290) is the build guard that would have refused that deploy |
 | 8 | **GitHub → repository → Settings → Secrets and variables → Actions** | **NOTHING. Decision J settles it**: the token is one exported constant in this repository, holding Cloudflare's published value, so there is no secret and no variable to create | A value Cloudflare publishes on its own documentation page is not a secret, and a constant every test imports cannot drift the way nine copies could |
-| 9 | **Supabase → production → Authentication → Bot and Abuse Protection** | Enable CAPTCHA protection with the **real** secret key from row 5 | **Last of the CAPTCHA rows, on purpose.** Production is where a mistake locks the owner out of their own app |
-| 10 | **Supabase → production → Authentication** | **Leaked password protection ON** (Pro and above). **Decision G.** **NOT the minimum password length** — that was set to 8 on both projects on 7 October 2026 and is the one row this list lost rather than gained | Independent of every row above; grouped here so it is one sitting |
-| 11 | **Supabase → both projects → Authentication → Rate Limits** | The two figures the owner chose: **sign-ups and sign-ins, 5 per 5 minutes** (decision **E**, from a published default of 30), and **the token endpoint, 30 per 5 minutes** (decision **F**, from a published default of 150). **Both projects, the same numbers** | **Last.** Lowering a limit is the change most likely to lock somebody out, and doing it after everything else means there is only one suspect. **And the token figure is 30 rather than 20 for a reason that bites here**: CI signs in three accounts per pull request from a shared runner address, so this is the row to come back to if checks start failing for no reason. **READ THE HELP TEXT BESIDE "token refreshes" BEFORE SETTING IT** — the dashboard's label and the documentation's row do not use the same words, and if that field is about refreshes only then this row sets a careful number on the wrong thing. **Do staging first, then try thirty-one sign-ins from one address**: that one run settles what the field means |
+| 9 | ~~**Supabase → production → Authentication → Bot and Abuse Protection**~~ **DONE 2026-10-11** | Enable CAPTCHA protection with the **real** secret key from row 5. **Switched on, then off while row 7 was corrected, then on again** | **Last of the CAPTCHA rows, on purpose.** Production is where a mistake locks the owner out of their own app — **and that is what happened**, for the length of one diagnosis. The order was right and the row above it was wrong. The accident did settle one thing: **a real secret key was seen to reject the dummy token on production**, which is what distinguishes "CAPTCHA is configured" from "CAPTCHA is being checked" |
+| 10 | **Supabase → production → Authentication** | **Leaked password protection ON** (Pro and above). **Decision G.** **NOT the minimum password length** — that was set to 8 on both projects on 7 October 2026 and is the one row this list lost rather than gained | Independent of every row above; grouped here so it is one sitting. **NOT DONE, and not reported as done, as of 2026-10-12** |
+| 11 | **Supabase → both projects → Authentication → Rate Limits. ON HOLD — owner's decision, 2026-10-11** | The two figures the owner chose: **sign-ups and sign-ins, 5 per 5 minutes** (decision **E**, from a published default of 30), and **the token endpoint, 30 per 5 minutes** (decision **F**, from a published default of 150). **Both projects, the same numbers.** **NEITHER IS SET, ON EITHER PROJECT**, and both remain at the documented defaults | **Last.** Lowering a limit is the change most likely to lock somebody out, and doing it after everything else means there is only one suspect. **And the token figure is 30 rather than 20 for a reason that bites here**: CI signs in three accounts per pull request from a shared runner address, so this is the row to come back to if checks start failing for no reason. **READ THE HELP TEXT BESIDE "token refreshes" BEFORE SETTING IT** — the dashboard's label and the documentation's row do not use the same words, and if that field is about refreshes only then this row sets a careful number on the wrong thing. **HELD FOR EXACTLY THAT REASON, which is this row's own instruction being followed rather than a delay.** The staging run of 11 October made 31 wrong-password sign-ins and saw no 429, which settles nothing: the limit is still 150, so 31 cannot reach it. [#291](https://github.com/build-once/team-tasks/issues/291) carries what Supabase's documentation does and does not say, and a measurement that answers it **without changing a setting and without touching CI's budget** |
 
-| 12 | **Supabase → both projects → Authentication → URL Configuration → Redirect URLs** | Add `/auth/confirm` for every address the app is served at, beside the `/auth/reset` and `/auth/callback` entries already there: `http://localhost:3000/auth/confirm` for the owner's own machine, the preview address, and the production address. **Nothing is removed** — the two existing paths still serve links sent before row 13 | **Before row 13 and after the code is deployed.** A template pointing at a page the host does not serve is a link that goes nowhere, and a `redirect_to` that is not on the allow-list is one Supabase ignores |
-| 13 | **Supabase → both projects → Authentication → Emails → Templates** | **The two email bodies, word for word, in the subsection below.** "Reset Password" and "Confirm signup". This is what makes a link work when the email is opened in a different browser, and what stops a mail scanner spending it | **LAST, and after the pull request is merged and deployed**, because the link it produces points at `/auth/confirm`, which does not exist on a host running the old build. Independent of every CAPTCHA row above, so it can be its own sitting |
+| 12 | ~~**Supabase → both projects → Authentication → URL Configuration → Redirect URLs**~~ **DONE 2026-10-11, BY BEING UNNECESSARY** | Add `/auth/confirm` for every address the app is served at. **Nothing was added, on either project, because the existing `/**` wildcards already cover it** — owner-reported, read off both dashboards. **Staging**: Site URL `http://localhost:3000`, redirect URLs `http://localhost:3000/**` and `https://*-info423.vercel.app/**`. **Production**: Site URL `https://team-tasks-virid.vercel.app`, redirect URLs `https://team-tasks-virid.vercel.app/**` and `.../auth/reset` | **Before row 13 and after the code is deployed.** A template pointing at a page the host does not serve is a link that goes nowhere, and a `redirect_to` that is not on the allow-list is one Supabase ignores. **This was the order followed**, and the row turned out to need no action — which also answers the "Unverified" line `docs/environments.md` has carried about both allow-lists since 3 October |
+| 13 | **Supabase → PRODUCTION ONLY → Authentication → Emails → Templates. DONE on production 2026-10-11; IMPOSSIBLE on staging** | **The two email bodies, word for word, in the subsection below.** "Reset Password" and "Confirm signup". This is what makes a link work when the email is opened in a different browser, and what stops a mail scanner spending it. **THIS ROW SAID "both projects" AND THAT WAS WRONG** — see the correction below the table | **LAST, and after the pull request is merged and deployed**, because the link it produces points at `/auth/confirm`, which does not exist on a host running the old build. Independent of every CAPTCHA row above, so it can be its own sitting. **Done on production in that order, and it worked in a second browser** — `evidence/captcha.md` section 2.4 |
 
 **Rows 12 and 13 were added on 2026-10-11 and they are the only two rows on this list that are not a
 limit.** [#285](https://github.com/build-once/team-tasks/issues/285) is the checklist of what the owner
@@ -590,6 +606,36 @@ has to **observe** once they are done, including the one reading that answers wh
 refuses anything at all. They are here because the list is "what the owner must set by hand, in order" and these two
 are both of those; the owner's decision they carry out is the one taken the same day, after watching a
 reset link fail in a second browser on production.
+
+### CORRECTION, 2026-10-12: row 13 said "both projects" and STAGING CANNOT DO IT AT ALL
+
+**Owner-reported, 11 October 2026: the Supabase dashboard LOCKS the email templates while a project
+uses the built-in sender.** Staging uses the built-in sender, and **decision M** is that it keeps it.
+So row 13 is **production-only in practice**, and the words "both projects" described something that
+could not be done.
+
+**What that costs, and it is a real one: `/auth/confirm` was never tried on staging, and cannot be
+while decision M stands.** The one place a token-hash link could have been exercised where a mistake
+is cheap is closed to it. The production template edit was therefore made against a path **no project
+had ever served a link to** — it worked, and had it not, the first person to find out would have been
+somebody resetting their password on production.
+
+**This is decision M's stated cost arriving somewhere nobody had looked, not a new decision.**
+`docs/plan.md` already says of custom SMTP that "the first time this arrangement is exercised is on
+production". It is now true of the emailed **links** as well. The reasons for M have not weakened: a
+staging project with custom SMTP would be a second place holding a credential that can send email as
+this app, for no benefit, because nothing on staging needs a real person to receive anything.
+
+**AND IT IMPLIES SOMETHING THIS DOCUMENT HAS NOT BEEN TOLD, which is written as an inference because
+that is what it is.** The owner **could** change production's templates and **could not** change
+staging's, and the stated reason for the lock is the built-in sender. Read together, that says
+**production is no longer on the built-in sender — i.e. row 3 is done.** Nobody reported row 3 as
+done, `docs/plan.md`'s own "Unverified" list still says "Custom SMTP is configured on **neither**
+project", and the dashboard reading of 11 October reported production's "sending emails" as 2 per hour
+and **not** editable, which is the built-in sender's state. **Three sources, two of them disagreeing
+with this inference**, so nothing here is marked done on the strength of it:
+[#292](https://github.com/build-once/team-tasks/issues/292) holds the reading that settles it, and
+rows 3 and 4 below stay as they are until somebody opens that page.
 
 ### The two email templates, word for word — rows 12 and 13
 
@@ -706,11 +752,13 @@ loudly and the half a code change can regress.
 
 - **That a real CAPTCHA refuses anybody.** A dummy secret key accepts the dummy token by definition.
   Staging cannot fail this check.
-- **That a sign-in with NO token is refused.** Whether Supabase Auth refuses one once CAPTCHA is on
-  is **not confirmed** — [the CAPTCHA page](https://supabase.com/docs/guides/auth/auth-captcha) says
-  what to switch on and does not say what happens to a request that arrives without a token. Staging
-  with a dummy secret **can** test this, and it is the one new check worth writing: post without the
-  field and assert a refusal.
+- ~~**That a sign-in with NO token is refused.**~~ **IT DOES, AND STAGING PROVED IT — 11 October
+  2026.** This bullet said the question was "not confirmed" because
+  [the CAPTCHA page](https://supabase.com/docs/guides/auth/auth-captcha) "does not say what happens to
+  a request that arrives without a token", and named the check worth writing. The check was written and
+  the owner ran it twice: **accepted (HTTP 200) before**, **refused HTTP 400 `captcha_failed` after**.
+  So this line moves out of "what staging does not prove" entirely, and it is the item on this list
+  that mattered most. `evidence/captcha.md` section 1.
 - **That a real browser can solve it.** The widget, its script, and whether it loads on a phone are
   not reachable from a `fetch`.
 
@@ -727,6 +775,16 @@ do, and they are the whole of it:
    which is the one request that distinguishes "CAPTCHA is on" from "CAPTCHA is configured and not
    being checked". No real account and no real password is involved, so nothing is signed in to and
    nothing is written.
+
+   **ANSWERED ON 11 OCTOBER 2026, IN SUBSTANCE AND NOT IN FORM, AND BY ACCIDENT.** Nobody made this
+   request. What happened instead is that production's build carried the **dummy sitekey** while
+   production's Auth held the **real secret** — so the owner's own sign-in, with a correct password,
+   was refused for a CAPTCHA reason. **A correct password refused because of the token can only mean
+   the token was checked**, which is the distinction this item exists to draw. The by-hand version
+   above stays written down as the cheap repeat; what it would add is the same answer without a
+   browser. [#290](https://github.com/build-once/team-tasks/issues/290) is the build guard that would
+   have stopped the deploy that made this possible, and `evidence/captcha.md` section 2.2 is the whole
+   argument, including the three things the accident does **not** establish.
 
 **THE TESTS DO CHANGE, AND THE OWNER AGREED TO IT ON 2026-10-11 — decision J, which is the rule 20
 agreement this change needed and did not have.** Rule 20 says changing a test is the owner's call and
@@ -859,13 +917,37 @@ written where none was read.
   those are the per-person throttle on this app's own login email. **And it is owner-reported**: nobody
   writing this opened a dashboard, and no check in this repository can notice if a value changes
   tomorrow.
-- **WHAT THE DASHBOARD FIELD CALLED "token refreshes" ACTUALLY COVERS, which is the sharpest thing on
-  this list.** The documentation's row at the same number is "Token endpoint requests" and says it
-  "covers password, refresh token, ID token, and PKCE grants"; the dashboard calls it "token refreshes".
-  **If it is refreshes only, nothing editable limits a password sign-in at all and decision F sets a
-  number on the wrong field.** Settled by the help text beside it, or — after F is applied to staging —
-  by thirty-one password sign-ins from one address. **Until then, F is a number set on a field whose
-  meaning is inferred.**
+
+  **AND NOTHING HAS CHANGED SINCE, which is worth one line so nobody assumes otherwise.** The owner made
+  six dashboard changes on 11 October — CAPTCHA on both projects, a Vercel variable, two email templates
+  — and **no rate-limit figure was among them.** Section 3 row 11 is on hold, so both projects are still
+  at the documented defaults that reading found.
+- **WHAT THE DASHBOARD FIELD CALLED "token refreshes" ACTUALLY COVERS, which is now the sharpest thing
+  on this list and is STILL OPEN.** The documentation's row at the same number is "Token endpoint
+  requests" and says it "covers password, refresh token, ID token, and PKCE grants"; the dashboard calls
+  it "token refreshes". **If it is refreshes only, nothing editable limits a password sign-in at all and
+  decision F sets a number on the wrong field.**
+
+  **The staging run of 11 October did NOT settle it, and it is important not to read it as though it
+  did.** 31 wrong-password sign-ins from one address, on both runs, **no 429**. That is what the default
+  predicts: **no figure has been changed on either project**, so the token endpoint is still at **150**
+  per 5 minutes and 31 attempts cannot reach it. The script's own UNVERIFIED message names both
+  possible causes and the first — "the limit has not been lowered on this project yet" — is what
+  happened. **"No 429 in 31" is not "no limit was found".**
+
+  **The documentation was read again on 2026-10-12 and it has the same ambiguity in a second place.**
+  Its management-API example names seven parameters, one of which is **`rate_limit_token_refresh`**, and
+  **the page does not map parameter names to table rows** — asked directly, the fetch answered that no
+  such mapping exists. So "the field is the token endpoint" is still an elimination over two incomplete
+  lists rather than a fact. One thing the second read did settle: **nothing is counted per address or
+  per account** — the token endpoint is limited by IP and the page mentions no per-account limit
+  anywhere, so there is no published per-person limit on sign-in at all.
+
+  **Settled by the help text beside the field, or by about 151 wrong-password attempts from the owner's
+  own machine at the current default — which changes no setting and cannot spend CI's budget, because
+  the limit is per IP and the runner is a different address.**
+  [#291](https://github.com/build-once/team-tasks/issues/291) is that proposal in full. **Until then, F
+  is a number nobody has set, on a field whose meaning is inferred.**
 - **SETTLED, AND IT WAS SETTLED BEFORE THIS FILE ASKED — the minimum password length.** This bullet
   said it had to be read off the dashboard. **The owner read it and changed it on 7 October 2026**:
   from **6 to 8**, on staging and on production, with a 7-character sign-up on staging refused **HTTP
@@ -876,14 +958,27 @@ written where none was read.
   is still not written anywhere, and no longer matters — what either project is set to is known.
 - **Whether leaked-password protection is on, on either project.** Read on the same dashboard page as
   the length above, and **not** read when that one was. It is decision **G** and row 10 of section 3.
-- **Whether Supabase Auth refuses a sign-in that carries no CAPTCHA token, once CAPTCHA is on.** The
-  CAPTCHA page does not say. Settle it with one request against staging, with a dummy secret key
-  configured, posting no `gotrue_meta_security` field. **THE REQUEST IS NOW WRITTEN, 2026-10-11:**
-  `scripts/staging/build-it-25-captcha-checks.mjs` section 1, run before and after the owner switches
-  CAPTCHA on, and its selftest already requires FAIL for the world where an unchecked CAPTCHA accepts
-  it. **Nobody has run it against staging**, and the question is open exactly as it was. The script also
-  reports **which code** the refusal carries, which is a second unknown the first one hides: the app's
-  three screens draw their own sentence for `captcha_failed` and the generic one for anything else.
+  **Still open on 2026-10-12**: the owner did five other dashboard rows on 11 October and **did not
+  report this one as switched on**, so it is left as open rather than assumed to have come along with
+  the sitting.
+- **SETTLED 2026-10-11, AND IT IS THE ONE THIS FILE MOST WANTED — Supabase Auth DOES refuse a sign-in
+  that carries no CAPTCHA token.** This bullet called it the thing the CAPTCHA page does not say, and
+  said "Nobody has run it against staging, and the question is open exactly as it was." **The owner ran
+  it, before and after.** Before switching CAPTCHA on for staging: **accepted, HTTP 200.** After, with
+  Cloudflare's dummy secret key `1x…AA`: **HTTP 400, `error_code` `captcha_failed`.** The
+  before-and-after pair is what makes the second one the CAPTCHA's doing rather than something that was
+  always there.
+
+  **And the second unknown this one hid is settled with it: the code IS `captcha_failed`**, which
+  `web/src/lib/auth-messages.ts:137-138,225,245,289-290,315` already maps to its own sentence on all
+  four screens that choose a refusal. So nothing in the app had to change, and a person gets "The check
+  that you are not a robot did not pass" rather than the generic sentence.
+
+  **Owner-reported, and not observed by anybody writing this** — no connector, no browser, no command
+  against staging. What corroborates the code independently is arithmetic rather than a second witness:
+  the reported after-run total of **4 PASS** is only reachable if `judgeNoToken`'s second judgement
+  passed, and that judgement answers UNVERIFIED for any code but `captcha_failed`.
+  `evidence/captcha.md` sections 1.1 and 1.2.
 - **Whether the eight scripts under `scripts/staging/` may import from `web/tests/`: SETTLED by not
   needing to, 2026-10-11.** This list carried it as decision J's loose end. The constant went in
   `scripts/lib/captcha.mjs` instead, which both sides reach with a relative path, so the question is
@@ -924,9 +1019,18 @@ written where none was read.
   decision of the thirteen whose implementation is not obvious, and settling it needs a local
   PostgreSQL sandbox rather than a page: write a `security definer` function that counts, call it
   from a check, and watch what happens to the row on a refusal.
-- **Whether the free Turnstile plan really shows Cloudflare's branding on the widget.** Read off the
-  Plans page listing branding removal as an Enterprise feature, which is an inference from silence
-  rather than a statement. Only looking at a rendered widget settles it, and nobody has.
+- **Whether the free Turnstile plan really shows Cloudflare's branding on the widget. NARROWED
+  2026-10-11: a widget has now been looked at, and nobody wrote down whether the branding was on it.**
+  This bullet ended "Only looking at a rendered widget settles it, and nobody has." Two have been seen
+  since — **Cloudflare's box on the Preview deploy of `6f94868`**, and **production's live page showing
+  Cloudflare's own "For testing only" line**, which is what diagnosed the dummy-key deploy. So the
+  rendered-widget half is done and the **branding question is simply unrecorded**. It is still read off
+  the Plans page's silence rather than stated anywhere. Settled by looking at one of those screens again
+  and saying.
+- **Whether the widget's own mode in Cloudflare really is Managed** (decision **K**). The widget exists
+  — rows 5, 6, 7 and 9 of section 3 could not have been done otherwise — but **nobody writing this has
+  seen its settings page**, and `TURNSTILE_MODE` in `web/src/lib/turnstile.ts` records the decision
+  rather than reading it back. Settled by the owner, in Cloudflare.
 - **Every number in this file about this app was counted or read in this session**, from the commit
   named at the top. Nothing came from memory, and nothing was run against a project. **And that was
   not enough twice, which is the honest coda to this list.** Two claims in the first version were
