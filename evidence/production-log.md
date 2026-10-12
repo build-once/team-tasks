@@ -742,15 +742,61 @@ unused.
 
 ---
 
+## 2026-10-12 — custom SMTP, leaked-password protection, and the counts before a migration
+
+**Where these lines come from.** Rows 1 to 3 are **the owner's own words**, given in the session that
+built Build it 25 part 2a; row 4 is the **coach's** read through the production read-only connector,
+reported in the same session. As with every entry above: **the assistant has no production access of
+any kind, opened no dashboard, ran no command against production and used no connector**, and has
+verified nothing below. The instructions for this change forbade the connector and the browser tool in
+as many words.
+
+**On the times.** The owner gave none. Rows 1 and 2 happened on **11 October**, before this file's
+2026-10-11 section was written, and are recorded here on the 12th because that is when the assistant was
+told about them — so the heading is this day and the rows carry their own dates. Row 3 is the 12th.
+That is the same fault the 2026-10-09 and 2026-10-11 sections record about themselves, and it is written
+down rather than smoothed over.
+
+**No key, password or token is written here**, and none was given to the assistant. The Resend key is
+named and not printed, which is the treatment `docs/environments.md` gives every setting: this file holds
+names.
+
+| # | Date | Who | What | Why | Result |
+|---|---|---|---|---|---|
+| 1 | 11 Oct | **The owner**, in **Resend** and the Supabase dashboard — **A CHANGE** | **Enabled custom SMTP on production.** A new Resend API key named **`team-tasks-production-auth-smtp`**; `smtp.resend.com`, port **465**, username `resend`; sender **`invites@notify.raj-dhonota.com`**, sender name **"Team Tasks"** | Rows 2 and 3 of `docs/rate-limits.md` section 3, and decision **L**. Until it was done, Supabase Auth "will refuse to deliver messages to addresses that are not part of the project's team" — so a volunteer signing up on production would have received **nothing at all** | Enabled. **And a reset email arrived at the test mailbox afterwards** — the first time anything in this app's own sending has been seen to work on production |
+| 2 | 11 Oct | **The owner**, in the Supabase dashboard — **A CHANGE** | Set production's **emails per hour to 10**, rather than the 30 Supabase imposes when custom SMTP is saved | Row 4 of the same list | Set to 10. **10 an hour is 240 a day against Resend's free 100 a day**, so the mismatch `docs/costs.md` records is three times narrower and has not gone away |
+| 3 | 12 Oct | **The owner**, in the Supabase dashboard — **A CHANGE** | **Enabled leaked-password protection on production** | Row 10, and decision **G**. Supabase: "Leaked password protection is available on the Pro Plan and above", which production has been since 10 October | Enabled. **Nothing in this repository can read it back**, so if it were switched off tomorrow every document here would still say it is on |
+| 4 | 12 Oct | The coach (claude.ai), via the production read-only connector | **One read of COUNTS ONLY — four counts and two aggregates, no row contents and no column's value in any select list** | The four check constraints in `20261012094500_task_cap_and_input_limits.sql` are validated against every existing row when they are added, so a violating row would fail the migration. `docs/rate-limits.md` section 2 has the four queries | **FOUR ZEROS.** No row violates any of the four. **Nobody is at 500 tasks, and the largest holder has 2.** So no existing row can break the migration and nobody is immediately blocked from adding a task |
+
+**Why row 4 could only be counts.** Those four columns hold an email address, free text about a person,
+and task text — all three on `docs/plan.md`'s sensitive list — and this repository is public, so anything
+printed here is published. A `count(*)` with the predicate inside the `where` clause has no column in the
+select list, so there is nothing for an output line to carry. **The migration keeps its own guards
+anyway, at the owner's instruction**, for the reason the migration gives: a count read once is a fact
+about that moment, and the file runs later and on more than one database.
+
+**And row 4 is the only pre-check of its kind anybody has run in this project.** Every migration before
+this one either created a table (so there were no rows to validate) or added a constraint to a column
+this app's own code already bounded. These four are the first added to columns where a violating row was
+genuinely possible — `account_status.reason` most of all, because the owner types it in the dashboard and
+no code checks it.
+
+**Nothing in row 4 wrote anything. Rows 1 to 3 are settings, not data**: no statement was applied, no
+schema changed and no row of anybody's data was written, read back in full, or deleted.
+
+---
+
 ## What has been written to production, and by whom
 
-**EIGHT entries in this file are the owner changing something: two on 10 Oct 2026 — the transfer
-between organisations and enabling the Spend Cap — and SIX on 11 Oct 2026**, which are rows **2, 5, 6,
-7, 8 and 9** of the section above. Every other entry is a read, except **row 1 of 11 Oct, which is the
+**ELEVEN entries in this file are the owner changing something: two on 10 Oct 2026 — the transfer
+between organisations and enabling the Spend Cap — SIX on 11 Oct 2026** (rows **2, 5, 6, 7, 8 and 9**
+of the 11 Oct section) — **and THREE more recorded on 12 Oct**: custom SMTP on production and its
+emails-per-hour figure, both done on the 11th and written down a day late, and leaked-password
+protection on the 12th. Every other entry is a read, except **row 1 of 11 Oct, which is the
 pipeline** — counted separately here as it always has been, because a merge to `main` reaching
 production is the one path rule 10 asks for rather than somebody acting on production by hand. (This
-said "One entry" until the Cap was enabled on 10 Oct, and "TWO entries" until 11 Oct.) Three things
-this section has always been for, and **one of them has changed**:
+said "One entry" until the Cap was enabled on 10 Oct, "TWO entries" until 11 Oct, and "EIGHT" until
+12 Oct.) Three things this section has always been for, and **one of them has changed**:
 
 - **The assistant has never run a production command of any kind**, and rule 19's one permission —
   `supabase secrets set` against production — has not been used. The first time it is, it goes here,
@@ -765,7 +811,10 @@ this section has always been for, and **one of them has changed**:
   nothing recorded here has written a volunteer's data because there are no volunteers yet.
 - **Nothing has changed production's schema outside the pipeline.** Every migration reached it through
   `.github/workflows/migrate-production.yml` on a merge to `main`, which is what rule 10 asks for. The
-  transfer moved the project between organisations, the Spend Cap changed a billing setting, and the
+  transfer moved the project between organisations, the Spend Cap changed a billing setting, the
   five dashboard changes of 11 Oct changed **Auth settings, a hosting variable and two email
-  templates**; **not one of them applied a statement**, and the only one that touched a row is named
-  in the bullet above.
+  templates**, and the three recorded on 12 Oct changed **an SMTP configuration, a rate figure and one
+  switch**; **not one of them applied a statement**, and the only one that touched a row is named
+  in the bullet above. **The next migration to reach production is
+  `20261012094500_task_cap_and_input_limits.sql`, and it goes through the pipeline on a merge like every
+  one before it.**

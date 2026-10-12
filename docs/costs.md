@@ -124,12 +124,14 @@ said £0/month while building until 2026-10-07, when the Claude API — which ha
   code" ([API reference introduction](https://resend.com/docs/api-reference/introduction)). Nothing this
   app does approaches it — `invite-member` sends one email per press — and it is written down because it
   is the one Resend limit this page did not have.
-- **And from 2026-10-11 Resend is proposed to carry two more of this app's emails**: the sign-up
-  confirmation and the password reset, through Supabase Auth's custom SMTP setting, on production
-  (`docs/plan.md` → "The sign-up and reset emails move to Resend"). **No new bill**: they share the same
-  free plan as the invitations, and six volunteers cannot approach 100 a day with three kinds of message
-  rather than one. **What it does add is a number to keep in step** — Supabase imposes 30 messages an hour
-  on a newly configured SMTP sender, which is 720 a day — and **what Resend then holds about people**,
+- **And from 2026-10-11 Resend CARRIES two more of this app's emails** — "is proposed to carry" until the
+  owner did it that day: the sign-up confirmation and the password reset, through Supabase Auth's custom
+  SMTP setting, **on production** (`docs/plan.md` → "The sign-up and reset emails move to Resend"). **No
+  new bill**: they share the same free plan as the invitations, and six volunteers cannot approach 100 a
+  day with three kinds of message rather than one. **What it does add is a number to keep in step** — and
+  the owner chose **10 messages an hour**, which is **240 a day**, rather than leaving the 30 an hour
+  Supabase imposes on a newly configured sender, which would have been 720 — and **what Resend then holds
+  about people**,
   which is `docs/plan.md`'s business and not this page's.
 
 ### Sentry
@@ -849,9 +851,20 @@ question does not get re-asked from scratch.
   can. It is row 1 of `docs/rate-limits.md`'s by-hand list, and until it is done no rate on this page is a
   fact about this app.
 - **Not read, and not tried — which refuses first when Supabase's Auth email limit is above Resend's daily
-  quota.** The limit Supabase imposes when custom SMTP is saved is 30 messages an hour, which is 720 a day
-  against Resend's free 100 a day. Nothing read on 2026-10-11 says what happens at the point they
-  disagree, and custom SMTP is configured on neither project, so nothing has been tried.
+  quota. AND THE NUMBERS CHANGED ON 2026-10-11, WHILE THE MISMATCH SURVIVED.** This entry said the limit
+  "is 30 messages an hour, which is 720 a day against Resend's free 100 a day", and that "custom SMTP is
+  configured on neither project, so nothing has been tried".
+
+  **Custom SMTP IS configured on production**, from 11 October 2026, and **the owner set the emails-per-hour
+  limit to 10 rather than leaving Supabase's imposed 30.** So the arithmetic is now **10 an hour = 240 a
+  day against Resend's 100 a day** — three times narrower than it was, **and still looser than the thing
+  behind it.** Which is the whole reason the figure is written down: a limit that permits more than the
+  service behind it will accept is a limit that reports the wrong failure, and the person on the other end
+  is told nothing useful either way.
+
+  **Still not read and still not tried**: what happens at the point the two disagree. At six volunteers
+  neither number is reachable, so nobody has met it. **Staging has no custom SMTP** (decision M), so there
+  the built-in sender's **2 an hour, per project** still applies and is the tighter constraint by far.
 - **Unverified — the whole Cloudflare Turnstile row and section.** Added 2026-10-11 for Build it 25 part 0.
   **Nothing is installed**: no widget, no site key in any environment, no secret key in either Supabase
   project, no code — so nothing has been used and no allowance has been touched. The plan figures are
