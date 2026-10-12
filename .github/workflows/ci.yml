@@ -327,7 +327,24 @@ jobs:
       # A sentence in two languages is the shape this repository keeps recording
       # as a thing that drifts, and this is the first one that spans SQL and
       # TypeScript.
-      EXPECTED_SCREEN_STATE_CHECKS: "290"
+      #
+      # 290 -> 297 ON 2026-10-12, Build it 25 part 2's screens. Seven, and they
+      # are all drift guards between a screen and a migration: the files panel's
+      # daily-limit sentence against the function's, that it names no number, the
+      # SQLSTATE the screen matches against the one the trigger raises, the task
+      # cap against `c_tasks_per_person`, the two constraint names against the two
+      # `add constraint` statements, and the number 30 in the migration that was
+      # replaced as well as the one that replaced it.
+      #
+      # AND ONE EXISTING CHECK WAS NARROWED, which is the rule 20 line and has its
+      # own paragraph beside it in the script: "the two file actions read a CODE
+      # and never a message" went red because the owner asked for the behaviour it
+      # forbade -- the daily limit arrives as a SQLSTATE inside a message string,
+      # and PostgreSQL puts a constraint's name nowhere else. It now asserts the
+      # thing it was protecting instead: every message read goes to one of this
+      # project's own readers, and NO message reaches a redirect, a banner or a
+      # template. Agreed by the owner, 12 October 2026.
+      EXPECTED_SCREEN_STATE_CHECKS: "297"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and

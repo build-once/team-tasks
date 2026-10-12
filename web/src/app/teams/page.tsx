@@ -402,6 +402,26 @@ export default async function MyTeamsPage({
           </Banner>
         ) : null}
 
+        {/* A CONTROL CHARACTER IN THE NICKNAME. Build it 25 part 2a's
+            profiles_display_name_no_control_chars, which the action tells from
+            the length constraint by name -- both raise 23514 and the one above
+            already has its own sentence.
+
+            IT NAMES WHAT SOMEBODY WILL HAVE DONE, not a codepoint: a tab or a
+            line break, which is what arrives with a paste out of a document or a
+            spreadsheet cell. "U+0009" would be true and useless.
+
+            AND IT DOES NOT SAY "invisible characters", which was the first
+            wording and is worse: it would describe something the person cannot
+            see and cannot find, with no way to act on it. A tab and a line break
+            are things they can look for. */}
+        {problem === "namechars" ? (
+          <Banner tone="bad" icon="alert">
+            That name has a line break or a tab in it, which a name cannot hold.
+            Type it on one line and try again.
+          </Banner>
+        ) : null}
+
         {problem === "profile" ? (
           <Banner tone="bad" icon="alert">
             Your name did not save. Please try again.

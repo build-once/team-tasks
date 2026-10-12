@@ -158,15 +158,27 @@ export function AttachFile({
         });
 
       if (error) {
-        // A status and a code, never the message. The installed client's own
-        // type documents `code` as the thing to branch on rather than parsing
-        // the message, and web/src/lib/attachment-store.ts says why that
-        // matters here.
-        const plumbing = error as { status?: unknown; code?: unknown };
+        // A status, a code, AND -- since 12 October 2026 -- the message, read for
+        // exactly one thing: whether it carries the daily limit's SQLSTATE.
+        //
+        // THE MESSAGE IS NEVER DRAWN AND NEVER KEPT. It goes into uploadRefusal,
+        // which searches it for five characters this project chose and raises in
+        // its own migration, and returns an outcome word. Nothing else about it
+        // survives the call. The long note beside that function is why the
+        // principle "branch on the code, not the message" is narrowed here
+        // rather than abandoned -- the Storage API answers a trigger refusal with
+        // HTTP 500 and the SQLSTATE inside a message string, so the status alone
+        // cannot tell a daily limit from a real outage.
+        const plumbing = error as {
+          status?: unknown;
+          code?: unknown;
+          message?: unknown;
+        };
         setOutcome(
           uploadRefusal({
             status: plumbing.status,
             code: plumbing.code,
+            message: plumbing.message,
             filesAlready,
           }),
         );

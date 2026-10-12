@@ -1218,8 +1218,29 @@ check(
 // unexpected place is only safe while something says it is there on purpose, and
 // a SENTENCE in two languages is the shape this repository keeps writing down as
 // a thing that drifts.
-const UPLOAD_MIGRATION = readFileSync(
+// TWO FILES, NAMED SEPARATELY, because the trigger function was written twice.
+// 20261012120000 created it; 20261012150000 REPLACED its body after the owner's
+// staging run of 12 October 2026 showed the first version counted nothing -- the
+// Storage API's committing insert has no session, so it took the no-uploader
+// branch every time.
+//
+// SO "THE CURRENT ONE" IS THE SECOND, and the checks below ask it rather than the
+// pair. Concatenating them was the first thing tried here and it is wrong in the
+// direction that matters: a count over both files answers 2 for a number that
+// should appear once, so the check that says "once, as a named constant" would
+// have had to be weakened to `>= 1` -- and `>= 1` would pass a migration that
+// spelled 30 at four call sites, which is the whole thing it exists to prevent.
+const UPLOAD_MIGRATION_FIRST = readFileSync(
   resolve(HERE, "..", "supabase", "migrations", "20261012120000_upload_daily_count.sql"),
+  "utf8",
+);
+const UPLOAD_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261012150000_upload_count_from_owner_id.sql"),
+  "utf8",
+);
+
+const TASK_CAP_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261012094500_task_cap_and_input_limits.sql"),
   "utf8",
 );
 
@@ -1229,18 +1250,31 @@ check(
   false,
 );
 check(
-  "the 30 is in the migration, once, as a named constant",
+  "the 30 is in the current migration, once, as a named constant",
   count(UPLOAD_MIGRATION, "c_uploads_per_day constant integer := 30"),
+  1,
+);
+// AND ONCE IN THE ONE IT REPLACED, so a reader of either file finds the same
+// number. The first migration is applied to staging and is not edited; this is
+// the check that would notice if somebody edited it anyway.
+check(
+  "and once in the migration it replaced, which is applied and must not be edited",
+  count(UPLOAD_MIGRATION_FIRST, "c_uploads_per_day constant integer := 30"),
   1,
 );
 // THE SENTENCE, COMPARED ACROSS A LANGUAGE BOUNDARY. The migration spells it in
 // SQL, where an apostrophe is doubled, so the comparison has to undo that -- and
 // doing it this way round means the check reads the REAL exported constant and
 // the REAL migration text rather than two strings this file spells itself.
+// TWICE, AND THE TWO ARE DIFFERENT PLACES rather than a copy: the current
+// function raises it once on the Storage API's caller-role PROBE, where the
+// refusal happens before the bytes are sent, and once on the insert that
+// COMMITS, for the race between the two. Asserting 2 rather than `>= 1` is what
+// would notice a third appearance -- a call site spelling it again.
 check(
   "and the migration says the SAME refusal sentence as the function, character for character",
   count(UPLOAD_MIGRATION, FUNCTION_LIMIT_MESSAGE.replace(/'/g, "''")),
-  1,
+  2,
 );
 check(
   "CONTROL -- that comparison would notice a different sentence",
@@ -1443,7 +1477,75 @@ const {
   taskAndFilesDeleted,
   taskIdOf,
   uploadRefusal,
+  UPLOAD_LIMIT_SQLSTATE,
 } = await load("attachments.ts");
+
+// tasks.ts, for the cap and the two constraint names. IMPORTED rather than read
+// as text, which is possible for the same reason attachments.ts is: it has no
+// imports of its own, so Node loads it and strips the types as it reads. That
+// means these compare the REAL exported constants and not strings that happen to
+// appear in a file.
+const {
+  TASK_CAP,
+  TITLE_CHARS_CONSTRAINT,
+  NICKNAME_CHARS_CONSTRAINT,
+  CHECK_VIOLATION_CODE,
+  constraintNamed,
+} = await load("tasks.ts");
+
+// ---------------------------------------------------------------------------
+// AND THE SCREEN NOW SAYS IT TOO -- Build it 25 part 2, the screens
+// ---------------------------------------------------------------------------
+//
+// A FOURTH COPY of the daily-limit sentence, and the first on a screen a person
+// reading about files will see. The three above are the Edge Functions' and the
+// two screens that draw their refusals; this one is the files panel's.
+//
+// The comparison is against the REAL exported constant rather than a string this
+// file spells, so a reworded sentence in attachments.ts goes red here.
+check(
+  "the files panel says the SAME daily-limit sentence as the function",
+  FILE_SENTENCES.dailylimit,
+  FUNCTION_LIMIT_MESSAGE,
+);
+check(
+  "and it names no number, as the other three do not",
+  /\d/.test(FILE_SENTENCES.dailylimit),
+  false,
+);
+
+// THE SQLSTATE THE SCREEN MATCHES ON IS THE ONE THE MIGRATION RAISES. This is
+// the pair that would otherwise fail silently: a screen looking for a code the
+// trigger never raises would draw the ordinary failure sentence for ever, and
+// nothing would say so. The same shape as "both screens match on the code the
+// function actually sends", one layer down.
+check(
+  "and the SQLSTATE it looks for is the one the migration raises",
+  count(UPLOAD_MIGRATION, `errcode = '${UPLOAD_LIMIT_SQLSTATE}'`) >= 1,
+  true,
+);
+
+// THE TASK CAP'S NUMBER IS THE MIGRATION'S. The screen names no number, so this
+// is not about the sentence -- it is about TASK_CAP, which exists so the cap can
+// be checked against the database rather than remembered.
+check(
+  "the task cap in the app is the number the migration enforces",
+  count(TASK_CAP_MIGRATION, `c_tasks_per_person constant integer := ${TASK_CAP}`),
+  1,
+);
+
+// AND THE TWO CONSTRAINT NAMES THE SCREENS BRANCH ON REALLY EXIST, spelled the
+// same in the app and in the migration. A screen matching a constraint name with
+// a typo in it falls to the ordinary sentence and nothing notices -- which is the
+// quiet failure this pair exists to stop.
+check(
+  "the two control-character constraints the screens name are the migration's",
+  [
+    count(TASK_CAP_MIGRATION, `add constraint ${TITLE_CHARS_CONSTRAINT}`),
+    count(TASK_CAP_MIGRATION, `add constraint ${NICKNAME_CHARS_CONSTRAINT}`),
+  ],
+  [1, 1],
+);
 
 // The migration, as text. It cannot be imported -- it is SQL -- and text is all
 // this needs of it: the question is whether the same numbers and the same six
@@ -2113,14 +2215,69 @@ check(
   count(TASKS_ACTIONS, 'typeof me !== "string"'),
   1,
 );
+// CHANGED 2026-10-12, AND THIS IS THE RULE 20 LINE. It read:
+//
+//   "and the two file actions read a CODE and never a message"
+//     count(TASKS_ACTIONS, "error.message")  ->  0
+//     count(ATTACH_FILE,   "error.message")  ->  0
+//     count(ATTACH_FILE,   "plumbing.code")  ->  1
+//
+// IT WENT RED BECAUSE THE OWNER ASKED FOR THE BEHAVIOUR IT FORBADE, on
+// 2026-10-12, and in two places at once:
+//
+//   the daily upload limit reaches the browser as HTTP 500 with SQLSTATE 54000
+//   INSIDE A MESSAGE STRING -- so a screen that reads only the status cannot tell
+//   it from a real outage, and the owner's rule is "the daily-limit sentence only
+//   when the refusal carries 54000";
+//
+//   the two control-character constraints both raise 23514, and PostgreSQL puts
+//   the CONSTRAINT'S NAME in the message and nowhere else a client can reach --
+//   so "23514 with the constraint names" needs the message too.
+//
+// SO THE CHECK IS NARROWED RATHER THAN DROPPED, and it is narrowed towards what
+// it was always protecting. "Never reads a message" was a proxy; the real rules
+// are that this app never SHOWS a sentence it did not write and never branches on
+// somebody else's prose. Both still hold, and now they are what is asserted:
+//
+//   every read of a message is an argument to one of this project's own readers --
+//   constraintNamed(), which yields one of OUR constraint names or null, or
+//   uploadRefusal(), which searches for OUR SQLSTATE and returns an outcome word;
+//
+//   and no message ever reaches a redirect, a banner or a template.
+//
+// A read that is not one of those two is a FAILURE, so a later `problem:
+// error.message` or a sentence built from one is caught exactly as before.
+//
+// AGREED BY THE OWNER on 12 October 2026, in the instruction that asked for both
+// sentences. Rule 20: changing a check is the owner's call, and this is its line.
 check(
-  "and the two file actions read a CODE and never a message",
+  "every message read in the two file actions goes to one of OUR readers, and nowhere else",
   [
+    // Reads in the tasks actions: each one is a constraintNamed() argument.
     count(TASKS_ACTIONS, "error.message"),
-    count(ATTACH_FILE, "error.message"),
+    count(TASKS_ACTIONS, "constraintNamed(error.message)"),
+    // And in the client component: one read, and it goes into uploadRefusal.
+    // ONE occurrence, because the only place that string appears is the argument
+    // itself -- `message: plumbing.message`. Counted, not assumed.
+    count(ATTACH_FILE, "plumbing.message"),
+    count(ATTACH_FILE, "message: plumbing.message"),
     count(ATTACH_FILE, "plumbing.code"),
   ],
-  [0, 0, 1],
+  [2, 2, 1, 1, 1],
+);
+// AND NOT ONE OF THEM REACHES A PERSON. The half the narrowing above must not
+// lose: a message may be read and may never be drawn, forwarded or interpolated.
+check(
+  "and NO message reaches a redirect, a banner or a template in either file",
+  [
+    count(TASKS_ACTIONS, "${error.message}"),
+    count(ATTACH_FILE, "${plumbing.message}"),
+    count(ATTACH_FILE, "${error.message}"),
+    count(TASKS_ACTIONS, "problem: error.message"),
+    // setOutcome takes an outcome word from the map, never a string from outside.
+    count(ATTACH_FILE, "setOutcome(plumbing"),
+  ],
+  [0, 0, 0, 0, 0],
 );
 // A FILE'S NAME NEVER GOES IN A LINK, which is why Open and Delete are forms.
 check(

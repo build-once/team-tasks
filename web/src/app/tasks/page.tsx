@@ -703,6 +703,45 @@ export default async function MyTasksPage({
           </Banner>
         ) : null}
 
+        {/* THE 500-TASK CAP. Build it 25 part 2a put it in the database, and the
+            action asks public.tasks_may_add() after a refused insert rather than
+            inferring it from a bare 42501 -- which is the same status the "refused"
+            message above is for.
+
+            IT NAMES NO NUMBER, for the reason docs/plan.md gives: "it says they
+            have reached the most this app will hold and that deleting a task makes
+            room, rather than 'that did not save'". Somebody who has reached it
+            does not need the arithmetic; they need to know what to do, and
+            deleting one is the whole of what helps. Which is also the half that
+            was MEASURED -- the staging run of 12 October 2026 deleted a task at
+            the cap and the next insert was allowed, so this sentence is advice
+            that works. */}
+        {problem === "cap" ? (
+          <Banner tone="bad" icon="alert">
+            You have as many tasks as this app will hold. Delete one you have
+            finished with to make room.
+          </Banner>
+        ) : null}
+
+        {/* A CONTROL CHARACTER IN A TITLE -- a tab, a line break, or something
+            invisible that came in with a paste. Build it 25 part 2a's
+            tasks_title_no_control_chars.
+
+            IT SAYS WHAT TO DO AND DOES NOT NAME A CODEPOINT. "A line break or a
+            tab" is what somebody will actually have pasted; U+0009 is a fact
+            about the file format and no use to anybody reading a list of jobs.
+
+            AND THE REAL COST IS NAMED IN docs/plan.md: this refuses a paste that
+            worked before the migration. Two lines out of a document used to
+            become one task with a line break in it; now it is refused, and this
+            sentence is the only place a person finds out why. */}
+        {problem === "titlechars" ? (
+          <Banner tone="bad" icon="alert">
+            That title has a line break or a tab in it, which a task cannot
+            hold. Put it on one line and try again.
+          </Banner>
+        ) : null}
+
         {/* A move the database refused. Two ways to earn it, and the sentence
             covers both without guessing which: the task was not yours to move,
             or the list it was aimed at is not one its creator belongs to. The
