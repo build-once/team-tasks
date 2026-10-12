@@ -637,7 +637,21 @@ jobs:
       # is read. The staging run itself is NOT here and cannot be -- it spends one
       # account's whole daily upload allowance, and nothing in this project can
       # give that back.
-      EXPECTED_UPLOAD_COUNT_CASES: "37"
+      #
+      # 37 -> 45 ON 2026-10-12, after the staging run found two faults in this
+      # script rather than in the migration. Eight new cases, and six of them
+      # exist because of one mistake worth naming: THE OLD CHECK ACCEPTED ANY
+      # REFUSAL as "the per-task limit refused it". Run after the daily limit was
+      # reached, the thing refusing was the daily limit, so it passed for the wrong
+      # reason and the check after it failed for a cause it named wrongly. That is
+      # #174's "one status standing for more than one meaning", committed inside a
+      # check.
+      #
+      # So the new cases include the body staging ACTUALLY returned -- HTTP 500,
+      # {"statusCode":"500","error":"DatabaseError","message":"database error,
+      # code: 54000",...} -- and require the per-task judgement to FAIL on it. Plus
+      # the arithmetic that explains why a run of 30 uploads cleans up 28 files.
+      EXPECTED_UPLOAD_COUNT_CASES: "45"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

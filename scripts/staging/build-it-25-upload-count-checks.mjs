@@ -15,10 +15,22 @@
 // the code appears anywhere -- IS NOT KNOWN. No page read says, and a local
 // database cannot answer it: it is a property of a service.
 //
-// So section 4 PRINTS THE EXACT STATUS AND THE EXACT BODY of the thirty-first
-// upload, whatever they are. Nothing in the screen pull request may be written
-// against the sentence or the code until that has been read, and the migration's
-// own section 6 says what to do if neither survives.
+// So section 5 PRINTS THE EXACT STATUS AND THE EXACT BODY of the thirty-first
+// upload, whatever they are.
+//
+// AND ON 12 OCTOBER 2026 IT ANSWERED, which is why this script now has a fixture
+// of its real shape rather than an invented one:
+//
+//   HTTP 500
+//   {"statusCode":"500","error":"DatabaseError",
+//    "message":"database error, code: 54000","code":"DatabaseError"}
+//
+// THE SENTENCE DOES NOT SURVIVE. The SQLSTATE does, inside a message string. So
+// the screen cannot use the words the database chose, and the migration's own
+// section 6 option 1 is what it has instead -- ask attachments_may_add() after a
+// refusal. Section 2 of this script is what tells the two refusals apart from
+// outside, and it is why that check now asserts the ABSENCE of 54000 rather than
+// merely "was it refused".
 //
 // ---------------------------------------------------------------------------
 // BEFORE MUST FAIL, AFTER MUST PASS, AND THERE IS NO FLAG
@@ -30,7 +42,7 @@
 // build-it-23-attachment-checks.mjs and build-it-25-limits-checks.mjs use.
 //
 // ---------------------------------------------------------------------------
-// WHOSE DAY IT SPENDS, AND WHY IT IS NOT ALICE'S
+// WHOSE DAY IT SPENDS: `--as`, AND IT IS REQUIRED
 // ---------------------------------------------------------------------------
 //
 // IT SPENDS ONE PERSON'S WHOLE DAILY ALLOWANCE AND CANNOT GIVE IT BACK. A count
@@ -39,15 +51,17 @@
 // that table (20261008115900_usage_counts.sql section 2). So whoever this script
 // uses cannot upload again until 00:00 UTC.
 //
-// THAT PERSON IS BOB, NOT ALICE, at the owner's instruction. Alice is the account
-// `web/tests/access-rules.test.mjs` leans on hardest in CI on every pull request
-// -- and while that file does not upload anything today, the attachments screen's
-// own future tests would, and an account with no uploads left is an account whose
-// failures have nothing to do with the rules being tested.
+// SO THE ACCOUNT IS NAMED AND HAS NO DEFAULT: `--as alice | bob | carol`. It was
+// hard-coded to Bob until 2026-10-12, which was fine until the day Bob's
+// allowance was already spent by the run that found the no-session bug -- a
+// hard-coded account is an account you cannot move off when it runs out.
 //
-// BOB'S DAY IS STILL SPENT, which is a real cost and is stated rather than hidden:
-// after a full run, Bob cannot attach a file on staging until the UTC day turns.
-// `--skip-limit` leaves sections 3 and 4 out for a run that only wants the rest.
+// NO PASSWORD ON A COMMAND LINE, EVER. The addresses and passwords are read from
+// the ENVIRONMENT and never from an argument, so
+// `source ~/.config/team-tasks/staging.env` puts all three in place and `--as`
+// picks one. Nothing secret reaches a shell history or `ps`.
+//
+// `--skip-limit` leaves sections 2 to 5 out for a run that must not spend a day.
 //
 // ---------------------------------------------------------------------------
 // WHAT IT CREATES AND REMOVES
@@ -86,15 +100,17 @@
 //       The logic only. No setting is read, no request is made, no account is
 //       used. CI runs this on every pull request.
 //
-//   node scripts/staging/build-it-25-upload-count-checks.mjs
+//   source ~/.config/team-tasks/staging.env
+//   node scripts/staging/build-it-25-upload-count-checks.mjs --as carol
 //       Against staging. Needs web/.env.local for the URL and the publishable
-//       key, and BOB_EMAIL / BOB_PASSWORD in the environment. Nobody else's.
+//       key, and that person's two environment variables. `--as` is REQUIRED and
+//       has no default, and no password is ever an argument.
 //
-//   node scripts/staging/build-it-25-upload-count-checks.mjs --cleanup
+//   node scripts/staging/build-it-25-upload-count-checks.mjs --as carol --cleanup
 //       Removes this script's files and then its tasks, and reports both counts.
 //
-//   node scripts/staging/build-it-25-upload-count-checks.mjs --skip-limit
-//       Leaves out sections 3 and 4, so Bob's day is not spent.
+//   node scripts/staging/build-it-25-upload-count-checks.mjs --as carol --skip-limit
+//       Leaves out sections 2 to 5, so nobody's day is spent.
 //
 // NO PACKAGES. Node built-ins and global fetch only (AGENTS.md rule 17).
 
@@ -290,34 +306,119 @@ export function judgeSetup(tasksMade, needed) {
   ];
 }
 
-// THE FIRST THIRTY. All allowed, before and after: the limit is 30, so reaching it
-// must not refuse anything on the way.
-export function judgeFirstThirty(statuses, limit) {
-  const what = `the first ${limit} uploads are all allowed`;
-  if (statuses.length !== limit) {
-    return [
-      {
-        what,
-        verdict: UNVERIFIED,
-        detail: `${statuses.length} attempts were made, not ${limit}`,
-      },
-    ];
+// EXACTLY THE LIMIT, ACCEPTED, AND NOTHING REFUSED ON THE WAY.
+//
+// THIS IS THE JUDGEMENT THAT PROVES A REFUSAL COSTS NO SLOT, and it replaces a
+// pairwise check that could not. The old version uploaded a fourth file to a full
+// task, freed a place, and asked whether the next upload was allowed -- which on
+// 12 October 2026 compared two refusals that were BOTH the daily limit, because
+// it ran after the limit was already reached. It passed for the wrong reason and
+// then failed for the right one.
+//
+// The arithmetic is the proof instead. If the run accepts exactly `limit`
+// uploads, and the refusals and deletes along the way cost nothing, then the next
+// upload is the first one over -- so a run that reaches `limit` WITHOUT being
+// refused early is a run in which nothing uncounted was counted. If the per-task
+// refusal had spent a slot, this judgement would see a refusal before the end.
+export function judgeAcceptedExactly(accepted, refusedEarly, limit) {
+  const what = `exactly ${limit} uploads are accepted, and NOTHING is refused before the ${limit}th`;
+
+  if (accepted === null) {
+    return [{ what, verdict: UNVERIFIED, detail: "the run did not get far enough to count" }];
   }
-  const refused = statuses.filter((s) => s === null || s >= 400);
-  if (refused.length > 0) {
-    const firstBad = statuses.findIndex((s) => s === null || s >= 400);
+  if (refusedEarly > 0) {
     return [
       {
         what,
         verdict: FAIL,
         detail:
-          `${refused.length} of ${limit} were refused, the first at attempt ${firstBad + 1}` +
-          ` (HTTP ${statuses[firstBad] ?? "no answer"}). Something other than the daily limit is` +
-          ` refusing these -- the per-task 3, the 100 MB, or the bucket.`,
+          `${accepted} accepted and ${refusedEarly} refused before reaching ${limit}. Either a` +
+          ` refusal or a delete earlier in this run SPENT A SLOT -- which is the thing the count is` +
+          ` not supposed to do -- or something other than the daily limit is refusing uploads.`,
       },
     ];
   }
-  return [{ what, verdict: PASS, detail: `${limit} of ${limit}, none refused` }];
+  if (accepted !== limit) {
+    return [
+      {
+        what,
+        verdict: UNVERIFIED,
+        detail: `${accepted} were accepted, not ${limit}, so the boundary below means nothing`,
+      },
+    ];
+  }
+  return [
+    {
+      what,
+      verdict: PASS,
+      detail: `${accepted} accepted, 0 refused -- so the counter should read exactly ${limit}`,
+    },
+  ];
+}
+
+// THE PER-TASK REFUSAL, AND IT MUST NOT BE THE DAILY ONE.
+//
+// A fourth file on a task that already has three is refused by
+// public.attachments_may_add() through the INSERT policy. A thirty-first upload
+// is refused by the trigger. BOTH ARE REFUSALS AND THEY ARE NOT THE SAME THING,
+// and a judgement that accepts either is the "one status for more than one
+// meaning" fault this repository files as #174 -- committed here, in a check.
+//
+// WHAT TELLS THEM APART, from the owner's staging runs of 12 October 2026: the
+// daily limit answers HTTP 500 with the SQLSTATE in the body --
+// {"statusCode":"500","error":"DatabaseError","message":"database error, code: 54000",...}
+// -- and the per-task limit answered HTTP 400.
+//
+// THE TEST IS THE ABSENCE OF THE SQLSTATE, not the presence of 400. A status is a
+// weaker thing to depend on than the code the trigger actually raises, and if
+// Storage ever changes what it returns for a policy refusal this check still
+// reads correctly. The body is PRINTED either way, because what a policy refusal
+// looks like from outside is not written down anywhere yet.
+export function judgePerTaskRefusal(answer, sqlstate) {
+  const what = "a FOURTH file on one task is refused, and NOT by the daily limit";
+
+  if (answer.error) return [{ what, verdict: UNVERIFIED, detail: answer.error }];
+
+  if (answer.status < 400) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `HTTP ${answer.status}, ALLOWED. The per-task limit of 3 is not holding, so this run` +
+          ` cannot tell a per-task refusal from a daily one.`,
+      },
+    ];
+  }
+
+  if (mentions(answer, sqlstate)) {
+    return [
+      {
+        what,
+        verdict: FAIL,
+        detail:
+          `HTTP ${answer.status} and the body carries ${sqlstate}, so this was THE DAILY LIMIT and` +
+          ` not the per-task one. The checks have run in the wrong order: the daily limit must not` +
+          ` be reached until after this one. body=${answer.printable}`,
+      },
+    ];
+  }
+
+  return [
+    {
+      what,
+      verdict: PASS,
+      detail: `HTTP ${answer.status}, and no ${sqlstate} in the body`,
+    },
+    {
+      // A SECOND JUDGEMENT THAT ONLY RECORDS. What a policy refusal looks like
+      // from outside the Storage API is not written down anywhere, and the screen
+      // pull request has to tell it from the other two.
+      what: "and THIS IS WHAT A PER-TASK REFUSAL LOOKS LIKE from outside -- write it down",
+      verdict: UNVERIFIED,
+      detail: `HTTP ${answer.status} body=${answer.printable}`,
+    },
+  ];
 }
 
 // THE THIRTY-FIRST, AND THE WHOLE POINT OF THE SCRIPT. Four judgements, and only
@@ -372,52 +473,20 @@ export function judgeThirtyFirst(answer, limit, sentence, sqlstate) {
   return results;
 }
 
-// A REFUSED UPLOAD MUST NOT SPEND A SLOT. Proved from the outside the only way it
-// can be: after a refusal that is NOT the daily limit, one more upload must still
-// be allowed. If the refused attempt had spent a slot, this one would be the
-// thirty-first.
-export function judgeRefusalCostsNothing(refused, nextOne) {
+// DELETING A FILE MAKES ROOM ON THE TASK, and costs no slot.
+//
+// Two different things, and the second is the one the arithmetic proves rather
+// than this judgement: here we only need the delete to succeed and the next
+// upload to be allowed. Whether the delete cost a DAILY slot is answered by
+// judgeAcceptedExactly, which would see a refusal before the end if it had.
+//
+// IT RUNS WELL BEFORE THE LIMIT, which is what went wrong on 12 October 2026: run
+// after the limit is reached, every upload is refused by the daily limit and this
+// says "deleting cost a slot" when nothing of the kind happened.
+export function judgeDeleteMakesRoom(deleted, nextOne, sqlstate) {
   const results = [];
 
-  const whatRefused = "a FOURTH file on one task is refused by the per-task limit";
-  if (refused.error) {
-    results.push({ what: whatRefused, verdict: UNVERIFIED, detail: refused.error });
-    return results;
-  }
-  results.push({
-    what: whatRefused,
-    verdict: refused.status >= 400 ? PASS : FAIL,
-    detail:
-      refused.status >= 400
-        ? `HTTP ${refused.status}`
-        : `HTTP ${refused.status}, allowed -- the per-task 3 is not holding, so this check cannot` +
-          ` test what it is for`,
-  });
-
-  const what = "AND THE UPLOAD AFTER IT IS STILL ALLOWED, so the refusal cost no slot";
-  if (nextOne.error) {
-    results.push({ what, verdict: UNVERIFIED, detail: nextOne.error });
-    return results;
-  }
-  results.push({
-    what,
-    verdict: nextOne.status < 400 ? PASS : FAIL,
-    detail:
-      nextOne.status < 400
-        ? `HTTP ${nextOne.status}`
-        : `HTTP ${nextOne.status} -- a refused upload spent a slot, which is the wrong way round:` +
-          ` the count is meant to be written in the same transaction as the row`,
-  });
-  return results;
-}
-
-// DELETING A FILE MUST NOT COST A SLOT. The trigger is on INSERT and nothing else,
-// and the reason this is checked rather than assumed is that the opposite would be
-// cruel: deleting a file to make room would spend the room.
-export function judgeDeleteCostsNothing(deleted, nextOne) {
-  const results = [];
-
-  const whatDeleted = "a file can be deleted";
+  const whatDeleted = "a file can be deleted from a full task";
   if (deleted.error) {
     results.push({ what: whatDeleted, verdict: UNVERIFIED, detail: deleted.error });
     return results;
@@ -428,18 +497,23 @@ export function judgeDeleteCostsNothing(deleted, nextOne) {
     detail: `HTTP ${deleted.status}`,
   });
 
-  const what = "AND AN UPLOAD AFTER THE DELETE IS ALLOWED, so deleting cost no slot";
+  const what = "AND THE UPLOAD AFTER IT IS ALLOWED, so deleting made room";
   if (nextOne.error) {
     results.push({ what, verdict: UNVERIFIED, detail: nextOne.error });
     return results;
   }
+  if (nextOne.status < 400) {
+    results.push({ what, verdict: PASS, detail: `HTTP ${nextOne.status}` });
+    return results;
+  }
   results.push({
     what,
-    verdict: nextOne.status < 400 ? PASS : FAIL,
-    detail:
-      nextOne.status < 400
-        ? `HTTP ${nextOne.status}`
-        : `HTTP ${nextOne.status} -- deleting a file spent a slot, so making room costs room`,
+    verdict: FAIL,
+    detail: mentions(nextOne, sqlstate)
+      ? `HTTP ${nextOne.status} and the body carries ${sqlstate} -- THE DAILY LIMIT refused it, so` +
+        ` this check ran too late. It belongs before the limit is reached.`
+      : `HTTP ${nextOne.status} -- deleting a file did not make room on the task.` +
+        ` body=${nextOne.printable}`,
   });
   return results;
 }
@@ -463,15 +537,41 @@ export function judgeRestoreCase() {
   ];
 }
 
-export function judgeCleanup(filesRemoved, tasksRemoved, tasksMade) {
+// EVERY FILE ACCOUNTED FOR, AND THE ARITHMETIC SAID OUT LOUD.
+//
+// THIS IS THE ANSWER TO "29 file(s) removed when 30 uploads were accepted".
+// On 12 October 2026 the cleanup reported 29 and nothing was lost: the run had
+// uploaded 30 and DELETED ONE ITSELF, in the check that frees a place on a full
+// task. The number was right and the report could not show it, which left the
+// owner to work out whether a file had gone missing on staging.
+//
+// So the judgement now reconciles rather than counting: removed must equal
+// accepted minus the ones this run deleted on purpose. A mismatch in either
+// direction is a real finding -- fewer means something is left on staging, more
+// means it removed something it did not make.
+export function judgeCleanup(filesRemoved, tasksRemoved, tasksMade, accepted, deletedInRun) {
+  const expected =
+    accepted === null || deletedInRun === null ? null : accepted - deletedInRun;
+
   const results = [
     {
-      what: "every file this run uploaded was removed",
-      verdict: filesRemoved === null ? UNVERIFIED : PASS,
+      what: "every file this run uploaded was removed, and the arithmetic adds up",
+      verdict:
+        filesRemoved === null || expected === null
+          ? UNVERIFIED
+          : filesRemoved === expected
+            ? PASS
+            : FAIL,
       detail:
-        filesRemoved === null
+        filesRemoved === null || expected === null
           ? "the cleanup could not be read, so run --cleanup"
-          : `${filesRemoved} file(s)`,
+          : filesRemoved === expected
+            ? `${filesRemoved} removed = ${accepted} uploaded - ${deletedInRun} this run deleted itself`
+            : `${filesRemoved} removed, but ${accepted} were uploaded and ${deletedInRun} were` +
+              ` deleted during the run, so ${expected} was expected.` +
+              (filesRemoved < expected
+                ? " FEWER than expected: something is still on staging. Run --cleanup."
+                : " MORE than expected: it removed something this run did not make."),
     },
   ];
 
@@ -594,6 +694,26 @@ function runSelftest() {
     500,
     JSON.stringify({ statusCode: "500", error: "Internal", message: "Internal Server Error" }),
   );
+  // WHAT STAGING ACTUALLY RETURNED on 12 October 2026 for the thirty-first
+  // upload. The sentence does NOT survive; the SQLSTATE does, inside a message
+  // string. This is the fixture the screen pull request has to be written
+  // against, so it is here by its real shape rather than an invented one.
+  const refusalWithSqlstateOnly = ok(
+    500,
+    JSON.stringify({
+      statusCode: "500",
+      error: "DatabaseError",
+      message: `database error, code: ${SQLSTATE}`,
+      code: "DatabaseError",
+    }),
+  );
+  // And a per-task refusal: a policy refusal, which on 12 October answered 400
+  // and carries no SQLSTATE. Its body is not written down anywhere yet, which is
+  // why the judgement prints it.
+  const refusalWithoutSqlstate = ok(
+    400,
+    JSON.stringify({ statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" }),
+  );
 
   // --- the URL guard
   expect("the staging host is accepted", judgeStagingUrl(`https://${STAGING_HOST}`), [PASS]);
@@ -608,23 +728,46 @@ function runSelftest() {
   expect("THE WORLD WHERE SETUP HALF-WORKED", judgeSetup(7, 11), [FAIL]);
   expect("no tasks at all is unverified", judgeSetup(null, 11), [UNVERIFIED]);
 
-  // --- the first thirty
+  // --- exactly the limit, which is now what proves a refusal costs no slot
+  expect("exactly thirty accepted, nothing refused early", judgeAcceptedExactly(30, 0, 30), [PASS]);
   expect(
-    "thirty allowed",
-    judgeFirstThirty(Array.from({ length: 30 }, () => 200), 30),
-    [PASS],
-  );
-  expect(
-    "THE WORLD WHERE SOMETHING ELSE REFUSES ON THE WAY UP",
-    judgeFirstThirty([...Array.from({ length: 12 }, () => 200), 400, ...Array.from({ length: 17 }, () => 200)], 30),
+    "THE WORLD WHERE A REFUSAL OR A DELETE SPENT A SLOT: refused before the end",
+    judgeAcceptedExactly(28, 1, 30),
     [FAIL],
   );
   expect(
-    "an attempt that never arrived counts as refused",
-    judgeFirstThirty([...Array.from({ length: 29 }, () => 200), null], 30),
+    "stopped short with nothing refused is unverified, not a pass",
+    judgeAcceptedExactly(27, 0, 30),
+    [UNVERIFIED],
+  );
+  expect("a run that never counted is unverified", judgeAcceptedExactly(null, 0, 30), [UNVERIFIED]);
+
+  // --- the per-task refusal, which must not be the daily one
+  expect(
+    "AFTER: a fourth file refused, and no SQLSTATE in the body",
+    judgePerTaskRefusal(refusalWithoutSqlstate, SQLSTATE),
+    [PASS, UNVERIFIED],
+  );
+  expect(
+    "THE WORLD OF 12 OCTOBER: it was the DAILY limit wearing a refusal's clothes",
+    judgePerTaskRefusal(refusalWithEverything, SQLSTATE),
     [FAIL],
   );
-  expect("the wrong number of attempts is unverified", judgeFirstThirty([200, 200], 30), [UNVERIFIED]);
+  expect(
+    "and the same for a body that carries only the SQLSTATE",
+    judgePerTaskRefusal(refusalWithSqlstateOnly, SQLSTATE),
+    [FAIL],
+  );
+  expect(
+    "THE WORLD WHERE THE PER-TASK 3 IS NOT HOLDING",
+    judgePerTaskRefusal(created, SQLSTATE),
+    [FAIL],
+  );
+  expect(
+    "a request that never arrived is unverified",
+    judgePerTaskRefusal(unreachable, SQLSTATE),
+    [UNVERIFIED],
+  );
 
   // --- the thirty-first, in all three worlds
   expect(
@@ -643,6 +786,11 @@ function runSelftest() {
     [PASS, UNVERIFIED, UNVERIFIED, UNVERIFIED],
   );
   expect(
+    "AND WHAT STAGING ACTUALLY RETURNED on 12 Oct: the SQLSTATE survives, the sentence does not",
+    judgeThirtyFirst(refusalWithSqlstateOnly, 30, SENTENCE, SQLSTATE),
+    [PASS, UNVERIFIED, UNVERIFIED, PASS],
+  );
+  expect(
     "THE WORLD WHERE NOTHING IS COUNTING: the 31st is accepted",
     judgeThirtyFirst(created, 30, SENTENCE, SQLSTATE),
     [FAIL],
@@ -653,38 +801,56 @@ function runSelftest() {
     [UNVERIFIED],
   );
 
-  // --- a refusal costs nothing
+  // --- deleting makes room
+  expect("AFTER: delete, then upload", judgeDeleteMakesRoom(ok(200, "{}"), created, SQLSTATE), [
+    PASS,
+    PASS,
+  ]);
   expect(
-    "AFTER: the fourth file refused, the next upload still allowed",
-    judgeRefusalCostsNothing(refusalWithSentenceOnly, created),
-    [PASS, PASS],
-  );
-  expect(
-    "THE WORLD WHERE A REFUSED UPLOAD SPENT A SLOT",
-    judgeRefusalCostsNothing(refusalWithSentenceOnly, refusalWithSentenceOnly),
+    "THE WORLD WHERE DELETING DOES NOT MAKE ROOM ON THE TASK",
+    judgeDeleteMakesRoom(ok(200, "{}"), refusalWithoutSqlstate, SQLSTATE),
     [PASS, FAIL],
   );
   expect(
-    "and if the per-task 3 is not holding, this check says so",
-    judgeRefusalCostsNothing(created, created),
+    "AND THE WORLD OF 12 OCTOBER: it ran too late, and the DAILY limit refused it",
+    judgeDeleteMakesRoom(ok(200, "{}"), refusalWithEverything, SQLSTATE),
+    [PASS, FAIL],
+  );
+  expect(
+    "a delete that was itself refused",
+    judgeDeleteMakesRoom(refusalWithoutSqlstate, created, SQLSTATE),
     [FAIL, PASS],
-  );
-
-  // --- a delete costs nothing
-  expect("AFTER: delete, then upload", judgeDeleteCostsNothing(ok(200, "{}"), created), [PASS, PASS]);
-  expect(
-    "THE WORLD WHERE DELETING A FILE SPENDS THE ROOM IT MAKES",
-    judgeDeleteCostsNothing(ok(200, "{}"), refusalWithSentenceOnly),
-    [PASS, FAIL],
   );
 
   // --- the restore case
   expect("the restore case is reported, not skipped", judgeRestoreCase(), [UNVERIFIED]);
 
-  // --- cleanup
-  expect("everything removed", judgeCleanup(31, 11, 11), [PASS, PASS]);
-  expect("THE WORLD WHERE TASKS WERE LEFT BEHIND", judgeCleanup(31, 4, 11), [PASS, FAIL]);
-  expect("an unreadable cleanup is unverified", judgeCleanup(null, null, 11), [UNVERIFIED, UNVERIFIED]);
+  // --- cleanup, and the arithmetic that explains "29 of 30"
+  expect(
+    "AFTER: 28 removed = 30 uploaded - 2 this run deleted",
+    judgeCleanup(28, 11, 11, 30, 2),
+    [PASS, PASS],
+  );
+  expect(
+    "THE 12 OCTOBER NUMBER, now explained rather than puzzling: 29 = 30 - 1",
+    judgeCleanup(29, 11, 11, 30, 1),
+    [PASS, PASS],
+  );
+  expect(
+    "THE WORLD WHERE A FILE IS LEFT ON STAGING: fewer removed than expected",
+    judgeCleanup(27, 11, 11, 30, 2),
+    [FAIL, PASS],
+  );
+  expect(
+    "THE WORLD WHERE IT REMOVED SOMETHING IT DID NOT MAKE",
+    judgeCleanup(30, 11, 11, 30, 2),
+    [FAIL, PASS],
+  );
+  expect("THE WORLD WHERE TASKS WERE LEFT BEHIND", judgeCleanup(28, 4, 11, 30, 2), [PASS, FAIL]);
+  expect("an unreadable cleanup is unverified", judgeCleanup(null, null, 11, null, null), [
+    UNVERIFIED,
+    UNVERIFIED,
+  ]);
 
   // --- the footprint
   expect(
@@ -842,17 +1008,75 @@ if (urlVerdict.verdict !== PASS) {
   );
 }
 
-// ONE PERSON, AND IT IS BOB. See the header: this run spends a daily allowance
-// that nothing can give back, and Alice is the account CI leans on.
-const BOB = { label: "Bob", emailVar: "BOB_EMAIL", passwordVar: "BOB_PASSWORD" };
+// ---------------------------------------------------------------------------
+// WHOSE DAY TO SPEND: `--as`, AND IT IS REQUIRED
+// ---------------------------------------------------------------------------
+//
+// This run spends one person's whole daily upload allowance and NOTHING CAN GIVE
+// IT BACK -- no client role may write usage_counts, and its own 7-day window is
+// the only thing that clears a row. So the account is not a default: naming it is
+// how the person running this says which day they are willing to spend.
+//
+// IT WAS HARD-CODED TO BOB UNTIL 2026-10-12, which was fine until the day Bob's
+// allowance was already spent by the run that found the no-session bug. A
+// hard-coded account is an account you cannot move off when it runs out.
+//
+// NO PASSWORD ON A COMMAND LINE, EVER. The names below are environment variables
+// and this script reads the environment, never an argument -- so the owner's
+// `source ~/.config/team-tasks/staging.env` puts all three accounts in place and
+// `--as carol` picks one. Nothing secret appears in a shell history, in `ps`, or
+// in anything the guard reads.
+const PEOPLE = {
+  alice: { label: "Alice", emailVar: "ALICE_EMAIL", passwordVar: "ALICE_PASSWORD" },
+  bob: { label: "Bob", emailVar: "BOB_EMAIL", passwordVar: "BOB_PASSWORD" },
+  carol: { label: "Carol", emailVar: "CAROL_EMAIL", passwordVar: "CAROL_PASSWORD" },
+};
+
+// `--as carol` or `--as=carol`. Both, because a person typing one and getting a
+// usage message for the other is friction for nothing.
+function readWho(argv) {
+  const joined = argv.find((a) => a.startsWith("--as="));
+  if (joined) return joined.slice("--as=".length).trim().toLowerCase();
+  const at = argv.indexOf("--as");
+  if (at !== -1 && argv[at + 1] && !argv[at + 1].startsWith("--")) {
+    return argv[at + 1].trim().toLowerCase();
+  }
+  return null;
+}
+
+const who = readWho(args);
+
+if (who === null) {
+  die(
+    `say whose daily allowance to spend: --as alice | bob | carol\n` +
+      `\n` +
+      `IT IS NOT OPTIONAL AND HAS NO DEFAULT, because a full run spends that person's\n` +
+      `whole upload allowance for the UTC day and nothing in this project can give it\n` +
+      `back. Naming the account is how you say you meant to.\n` +
+      `\n` +
+      `  source ~/.config/team-tasks/staging.env\n` +
+      `  node scripts/staging/build-it-25-upload-count-checks.mjs --as carol\n` +
+      `\n` +
+      `No password is ever passed as an argument: the addresses and passwords are read\n` +
+      `from the environment. The logic check needs neither:\n` +
+      `  node scripts/staging/build-it-25-upload-count-checks.mjs --selftest`,
+  );
+}
+
+const PERSON = PEOPLE[who];
+if (!PERSON) {
+  die(`--as ${who} is not one of: ${Object.keys(PEOPLE).join(", ")}. No value is printed.`);
+}
 
 const missingFromEnv = [];
-if ((process.env[BOB.emailVar] ?? "").trim() === "") missingFromEnv.push(BOB.emailVar);
-if ((process.env[BOB.passwordVar] ?? "") === "") missingFromEnv.push(BOB.passwordVar);
+if ((process.env[PERSON.emailVar] ?? "").trim() === "") missingFromEnv.push(PERSON.emailVar);
+if ((process.env[PERSON.passwordVar] ?? "") === "") missingFromEnv.push(PERSON.passwordVar);
 if (missingFromEnv.length > 0) {
   die(
     `these are not set in the environment: ${missingFromEnv.join(", ")}.\n` +
       `See docs/environments.md -> "Where the test accounts live". No value is printed.\n` +
+      `\n` +
+      `  source ~/.config/team-tasks/staging.env\n` +
       `\n` +
       `The logic check needs none of them:\n` +
       `  node scripts/staging/build-it-25-upload-count-checks.mjs --selftest`,
@@ -1022,11 +1246,21 @@ async function listFiles(taskId, session) {
   }
 }
 
-/** This script's tasks, newest first. */
+/**
+ * This script's tasks, OLDEST FIRST.
+ *
+ * `order=created_at.asc` is not decoration: this said "newest first" and had no
+ * `order=` at all, so PostgREST returned them in whatever order it liked. On 12
+ * October 2026 the check that deletes a file picked `tasks[length - 1]`, got the
+ * one task with no files on it, and reported "no file to delete" -- a check that
+ * could not run, because of a comment that described an ordering nothing asked
+ * for. A sentence in a comment is not an ORDER BY.
+ */
 async function myTasks(session) {
   const answer = await rest(
     "GET",
-    `tasks?select=id,title&owner_id=eq.${session.userId}&title=like.${encodeURIComponent(`${MARK}%`)}&limit=200`,
+    `tasks?select=id,title&owner_id=eq.${session.userId}` +
+      `&title=like.${encodeURIComponent(`${MARK}%`)}&order=created_at.asc&limit=200`,
     { accessToken: session.accessToken },
   );
   return Array.isArray(answer.json) ? answer.json : [];
@@ -1065,18 +1299,18 @@ if (cleanupOnly) {
   console.log(`  removing: files under tasks titled "${MARK} …", then those tasks`);
   console.log("");
 
-  const bob = await signIn(BOB);
-  const { filesRemoved, tasksRemoved, tasksSeen } = await cleanup(bob);
+  PERSON.session = await signIn(PERSON);
+  const { filesRemoved, tasksRemoved, tasksSeen } = await cleanup(PERSON.session);
   console.log(`  ${filesRemoved} file(s) removed`);
   console.log(`  ${tasksRemoved} of ${tasksSeen} task(s) removed`);
   if (tasksRemoved < tasksSeen) {
     console.log("  SOME TASKS REMAIN. A task that still has a file cannot be deleted; run this again.");
   }
-  await signOut(bob);
+  await signOut(PERSON.session);
   console.log("");
   console.log("Nothing else was touched. No judgement was made.");
-  console.log("NOTE: Bob's daily upload count is NOT reset by this -- nothing can reset it.");
-  console.log("It falls out of usage_counts' own 7-day window, and his allowance returns at 00:00 UTC.");
+  console.log(`NOTE: ${PERSON.label}'s daily upload count is NOT reset by this -- nothing can reset it.`);
+  console.log("It falls out of usage_counts' own 7-day window, and the allowance returns at 00:00 UTC.");
   process.exit(0);
 }
 
@@ -1087,17 +1321,22 @@ if (cleanupOnly) {
 console.log("Build it 25 part 2b -- the daily upload count, against STAGING only");
 console.log(`  project:  ${STAGING_HOST} (host checked exactly)`);
 console.log(`  limit:    ${UPLOADS_PER_DAY} uploads per person per UTC day`);
-console.log(`  as:       Bob -- NOT Alice, because this spends a day that cannot be given back`);
+console.log(`  as:       ${PERSON.label} -- named with --as, because this spends a day nothing can give back`);
 console.log(`  creates:  ${TASKS_NEEDED} tasks and up to ${UPLOADS_PER_DAY + 1} files of ${PNG_BYTES.length} bytes`);
 console.log(`  marks:    every task is titled "${MARK} …"`);
 console.log("");
 console.log("  Run BEFORE applying the migration and AFTER. Before, the count checks");
-console.log("  MUST FAIL. Section 4 is the one that matters either way: it prints the");
-console.log("  exact status and body Storage returns for the thirty-first upload.");
+console.log("  MUST FAIL. Section 5 is the one that matters either way: it prints the");
+console.log(`  exact status and body Storage returns for the ${UPLOADS_PER_DAY + 1}th upload.`);
 console.log("");
 
-const bob = await signIn(BOB);
+PERSON.session = await signIn(PERSON);
 let tasksMade = null;
+
+// The arithmetic the cleanup reconciles against, and the answer to "29 file(s)
+// removed when 30 uploads were accepted". Both are set by the run below.
+let uploadsAccepted = null;
+let filesDeletedInRun = null;
 
 // Did the limit refuse anything in this run? null until section 3 has looked.
 // The closing notice reports this rather than asserting a side effect it has not
@@ -1109,7 +1348,7 @@ try {
   const made = [];
   for (let i = 1; i <= TASKS_NEEDED; i += 1) {
     const answer = await rest("POST", "tasks?select=id", {
-      accessToken: bob.accessToken,
+      accessToken: PERSON.session.accessToken,
       body: { title: `${MARK} ${i}` },
     });
     if (!answer.error && answer.status < 400 && Array.isArray(answer.json) && answer.json[0]?.id) {
@@ -1123,7 +1362,7 @@ try {
   if (tasksMade !== TASKS_NEEDED) {
     say("Stopping: without the tasks, nothing below would mean anything.");
   } else if (skipLimit) {
-    say("2-4. SKIPPED -- --skip-limit was passed, so Bob's day is not spent.");
+    say("2-5. SKIPPED -- --skip-limit was passed, so nobody's day is spent.");
     record([
       {
         what: `the ${UPLOADS_PER_DAY + 1}th upload is refused, and what Storage says about it`,
@@ -1133,20 +1372,103 @@ try {
     ]);
     say("");
   } else {
-    // ---- the first thirty ------------------------------------------------
-    say(`2. the first ${UPLOADS_PER_DAY} uploads, ${FILES_PER_TASK} per task`);
-    const statuses = [];
-    for (let i = 1; i <= UPLOADS_PER_DAY; i += 1) {
-      const task = made[Math.floor((i - 1) / FILES_PER_TASK)];
-      const answer = await upload(task, `f${i}.png`, bob);
-      statuses.push(answer.error ? null : answer.status);
+    // =====================================================================
+    // THE ORDER OF WHAT FOLLOWS IS THE WHOLE FIX OF 2026-10-12
+    // =====================================================================
+    //
+    // The cheap checks -- the per-task refusal, and deleting to make room --
+    // RUN FIRST, while the person is nowhere near 30. Run after the limit is
+    // reached, as they were on 12 October, every refusal in them is the daily
+    // limit and they report the wrong thing twice over: one passed because it
+    // only asked "was it refused", and the next failed for a cause it named
+    // wrongly.
+    //
+    // Then the run to exactly 30, then the thirty-first, and NOTHING AFTER IT
+    // THAT NEEDS AN UPLOAD.
+    //
+    // THE ARITHMETIC, worked out here rather than discovered in the output:
+    //
+    //   section 2 on task 0:  3 uploads, a fourth REFUSED (per-task),
+    //                         one deleted, 1 upload, one deleted, 1 upload
+    //                         -> 5 ACCEPTED, 2 deleted, task 0 holds 3
+    //   section 3:            25 more, over tasks 1..9 at 3 each (task 9 gets 1)
+    //                         -> 30 ACCEPTED in total
+    //   section 4:            the 31st, to task 10, WHICH IS EMPTY -- so the only
+    //                         thing that can refuse it is the daily limit
+    //
+    // AT THE END THE COUNTER SHOULD READ EXACTLY 30: thirty accepted uploads
+    // counted once each, and nothing else counted -- not the per-task refusal,
+    // not the two deletes, not the thirty-first.
+    //
+    // AND 28 FILES SHOULD EXIST: 30 uploaded minus the 2 this run deleted. That
+    // is what section 6's reconciliation checks, and it is the thing that could
+    // not be seen on 12 October, when "29 file(s)" was correct and unexplained.
+    let accepted = 0;
+    let refusedEarly = 0;
+    let deletedInRun = 0;
+
+    // ---- the cheap checks, BEFORE the limit -------------------------------
+    say(`2. before the limit: a per-task refusal, and deleting to make room`);
+    say(`   (${PERSON.label} is at 0, so nothing here can be the daily limit)`);
+
+    for (let i = 1; i <= FILES_PER_TASK; i += 1) {
+      const answer = await upload(made[0], `a${i}.png`, PERSON.session);
+      if (!answer.error && answer.status < 400) accepted += 1;
+      else refusedEarly += 1;
     }
-    record(judgeFirstThirty(statuses, UPLOADS_PER_DAY));
+    say(`   task 1 filled with ${FILES_PER_TASK} files; ${accepted} accepted so far`);
+
+    // A fourth file on a full task. The per-task limit must refuse it, and the
+    // judgement asserts it was NOT the daily one.
+    const fourth = await upload(made[0], "a-fourth.png", PERSON.session);
+    record(judgePerTaskRefusal(fourth, SQLSTATE));
     say("");
 
-    // ---- THE THIRTY-FIRST ------------------------------------------------
-    say(`3. THE ${UPLOADS_PER_DAY + 1}th UPLOAD, and what the Storage API makes of it`);
-    const oneTooMany = await upload(made[Math.floor(UPLOADS_PER_DAY / FILES_PER_TASK)], "f31.png", bob);
+    // Free a place, then upload into it. Both of these are on task 1, whose
+    // contents this run knows exactly -- no listing and no ordering involved,
+    // which is the other half of what went wrong on 12 October.
+    say("3. deleting a file makes room on the task");
+    const freed = await removeFile(made[0], "a1.png", PERSON.session);
+    if (!freed.error && freed.status < 400) deletedInRun += 1;
+    const intoTheGap = await upload(made[0], "a-replacement.png", PERSON.session);
+    if (!intoTheGap.error && intoTheGap.status < 400) accepted += 1;
+    record(judgeDeleteMakesRoom(freed, intoTheGap, SQLSTATE));
+
+    // And once more, so the count of accepted uploads is 5 and task 1 is full
+    // again -- which keeps the arithmetic above exactly as written.
+    const freedAgain = await removeFile(made[0], "a2.png", PERSON.session);
+    if (!freedAgain.error && freedAgain.status < 400) deletedInRun += 1;
+    const second = await upload(made[0], "a-replacement-2.png", PERSON.session);
+    if (!second.error && second.status < 400) accepted += 1;
+    say(`   ${accepted} accepted, ${deletedInRun} deleted by this run`);
+    say("");
+
+    // ---- up to exactly the limit -----------------------------------------
+    say(`4. up to exactly ${UPLOADS_PER_DAY} accepted uploads`);
+    let nextTask = 1;
+    let onThisTask = 0;
+    while (accepted < UPLOADS_PER_DAY && nextTask < TASKS_NEEDED - 1) {
+      const answer = await upload(made[nextTask], `b${accepted + 1}.png`, PERSON.session);
+      if (!answer.error && answer.status < 400) {
+        accepted += 1;
+        onThisTask += 1;
+        if (onThisTask === FILES_PER_TASK) {
+          nextTask += 1;
+          onThisTask = 0;
+        }
+      } else {
+        refusedEarly += 1;
+        break;
+      }
+    }
+    record(judgeAcceptedExactly(accepted, refusedEarly, UPLOADS_PER_DAY));
+    say("");
+
+    // ---- THE ONE OVER ----------------------------------------------------
+    say(`5. THE ${UPLOADS_PER_DAY + 1}th UPLOAD, and what the Storage API makes of it`);
+    say(`   it goes to task ${TASKS_NEEDED}, WHICH IS EMPTY -- so the per-task limit cannot be`);
+    say(`   the cause and the daily limit is the only thing left`);
+    const oneTooMany = await upload(made[TASKS_NEEDED - 1], "one-too-many.png", PERSON.session);
     // Recorded before the judgement, so the closing notice reports what arrived
     // rather than what the judgement made of it. An attempt that never arrived
     // leaves it null, which is "unknown" and not "no".
@@ -1154,49 +1476,12 @@ try {
     record(judgeThirtyFirst(oneTooMany, UPLOADS_PER_DAY, SENTENCE, SQLSTATE));
     say("");
 
-    // ---- a refusal costs nothing ----------------------------------------
-    // Done AFTER the limit is reached, on a task that already has three, so the
-    // refusal is the per-task limit and not the daily one. A fourth file is
-    // refused; then one place is freed and an upload must still be allowed.
-    say("4. a refusal that is not the daily limit costs no slot");
-    const fourth = await upload(made[0], "fourth.png", bob);
-    await removeFile(made[0], "f1.png", bob);
-    const afterFreeing = await upload(made[0], "replacement.png", bob);
-    record(judgeRefusalCostsNothing(fourth, afterFreeing));
-    say("");
+    // NOTHING AFTER THIS NEEDS AN UPLOAD. Every upload from here would be
+    // refused by the daily limit, and a check whose every answer is the same
+    // answer is not a check.
+    uploadsAccepted = accepted;
+    filesDeletedInRun = deletedInRun;
   }
-
-  // ---- a delete costs nothing -------------------------------------------
-  say("5. deleting a file costs no slot");
-  if (tasksMade !== TASKS_NEEDED || skipLimit) {
-    record([
-      {
-        what: "deleting a file costs no slot",
-        verdict: UNVERIFIED,
-        detail: skipLimit ? "--skip-limit was passed" : "the setup did not complete",
-      },
-    ]);
-  } else {
-    const tasks = await myTasks(bob);
-    const last = tasks.length > 0 ? tasks[tasks.length - 1].id : null;
-    if (last === null) {
-      record([
-        { what: "deleting a file costs no slot", verdict: UNVERIFIED, detail: "no task to use" },
-      ]);
-    } else {
-      const names = await listFiles(last, bob);
-      if (names.length === 0) {
-        record([
-          { what: "deleting a file costs no slot", verdict: UNVERIFIED, detail: "no file to delete" },
-        ]);
-      } else {
-        const deleted = await removeFile(last, names[0].split("/").pop(), bob);
-        const after = await upload(last, "after-delete.png", bob);
-        record(judgeDeleteCostsNothing(deleted, after));
-      }
-    }
-  }
-  say("");
 
   // ---- the restore case --------------------------------------------------
   say("6. the service-role restore, which this script cannot do");
@@ -1204,15 +1489,17 @@ try {
   say("");
 } finally {
   say("7. tidying up -- files first, then the tasks");
-  const { filesRemoved, tasksRemoved } = await cleanup(bob);
+  const { filesRemoved, tasksRemoved } = await cleanup(PERSON.session);
   say(`  ${filesRemoved} file(s), ${tasksRemoved} task(s)`);
-  record(judgeCleanup(filesRemoved, tasksRemoved, tasksMade));
+  record(
+    judgeCleanup(filesRemoved, tasksRemoved, tasksMade, uploadsAccepted, filesDeletedInRun),
+  );
   say("");
 
   say("8. what this run actually did");
   record(judgeTouchedNothingElse(REQUEST_LOG));
   record(judgeNothingLeaked(PRINTED, PLACEHOLDERS));
-  await signOut(bob);
+  await signOut(PERSON.session);
   say("");
 
   const total = passes + failures + unverified;
@@ -1236,23 +1523,23 @@ try {
   // role may select usage_counts, by design -- and this says that rather than
   // implying it looked.
   if (skipLimit) {
-    console.log("BOB'S ALLOWANCE WAS NOT TOUCHED: --skip-limit was passed, so no upload");
+    console.log("THE ALLOWANCE WAS NOT TOUCHED: --skip-limit was passed, so no upload");
     console.log("beyond the setup was attempted.");
   } else if (limitRefusedSomething === true) {
-    console.log("AND BOB'S DAILY UPLOAD ALLOWANCE IS NOW SPENT. That is OBSERVED rather than");
+    console.log("AND THAT DAILY UPLOAD ALLOWANCE IS NOW SPENT. That is OBSERVED rather than");
     console.log("assumed: the limit refused an upload in this run, which it can only do once");
     console.log(`${UPLOADS_PER_DAY} have been counted. Nothing in this project can reset a count in`);
     console.log("usage_counts -- service_role deliberately holds no privilege on it -- so it");
     console.log("returns at 00:00 UTC. Use --skip-limit for a run that must not do that.");
   } else if (limitRefusedSomething === false) {
-    console.log(`BOB'S ALLOWANCE IS PROBABLY UNSPENT, AND THAT IS A FINDING RATHER THAN GOOD NEWS:`);
+    console.log(`THE ALLOWANCE IS PROBABLY UNSPENT, AND THAT IS A FINDING RATHER THAN GOOD NEWS:`);
     console.log(`${UPLOADS_PER_DAY + 1} uploads were accepted and the limit refused NOTHING, so either the`);
     console.log("migration is not applied or the trigger is not counting what it should.");
     console.log("Section 3 above is the evidence. This exact state was seen on staging on");
     console.log("12 October 2026, and the cause was that the insert which commits carries no");
     console.log("session -- evidence/build-it-25-upload-count.md.");
   } else {
-    console.log("WHETHER BOB'S ALLOWANCE WAS SPENT IS UNKNOWN: this run did not get far enough");
+    console.log("WHETHER THE ALLOWANCE WAS SPENT IS UNKNOWN: this run did not get far enough");
     console.log("to find out, and no client role may read usage_counts to check.");
   }
 }

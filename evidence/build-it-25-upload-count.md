@@ -16,12 +16,27 @@
 > that. **A model faithful to the schema was not faithful to the client**, and the first thing the
 > fix did was build one that is — section 10.2.
 
-Result: **The first migration applies and is applied to staging, and its counting did not work.** The
-**second** migration is proved against a faithful reproduction of the Storage API's own insert
-sequence, and is applied nowhere. `CREATE TRIGGER` needs the **TRIGGER privilege and not ownership**,
-so the first migration asks before it creates anything — proved both ways, and the staging push got
-past it. **STILL UNVERIFIED**: what the Storage API makes of a trigger's exception, which is a property
-of a service and no database can answer.
+> ## AND THE SECOND MIGRATION WORKS ON STAGING — later the same day
+>
+> **30 of 30 accepted, the thirty-first refused, and `usage_counts` holds one `uploads` row with
+> `used = 30`.** Section 11 is the record.
+>
+> **The sentence does not survive the Storage API and the SQLSTATE does**: the browser gets
+> `HTTP 500, {"statusCode":"500","error":"DatabaseError","message":"database error, code: 54000",…}`.
+> So the daily limit and a real outage both answer 500, which is
+> [#297](https://github.com/build-once/team-tasks/issues/297).
+>
+> **And the script was wrong twice while the migration was right**: a judgement that accepted *any*
+> refusal as the per-task one, and a `myTasks` query with no `ORDER BY` under a comment claiming an
+> order. Both are fixed, the checks are **reordered** so the cheap ones run before the limit, and
+> section 12 is the arithmetic worked out in advance.
+
+Result: **The second migration works, on staging, and the first one's counting did not.** Both are
+proved against a faithful reproduction of the Storage API's own insert sequence; the second is applied
+to staging and to nothing else. `CREATE TRIGGER` needs the **TRIGGER privilege and not ownership** —
+proved both ways, and the staging push got past the pre-check. **STILL UNVERIFIED**: nothing about
+production, and the screen's sentences, which [#297](https://github.com/build-once/team-tasks/issues/297)
+holds.
 
 Date: 2026-10-12
 Issue: Build it 25 part 2b, from `docs/plan.md` → "Files attached to a task" → "AN UPLOAD IS NOW COUNTED
@@ -520,3 +535,138 @@ good news** and points here.
 **A closing line that reports a side effect it has not checked is a line that teaches the reader to
 distrust the whole report**, which is the same fault as section 9.3's prediction, in the code rather
 than in a message.
+
+---
+
+## 11. THE FIX WORKS ON STAGING — and the script was wrong twice. 12 October 2026
+
+**The owner's run**, with `20261012150000` applied: **9 PASS, 1 FAIL, 4 UNVERIFIED.**
+
+**The migration is right.** The thirty of thirty were allowed, and **the thirty-first was refused**:
+
+```
+HTTP 500
+{"statusCode":"500","error":"DatabaseError","message":"database error, code: 54000","code":"DatabaseError"}
+```
+
+**The coach's read-only check afterwards**, reported: `usage_counts` holds **one `uploads` row with
+`used = 30`**; no `bi25` tasks left; no attachments objects created in the last three hours remain.
+
+**So: thirty uploads, thirty counted, the thirty-first refused, nothing left behind.** That is the
+whole of what this migration was for, and it is done.
+
+### 11.1 The sentence does not survive, and the SQLSTATE does
+
+`You've reached today's limit. It resets tomorrow.` reaches the browser as **`database error, code:
+54000`**. So the screen cannot use the words the database chose — and **the daily limit and a real
+outage both answer HTTP 500**, which is worse than vague.
+
+The migration's section 6 predicted this and proposed the answer: **ask `attachments_may_add()` after a
+refusal** rather than infer from the status. [#297](https://github.com/build-once/team-tasks/issues/297)
+is that, filed with the real body as its evidence, and it carries one operational note as well —
+**every refused upload is logged by Storage as a 500**, so normal by-design refusals will look like
+outages to anything that ever counts 5xx.
+
+### 11.2 The FAIL was mine, and the coach's reading of it is correct
+
+The coach's reading: *"sections 4 and 5 ran after Bob reached 30, so every refusal there was the daily
+limit (500), not the per-task limit (400 on 12 Oct's first run)."* **Checked against the script, and it
+is right in all three parts:**
+
+| What the script did | Why |
+|---|---|
+| section 4's fourth file on a full task was refused **500** | the trigger is **BEFORE INSERT**, so it runs before the policy's `with check`. At 30, the daily limit refuses before `attachments_may_add` is ever consulted |
+| that judgement **PASSED** | it only asked `status >= 400`. **Any refusal satisfied it** |
+| the upload after it **FAILED** | the task had room, so the per-task limit was fine — and the daily limit refused it, correctly. The judgement named the wrong cause |
+| section 5 said "no file to delete" | `myTasks` was queried with **no `order=`** while its own comment claimed "newest first", so `tasks[length - 1]` was arbitrary and landed on the one task with no files |
+
+**TWO SEPARATE FAULTS, AND THE FIRST IS #174 COMMITTED INSIDE A CHECK.** A judgement that accepts any
+refusal as "the per-task limit refused it" is one status standing for more than one meaning — the exact
+pattern this repository files issues about, written into the thing that was supposed to catch it. **The
+second is a comment that described an ordering nothing asked for**: a sentence in a comment is not an
+`ORDER BY`.
+
+### 11.3 And "29 file(s)" was correct, which nobody could see
+
+The cleanup reported **29** after **30** accepted uploads and a section 5 that deleted nothing.
+**Nothing was lost.** Section 4 deleted one itself — `removeFile(made[0], "f1.png")`, to free a place
+on a full task — so 30 uploaded minus 1 deleted is 29 remaining. The coach's check confirms staging
+holds no leftover.
+
+**The number was right and the report could not show it**, which left the owner to work out whether a
+file had gone missing. That is the fault worth fixing, and it is the same shape as the closing notice
+of section 10.5: **a report that cannot show its own arithmetic is a report somebody has to audit by
+hand.**
+
+---
+
+## 12. THE REORDERED SCRIPT, and the arithmetic worked out in advance
+
+### 12.1 The order, and why it is the fix
+
+**The cheap checks run FIRST, while the person is nowhere near the limit.** Run after it, every refusal
+in them is the daily limit and they report the wrong thing twice over.
+
+| Section | What, and at what count |
+|---|---|
+| **1** | 11 tasks |
+| **2** | task 1: three uploads, then a **fourth refused by the per-task limit** — at a count of 3, so it cannot be the daily one |
+| **3** | delete one, upload into the gap; delete another, upload again — **deleting makes room**, still far from the limit |
+| **4** | top up to **exactly 30 accepted** |
+| **5** | **the 31st**, to task 11, **which is empty** — so the per-task limit cannot be the cause |
+| **6-8** | the restore case, cleanup, footprint. **Nothing after section 5 needs an upload** |
+
+### 12.2 The arithmetic, which is now the proof rather than a pairwise check
+
+```
+section 2   3 accepted, 1 refused (per-task), task 1 holds 3
+section 3   -1 deleted, +1 accepted, -1 deleted, +1 accepted
+            -> 5 accepted, 2 deleted, task 1 holds 3 again
+section 4   +25 accepted over tasks 2..10 at 3 each (task 10 gets 1)
+            -> 30 ACCEPTED
+section 5   the 31st, to task 11 (empty) -> REFUSED
+```
+
+**THE COUNTER SHOULD READ EXACTLY 30 AT THE END.** Thirty accepted uploads counted once each, and
+nothing else counted — not the per-task refusal, not the two deletes, not the thirty-first.
+
+**AND THAT IS WHAT PROVES A REFUSAL COSTS NO SLOT**, which the old pairwise check could not. If the
+per-task refusal or either delete had spent a slot, the run would have been refused **before** reaching
+30 — and `judgeAcceptedExactly` fails on exactly that. The arithmetic is the control; the pairwise
+comparison was a guess dressed as one.
+
+**28 FILES SHOULD REMAIN** — 30 uploaded minus the 2 this run deleted — and the cleanup judgement now
+reconciles that rather than printing a bare number. A mismatch is a finding in either direction: fewer
+means something is left on staging, more means it removed something it did not make.
+
+### 12.3 And the per-task judgement now asserts WHICH refusal
+
+By **the absence of the SQLSTATE in the body**, not by the status. A status is a weaker thing to depend
+on than the code the trigger actually raises, and if Storage ever changes what it returns for a policy
+refusal this still reads correctly. **The body is printed either way**, because what a policy refusal
+looks like from outside is still not written down.
+
+### 12.4 Seen to fail
+
+`judgePerTaskRefusal`'s discriminator (`if (mentions(answer, sqlstate))`) replaced with `if (false)`:
+
+```
+WRONG  THE WORLD OF 12 OCTOBER: it was the DAILY limit wearing a refusal's clothes
+WRONG  and the same for a body that carries only the SQLSTATE
+45 cases, 2 wrong.
+```
+
+Restored: `45 cases, 0 wrong.` **37 → 45**, and six of the eight new cases exist because of the fault in
+11.2 — including one carrying **the body staging actually returned**, which the per-task judgement must
+refuse to accept.
+
+### 12.5 Whose day it spends: `--as`, and it is required
+
+Hard-coded to Bob until today, which was fine until the day Bob's allowance was already spent by the
+run that found the no-session bug. **A hard-coded account is an account you cannot move off when it
+runs out.**
+
+`--as alice | bob | carol`, **no default** — naming it is how the person says they meant to spend that
+day. **No password is ever an argument**: both values are read from the environment, so
+`source ~/.config/team-tasks/staging.env` puts all three in place and nothing secret reaches a shell
+history or `ps`.
