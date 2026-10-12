@@ -1,11 +1,27 @@
 # Evidence: Build it 25 part 2b — the daily upload count
 
-Result: **PASS for everything a local PostgreSQL sandbox can decide, and that turned out to include the
-one thing nobody expected it to: a refused push leaves nothing behind.** `CREATE TRIGGER` needs the
-**TRIGGER privilege and not ownership**, so the migration asks before it creates anything — proved both
-ways. **UNVERIFIED for the one question that decides whether the screen can say anything useful**:
-what the Storage API makes of a trigger's exception. That is a property of a service and no database
-can answer it.
+> ## THE FIRST MIGRATION WAS APPLIED TO STAGING AND DID NOTHING — 12 October 2026
+>
+> **The thirty-first upload still answered HTTP 200**, and `usage_counts` held **zero** rows with
+> feature `uploads` after thirty-one accepted uploads. The trigger was there, enabled, and taking its
+> own no-uploader branch on every insert.
+>
+> **The cause: the insert that commits has no session.** The Storage API performs **three** inserts per
+> upload, and only the last one is kept — and it runs on a superuser connection where `auth.uid()` is
+> null. **Section 9 is the source that says so, read rather than inferred**, and section 10 is the
+> second migration that fixes it forward.
+>
+> **The local sandbox could never have shown this**, and that is the lesson rather than the bug:
+> it inserted into `storage.objects` directly, as the signed-in role. Nothing in this app ever does
+> that. **A model faithful to the schema was not faithful to the client**, and the first thing the
+> fix did was build one that is — section 10.2.
+
+Result: **The first migration applies and is applied to staging, and its counting did not work.** The
+**second** migration is proved against a faithful reproduction of the Storage API's own insert
+sequence, and is applied nowhere. `CREATE TRIGGER` needs the **TRIGGER privilege and not ownership**,
+so the first migration asks before it creates anything — proved both ways, and the staging push got
+past it. **STILL UNVERIFIED**: what the Storage API makes of a trigger's exception, which is a property
+of a service and no database can answer.
 
 Date: 2026-10-12
 Issue: Build it 25 part 2b, from `docs/plan.md` → "Files attached to a task" → "AN UPLOAD IS NOW COUNTED
@@ -88,6 +104,12 @@ implying TRIGGER was checked too, not assumed: with the owner changed, `may_trig
 
 **That is a chain of two measurements and one observed fact, not a reading of a page**, so it is written
 as an expectation. The migration's section 0 is what makes a wrong answer harmless.
+
+> **AND THE CHAIN WAS WRONG — see section 9.2.** The coach read staging on 12 October: `storage.objects`
+> is owned by **`supabase_storage_admin`**, not by the role that applies migrations. **The conclusion
+> happened to be right** — `postgres` does hold TRIGGER on both projects, and the push got past section
+> 0 — but it was right for a reason nobody here established. This paragraph is left as written, because
+> a wrong argument that produced a right answer is the kind of thing worth being able to find again.
 
 ---
 
@@ -279,7 +301,7 @@ through the app, "not even the person whose count it is".
 | What | Why it could not be settled here | What settles it |
 |---|---|---|
 | **What the Storage API returns for the 31st upload** | it is a service, not a database | the staging script's section 3, which prints it |
-| **Whether `db push` may create the trigger on a real project** | a local `postgres` owns everything. The expectation is yes, from the policy-ownership chain in section 2 | the owner's `db push`. **A no is harmless**: section 0 refuses with nothing applied |
+| ~~**Whether `db push` may create the trigger on a real project**~~ **ANSWERED: yes.** The owner's push of 12 Oct got past section 0 and the trigger exists on staging. `postgres` holds TRIGGER on both projects | — | **done** |
 | **That the count refuses over the Storage API** rather than in `psql` | everything here is a direct connection | the staging script, before and after |
 | **That a service-role restore is uncounted on a real project** | a staging script holds no service-role key and must not | section 5 established it on PostgreSQL; the owner can repeat it in the dashboard's SQL editor |
 | **Whether `supabase db push` wraps a migration in a transaction** | not established. The pessimistic case was measured — raw `psql -f` does **not** roll back | reading the CLI's behaviour, or one deliberately-failing migration |
@@ -301,3 +323,200 @@ be printed, and a judgement at the end asserts that none of them reached the out
 feeds that judgement a printed body carrying a live token and requires **FAIL**.
 
 **The list of replaced values is empty, and that is a complete answer.**
+
+---
+
+## 9. WHAT STAGING SHOWED, AND THE SOURCE THAT EXPLAINS IT — 12 October 2026
+
+### 9.1 The run, and the read-back
+
+**The owner's runs**, reported; nobody writing this ran them.
+
+| | Before the migration | After it |
+|---|---|---|
+| Totals | **10 PASS, 1 FAIL, 1 UNVERIFIED** | **identical** |
+| The 31st upload | HTTP 200 | **HTTP 200** |
+
+**The coach's read of staging afterwards**, through the read-only connector, reported:
+
+- migration `20261012120000` is recorded;
+- the trigger `attachments_count_upload` exists on `storage.objects` and is **enabled** (`tgenabled` `O`);
+- the function exists;
+- `usage_counts_feature_allowed` lists **three** words;
+- **`usage_counts` holds ZERO rows with feature `uploads`** after thirty-one accepted uploads;
+- `storage.objects` is owned by **`supabase_storage_admin`**, and **`postgres` holds TRIGGER on it on
+  both projects.**
+
+**So the migration did everything it said and the trigger did nothing.** The only branch that can
+produce that is `if l_uploader is null then return new`, which means **`auth.uid()` is null on the
+insert that commits.**
+
+### 9.2 AND ONE OF MY OWN CLAIMS WAS WRONG, which this file has to say rather than pass over
+
+The pull request argued that the `db push` role **owns** `storage.objects`, because `CREATE POLICY` on
+it needs ownership and the attachments migration created three policies there. **The owner is
+`supabase_storage_admin`, not that role.** So the chain was wrong — `postgres` is presumably a member
+of that role, or holds the privileges another way, and nobody here established which.
+
+**The conclusion drawn from it happened to be right**: `postgres` does hold TRIGGER on both projects,
+and the push got past section 0. **A correct answer from a wrong argument is still a wrong argument**,
+and the thing that made it harmless was the pre-check, which asks the database instead of reasoning
+about it.
+
+### 9.3 And the prediction of the "before" totals was wrong — 1/2/4 against 10/1/1
+
+The pull request predicted **1 PASS, 2 FAIL, 4 UNVERIFIED** for the run before the migration. The
+actual was **10 PASS, 1 FAIL, 1 UNVERIFIED**. The script was right and the prediction was careless;
+three separate errors, each worth naming because they are different mistakes:
+
+| Predicted | Actually | Why the prediction was wrong |
+|---|---|---|
+| `AND THE UPLOAD AFTER IT IS STILL ALLOWED` would **FAIL** | **PASS** | The prediction said the follow-up upload "is the 33rd file on an 11-task set and the per-task 3 refuses it". It is not: the script **deletes `f1.png` from that task first**, so the task holds two files and the upload fits. I reasoned about the script instead of reading the twelve lines that do it |
+| the footprint, leak and cleanup judgements counted as **UNVERIFIED** | **4 PASS** | They are plain passes when nothing is wrong. I counted every judgement that is "not about the limit" as unverified, which is not what any of them returns |
+| the setup and first-thirty judgements not counted at all | **2 PASS** | Simple omission |
+
+**What this costs, stated plainly: nothing about the code, and something about the reports.** The
+prediction was decoration — the script computes its own totals and the owner read them — but a number
+offered confidently and wrong is exactly what rule 15 is about, and it was offered in the same message
+as numbers that had been counted. **The ones that were counted were right; this one was not counted at
+all.**
+
+### 9.4 THE SOURCE: three inserts per upload, and only the last one commits
+
+Read on **2026-10-12** from `github.com/supabase/storage`, branch `master`, through the GitHub API —
+the files were fetched and read, not searched for a summary.
+
+| Where | What it does |
+|---|---|
+| `src/storage/uploader.ts:83-101` | `authorizeUpload` calls `db.testPermission(...)`, which **inserts the row** to see whether the caller's policies allow it |
+| `src/storage/database/pg.ts:408-423` | `testPermission` runs that inside `withTransaction` and then throws a private sentinel so the transaction **rolls back**: `if (e === testPermissionRollbackError) return result` |
+| `src/storage/uploader.ts:239` | the real write opens **one outer superuser transaction**: `this.db.asSuperUser().withTransaction(...)` |
+| `src/storage/uploader.ts:274` | **inside it, a second probe as the caller**: `this.authorizeUpload(db.asCaller(), {...})` |
+| `src/storage/uploader.ts:236-238` | and its own comment: *"Keep one outer superuser transaction. The final caller-policy probe shares its locks and **rolls back only its savepoint**"* |
+| `src/storage/uploader.ts:287` | then `db.upsertObject(...)` **on the superuser connection** — the insert that commits, carrying no session |
+
+**And the uploader is in the row**, `src/storage/database/pg.ts:1561-1573`:
+
+```js
+owner:    isUuid(data.owner || '') ? data.owner : undefined,
+owner_id: data.owner,
+```
+
+so `owner_id` takes the value raw and the legacy `owner` column only when it is a uuid — **which is why
+the cast in the fix must not assume one.**
+
+**And `data.owner` is the verified token's subject**, `src/http/plugins/jwt.ts:57`:
+`request.owner = payload.sub`, set by the server after it verifies the token. The request body is never
+consulted for it.
+
+**The coach's hypothesis was right, and this is more precise than it in one way that matters**: the
+second probe is not a separate connection, it is a **savepoint inside the same superuser transaction**
+as the real insert. A design that relied on "the probe is a different transaction" would have been
+relying on something that is not true.
+
+### 9.5 THE DIAGNOSTIC, if the source is ever in doubt
+
+Two booleans and nothing else. **No id, no path, no name, no address** — there is no column in the
+select list for one to travel in. Run it with at least one file in the bucket:
+
+```sql
+select
+  bool_and(o.owner_id is not null)                                    as every_object_has_an_owner,
+  bool_and(o.owner_id::text in (select u.id::text from auth.users u)) as every_owner_is_a_real_user
+from storage.objects o
+where o.bucket_id = 'attachments';
+```
+
+`t, t` says the row carries a real user id, which is the whole of what the fix depends on. **It was not
+needed in the end** — the source settled it — and it is written down because a reading of somebody
+else's `master` branch is not a reading of what staging runs.
+
+---
+
+## 10. THE FIX, AND THE PROOF AGAINST A FAITHFUL CLIENT
+
+`20261012150000_upload_count_from_owner_id.sql`. **The first migration is not edited**: it is applied to
+staging, and editing an applied migration leaves this repository and that database silently
+disagreeing. This replaces the function body with `create or replace` and adds one reader; **the trigger
+is not touched**, which is also why this migration needs no TRIGGER privilege and carries no pre-check.
+
+**The rule, in one sentence: the uploader is `coalesce(auth.uid(), new.owner_id)`, and the count is
+written only on the insert that has no session — the one that commits.** An insert that has a session
+is one of the Storage API's probes: it is **checked** against the limit, so the refusal still happens
+before the bytes are sent, and it **never writes**.
+
+**Why checked-but-not-counted rather than counted-and-rolled-back**, which is the simpler version and
+would also have given the right total: that version is right **only because somebody else's code rolls
+its probes back**. This one is right whatever a later version of the Storage API does with them. The
+owner asked for one real upload not to be counted twice; this makes it structurally impossible rather
+than conditionally true.
+
+### 10.1 The sandbox, rebuilt to be faithful to the CLIENT
+
+Fifteen files applied in order — the stand-in, the thirteen earlier migrations, and both of this
+build's — **15 of 15 with exit 0**. Then a stored procedure performs **one upload exactly as
+`uploader.ts` does**: probe, rolled back; probe, rolled back to a savepoint inside a superuser
+transaction; then the real insert with no session and `owner_id` set.
+
+### 10.2 What it shows
+
+| What | Result |
+|---|---|
+| **one upload, the Storage API way** | **counted ONCE** — not zero, not three |
+| a second | **2** |
+| up to thirty | **30**, and 30 objects |
+| **the thirty-first** | **refused. `sqlstate=[54000]`, `message=[You've reached today's limit. It resets tomorrow.]`** |
+| and after it | **the count is still 30 and there are still 30 objects** — so the refusal came from the FIRST probe, before any byte would have been sent, and spent nothing |
+| **the service-role restore: 40 files, one committed statement** | **all 40 land, ZERO usage rows** |
+| a **non-uuid** `owner_id` | **accepted, the cast did not raise**, and not counted |
+| a **uuid `owner_id` that is not a user** | **refused `23503`** — fail closed, by `usage_counts`' foreign key |
+| a different bucket | not counted |
+| a **bare direct insert as the signed-in role** | **0 usage rows** — checked and not counted |
+| `authenticated` → `uploads_used_today`, `count_daily_use`, `usage_counts` | **false, false, false**; and `service_role` → `uploads_used_today` **false** |
+
+**The last-but-one row is the one thing this makes weaker than the first version**, and it is in the
+migration's own section 4: a signed-in person inserting into `storage.objects` **directly** would be
+checked and not counted. It is **believed unreachable** — the `storage` schema is not exposed by the
+Data API — and believed is the right word, because nobody confirmed it.
+
+### 10.3 Where the refusal lands, which is better than it was going to be
+
+The first probe runs in `prepareUpload`, **before the bytes are sent**, and a raise from the trigger
+propagates because `testPermission` re-throws anything that is not its own sentinel
+(`pg.ts:415-419`). So somebody at their limit is refused **before uploading anything** — which costs
+them nothing and costs this project no ingress.
+
+**What that looks like as an HTTP answer is still unknown**, and is still
+`scripts/staging/build-it-25-upload-count-checks.mjs` section 3's job to print.
+
+### 10.4 The three questions the owner asked, answered
+
+**Can `owner_id` be forged by a signed-in caller?** Not through the normal upload path:
+`request.owner = payload.sub`, server-side from the verified token, and the body is never consulted.
+And the bucket's `INSERT` policy already refuses a row whose `owner_id` is neither null nor the caller.
+**Not confirmed**: the S3-compatible and TUS protocols were not read.
+
+**Do signed upload URLs bypass or double-count?** Neither, and they behave differently:
+`src/http/routes/object/uploadSignedObject.ts:88-99` takes the owner out of the signed token and runs
+the whole upload `asSuperUser()` — so there is **no caller probe at all**. The committing insert carries
+the owner, so it is **counted once, against whoever asked for the URL**, and a person at their limit is
+refused on that insert rather than early. **This app does not use them** (`AttachFile.tsx` uploads
+directly), so it is recorded rather than designed for.
+
+**Does upsert bypass or double-count?** It would be **counted** — `upsertObject` is
+`INSERT ... ON CONFLICT DO UPDATE` (`pg.ts:1728-1740`) and a BEFORE INSERT trigger fires on the insert
+attempt — which is defensible, because replacing a file spends the traffic. **Not reachable here**: the
+bucket has no UPDATE policy and the app sends `upsert: false` (`AttachFile.tsx:157`). **Not confirmed**:
+what the trigger does on the UPDATE half of such a statement, because nothing here can make one.
+
+### 10.5 And the closing notice now reports what was seen
+
+The script's last line said Bob's allowance was spent **whatever happened** — and on 12 October it said
+that after a run in which **nothing was counted**. It now reports the one thing it can observe from
+outside: whether the limit refused anything. If it refused, the allowance is spent and the line says
+that is **observed**; if thirty-one uploads were all accepted, it says that is **a finding rather than
+good news** and points here.
+
+**A closing line that reports a side effect it has not checked is a line that teaches the reader to
+distrust the whole report**, which is the same fault as section 9.3's prediction, in the code rather
+than in a message.

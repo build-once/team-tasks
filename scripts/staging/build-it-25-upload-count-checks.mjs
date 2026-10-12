@@ -1099,6 +1099,11 @@ console.log("");
 const bob = await signIn(BOB);
 let tasksMade = null;
 
+// Did the limit refuse anything in this run? null until section 3 has looked.
+// The closing notice reports this rather than asserting a side effect it has not
+// checked -- see the note beside that notice for why.
+let limitRefusedSomething = null;
+
 try {
   say(`1. ${TASKS_NEEDED} tasks to hang the files on`);
   const made = [];
@@ -1142,6 +1147,10 @@ try {
     // ---- THE THIRTY-FIRST ------------------------------------------------
     say(`3. THE ${UPLOADS_PER_DAY + 1}th UPLOAD, and what the Storage API makes of it`);
     const oneTooMany = await upload(made[Math.floor(UPLOADS_PER_DAY / FILES_PER_TASK)], "f31.png", bob);
+    // Recorded before the judgement, so the closing notice reports what arrived
+    // rather than what the judgement made of it. An attempt that never arrived
+    // leaves it null, which is "unknown" and not "no".
+    limitRefusedSomething = oneTooMany.error ? null : oneTooMany.status >= 400;
     record(judgeThirtyFirst(oneTooMany, UPLOADS_PER_DAY, SENTENCE, SQLSTATE));
     say("");
 
@@ -1215,10 +1224,36 @@ try {
   console.log("    and must not -- section 6 names what established it instead.");
   console.log("  * what any screen says. No page is opened by this script.");
   console.log("");
-  if (!skipLimit) {
-    console.log("AND BOB'S DAILY UPLOAD ALLOWANCE IS NOW SPENT, on purpose and unrecoverably:");
-    console.log("nothing in this project can reset a count in usage_counts. It returns at");
-    console.log("00:00 UTC. Use --skip-limit for a run that must not do that.");
+  // WHAT WAS ACTUALLY OBSERVED, not what was assumed. The first version of this
+  // notice said Bob's allowance was spent whatever happened -- and on 12 October
+  // 2026 it said that after a run in which NOTHING WAS COUNTED, because the
+  // trigger was taking its no-uploader branch on every insert. A closing line
+  // that reports a side effect it has not checked is a line that teaches the
+  // reader to distrust the whole report.
+  //
+  // So it reports the one thing it can see from outside: whether the limit
+  // refused anything. The count itself is not readable from here -- no client
+  // role may select usage_counts, by design -- and this says that rather than
+  // implying it looked.
+  if (skipLimit) {
+    console.log("BOB'S ALLOWANCE WAS NOT TOUCHED: --skip-limit was passed, so no upload");
+    console.log("beyond the setup was attempted.");
+  } else if (limitRefusedSomething === true) {
+    console.log("AND BOB'S DAILY UPLOAD ALLOWANCE IS NOW SPENT. That is OBSERVED rather than");
+    console.log("assumed: the limit refused an upload in this run, which it can only do once");
+    console.log(`${UPLOADS_PER_DAY} have been counted. Nothing in this project can reset a count in`);
+    console.log("usage_counts -- service_role deliberately holds no privilege on it -- so it");
+    console.log("returns at 00:00 UTC. Use --skip-limit for a run that must not do that.");
+  } else if (limitRefusedSomething === false) {
+    console.log(`BOB'S ALLOWANCE IS PROBABLY UNSPENT, AND THAT IS A FINDING RATHER THAN GOOD NEWS:`);
+    console.log(`${UPLOADS_PER_DAY + 1} uploads were accepted and the limit refused NOTHING, so either the`);
+    console.log("migration is not applied or the trigger is not counting what it should.");
+    console.log("Section 3 above is the evidence. This exact state was seen on staging on");
+    console.log("12 October 2026, and the cause was that the insert which commits carries no");
+    console.log("session -- evidence/build-it-25-upload-count.md.");
+  } else {
+    console.log("WHETHER BOB'S ALLOWANCE WAS SPENT IS UNKNOWN: this run did not get far enough");
+    console.log("to find out, and no client role may read usage_counts to check.");
   }
 }
 
