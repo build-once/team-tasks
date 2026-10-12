@@ -70,8 +70,9 @@
 //
 //   node scripts/staging/build-it-25-limits-checks.mjs
 //       Against staging. Needs web/.env.local for the URL and the publishable
-//       key, and ALICE_EMAIL / ALICE_PASSWORD / BOB_EMAIL / BOB_PASSWORD /
-//       CAROL_EMAIL / CAROL_PASSWORD in the environment.
+//       key, and ALICE_EMAIL / ALICE_PASSWORD / BOB_EMAIL / BOB_PASSWORD in the
+//       environment. NOT Carol's: see PEOPLE below for why this one needs two
+//       accounts where its siblings need three.
 //
 //   node scripts/staging/build-it-25-limits-checks.mjs --cleanup
 //       Removes every row whose title starts with this script's prefix and
@@ -1032,15 +1033,22 @@ if (urlVerdict.verdict !== PASS) {
   );
 }
 
+// TWO PEOPLE, AND CAROL IS DELIBERATELY NOT ONE OF THEM. The scripts beside this
+// one need all three because they are about who may see whose rows; this one is
+// about a count of your own tasks, so it needs somebody at the cap (Alice) and
+// somebody who is not, to show the cap is per person (Bob). Asking for a third
+// account's password that nothing uses is friction that stops a script being run.
+//
+// Carol is still the right person to check with if the team rules ever look wrong
+// after this lands, and `web/tests/access-rules.test.mjs` does that on every pull
+// request.
 const PEOPLE = [
   { label: "Alice", emailVar: "ALICE_EMAIL", passwordVar: "ALICE_PASSWORD" },
   { label: "Bob", emailVar: "BOB_EMAIL", passwordVar: "BOB_PASSWORD" },
-  { label: "Carol", emailVar: "CAROL_EMAIL", passwordVar: "CAROL_PASSWORD" },
 ];
 
-const needed = cleanupOnly ? PEOPLE.slice(0, 1) : PEOPLE;
 const missingFromEnv = [];
-for (const person of needed) {
+for (const person of PEOPLE) {
   if ((process.env[person.emailVar] ?? "").trim() === "") missingFromEnv.push(person.emailVar);
   if ((process.env[person.passwordVar] ?? "") === "") missingFromEnv.push(person.passwordVar);
 }
