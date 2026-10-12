@@ -1204,6 +1204,49 @@ check(
   ],
   [20, 20, "ai_suggestions,invitations"],
 );
+
+// ---------------------------------------------------------------------------
+// AND THE THIRD DAILY LIMIT, WHICH IS IN A MIGRATION AND NOT IN THAT FILE
+// ---------------------------------------------------------------------------
+//
+// 30 uploads a day, Build it 25 part 2b. docs/plan.md asked for it to go in
+// limits.ts beside the two 20s -- "three numbers, one place" -- and the owner
+// changed that on 2026-10-12, because an upload has no Edge Function in its path
+// and a trigger inside PostgreSQL cannot read a TypeScript file.
+//
+// THAT DEPARTURE IS THE THING THESE FOUR CHECKS EXIST FOR. A number in an
+// unexpected place is only safe while something says it is there on purpose, and
+// a SENTENCE in two languages is the shape this repository keeps writing down as
+// a thing that drifts.
+const UPLOAD_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261012120000_upload_daily_count.sql"),
+  "utf8",
+);
+
+check(
+  "`uploads` is NOT a key in limits.ts, which is the owner's decision of 2026-10-12",
+  Object.keys(FUNCTION_LIMITS).includes("uploads"),
+  false,
+);
+check(
+  "the 30 is in the migration, once, as a named constant",
+  count(UPLOAD_MIGRATION, "c_uploads_per_day constant integer := 30"),
+  1,
+);
+// THE SENTENCE, COMPARED ACROSS A LANGUAGE BOUNDARY. The migration spells it in
+// SQL, where an apostrophe is doubled, so the comparison has to undo that -- and
+// doing it this way round means the check reads the REAL exported constant and
+// the REAL migration text rather than two strings this file spells itself.
+check(
+  "and the migration says the SAME refusal sentence as the function, character for character",
+  count(UPLOAD_MIGRATION, FUNCTION_LIMIT_MESSAGE.replace(/'/g, "''")),
+  1,
+);
+check(
+  "CONTROL -- that comparison would notice a different sentence",
+  count(UPLOAD_MIGRATION, "You have used all of today's uploads.".replace(/'/g, "''")),
+  0,
+);
 check(
   "and NEITHER SCREEN NAMES A NUMBER in its daily-limit sentence",
   [/\d/.test(SUGGESTIONS_DAILY_LIMIT), /\d/.test(DAILY_LIMIT_SENTENCE)],
