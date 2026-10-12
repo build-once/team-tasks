@@ -2113,6 +2113,222 @@ only thing that would confirm the refusal this section is a repair for, which no
   rebuild the distinction the reset screen refuses to make. **Unchanged.** What holds them is the Auth
   setting above, which is now a number somebody chose rather than a number nobody read.
 
+## The documents, your own data, and deleting an account
+
+Added 2026-10-12, for Build it 26, at the owner's instruction. **Three of these are not features and
+one is.** The privacy policy, the terms and the cookie answer are *documents* — nobody using the app
+gets a new button from them, and the five things stay five. **Exporting your own data and deleting your
+account are new things people can press**, and they are in the plan for the reason every other
+section here is: deleting destroys data, and an export assembles everything this app holds about one
+person into a single file, which is a shape of risk this plan has not had before.
+
+**And it is the build that closes the gap this plan has reported from its first page.** "Two gaps this
+table exposes" has said since 27 September that this app "collects personal data and offers no way
+out", and that **twenty-one** rows of the appendix answer "they cannot" or "the owner deletes by hand".
+[#204](https://github.com/build-once/team-tasks/issues/204) is the other half: it collects personal
+data and **does not say so anywhere a person using it can reach**. Build it 26 is both halves.
+
+**Nothing is built on the day this was written:** no privacy page, no terms page, no cookie list on any
+screen, no export, no delete-account button, no deletion-request page, no migration, and no new column.
+`docs/data-inventory.md` is the reading of what this app actually holds and who receives it;
+`docs/deletion.md` is the design for the deletion, the export and the request page. Both were written
+before any code, which is the order rule 9 asks for.
+
+### What it is, in five parts
+
+1. **A privacy page.** Public, reachable from every screen, saying what is held, who receives it, where
+   it is held, how long for, and what a person can do about it. [#204](https://github.com/build-once/team-tasks/issues/204)
+   is the requirement and the list; this section is the release order around it.
+2. **Terms.** Public, reachable from every screen. What this app is, what it is not, what it does not
+   promise, and the law it is read under.
+3. **An answer about cookies**, which is a list before it is a decision. `docs/data-inventory.md`
+   section 5 is the list, from the code and from Cloudflare's own documentation, and it **deliberately
+   does not conclude that no banner is needed** — three things are still unknown and one of them is a
+   legal judgement rather than a reading of the code.
+4. **Export your own data.** One JSON file, the signed-in person's own data and nobody else's, built
+   **with their own rights and no secret key** — because nearly everything in it is something
+   row-level security already lets them read. `docs/deletion.md` section 11.
+5. **Delete your account.** Eight steps, in an order the schema forces rather than one somebody chose.
+   `docs/deletion.md` sections 2 to 9.
+
+### What it deliberately is not
+
+- **Not an admin screen.** Nobody deletes anybody else's account, and nobody exports anybody else's
+  data. Suspension stays what "Suspending an account" above says it is: a row the owner adds by hand.
+- **Not a consent record, unless the owner asks for one.** Recording which version of the terms
+  somebody accepted at sign-up would be a **new column holding a new kind of fact about a person**, and
+  it is question 4 below rather than an assumption here.
+- **Not a cookie banner**, on the evidence available. It is not ruled out either — see part 3 above.
+- **Not a change to what any outside company receives.** Nothing new leaves this project in this build.
+  What changes is that people are **told**, and that they can ask for it to stop.
+
+### The new kinds of data, which is why this is in the plan and not only in `docs/`
+
+Three, and each gets a row in the appendix:
+
+- **The export file.** Not stored anywhere — it is built on request and handed to the browser — but it
+  is the first artefact this app creates that holds **everything about one person at once**, and
+  somebody holding a session can take it.
+- **A tombstone row**, if decision 6 in `docs/deletion.md` is taken: **two columns**, a user id and a
+  date, with **no policy and no privilege for any role**, removed after **30 days** by the same
+  statement that writes one. It exists for exactly one reason — a restore from a copy taken before a
+  deletion would otherwise **bring a deleted person back** — and 30 days is chosen because it outlives
+  the longest-lived backup that could do that (about fifteen days) and nothing more.
+- **The deletion-request mailbox.** A public page with **no form** (decision 10) collects nothing in the
+  app — and it makes **the owner's own mailbox** the place where a stranger's address and their request
+  sit. That is outside this project, it is a real store of personal data, and the appendix says so
+  rather than leaving it out because no table is involved.
+
+### Users' rights, stated as what this app will actually do
+
+Not a recital of law — the five things a person can ask for and where each is answered:
+
+| What somebody asks | What this app will do | Where |
+|---|---|---|
+| **"What do you hold about me?"** | the privacy page says what is held and who receives it; the **export** hands them their own copy | parts 1 and 4 |
+| **"Correct it"** | they can rename a task, change their nickname and switch the AI setting themselves. **An email address cannot be changed in this app** — that is the owner, by hand, and the policy must say so | today's features, plus one sentence |
+| **"Delete it"** | **delete your account**, from inside the app; or the **request page** if they cannot sign in | parts 5 and the request page |
+| **"Stop sending my task titles out"** | the **AI suggestions** setting, which starts off for everybody | "AI suggestions — the consent setting" above |
+| **"Delete my error reports"** | **the owner, by hand, searching Sentry for their user ID — and only before the account is deleted**, because afterwards the id is the only thing left to search by. So the policy says these are deleted **on request**, not automatically | `docs/deletion.md` section 8 |
+
+**And three things the policy must say it cannot do**, because saying "deleted" and meaning "mostly" is
+the one failure this whole build exists to avoid:
+
+- **copies of their data remain for up to about a fortnight** — 14 days by the R2 lifecycle rule, plus
+  the day Cloudflare allows for a removal;
+- **what has already gone to Anthropic cannot be recalled**, and cannot even be found, because nothing
+  identifying the asker was sent with it;
+- **Resend's sending log** keeps which addresses were sent what for 30 days, and after 11 October 2026
+  that includes everybody's own address and not only invited ones.
+
+### Questions only the owner can answer
+
+Five the owner named, and the rest from writing the design. The documents cannot be drafted without 1
+to 5, and the code cannot be written without 6 to 16.
+
+1. **Who is the data controller** — a person, or `DHTA Ltd`? — and **what contact address is published
+   on the page**? It will be a public address on a public page.
+2. **Which law governs the terms**, and where disputes are heard.
+3. **Is there a minimum age**, and if so what is it, and is it stated or checked? Stating it is a
+   sentence; checking it is a new field and a new kind of data.
+4. **Do the terms need an "accepted version" record at sign-up?** If yes, it is a new column and a new
+   fact held about a person, and this section is updated before it is built.
+5. **Who is the real person reading both documents before launch**, and by when? `docs/plan.md` has
+   said since 7 October that writing the words is the owner's, "not least because they carry legal
+   weight" — and a page written by an assistant and reviewed by nobody is the worst of the options.
+6. **Do tasks somebody created in other people's teams survive their account, shown as "Former
+   member"?** `docs/deletion.md` section 6 is what it costs: a nullable `owner_id`, a new branch in
+   `tasks_enforce_column_rules` **without which the deletion is refused outright**, a new delete
+   policy, and one known orphan.
+7. **What happens to a former member's task when its team is later deleted** — accept the orphan, or
+   do not keep the tasks at all.
+8. **Does the deletion remove files they uploaded to tasks that survive?**
+9. **Are invitations addressed to them deleted?** They do not cascade, so without a step they stay.
+10. **Tombstones, the owner's own record, or accept that a restore brings a deleted person back?**
+11. **May a suspended person delete their own account?**
+12. **The export's contents**, four parts: the invited addresses on invitations they sent; their teams'
+    rosters; their usage counts; their suspension row and the owner's reason for it.
+13. **Is the export counted against a daily limit?**
+14. **Does the deletion-request page have a form?**
+15. **Is the cookie answer "no banner"?** It cannot be settled from this repository: it needs one look
+    at a rendered sign-in screen and a legal judgement.
+16. **May the privacy page say Sentry does not store an IP address?** Today it may not: the SDK does
+    not attach one, and the Sentry setting that stops Sentry recording the sending address is **"owner
+    to set, not yet reported"**.
+
+`docs/deletion.md` section 13 holds 6 to 14 with a recommendation each; this list is where the answers
+are recorded when they come.
+
+### The order of the work
+
+Documents first, then the read-only feature, then the schema, then the thing that destroys data. **One
+pull request per row.**
+
+| | What | Needs a staging run? |
+|---|---|---|
+| **0** | **This one.** The plan, the inventory, the deletion design. Documents only | no |
+| **1** | The **privacy page** and the **terms page**: two public pages, footer links, and `"/privacy"`, `"/terms"` added to `PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` — **without which a signed-out visitor is sent to `/login`**. Plus a `docs/claims.md` row for every sentence | **no** — nothing touches the database. **But a look in a browser, on a phone**, which is the device this plan says the app is for |
+| **2** | The **cookie answer**: the list published on the privacy page, and a banner only if question 15 says so | no |
+| **3** | The **export**. Read-only, no migration, no secret key, a route handler so the download needs no JavaScript | **yes.** Dave's export must contain Dave's data and none of Alice's |
+| **4** | The **deletion schema**: nullable `owner_id`, the foreign key as `on delete set null`, the new branch in `tasks_enforce_column_rules`, the team-owner delete policy, and the tombstone table if question 10 takes it | **yes**, and the owner applies it. Plus **one read nobody has done**: what `storage.objects.owner_id` does when its `auth.users` row goes — `docs/deletion.md` section 7 |
+| **5** | **Delete my account**: a fifth server-function door holding the service-role key, the warning screen, and the typed confirmation | **yes — the Dave test**, below |
+| **6** | The **public deletion-request page** | no |
+| **7** | **The evidence files the launch checklist is waiting for**: `evidence/privacy-policy.md`, `evidence/terms-of-service.md`, `evidence/account-deletion.md`. All three are `type: evidence` in `checklist/launch.json` and all three are TODO today | no |
+| **8** | One step added to `docs/restore-runbook.md`: **re-run the deletions a copy predates** | no, until the next drill |
+
+**Row 4 before row 5, and that order is forced rather than preferred.** The deletion is refused by
+`tasks_enforce_column_rules` the moment it tries to null an `owner_id`, so the function cannot be
+written against today's schema at all.
+
+### The Dave test, and how Dave gets created
+
+**Four accounts, not three.** Alice, Bob and Carol cannot test a deletion, because deleting any of them
+destroys the fixture every other staging script depends on. So Build it 26 adds **Dave**:
+`teamtasks.staging.test+dave@gmail.com`, with
+
+- **a team of his own**, so the warning has a team to name and the cascade has a team to take;
+- **a task of his own**, personal;
+- **an attachment** on that task, so step 2 of the deletion has a file to remove and the trigger has
+  something to refuse;
+- **and a task in Alice's team**, which is the whole point: that task is what must still be there
+  afterwards, shown as **"Former member"**, with Alice and Carol able to tick and rename it.
+
+**What the test proves, in one run:** Dave's team is gone; Dave's personal task and its file are gone;
+**Alice's team is untouched**; the task Dave wrote in it is still there and still tickable; Carol sees
+no change; and `select count(*) from usage_counts where user_id = <Dave>` is zero.
+
+**How Dave gets created, now that staging has CAPTCHA on and the built-in sender's two emails an hour.**
+Both obstacles are real and neither needs solving:
+
+- **The CAPTCHA is not an obstacle at all.** Staging's Auth holds Cloudflare's **dummy** secret key, so
+  a request carrying the dummy token is accepted — proved for sign-in by the owner on 11 October 2026
+  (HTTP 400 `captcha_failed` without it, accepted with it, `evidence/captcha.md` section 1). `signUp`
+  puts the token in the same place as `signInWithPassword` does, and the token lives in one place,
+  `scripts/lib/captcha.mjs`.
+- **The email is the obstacle, and the way round it is not to send one.** Staging uses Supabase's
+  **built-in sender**: 2 emails an hour **per project**, and it refuses any address not on the
+  project's team. Whether "Confirm email" is even on is **not verified** (`docs/claims.md`). So a
+  sign-up could stall on an email that never arrives, for a reason nobody can see.
+
+  **So the owner creates Dave in the Supabase dashboard** — Authentication → Users → Add user, with the
+  account marked confirmed — which **sends no email and needs no CAPTCHA**. His password joins
+  `ALICE_PASSWORD`, `BOB_PASSWORD` and `CAROL_PASSWORD` as `DAVE_PASSWORD`, in the same place and never
+  printed. Everything after that — his nickname, his team, his task, his attachment — a staging script
+  does while signed in as Dave, with the dummy token and no email at all.
+
+  **The one email in the whole fixture is Alice's invitation to Dave**, which goes through
+  **`invite-member` and therefore Resend**, is redirected to `EMAIL_TEST_INBOX`, and spends one of
+  Alice's twenty for the day. Supabase's two-an-hour limit is never reached, because nothing in the
+  fixture asks Supabase to send anything.
+
+  **If the owner would rather use the app's own path**, a sign-up on a **Preview** deploy works — Preview
+  holds the dummy sitekey — and Dave can be confirmed in the dashboard if the email does not arrive. It
+  is the same fixture by a longer road, and it exercises one screen on the way.
+
+**And one reason to prefer Dave for the upload steps rather than Alice**:
+[#298](https://github.com/build-once/team-tasks/issues/298) records that every CI run already spends
+one of Alice's thirty daily uploads on staging. Dave's thirty are his own.
+
+### The gate this does not move: the production AI key
+
+**Restated here because Build it 26 is where two of its three preconditions are met, and it is still
+not the owner's cue to install anything.** From "AI suggestions — the consent setting" above and
+[#204](https://github.com/build-once/team-tasks/issues/204), all of these before the production
+`AI_API_KEY`:
+
+1. the consent setting **live on production** and **seen to refuse with it off, on production** —
+   staging is done, production has no profile rows at all because nobody has signed up;
+2. **a privacy page exists in the app and is reachable from every screen**, carrying every item #204
+   lists — what Suggest subtasks sends and to whom, that nothing identifying the asker goes, Anthropic's
+   retention, that the setting starts off and switching it off recalls nothing, that the operator can
+   access the database, that error reports go to Sentry with the error, the page, the browser and the
+   user ID, **where data is held**, that copies remain for up to about a fortnight, and that after a
+   recovery everybody signs in again;
+3. **a row in `docs/claims.md` for each of those sentences**, naming the file and line that makes it
+   true.
+
+**Build it 26 delivers 2 and 3. It does not deliver 1**, and nothing in it should be read as doing so.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. Payments. A phone app.
@@ -2159,6 +2375,18 @@ than five, counted here rather than remembered.
 - **Every person's own email address at the email service**, once the sign-up and reset emails go through
   Resend — where today Resend sees only the addresses of people who were **invited**. "The sign-up and
   reset emails move to Resend" above. Added 2026-10-11
+- **A file holding every line above it about ONE person**, built on request and handed to their browser —
+  the export. It is stored nowhere, and it is the first artefact this app assembles that holds
+  everything about somebody at once. "The documents, your own data, and deleting an account" above.
+  Added 2026-10-12
+- **The fact that an account was deleted, and when** — a tombstone row of two values and nothing else,
+  kept **30 days** and removed by the statement that writes one. It exists only so that a restore from a
+  copy taken before a deletion cannot bring a deleted person back. **Proposed, and question 10 of that
+  section.** Added 2026-10-12
+- **A deletion request from somebody who cannot sign in** — an email address and whatever they write,
+  **in the owner's own mailbox, outside this project**, because the public request page deliberately has
+  no form and collects nothing in the app. It is in this list because "no table is involved" is not the
+  same as "no personal data is held". Added 2026-10-12
 
 Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
 2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is
@@ -2276,18 +2504,21 @@ free text that could contain absolutely anything.
 | Hosting access logs: IP address, browser and device, page visited | **Nothing** — Vercel writes them anyway; we add no logging of our own | Vercel — outside your database | Owner via Vercel; Vercel | UNSURE — short, depends on plan | Not user-deletable | **Yes** — IP address and device |
 | Database and API logs, including caller IP | **Nothing** — Supabase writes them anyway; we add no logging of our own | Supabase logs | Owner via dashboard; Supabase | UNSURE — see notes below | Not user-deletable | **Yes** — IP address |
 | Analytics | **Nothing — none is collected, and none is planned** | Nowhere | — | — | — | No |
-| An error report: the error's type, message and stack trace; the page path; browser and operating system | "Error reports to an outside service" above — so a broken app is noticed by the owner rather than by a volunteer | Sentry — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | Owner via Sentry; Sentry | **Not confirmed** — Sentry publishes a free-plan retention period; that page has not been read, so no number is written here | **No way in the app.** The owner can search Sentry for a person's events and delete them — **not yet tried** | **Yes** — a message or a stack trace can quote whatever the code was holding, which is why task text, addresses and tokens must never reach one |
+| An error report: the error's type, message and stack trace; the page path; browser and operating system | "Error reports to an outside service" above — so a broken app is noticed by the owner rather than by a volunteer | Sentry — outside your app and outside your database. **IT IS INSTALLED AND IT HAS SENT REAL EVENTS, WHICH THIS CELL DENIED UNTIL 2026-10-12.** It said "**Nothing is installed, so nothing has been sent yet**". What is true: `@sentry/nextjs` **11.4.0** is in `web/package.json`; the code is in all three runtimes with one settings file, `web/src/sentry/options.ts`; a **Production or Preview build refuses to complete without `NEXT_PUBLIC_SENTRY_DSN`** (`web/src/lib/env.ts`), so a deployed build cannot be one that sends nothing; and the owner watched three visits to a test page on a **Vercel Preview** produce events in Sentry on **6 October 2026** (`evidence/build-it-18-sentry.md` §11–14). **Whether PRODUCTION's DSN is set is an INFERENCE** from that build check — nobody has opened the Vercel or the Sentry dashboard, and no production event has been seen | Owner via Sentry; Sentry | **Not confirmed** — Sentry publishes a free-plan retention period; that page has not been read, so no number is written here | **No way in the app.** The owner can search Sentry for a person's events and delete them — **not yet tried** | **Yes** — a message or a stack trace can quote whatever the code was holding, which is why task text, addresses and tokens must never reach one |
 | The signed-in person's user ID, attached to an error report | Tells the owner whether one person or everyone is hitting an error, without an address | Sentry — as the row above | Owner via Sentry; Sentry | **Not confirmed** — as the row above | **No way in the app** — it is what the owner searches by to delete the events; **not yet tried** | No on its own — it is not an address — but it links a person to everything else in the report |
 | The caller's IP address on an error report | **Nothing** — Sentry stores one by default, and we do not want it | Sentry, unless switched off | Owner via Sentry; Sentry | **Owner to set, not yet reported**: the owner will switch on Sentry's setting that stops an IP being stored, and its default data scrubbing. Neither has been seen in the dashboard | Not user-deletable | **Yes** — IP address |
-| One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **Nothing is installed, so nothing has been sent yet** | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
+| One task's title, sent to an outside AI service | "Suggest subtasks" above — the helper cannot suggest subtasks for a task without its title. Sent with fixed instructions and nothing else: no address, no display name, no user ID, no team name, no other task | Anthropic's Claude API — outside your app and outside your database. **STALE, AND [#195](https://github.com/build-once/team-tasks/issues/195) HAS SAID SO SINCE 8 OCTOBER.** This cell said "**Nothing is installed, so nothing has been sent yet**". What is true: **staging has the key and the function**, and requests have been made from there — the owner's runs of `scripts/staging/build-it-20-ai-checks.mjs`; **production has the function and NO KEY**, so the helper there answers that suggestions are not available and nothing is sent. The section above says both, and this cell did not | The person who pressed the button; owner via Anthropic's console; Anthropic | Anthropic's published retention: deleted **within 30 days** of receipt or generation, with stated exceptions — and **up to 2 years**, with classification scores up to 7 years, for anything flagged as a Usage Policy violation. Cited in "Suggest subtasks" above. Nothing is kept on our side | **No way in the app**, and there is nothing of ours to delete. What Anthropic holds runs on the clock above; **not tried** — no request has ever been sent | **Yes** — it is task text, which people type anything into, and this is the one row in this table where task text leaves the project |
 | Whether AI suggestions are switched on, and when that last changed | "AI suggestions — the consent setting" above — the row *is* how the function knows whether a task title may leave this project | `profiles.ai_suggestions_enabled` and `profiles.ai_suggestions_changed_at` — **built**: the two columns, the trigger that stamps the second and refuses any caller who supplies it, the constraint that makes "on with no date" unrepresentable, and `my_ai_suggestions()`. Applied to staging and to production on 2026-10-08 (see the "Unverified" entry below for who did each, and the evidence) | The person whose setting it is, through `my_ai_suggestions()` — **no client role may SELECT either column**, so a team mate cannot read it through the existing "your team mates' profiles" policy; owner via the dashboard; `service_role` may read it and may **not** write it, so no server function can switch it for anybody | With the profile | **Not on its own** — switching it off is the control a person has, and the value goes when the profile goes. There is still no way to delete a profile in the app | No, but it records a choice a person made about their own data |
 | The suggestions that come back | "Suggest subtasks" above — they are what the person reads | **Nowhere in this project unless the person adds one**, which writes an ordinary `tasks` row. At Anthropic, as the row above | Before anyone adds one: only the person looking at the screen. After: as any task — its creator, and its team if it has one; owner | Not stored by this app at all until somebody adds one; then with the task. At Anthropic, as the row above | Delete the task — **built**, exactly as for a task somebody typed | **Yes** — until somebody reads it, it is text from outside this project; it is treated as data and never as instructions |
 | A file attached to a task, and whatever is inside it | "Files attached to a task" above — feature 4 with a file beside the text. The file *is* the thing somebody wanted to share | A **private** Supabase Storage bucket named `attachments`, at `attachments/<task id>/<file name>` — **inside this project**, not outside it. **Built, and applied to staging and to production on 2026-10-09**: `supabase/migrations/20261008191804_attachments_bucket.sql`, with `evidence/build-it-23-attachments-bucket.md`. **Production has never been read back** ([#243](https://github.com/build-once/team-tasks/issues/243)). The screen is **built and deployed nowhere** (#242) — the files panel on My tasks, with the upload box — so **the only files that have ever existed in either bucket are the ones the owner's staging script stored and removed again**, and production's bucket is empty because nobody has signed up. **3 per task, 5 MB each, 100 MB per person**, the last enforced on the server at upload. **The bucket allows six named types with no wildcard, so no SVG — JPEG, PNG, WebP, GIF, HEIC, PDF — and THE APP OFFERS FIVE OF THEM**: a HEIC photograph failed through the app on 2026-10-09, the cause was not found, and the owner decided not to pursue it ([#246](https://github.com/build-once/team-tasks/issues/246)), so the app refuses that one before anything is sent while the bucket still permits it | Exactly the people who can see its task: its creator for a personal task, every member of its team for a team task — **and a suspended person nobody**. Plus the operator, in the dashboard. Opened through a **signed link that expires after 5 minutes**, and for those five minutes **anyone holding that link** can open the file, signed in or not | **With the task, and that is enforced rather than intended — decided 2026-10-08.** Deleting a task deletes its files first and is refused if they cannot be removed, **and the database refuses to delete a task that still has files**. So there is no state in which a file outlives its task. Removing a person's files when an account is deleted is **a requirement of Build it 26** | **Delete the file, or delete the task it is on** — the second removes the first. **A file may be deleted by whoever uploaded it, or by whoever created its task, and by nobody else** (decided 2026-10-08). So on a team task a third member can see and open a file and remove nothing. Deleting a task removes all its files **under the creator's own rights**, so no part of this app deletes anything with more authority than the person asking | **Yes**, and more so than anything else in this table. It is a file nobody read before it was stored, it can be a photograph carrying **where and when it was taken** — which the app does not remove, and **the upload box says so** — and it can be a document about a third party who never agreed to anything |
 | What Storage records about each file | **Nothing** — Supabase Storage writes the row whether we want it or not; this is the first row in this table with that shape that is also **inside** our own project | `storage.objects`: `name` (the whole path, so **the task's ID and the file name the device gave it**), `metadata` (holding the size), `owner_id` (the uploader), `created_at`, `updated_at` — cited in the section above. **The declared type is not confirmed**, and so is **`last_accessed_at`**, which the schema page omits and the API reference shows — and which, if it exists, records **when somebody last opened a file** | The operator, in the dashboard; Supabase. Through the app, only as far as a storage rule is written to expose it | **With the object, and the object goes with its task** — so this row inherits the row above's answer rather than outliving it, which is a change from what this table said earlier on 2026-10-08 | **With the file.** Deleting the file deletes the row Storage keeps about it; there is nothing separate to remove | **Yes** — a file name is free text somebody's phone chose or somebody typed, which is why no file name may ever appear in an error report |
 | How many times a person used each limited feature on each day — **two features live, and a THIRD is written and applied nowhere**: `uploads`, 30 a day, in `supabase/migrations/20261012120000_upload_daily_count.sql` (2026-10-12). It is counted by a **BEFORE INSERT trigger on `storage.objects`** rather than by a server function, because an upload has no Edge Function in its path — so it is the first entry here written by something other than an Edge Function, and the first that bounds **traffic** rather than a bill. The row's shape is unchanged: still four values, still incapable of saying which file | "Daily limits on what costs money" above — the count *is* how a server function knows whether this person has reached today's limit, and a limit that is not counted somewhere every isolate can read is not a limit | `usage_counts` — **built, and applied to staging and to production on 2026-10-08**: `supabase/migrations/20261008115900_usage_counts.sql`, with `evidence/build-it-22-usage-counts.md`. **AND THE TWO EDGE FUNCTIONS THAT WRITE IT ARE LIVE IN BOTH PROJECTS, WHICH THIS CELL DENIED UNTIL 2026-10-11.** It said they "are **deployed nowhere**, so the table is empty in both projects", and [#230](https://github.com/build-once/team-tasks/issues/230) had said that was stale since 8 October. What is known, and it is different for each project: **STAGING** has both functions, deployed by the owner on 2026-10-08, and **the table is NOT empty** — the coach read two rows off it through the read-only connector, `ai_suggestions` used 4 and `invitations` used 1 (`evidence/build-it-22-daily-limits-counting.md` § 12). **PRODUCTION** got both functions on the merge of PR #228, run [37809688847](https://github.com/build-once/team-tasks/actions/runs/37809688847), "Deploy server functions to production: success" — and **whether production's table holds a row has never been read by anybody** ([#222](https://github.com/build-once/team-tasks/issues/222)). What can be said about it without reading it: `invite-member` there counts every send, and `suggest-subtasks` there writes nothing, because `not_configured` is decided before the count. **"Empty" was the one kind of error this register must not make**, which is why the correction is written out rather than swapped in. Four values: the person's ID, the feature, the day, the count. **No task id, no title, no address, no team, no time of day** | **Nobody through the app**, not even the person whose count it is — **no rule and no table privileges for any role at all**: not for signed-in or signed-out callers, and **not for `service_role` either**, which holds only the right to run `count_daily_use()` (the owner's correction of 2026-10-08). The app's **operator** via the dashboard. **Not a team's owner**, for whom there is nothing to read | **7 days, decided 2026-10-08**, removed by the same statement that counts — so the window is enforced by code rather than by anybody remembering. Unchanged by the third feature word | **They cannot.** It goes with the account, and there is still no way in the app to delete an account | No, but it records **which days a person used this app**, which is the same kind of fact as the exact timestamps row above |
 | **A nightly encrypted copy of everything above** — every table, the accounts with their password hashes, and every attached file | "A nightly copy of production, held by another company" above — Supabase's own backups cover the database and **not** the files, so the one thing in this app nobody can retype is the one thing nothing backs up ([#248](https://github.com/build-once/team-tasks/issues/248)) | A **private** Cloudflare R2 bucket named `team-tasks-backups`, region **Western Europe (WEUR)**, public development URL **disabled** and **no custom domain** — **outside this project, and a company that was not part of it the day before.** Encrypted on GitHub's runner before it leaves, so what Cloudflare holds is **ciphertext only**. **BUILT, THREE COPIES EXIST, ONE HAS BEEN RESTORED, AND COPIES NOW EXPIRE**: `.github/workflows/backup-production.yml`, `.github/workflows/backup-freshness.yml` and `scripts/backup/` are exercised in CI against made-up data on every pull request (`evidence/build-it-24-nightly-copy.md`). This cell has said "**NO COPY HAS EVER BEEN MADE**", then "**the workflow has never run**", then "**NO RESTORE HAS EVER FINISHED**", and all three are gone: the owner made two copies by hand on 10 Oct, **the schedule made the third by itself on 11 Oct** ([38121029695](https://github.com/build-once/team-tasks/actions/runs/38121029695), success in 38 seconds), and **the drill of 10–11 Oct put one back in 219 seconds** — 47 tables, 269 rows, one file byte for byte, signed into with a real account, project then deleted (`evidence/restore-tested.md`). **A 14-day lifecycle rule exists** on the bucket, named `delete-after-14-days`, owner-reported for 10 Oct, so the 14 days in the next column is now a thing happening rather than only a decision ([#259](https://github.com/build-once/team-tasks/issues/259)). **What is still not done**: no second drill, so 219 seconds is one measurement; no bucket lock; and `evidence/backups-on.md` does not exist, which is the open half of [#249](https://github.com/build-once/team-tasks/issues/249). **And "every night" is nightly-ish**: that first scheduled run started **5h 57m 24s** after its cron time, so the window between copies is about a day and a quarter rather than a day — `docs/backups.md` → "The two targets". The bucket, the token and the three `BACKUP_*` GitHub environment secrets are the **owner's report of 2026-10-10**; nobody writing this opened a dashboard | **Only somebody holding BOTH the storage key and the passphrase** — the key gets the file, the passphrase opens it, and neither alone is enough. So: the owner, and nobody else. **Cloudflare cannot read it.** The passphrase is in the owner's password manager and a GitHub environment secret and nowhere else, and **a GitHub secret cannot be read back**, so the password manager holds the only readable copy. **If it is lost, no copy can ever be opened.** The coach and the coding assistant never receive a copy, a part of one, or the passphrase | **14 days, decided by the owner on 2026-10-10**, removed by a Cloudflare R2 object lifecycle rule rather than by the job — so retention cannot drift, and the job never needs to delete anything. Cloudflare's own page allows up to a day for a removal, so the real window is **up to about fifteen days**. **And a 13-day Bucket Lock is PROPOSED beside it**, which would make nothing in the bucket deletable or overwritable for the first 13 days of its life — including by the owner, which is the trade | **They cannot, and this is the row where that answer bites hardest.** Deleting a file or a task removes it from the app at once; **it stays in the copies already made until they expire**, so "deleted" means gone in up to about a fortnight. Nothing can make it otherwise — a backup that honoured deletions would have honoured the wrong one too. **Build it 26 must say this to users** when deleting an account arrives | **Yes — the most, of anything in this table, and for a different reason from every other row.** Not because of what it is but because of **how much**: it is every other row at once, including the password hashes and the files nobody read, in one file at a company that was not part of this project yesterday. What makes that acceptable is that the file is useless without the passphrase; what it costs is that the passphrase is now the most valuable string in this project |
-| **A visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — Cloudflare's "Signals" | "A CAPTCHA on the three sign-in screens" above — the CAPTCHA cannot tell a bot from a person without looking at the request, and today the only thing limiting sign-in is a Supabase default nobody has read (`docs/rate-limits.md`) | Cloudflare Turnstile — **outside this project, and a company that was not part of it the day before.** **NOTHING IS INSTALLED**: no package, no site key in any environment, no secret key in either project's Auth settings, no widget on any screen. Cloudflare's own list of what it processes is "client IP address, TLS Fingerprint, User-Agent Header and Sitekey and associated origin" ([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). **Nothing of ours stores any of it**; the token the widget hands back goes to Supabase Auth and is never written down | Cloudflare. The owner, through Turnstile's analytics, which the free plan keeps for "7 days maximum" ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). **Not this app**: no screen and no table ever holds a Signal | **Not confirmed, and no number is written here.** The addendum read on 2026-10-11 states no retention period. Read Cloudflare's own page and cite it, or write that none could be found | **They cannot**, and there is nothing of ours to remove. It is Cloudflare's record of a request, on Cloudflare's clock | **Yes** — an IP address, which is this table's standing reason for that answer. And it is the **first IP address this app chooses to send out**: the four log rows above it are written whether we want them or not |
-| **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **NOTHING IS CHANGED YET**: custom SMTP is not configured on either project, and both emails are still Supabase's own sending. What widens is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
+| **A visitor's IP address, TLS fingerprint and browser string on the three sign-in screens** — Cloudflare's "Signals" | "A CAPTCHA on the three sign-in screens" above — the CAPTCHA cannot tell a bot from a person without looking at the request, and today the only thing limiting sign-in is a Supabase default nobody has read (`docs/rate-limits.md`) | Cloudflare Turnstile — **outside this project, and a company that was not part of it the day before.** **IT IS ON, IN BOTH PROJECTS, AND THIS CELL SAID "NOTHING IS INSTALLED" UNTIL 2026-10-12.** It listed "no package, no site key in any environment, no secret key in either project's Auth settings, no widget on any screen", and every clause of that stopped being true on the evening of 11 October: the widget is on all three screens, site keys are in Vercel for Preview and Production, both projects' Auth settings hold a secret key — the dummy one on staging, the real one on production — and a sign-in carrying no token is refused **HTTP 400 `captcha_failed`**. All owner-reported; `evidence/captcha.md` is the record, and **nobody writing this opened a dashboard**. Cloudflare's own list of what it processes is "client IP address, TLS Fingerprint, User-Agent Header and Sitekey and associated origin" ([Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/), read 2026-10-11). **Nothing of ours stores any of it**; the token the widget hands back goes to Supabase Auth and is never written down | Cloudflare. The owner, through Turnstile's analytics, which the free plan keeps for "7 days maximum" ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11). **Not this app**: no screen and no table ever holds a Signal | **Not confirmed, and no number is written here.** The addendum read on 2026-10-11 states no retention period. Read Cloudflare's own page and cite it, or write that none could be found | **They cannot**, and there is nothing of ours to remove. It is Cloudflare's record of a request, on Cloudflare's clock | **Yes** — an IP address, which is this table's standing reason for that answer. And it is the **first IP address this app chooses to send out**: the four log rows above it are written whether we want them or not |
+| **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **IT IS DONE ON PRODUCTION, AND THIS CELL SAID "NOTHING IS CHANGED YET" UNTIL 2026-10-12.** Custom SMTP was set on **production** on 11 October 2026, through Resend, and a reset email arrived at the test mailbox; **staging keeps the built-in sender** (decision M). So the widening below is **real rather than planned**, and nothing in this repository can read either project's SMTP setting back. Owner-reported. What widened is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
+| **An export file: every row of this table that is about ONE person, in one JSON file** | "The documents, your own data, and deleting an account" above, and the first of the five rights that section lists — "what do you hold about me?" is not answered by a document that describes the shape of the answer | **Nowhere.** It is built on request from rows the person can already read, **with their own rights and no secret key**, and handed to their browser. Nothing of it is stored, logged or sent anywhere. **NOT BUILT** | The person themselves, and whoever they give the file to. **Nobody else, and no server function assembles it on anybody's behalf** | **Not kept at all.** It exists for the length of one request, and then only on the person's own device | **Not applicable** — there is nothing of ours to delete. The app's part of it is a read | **Yes**, and it is the one row here whose risk is about **concentration** rather than content: every line of it is readable by that person today, and the file is new. Somebody holding a session can take it |
+| **That an account was deleted, and on what date** — a tombstone of two values | "The documents, your own data, and deleting an account" above. **One reason only**: a restore from a copy taken before a deletion would otherwise recreate the account, the tasks, the nickname and the files of somebody who asked to be gone, and nobody would notice, because a successful restore is one where everything matched | A table of **two columns** — the `auth.users` id and a date — with **no policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. No address, no nickname, no task text, no reason. **PROPOSED, NOT BUILT**: question 10 of that section | **Nobody through the app.** The app's operator, in the dashboard, and the restore | **30 days**, removed by the same statement that writes one — the mechanism `count_daily_use` already uses for its 7 days. **30 is chosen because it outlives the longest-lived copy that could resurrect the person** (about fifteen days) and nothing more. So it is a note that expires before the thing it exists to correct does, not a register of departures | **They cannot**, and it is the one row in this table where that is the point: it is the record that their deletion happened | No — it is an id and a date, and it holds nothing a person typed. **But it is a fact about a person held after they asked to be forgotten**, which is why it is bounded at 30 days rather than kept |
+| **A deletion request from somebody who cannot sign in** — their address, and whatever they chose to write | The public request page: somebody who has forgotten their password, whose account is suspended, or **who was invited and never had an account at all** — whose address is in `invitations` and who this app has no other way of hearing from | **The owner's own mailbox, outside this project.** The page deliberately has **no form** (question 14), so nothing is collected in the app: no row, no endpoint, no email sent by this app, no CAPTCHA and no rate limit needed. **NOT BUILT** | The owner; whoever runs that mailbox | **Not decided here, and the owner's to decide**, because it is their mailbox. The request should be deleted once the deletion is done | **They cannot through the app.** They can ask the owner, in the same message | **Yes** — free text somebody wrote, which can say anything, plus the address it came from. **And the address is what proves who is asking**: the request must come from the address on the account, or anybody who knows a volunteer's address could have their account destroyed |
 
 ## Collecting less — decided
 
@@ -2514,6 +2745,43 @@ write down or what we send. Here the app writes down nothing at all — no Signa
   There is no version of custom SMTP that does not do that; the alternative is the built-in sender, which
   on production **delivers nothing at all** to the people this app is for.
 
+### Added 2026-10-12 — collecting less while telling people more, and while destroying things
+
+Kept apart again, and this one is a different shape from all seven above: **every list before it reduces
+what is collected. This one is mostly about a build whose job is to GIVE DATA BACK and THROW DATA
+AWAY**, so "collecting less" here means not adding anything on the way.
+
+- **The export needs no secret key and no new privilege.** Nearly everything in it is already readable
+  by the person through row-level security, and their address is on the session's own user object — so
+  the export is a read **with their own rights**, and the policies are what keep it to their own data.
+  Nothing new is granted to anybody, and no server function assembles anybody's data on their behalf.
+- **The export leaves out the two tables nobody may read**, which is the awkward reduction rather than
+  the comfortable one: their `usage_counts` rows and their `account_status` row, including the owner's
+  free-text reason. Including either would mean a new privilege and would contradict the plan's own
+  "nobody through the app, not even the person it is about". **So the privacy page SAYS both exist and
+  what each contains, and that they are available from the owner on request** — which is the honest
+  version of leaving them out, and is what makes it a reduction rather than an omission.
+- **The export leaves out other people**, and that is where the line is drawn: no team rosters, no
+  other members' nicknames, no team tasks somebody else wrote. A roster in a durable file is a list of
+  other people.
+- **The deletion-request page has NO FORM**, which is the biggest reduction in the whole build: no row,
+  no endpoint, no email sent by this app, no CAPTCHA to add, no rate limit to choose, and no new store
+  of strangers' addresses. **The cost is stated rather than hidden**: the owner's own mailbox becomes
+  the place a request sits, and the owner has to check that the request came from the address on the
+  account — without which anybody who knows a volunteer's address could have their account destroyed.
+- **The tombstone is two columns and expires before the thing it exists for.** A user id and a date; no
+  address, no nickname, no task text. **30 days**, removed by the statement that writes one, chosen
+  because it outlives the longest-lived backup that could resurrect the person and nothing more. The
+  obvious design — a durable list of who has been deleted — is exactly the "permanent record wearing a
+  window's label" this plan rejects everywhere else.
+- **And two reductions that are NOT taken, written here so they are decisions rather than oversights.**
+  The first: **the export is not rate-limited** (question 13), so it is the one new way to pull
+  everything about yourself repeatedly — it spends nobody's money, which is why the daily-limit
+  argument does not reach it, and a fourth feature word would need a migration. The second: **a
+  deletion does not remove anything from the nightly copies**, and cannot. A backup that honoured
+  deletions would have honoured the wrong one too, which is the same sentence "A nightly copy of
+  production" already carries, arriving at the one feature it bites hardest on.
+
 ### Not affected by any of these decisions
 
 The three things below are unchanged, because there was nothing to reduce:
@@ -2549,6 +2817,24 @@ rather than re-made**, which is the one place this paragraph departs from its ow
 rather than quietly re-asserting a number. Both new rows are **outside this project**, which is the
 harder version of the gap: there is nothing of ours to delete, and for the CAPTCHA there is nothing to
 search by either.
+
+**AND BUILD IT 26 IS WHAT CLOSES IT — THE PART OF IT THAT CAN BE CLOSED. Added 2026-10-12, and the
+number is said carefully because this paragraph's own rule is that a figure is counted or declared
+carried.** This change adds **three** rows to the table, so the table now holds **35** data rows — **32
+plus 3, which is arithmetic on the 32 counted on 2026-10-11 and not a fresh count of the table**. Of
+the three, two answer "they cannot" (the tombstone, and a deletion request in the owner's mailbox) and
+one is "not applicable" (the export, where there is nothing of ours to delete), so the twenty-one
+becomes **twenty-three** — **also carried arithmetic, on a number this paragraph has already said was
+carried rather than re-made.**
+
+**What Build it 26 does to those twenty-three, and what it cannot do.** It gives a person **one route
+that works**: delete the account, and every row keyed to their id goes with it. So the many rows whose
+answer is "the owner deletes by hand" stop being the only answer for anything inside this project.
+**What it cannot reach is everything outside it** — Sentry's reports, Resend's log, what Anthropic
+holds, the four log stores nobody chose, and **the nightly copies for up to about a fortnight.** The
+honest form of this section after Build it 26 is therefore not "the gap is closed": it is **"inside this
+project, yes; outside it, here is the list and here is what the owner can do about each"**, which is
+what the privacy page has to say. **The column is re-counted when the feature exists**, and not before.
 
 **Attachments added two rows to that table and nothing to this gap, which nothing else added to this plan
 has managed.** Error reports added four rows that nobody can delete; the AI sections added two; the usage

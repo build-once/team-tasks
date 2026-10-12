@@ -876,3 +876,125 @@ Collected so it is not buried in a table. Each one names what would settle it.
 - **Unverified — no screen was opened for this file.** Every claim's wording was read out of a source
   file, not off a rendered page. A screen could differ from its source if a CSS rule hid something, and
   nothing here would see that.
+
+---
+
+## 7. The privacy page and the terms, BEFORE EITHER EXISTS — Build it 26
+
+**Added 2026-10-12, and it is the first section of this file that runs the other way round.** Every row
+above reads a sentence off a screen and names the thing that keeps it. These rows name a sentence the
+documents **will** make and the thing that would have to keep it — so that the page is drafted against a
+list of what can honestly be said, rather than written first and audited afterwards.
+
+**Why that matters more here than anywhere else in this file.** A privacy policy is the one document in
+this project whose sentences are **promises to people about their own data**, and the failure mode is
+not an ugly screen: it is telling somebody something that is not true about where their data went.
+§1f's row is the precedent — "That link didn't work", drawn over a link that had worked — and this
+section exists so that kind of sentence is caught before it is published rather than after the owner
+watches it.
+
+**The three verdicts are this file's own, unchanged.** A file and line; **NOT ENFORCED**, meaning
+nothing in this repository makes the words true; or **not verified**, meaning the thing that would
+decide lives in a dashboard and nobody here opened one. **A fourth is added for this section only:
+MUST NOT SAY YET**, meaning the sentence is true of nothing today and the page must leave it out until
+something makes it true.
+
+`docs/data-inventory.md` is where each fact below was read from, and `docs/deletion.md` is where the
+designs are.
+
+### 7a. What is held, and who receives it
+
+| The sentence the page will make | What would make it true | Verdict today |
+|---|---|---|
+| Your email address and a hashed password are held, to sign you in | `auth.users`; feature 1 | **ENFORCED** by the design of Supabase Auth, and by nothing of ours |
+| Your display name is a nickname, and we never ask for your real name | `profiles.display_name`, 1–40 characters, and the sign-up screen's own wording | **ENFORCED** — `profiles_display_name_length` and `profiles_display_name_not_blank` in `20261002122203_team_rules.sql` bound it; **nothing stops somebody typing their real name into it**, and the page must say "we ask for a nickname", not "we hold no real names" |
+| Your email address is never shown to your team mates | **the absence of a policy.** `public.invitations` has one select policy, for the **team's owner**, and `auth.users` is reachable by no policy at all | **ENFORCED**, and it is one of the strongest rows in this file: the thing that keeps it is that no rule exists to return it |
+| Task text can contain anything you type, so please do not put personal details in it | the hint already on the screen (`web/src/app/tasks/page.tsx`), and `tasks_title_length` at 200 characters | **ENFORCED**, and already claimed on a screen (§2a) |
+| An invitation holds the address of somebody who may not have an account | `invitations.email` | **ENFORCED** |
+| An invitation's link stops working after 7 days | `invitations.expires_at`, defaulted to `now() + interval '7 days'` and stored as an absolute moment | **ENFORCED** |
+| …**and the row itself is kept until somebody removes it by hand** | **nothing removes it.** [#171](https://github.com/build-once/team-tasks/issues/171) | **ENFORCED as written** — and the page must say this rather than "invitations are deleted after 7 days", which is what a reader takes from the expiry |
+| Files you attach are held in this project's own storage, privately, and are visible to exactly the people who can see the task | the three policies on `storage.objects` in `20261008191804_attachments_bucket.sql`, each asking `exists (select 1 from public.tasks …)` **as the caller** | **ENFORCED**, and proved against the real service on staging (`evidence/build-it-23-attachments-bucket.md`) |
+| A photograph can carry where and when it was taken, and this app does not remove it | the line already beside the upload box | **ENFORCED**, and already claimed on a screen (§2e) |
+| We do not look inside a file; the type limit is about what the upload declares | the bucket's `allowed_mime_types`, and Supabase's own sentence that the type comes from the extension unless the caller overrides it | **ENFORCED as a refusal, and the page must say what it does not promise** — a renamed file gets through |
+| We collect no analytics and use no tracker | the absence of one. `docs/plan.md`'s "Analytics: stays at none", and no analytics package in `web/package.json` | **ENFORCED** by absence |
+| The person who runs this app can read the database | true of any host, and of this one | **ENFORCED**, and already claimed on a screen (#202) |
+
+### 7b. What leaves this project
+
+| The sentence | What would make it true | Verdict today |
+|---|---|---|
+| Suggest subtasks sends **one task's title and fixed instructions** to Anthropic, and nothing that says who asked | `supabase/functions/suggest-subtasks/index.ts` — the body is `model`, `system`, `messages`, `max_tokens`, and the title is read with the caller's own rights | **ENFORCED**, and checked by 37 Deno tests over the bodies the function builds |
+| It sends nothing unless you have switched **AI suggestions** on, and it starts off for everybody | `profiles.ai_suggestions_enabled`, `default false`, checked **in the function** by `withConsent` | **ENFORCED**, and seen to refuse on staging. **Not seen on production**, which is precondition 1 of #204 |
+| Anthropic deletes inputs and outputs within 30 days, with stated exceptions — and up to 2 years for anything flagged | Anthropic's published pages, cited in `docs/plan.md` | **not verified by us**, and correctly attributed: the page should say "Anthropic publishes", not "we delete" |
+| Switching it off stops anything more going at once, and recalls nothing | the function reads the setting on every request and nothing caches it | **ENFORCED** |
+| Error reports go to Sentry, carrying the error, the page, the browser and **your user ID** | `web/src/sentry/options.ts`, and `web/src/lib/sentry-user.ts` for the id | **ENFORCED** |
+| They never carry your address, your task text, a team name, a file name or a token | `web/src/lib/sentry-scrub.ts`, checked by `scripts/sentry-scrub-check.mjs`; plus every `dataCollection` field switched off in `options.ts` | **ENFORCED in code**, and the page should say what the limit of it is — the plan's own caveat is that a pattern scrub cannot catch free text, so this app's code must not put task text in a message |
+| Sentry does not store your IP address | **two halves, and only one is held.** The SDK does not attach one (`userInfo: false`). **Whether Sentry records the sending address is a dashboard setting nobody has seen** | **MUST NOT SAY YET.** `docs/plan.md`: "Owner to set, not yet reported." The page may say "we do not send it" and must not say "it is not stored" |
+| Sentry keeps reports for *N* days | Sentry's published free-plan retention | **MUST NOT SAY YET** — no number is written anywhere in this repository, because the page has not been read |
+| Invitation emails are sent by Resend, which sees the address, the team name and the link | `invite-member`'s `POST https://api.resend.com/emails` with `{from, to, subject, text}` | **ENFORCED** |
+| Your sign-up and password-reset emails are sent by Resend too | **production's Auth settings**, owner-reported for 11 Oct 2026 | **not verified** — nothing in this repository can read either project's SMTP setting, so if it were switched off tomorrow every document here would still say it is on |
+| Resend keeps a sending log for 30 days | Resend's free plan, as recorded in the appendix | **not verified by us** |
+| The anti-robot check on the three sign-in screens sends Cloudflare your IP address, TLS fingerprint and browser string | Cloudflare's own Privacy Addendum, quoted in `docs/data-inventory.md` §4.7; and `web/src/app/components/CaptchaGate.tsx` for where the widget is | **ENFORCED**, with the fact attributed to Cloudflare |
+| It is never given your address or your password | Cloudflare's "Turnstile does not access, store, or transmit user communications, form entries, or other page inputs", and the fact that the widget sits beside the form rather than being given it | **not verified by us**, correctly attributed |
+| Cloudflare keeps those signals for *N* days | — | **MUST NOT SAY YET.** The addendum states no retention period |
+| Cloudflare does not sell them or use them for advertising | — | **MUST NOT SAY YET.** The addendum says the purpose is not to identify or profile and **carries no sentence about selling** |
+| A nightly encrypted copy of everything is held by Cloudflare in Western Europe, and Cloudflare cannot read it | `.github/workflows/backup-production.yml` and `scripts/backup/`, exercised in CI; the encryption happens on the runner before the upload | **ENFORCED in code.** The bucket, its region and the lifecycle rule are **owner-reported** and have never been read by anybody here |
+
+### 7c. Where it is held
+
+| The sentence | What would make it true | Verdict today |
+|---|---|---|
+| The database and your files are held in **West US (Oregon)** | the owner's screenshot of 10 Oct 2026, recorded in `docs/backups.md` | **not verified** — one screenshot, by one person, once |
+| The nightly copy is held in **Western Europe**, encrypted | owner-reported, 10 Oct 2026 | **not verified** |
+| Error reports are held in the **United States** | the owner's choice of 5 Oct 2026 | **not verified** |
+| The app is served from … | — | **MUST NOT SAY YET.** Vercel's region is **not established**, and no page has been read |
+| Your task title, when you press Suggest subtasks, is held at … | — | **MUST NOT SAY YET.** Anthropic's location is **not established, and not asked** |
+
+### 7d. What you can do, which the page must not promise before PR 5
+
+| The sentence | What would make it true | Verdict today |
+|---|---|---|
+| You can download everything this app holds about you, as one file | the export | **NOT ENFORCED** — it does not exist. **MUST NOT SAY YET** |
+| You can delete your account from inside the app, and it is real | delete-account | **NOT ENFORCED** — it does not exist. **MUST NOT SAY YET**, and until it does the page has to say the opposite, which is #204's own sixth item: "that there is **no way** to delete an account in the app" |
+| Deleting removes your tasks, your teams, your files, your nickname and your account | the eight steps in `docs/deletion.md` §3, plus the cascades | **NOT ENFORCED yet.** The cascades exist; the function does not |
+| Deleting a team does not delete other members' tasks — each returns to its creator | `tasks.team_id` is `on delete set null` (`20261002133637_tasks_join_teams.sql`) | **ENFORCED today**, before any of Build it 26 is built |
+| Copies of your data remain for up to about a fortnight and then go | the R2 lifecycle rule `delete-after-14-days`, plus the day Cloudflare allows for removal | **not verified** — owner-reported, never seen, and **nothing in this repository can read an R2 rule.** The first thing that will check it is the copy of 10 October disappearing, or not |
+| After a recovery you will be asked to sign in again | `docs/backups.md` → "What a restore promises": sessions and refresh tokens are deliberately not restored | **ENFORCED in the restore script**, and seen once in the drill of 10–11 Oct |
+| Error reports about you are deleted **on request** | the owner searching Sentry by user ID — **and only before the account is deleted** | **not verified, and not yet tried.** The page must say "on request", never "automatically" |
+| What has already gone to Anthropic cannot be recalled, and cannot be found, because nothing identifying you was sent | the request body, which carries no user id | **ENFORCED**, and it is the one row here where a privacy decision makes a right impossible — which the page should say rather than hide |
+| If you cannot sign in, write to … to ask for your account to be deleted | the public request page, and the address in question 1 | **MUST NOT SAY YET** — no page, and no published address |
+| You can change your email address | **nothing.** There is no screen for it, and nothing in this app changes an address | **MUST NOT SAY.** The page should say an address change is the owner, by hand |
+
+### 7e. The terms
+
+| The sentence | What would make it true | Verdict today |
+|---|---|---|
+| This app is for a volunteer group of about six people, and is not sold | `docs/plan.md`'s own first page | **ENFORCED** by there being no payments and no plan for them |
+| There is no guarantee it will be available, and no support promise | the terms' own words | **ENFORCED** by being a disclaimer rather than a claim — but it must not contradict anything the app says elsewhere |
+| The owner may suspend an account | `account_status`, `is_active()` and the five restrictive policies | **ENFORCED**, and the terms are the first document that would tell anybody it can happen — **nobody is notified**, which the plan decided on 4 Oct and the terms should say |
+| The owner may delete an account that is abusing the app | **nothing. There is no way to delete an account at all today**, and the trigger refuses it while files remain | **MUST NOT SAY YET** |
+| You are responsible for what you type, and must not put other people's personal details in a task | the hint on the screen, and the length limit | **ENFORCED as a request, not a control.** The terms must not imply the app checks |
+| Governing law is … , and disputes are heard in … | question 2 | **MUST NOT SAY YET** |
+| You must be at least *N* years old | question 3 | **MUST NOT SAY YET**, and if it is only stated rather than checked, it must read as a requirement rather than a verification |
+| You accepted version *X* of these terms on *date* | question 4 — **a new column, and a new fact held about a person** | **MUST NOT SAY YET**, and it needs `docs/plan.md` changed first (rule 9) |
+
+### 7f. What would check these rows, once the pages exist
+
+**Three things, and only the first is new work.**
+
+1. **`scripts/auth-screens-check.mjs` is the precedent**, and it is the first check in this repository
+   that compares a screen's words with the error code that causes them and with an instruction in a
+   document. The equivalent here is cheaper, because a policy has no error codes: a check that every
+   sentence the pages make lives in **one constants file**, that no page renders a sentence of its own,
+   and that **every number in them is interpolated from this app's own constants** — the way §2e's
+   file sentences already interpolate `MAX_FILE_BYTES`, `MAX_FILES_PER_TASK` and `MAX_BYTES_PER_PERSON`
+   and `scripts/screen-state-check.mjs` compares all three against the migration's SQL. **A policy that
+   says "5 MB" as a literal is a policy that goes stale against the bucket.**
+2. **`scripts/screen-state-check.mjs`** already reads migrations as text and fails when a screen's
+   number stops matching the database's. The same section is where "100 MB", "3 files", "500 tasks",
+   "20 a day", "30 a day", "7 days" and "14 days" belong.
+3. **And one thing no check can reach**: every row above whose verdict is **not verified** rests on a
+   dashboard nobody here can open. The page must attribute each of those — "Cloudflare publishes",
+   "Anthropic publishes", "the project's settings say" — rather than asserting them in this app's own
+   voice. That is a drafting rule, not a check, and it is question 5's reviewer who has to hold it.
+

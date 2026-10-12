@@ -667,6 +667,44 @@ These three are what plan feature 5 — "see only the tasks of teams you belong 
 The accounts are created by **real sign-up on the app, pointed at staging** — the owner does that, in
 a browser. Nothing in this repository creates them.
 
+### A FOURTH ACCOUNT, PROPOSED FOR BUILD IT 26 — Dave, the one who gets deleted
+
+**Proposed 2026-10-12 and not created.** `docs/plan.md`'s "The documents, your own data, and deleting
+an account" is where it is decided; this is what it means for this page.
+
+| Account | Email address | Role | What it proves |
+|---|---|---|---|
+| **Dave** | `teamtasks.staging.test+dave@gmail.com` | **The account that gets deleted.** He owns a team, owns a personal task with a file on it, and has a task in **Alice's** team | That deleting an account removes everything of his and **nothing of anybody else's** — Alice's team survives, and the task he wrote in it is still there and still tickable |
+
+**Why a fourth rather than reusing one of the three.** Alice, Bob and Carol are the fixture every other
+staging script depends on, and `ALICE_TEAM_ID` and `CAROL_TEAM_ID` are settings those scripts refuse to
+start without. **Deleting any of the three destroys the fixture**, and the first symptom would be a red
+check on a pull request that has nothing to do with deletion.
+
+**How Dave gets created, which is not by sign-up.** Two obstacles arrived in Build it 25 and the second
+is the real one:
+
+- **the CAPTCHA is not an obstacle.** Staging's Auth holds Cloudflare's **dummy** secret key, so a
+  request carrying the dummy token from `scripts/lib/captcha.mjs` is accepted;
+- **the email is.** Staging uses Supabase's **built-in sender**: **2 emails an hour, per project**, and
+  it refuses any address not on the project's team. Whether "Confirm email" is on at all is **not
+  verified** (`docs/claims.md`). So a sign-up could stall on a confirmation that never arrives, for a
+  reason nobody can see from outside.
+
+**So the owner creates Dave in the Supabase dashboard** — Authentication → Users → Add user, with the
+account marked confirmed — which **sends no email and needs no CAPTCHA**. Everything after that is a
+staging script signed in as Dave: his nickname, his team, his task, his file. **The only email in the
+whole fixture is Alice's invitation to him**, which goes through `invite-member` and therefore Resend,
+is redirected to `EMAIL_TEST_INBOX`, and spends one of Alice's twenty for the day — so Supabase's
+two-an-hour limit is never reached, because nothing asks Supabase to send anything.
+
+**His password joins the other three**, as `DAVE_PASSWORD`, in `~/.config/team-tasks/staging.env` and
+nowhere else. Secret, never printed.
+
+**And one reason to prefer Dave for anything that uploads a file**:
+[#298](https://github.com/build-once/team-tasks/issues/298) records that every CI run already spends
+one of Alice's thirty daily uploads on staging. Dave's thirty are his own.
+
 **Why one mailbox and not three.** Staging's `EMAIL_TEST_INBOX` is set to
 `teamtasks.staging.test@gmail.com`, so `invite-member` redirects *every* staging invitation there, no
 matter who it names. Plus-addressing makes the three accounts separate identities to Supabase Auth —
