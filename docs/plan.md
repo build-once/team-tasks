@@ -3181,8 +3181,8 @@ second rests entirely on one passphrase.
   | **K** managed mode | **STILL RECORDED, NOT READ BACK.** A widget exists now, but nobody writing this has seen its settings page, so `TURNSTILE_MODE` is a record of a decision and not of a setting |
   | **D**, **H** | **Already done before this**: both dashboards read, and the minimum password length set, by the owner on 11 and 7 October |
   | **E**, **F** | **STILL SET NOWHERE, and the by-hand row for them is ON HOLD** — deliberately, because the field decision F aims at is labelled "token refreshes" and nobody has established what it covers. 31 wrong-password sign-ins saw no 429, which settles nothing at a limit of 150. [#291](https://github.com/build-once/team-tasks/issues/291) |
-  | **G** | **NOT DONE**, and not reported as done in the sitting that did five other rows |
-  | **L**, **M** | **M done — staging was not given custom SMTP.** **L is now in doubt rather than open**: the owner could change production's email templates and could **not** change staging's, and the reported cause of the lock is the built-in sender — which would mean production already has custom SMTP. Four sentences in this repository still say it has none. [#292](https://github.com/build-once/team-tasks/issues/292) |
+  | **G** | **DONE 2026-10-12.** Leaked-password protection is on, on production — owner-reported, and nothing here can read it back |
+  | **L**, **M** | **BOTH DONE.** **L**: custom SMTP on production, through Resend, set 11 October — with the emails-per-hour limit chosen at **10** rather than the imposed 30, and a reset email seen to arrive. **M**: staging was not given it. The four sentences in this repository that said custom SMTP was configured on neither project are corrected, and [#292](https://github.com/build-once/team-tasks/issues/292) is closed with the owner's facts as the answer |
   | **B**, **C** | **Still no migration.** The upload count and the 500-task cap are Build it 25's remaining code |
 
   `docs/rate-limits.md` section 3 is the list of what is left, in the order to do it, and it gained two
@@ -3346,10 +3346,29 @@ second rests entirely on one passphrase.
   in **Authentication → Rate Limits** in the dashboard. Nobody has read either project's page and nothing
   in this repository can. The same goes for the minimum password length, for leaked-password protection,
   and for whether "Confirm email" is on at all — which `docs/claims.md` already carries.
-- **Unverified — the whole "sign-up and reset emails move to Resend" section describes an intention.**
-  Custom SMTP is configured on **neither** project; both emails are still sent by Supabase's built-in
-  sender. Nothing in this repository sends either one, and nothing in this change touches
-  `supabase/functions/invite-member`, which keeps its own key.
+- **~~Unverified — the whole "sign-up and reset emails move to Resend" section describes an
+  intention.~~ DONE ON PRODUCTION, 11 October 2026.** This entry said "Custom SMTP is configured on
+  **neither** project; both emails are still sent by Supabase's built-in sender", and that was true
+  when it was written and wrong within hours.
+
+  **What the owner reports, 11 October 2026**: custom SMTP is on **production**, through Resend —
+  `smtp.resend.com`, port 465, username `resend`, a key named `team-tasks-production-auth-smtp`, sender
+  `invites@notify.raj-dhonota.com`, sender name "Team Tasks" — with the **emails-per-hour limit set to
+  10** rather than the 30 Supabase imposes. **A reset email arrived at the test mailbox afterwards.**
+  **Staging has none**, which is decision **M** doing exactly what it was chosen for.
+
+  **So two things this section promised have happened**: production can now deliver to an address that
+  is not on the Supabase project's team, and the sign-up and reset emails go through Resend. **Which
+  means Resend now holds the address of everybody who uses this app**, not only people who were
+  invited — the widening the appendix's own row describes, now real rather than planned.
+
+  **What is still unverified**: nothing in this repository can read either project's SMTP setting, so
+  if it were switched off tomorrow every sentence here would still say it is on. **And no volunteer has
+  signed up on production**, so "it delivers to somebody who is not on the project's team" rests on one
+  email to the owner's own test mailbox.
+  [#292](https://github.com/build-once/team-tasks/issues/292) is the issue this answered, and the thing
+  it was filed about is worth keeping: **four sentences in this repository said the opposite, and all
+  four were written carefully from documents that were true when somebody read them.**
 - **Not observed, only read — that production refuses to deliver to a non-team address today.** It is a
   reading of one sentence on [Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) (read
   2026-10-11): Supabase Auth "will refuse to deliver messages to addresses that are not part of the

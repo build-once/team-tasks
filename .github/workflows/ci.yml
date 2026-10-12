@@ -567,9 +567,33 @@ jobs:
       #
       # This job makes no request of any kind: --selftest returns before a
       # setting is read, so it needs no key, no account and no network, the same
-      # as the five beside it. The staging run itself is NOT here and cannot be:
+      # as the six beside it. The staging run itself is NOT here and cannot be:
       # it signs in as Alice and spends most of a five-minute rate-limit budget.
       EXPECTED_CAPTCHA_CASES: "31"
+
+      # build-it-25-limits-checks: the 500-task cap and the control-character
+      # constraints. Build it 25 part 2a.
+      #
+      # THE CASE THAT MATTERS MOST is the world where a single multi-row INSERT
+      # walks past the cap: a batch of five accepted from one below it, leaving
+      # 504. A local PostgreSQL 17.10 sandbox showed that is exactly what happens
+      # if the counting function is marked `stable` rather than left volatile --
+      # 600 rows from 499 all landed, reaching 1099 -- so it is not a
+      # hypothetical, it is one word in the migration.
+      #
+      # The rest: the 501st task accepted, which is the world where the cap does
+      # nothing; tasks_may_add() answering true for somebody who is actually at
+      # the cap, which would make the screen tell them the wrong thing; a newline
+      # still reaching a title; deleting a task NOT making room, which would make
+      # the cap's own sentence advice that does not work; and a run that left
+      # Alice at 500 -- which would refuse the three tasks
+      # web/tests/access-rules.test.mjs creates as her on every pull request, and
+      # turn somebody else's pull request red for a reason nobody could find.
+      #
+      # This job makes no request of any kind: --selftest returns before a
+      # setting is read. The staging run itself is NOT here and cannot be -- it
+      # fills a real account's list to five hundred rows and removes them again.
+      EXPECTED_LIMITS_CASES: "48"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -577,7 +601,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all six self-tests, and count the cases each one ran
+      - name: Run all seven self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -606,6 +630,7 @@ jobs:
           run_and_count build-it-20-ai-checks                scripts/staging/build-it-20-ai-checks.mjs                "$EXPECTED_AI_CASES"
           run_and_count build-it-23-attachment-checks        scripts/staging/build-it-23-attachment-checks.mjs        "$EXPECTED_ATTACHMENT_CASES"
           run_and_count build-it-25-captcha-checks           scripts/staging/build-it-25-captcha-checks.mjs           "$EXPECTED_CAPTCHA_CASES"
+          run_and_count build-it-25-limits-checks            scripts/staging/build-it-25-limits-checks.mjs            "$EXPECTED_LIMITS_CASES"
 
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the
