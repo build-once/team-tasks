@@ -1539,6 +1539,10 @@ const {
   NICKNAME_CHARS_CONSTRAINT,
   CHECK_VIOLATION_CODE,
   constraintNamed,
+  // AND BUILD IT 26's TWO: what a task says when its creator has deleted their
+  // account, and who may delete one. Section 13d-bis.
+  FORMER_MEMBER,
+  mayDeleteTask,
 } = await load("tasks.ts");
 
 // ---------------------------------------------------------------------------
@@ -2905,6 +2909,9 @@ const whole = {
       },
     ],
     tasksNotListed: 0,
+    // WHICH OF THEM THE CALLER UPLOADED -- public.my_attachment_names()'s
+    // answer, without which the section is `could_not_be_read`. See 12h.
+    mine: [`${TASK}/receipt.pdf`],
   },
 };
 
@@ -2958,7 +2965,7 @@ check(
 // they exist and how to ask, which is a promise docs/claims.md section 7d
 // carries.
 check(
-  "the file says what is not in it: nine things, including the two nobody can read",
+  "the file says what is not in it: ten things, including the two nobody can read",
   [
     NOT_IN_THIS_FILE.length,
     NOT_IN_THIS_FILE.some((line) => line.includes("ask the owner") && line.includes("limited feature")),
@@ -2969,7 +2976,7 @@ check(
     // And the list is IN the built file, not only in the module.
     built.what_is_not_in_this_file.length,
   ],
-  [9, true, true, true, true, true, 9],
+  [10, true, true, true, true, true, 10],
 );
 
 // ------------------------------------- 12b. a failed read is never an empty one
@@ -3106,7 +3113,7 @@ check(
       tasks: { failed: false, rows: [] },
       invitations: { failed: false, rows: [] },
       memberships: { failed: false, rows: [] },
-      files: { failed: false, listings: [] },
+      files: { failed: false, listings: [], mine: [] },
     });
     return [f.tasks, f.invitations_you_sent, f.teams_you_belong_to, f.files_on_your_tasks, f.complete];
   })(),
@@ -3351,6 +3358,69 @@ check(
 );
 check("a failed listing is not an empty list of files", [readExportFiles(null), readExportFiles({})], [[], []]);
 
+// ONLY THE FILES THE CALLER UPLOADED -- the owner's Dave test of 13 October
+// 2026 found this section listing BY NAME a file another person had uploaded to
+// one of the caller's own tasks. A file name is free text somebody's phone
+// chose, so that was one person's file name inside another person's downloadable
+// file. A listing cannot tell them apart, so the export asks
+// public.my_attachment_names() and intersects.
+check(
+  "a file somebody ELSE uploaded to the caller's task is not listed",
+  (() => {
+    const both = buildExport({
+      ...whole,
+      files: {
+        ...whole.files,
+        listings: [
+          {
+            taskId: TASK,
+            rows: [
+              { name: "receipt.pdf", id: "o1", created_at: "2026-10-06T00:00:00Z", metadata: { size: 2048 } },
+              { name: "carol-photo.jpg", id: "o2", created_at: "2026-10-07T00:00:00Z", metadata: { size: 99 } },
+            ],
+          },
+        ],
+        mine: [`${TASK}/receipt.pdf`],
+      },
+    });
+    return [
+      both.files_on_your_tasks.map((f) => f.name),
+      JSON.stringify(both).includes("carol-photo.jpg"),
+    ];
+  })(),
+  [["receipt.pdf"], false],
+);
+
+// AND AN UNANSWERED QUESTION IS NOT AN EMPTY ONE. A list filtered by an answer
+// nobody got would be a shorter list presented as a complete one -- the same
+// mistake as a failed read drawn as `[]`, which section 12b is entirely about.
+check(
+  "an unreadable 'which are mine' makes the whole section could_not_be_read",
+  (() => {
+    const f = buildExport({
+      ...whole,
+      files: { ...whole.files, mine: undefined },
+    });
+    return [f.files_on_your_tasks, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["files_on_your_tasks"]],
+);
+
+// AND THE FILE SAYS SO. The list is now of the caller's own uploads, so what it
+// leaves out has to be named where the person reading it is.
+check(
+  "the file's own list says other people's files on your tasks are not in it",
+  [
+    NOT_IN_THIS_FILE.length,
+    NOT_IN_THIS_FILE.some(
+      (line) =>
+        line.includes("Files other people attached to your tasks") &&
+        line.includes("files YOU uploaded"),
+    ),
+  ],
+  [10, true],
+);
+
 check(
   "a file says which task it is on BY TITLE, and carries no id",
   built.files_on_your_tasks,
@@ -3373,6 +3443,9 @@ check(
     files: {
       failed: false,
       listings: [{ taskId: "77777777-7777-7777-7777-777777777777", rows: [{ name: "x.png", id: "o", metadata: {} }] }],
+      // The caller's own upload, so it is in the list -- the question here is
+      // what it SAYS about which task, not whether it is listed at all.
+      mine: ["77777777-7777-7777-7777-777777777777/x.png"],
     },
   }).files_on_your_tasks[0].on_task,
   null,
@@ -3659,6 +3732,15 @@ const HOME_PAGE = readFileSync(
   resolve(HERE, "..", "web", "src", "app", "page.tsx"),
   "utf8",
 );
+// My tasks is already read as text by section 10, where TASKS_PAGE is declared.
+// Same file, so no second copy of it in memory.
+//
+// The design, read as text for one thing only: that the label on the screen is
+// the words docs/deletion.md asks for rather than a near-miss of them.
+const DELETION_DOC = readFileSync(
+  resolve(HERE, "..", "docs", "deletion.md"),
+  "utf8",
+);
 // LINE ENDINGS ARE NORMALISED, and that is a finding rather than tidiness: two
 // of these checks matched on a multi-line literal and went red the moment git
 // re-checked the file out with CRLF. A check that passes on Linux and fails on
@@ -3939,17 +4021,50 @@ check(
     // ONE source for both lists, and the row delete uses the same `whole`.
     count(DELETE_FUNCTION_CODE, "folderPlan(split, ownedTeamIds)"),
     count(DELETE_FUNCTION_CODE, "for (const taskId of folders.whole)"),
-    count(DELETE_FUNCTION_CODE, "for (const taskId of folders.mineOnly)"),
     count(DELETE_FUNCTION_CODE, "const doomed = folders.whole"),
-    // THE BUG ITSELF: neither walk iterates the own-task list or the
-    // elsewhere list directly any more.
+    // THE FIRST BUG: neither walk iterates the own-task list or the elsewhere
+    // list directly.
     count(DELETE_FUNCTION_CODE, "for (const task of split.own)"),
     count(DELETE_FUNCTION_CODE, "for (const task of split.elsewhere)"),
     // And `tasksToDelete` is called in exactly one place -- inside folderPlan --
     // so the rows deleted and the folders emptied cannot drift.
     count(DELETE_FUNCTION_CODE, "tasksToDelete(split.own, ownedTeamIds)"),
   ],
-  [1, 1, 1, 1, 0, 0, 1],
+  [1, 1, 1, 0, 0, 1],
+);
+
+// AND THE SECOND BUG: ON A SURVIVING TASK IT ASKS WHICH FILES ARE THE CALLER'S
+// RATHER THAN INFERRING IT FROM A REFUSAL.
+//
+// The owner's Dave test of 13 October 2026 found a team mate's file deleted from
+// Dave's surviving task. The reasoning was "attempt everything and the DELETE
+// policy will refuse what is not mine" -- true on a task somebody ELSE created,
+// FALSE on one the caller created, where that policy admits the task's CREATOR
+// for every file. Nothing was refused.
+//
+// `clearMine` IS GONE, and that absence is asserted: it is the function that
+// held the wrong reasoning, and a check for the new shape alone would pass with
+// the old one still sitting there unused and ready to be called again.
+check(
+  "the caller's own uploads come from my_attachment_names(), and clearMine is gone",
+  [
+    count(DELETE_FUNCTION_CODE, '"my_attachment_names"'),
+    // An unanswered question refuses the whole deletion: carrying on would leave
+    // files nobody can ever reach.
+    count(DELETE_FUNCTION_CODE, "uploads_unknown"),
+    count(DELETE_FUNCTION_CODE, "myNames === null"),
+    // The names are intersected with the SURVIVING tasks, so step 2's folders
+    // are not attempted twice.
+    count(DELETE_FUNCTION_CODE, "new Set(folders.mineOnly)"),
+    count(DELETE_FUNCTION_CODE, "for (const path of toRemove)"),
+    // The function that held the wrong reasoning no longer exists.
+    count(DELETE_FUNCTION_CODE, "function clearMine"),
+    count(DELETE_FUNCTION_CODE, "clearMine("),
+    // And a file that will not go is now a FAILURE rather than the ordinary
+    // case, because these names are the caller's own rows.
+    count(DELETE_FUNCTION_CODE, "function removeNamed"),
+  ],
+  [1, 2, 1, 1, 1, 0, 0, 1],
 );
 
 // AND THE INVITATIONS ADDRESSED TO THEM, which do NOT cascade: they are keyed by
@@ -3966,6 +4081,84 @@ check(
     has(DELETE_FUNCTION_CODE, "trim().toLowerCase()"),
   ],
   [1, true, true],
+);
+
+// ------------------------------- 13d-bis. the surviving task on My tasks
+console.log("\n13d-bis. a former member's task: it says so, and its team's owner may delete it");
+
+// THE OWNER'S DAVE TEST OF 13 OCTOBER 2026 FOUND BOTH OF THESE MISSING. The
+// task survived exactly as it should -- `owner_id` null, still in Alice's team
+// -- and the row drew its title, its team chip, Suggest subtasks, Files and
+// Rename. Nothing said its author had gone, and the one person the new policy
+// allows to remove it was offered no Delete. A row nobody can act on, which is
+// the opposite of issue #83's fault and just as wrong.
+const MINE_ID = "11111111-1111-1111-1111-111111111111";
+const THEIR_TEAM = "22222222-2222-2222-2222-222222222222";
+const MY_TEAM = "33333333-3333-3333-3333-333333333333";
+
+const mayDelete = (task, owned) =>
+  mayDeleteTask(task, { userId: MINE_ID, ownedTeamIds: new Set(owned) });
+
+check(
+  "its creator may delete it, which is feature 4 and is unchanged",
+  [
+    mayDelete({ owner_id: MINE_ID, team_id: null }, []),
+    mayDelete({ owner_id: MINE_ID, team_id: THEIR_TEAM }, []),
+  ],
+  [true, true],
+);
+
+check(
+  "AND THE OWNER OF ITS TEAM MAY, when the task has no creator left",
+  [
+    // A former member's task in a team I own: yes, which is the new policy.
+    mayDelete({ owner_id: null, team_id: MY_TEAM }, [MY_TEAM]),
+    // The same row in a team I am only IN: no. Members must not gain this, and
+    // the policy reads teams.owner_id directly for the same reason.
+    mayDelete({ owner_id: null, team_id: THEIR_TEAM }, [MY_TEAM]),
+    // A former member's task with no team at all is the orphan docs/deletion.md
+    // section 6.2 names: no policy returns it to anybody, so no control either.
+    mayDelete({ owner_id: null, team_id: null }, [MY_TEAM]),
+  ],
+  [true, false, false],
+);
+
+check(
+  "and a TEAM MATE'S task is still nobody else's to delete, however the teams fall",
+  [
+    mayDelete({ owner_id: "somebody-else", team_id: MY_TEAM }, [MY_TEAM]),
+    mayDelete({ owner_id: "somebody-else", team_id: THEIR_TEAM }, [MY_TEAM]),
+    // AND AN EMPTY SET OF OWNED TEAMS -- which is what a failed teams read
+    // gives -- draws nothing rather than guessing.
+    mayDelete({ owner_id: null, team_id: MY_TEAM }, []),
+  ],
+  [false, false, false],
+);
+
+check(
+  "the page draws the label and asks mayDeleteTask for the control",
+  [
+    count(TASKS_PAGE, "{FORMER_MEMBER}"),
+    count(TASKS_PAGE, "task.owner_id === null ?"),
+    count(TASKS_PAGE, "mayDeleteTask(task, { userId, ownedTeamIds })"),
+    count(TASKS_PAGE, "{mayDelete ? ("),
+    // THE OLD CONDITION IS GONE: `mine` alone no longer decides the Delete.
+    count(TASKS_PAGE, "{mine ? ("),
+    // And the owned teams come from the teams read rather than from the teams
+    // this person can merely see.
+    count(TASKS_PAGE, '.select("id, name, owner_id")'),
+    count(TASKS_PAGE, "const ownedTeamIds = new Set("),
+  ],
+  [1, 1, 1, 1, 0, 1, 1],
+);
+
+// AND THE WORDS ARE docs/deletion.md's OWN, and the label says an ABSENCE rather
+// than a person: `web/src/lib/tasks.ts` has always said owner_id is "never
+// shown", and that stays true.
+check(
+  "the label is the design's own words, and is not a name",
+  [FORMER_MEMBER, /[@]/.test(FORMER_MEMBER), has(DELETION_DOC, '"Former member"')],
+  ["Former member", false, true],
 );
 
 // ------------------------------------------- 13e. the refusals

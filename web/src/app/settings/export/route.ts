@@ -199,6 +199,30 @@ export async function GET(req: NextRequest) {
     ? { failed: true as const }
     : await listFilesForExport(supabase, taskIds);
 
+  // WHICH OF THOSE FILES THE CALLER ACTUALLY UPLOADED.
+  //
+  // ADDED AFTER THE OWNER'S DAVE TEST OF 13 OCTOBER 2026, which found this
+  // section listing BY NAME a file another person had uploaded to one of the
+  // caller's own tasks. A file name is free text somebody's phone chose, so that
+  // was one person's file name inside another person's downloadable file.
+  //
+  // A LISTING CANNOT TELL THEM APART. The installed client marks `owner` as "NOT
+  // returned by list() or remove() operations. This field should not be relied
+  // upon." So this asks `public.my_attachment_names()`
+  // (20261013170000_my_attachment_names.sql), which takes no arguments and
+  // answers about `auth.uid()` -- the same shape as `my_ai_suggestions()`, and
+  // the same function `delete-account` uses for the same reason.
+  //
+  // A FAILED READ MAKES THE WHOLE SECTION `could_not_be_read`, which buildExport
+  // does from an undefined `mine`. A list filtered by an answer nobody got would
+  // be a shorter list presented as a complete one.
+  const mineAnswer = await supabase.rpc("my_attachment_names");
+  const mine = mineAnswer.error
+    ? undefined
+    : Array.isArray(mineAnswer.data)
+      ? mineAnswer.data.filter((row): row is string => typeof row === "string")
+      : undefined;
+
   // ---- the file ------------------------------------------------------------
   const generatedAt = new Date().toISOString();
 
@@ -235,6 +259,7 @@ export async function GET(req: NextRequest) {
             failed: files.failed,
             listings: files.listings,
             tasksNotListed: files.notListed,
+            mine,
           }
         : { failed: true },
   });

@@ -1,4 +1,4 @@
-// delete_account_test.ts -- the plan of a deletion, checked without a database.
+﻿// delete_account_test.ts -- the plan of a deletion, checked without a database.
 //
 // Build it 26. It imports the REAL supabase/functions/delete-account/index.ts
 // and calls its exported pieces, so a run here says something about the function
@@ -15,9 +15,13 @@
 //   * that the new storage policy really admits a team owner for a former
 //     member's task;
 //   * that `auth.admin.deleteUser` removes what the six cascades say it does;
-//   * and that step 3's policy-as-filter deletes exactly the caller's uploads,
-//     which no listing can confirm because a listing does not say who uploaded a
-//     file.
+//   * and that `public.my_attachment_names()` returns exactly the caller's own
+//     object rows -- which is a property of a migration applied nowhere, and
+//     which REPLACED a piece of reasoning the owner's Dave test of 13 October
+//     2026 proved wrong. Section 2c is that story, and it is the clearest thing
+//     in this file about the limit of a unit test: the old version stubbed
+//     nothing about the policy, so "the policy refuses what is not yours" was an
+//     assumption the test shared with the bug.
 //
 // The owner's run on staging is what answers those four. Nothing in this
 // repository is deployed by the change that adds this file.
@@ -32,6 +36,7 @@ import {
   confirmed,
   folderPlan,
   MAX_TASKS_SCANNED,
+  readNames,
   namesOf,
   splitTasks,
   suspendedRefusal,
@@ -350,6 +355,142 @@ Deno.test("with BOTH teams his, the task in Alice's team IS emptied whole", () =
 });
 
 // ---------------------------------------------------------------------------
+// 2c. WHOSE FILES ARE REMOVED FROM A SURVIVING TASK -- the owner's Dave test
+// ---------------------------------------------------------------------------
+//
+// THE FAULT THE STAGING RUN FOUND, 13 October 2026, and the reason it got past
+// everything in this file: the function attempted every file on a surviving
+// task and read a refusal as "that one is not mine". True on a task somebody
+// ELSE created; FALSE on a task the CALLER created, where the DELETE policy
+// admits the task's creator for every file. So another member's file on Dave's
+// surviving task was deleted with his -- the task ended with 0 files, one
+// uploaded by Dave at 14:37:33Z and one by another member at 14:38:35Z.
+//
+// WHAT THE OLD TEST GOT WRONG IS WORTH MORE THAN THE FIX: it stubbed nothing
+// about the policy at all, so "the policy refuses what is not yours" was an
+// assumption the test SHARED WITH THE BUG. No number of cases over `folderPlan`
+// could have caught it.
+//
+// SO THE FUNCTION NOW ASKS. `public.my_attachment_names()` returns the caller's
+// own object names, and `readNames` is the reading of that answer. WHAT THESE
+// TESTS PROVE AND DO NOT PROVE:
+//
+//   THEY PROVE  that an unanswered question is not read as "nothing", that a
+//               malformed name never reaches a delete, and that only names
+//               under a SURVIVING task are selected for removal.
+//   THEY DO NOT PROVE anything about the real policy or the real function. That
+//               `my_attachment_names()` returns exactly the caller's rows is a
+//               property of the MIGRATION, which is applied nowhere; that the
+//               DELETE policy then admits the uploader for each of those names
+//               is a property of a policy no test here evaluates. **Only a
+//               staging run can say either**, and the shortened Dave re-test is
+//               what the owner runs for it.
+
+Deno.test("readNames: a list of paths, as a setof text arrives", () => {
+  const got = readNames(["a/one.png", "b/two.pdf"]);
+  if (JSON.stringify(got) !== JSON.stringify(["a/one.png", "b/two.pdf"])) {
+    throw new Error(`names are wrong: ${JSON.stringify(got)}`);
+  }
+});
+
+Deno.test("readNames: the row-object shape is read too, both column names", () => {
+  const got = readNames([
+    { my_attachment_names: "a/one.png" },
+    { name: "b/two.pdf" },
+  ]);
+  if (JSON.stringify(got) !== JSON.stringify(["a/one.png", "b/two.pdf"])) {
+    throw new Error(`names are wrong: ${JSON.stringify(got)}`);
+  }
+});
+
+Deno.test("readNames: AN UNANSWERED QUESTION IS NULL, NOT AN EMPTY LIST", () => {
+  // This is the one that matters. "You uploaded nothing" and "we could not work
+  // out what you uploaded" arrive at the handler as the same shape unless this
+  // function tells them apart -- and the first would leave files nobody can
+  // EVER reach, because after step 6 no live account matches their owner.
+  for (const rows of [null, undefined, {}, "a/one.png", 7]) {
+    if (readNames(rows) !== null) {
+      throw new Error(`a non-array was read as a list: ${JSON.stringify(rows)}`);
+    }
+  }
+  // And a genuinely empty answer IS an empty list, so the two are distinct.
+  const none = readNames([]);
+  if (none === null || none.length !== 0) {
+    throw new Error("an empty answer is not an empty list");
+  }
+});
+
+Deno.test("readNames: a name that is not <task id>/<file name> never reaches a delete", () => {
+  const got = readNames([
+    "no-slash.png",
+    "/leading.png",
+    "trailing/",
+    "a/b/c.png",
+    "",
+    7,
+    null,
+    { nothing: "useful" },
+    "good/one.png",
+  ]);
+  if (JSON.stringify(got) !== JSON.stringify(["good/one.png"])) {
+    throw new Error(`unusable names got through: ${JSON.stringify(got)}`);
+  }
+});
+
+Deno.test("DAVE'S SURVIVING TASK: only HIS name is selected, and Carol's is not", () => {
+  // The case the staging run failed, as the function now decides it. The names
+  // come from my_attachment_names(), which returns the CALLER'S rows -- so
+  // Carol's file is not in the answer at all, and the intersection below is
+  // what keeps the selection to tasks that survive.
+  const split = splitTasks(VISIBLE, DAVE, [DAVES_TEAM]);
+  const plan = folderPlan(split, [DAVES_TEAM]);
+  const surviving = new Set(plan.mineOnly);
+
+  // What the RPC would answer for Dave: his file on his surviving task, and his
+  // file on a task of his own that is being deleted. Carol's file appears
+  // NOWHERE in this list, because it is not his row.
+  const mine = readNames([
+    "t-in-alices-team/dave-receipt.pdf",
+    "t-personal/dave-photo.jpg",
+  ]);
+  if (mine === null) throw new Error("the fixture did not parse");
+
+  const selected = mine.filter((name) =>
+    surviving.has(name.slice(0, name.indexOf("/"))),
+  );
+
+  if (JSON.stringify(selected) !== JSON.stringify(["t-in-alices-team/dave-receipt.pdf"])) {
+    throw new Error(`the wrong names were selected: ${JSON.stringify(selected)}`);
+  }
+
+  // The one on a task being deleted is NOT selected here, because step 2 has
+  // already emptied that folder whole -- selecting it again would be a second
+  // delete of something gone.
+  if (selected.includes("t-personal/dave-photo.jpg")) {
+    throw new Error("a name under a task that step 2 already emptied was selected again");
+  }
+});
+
+Deno.test("CAN THIS FAIL: the old way would have taken a name that is not the caller's", () => {
+  // The old implementation did not have a list of the caller's names at all: it
+  // listed the FOLDER and attempted everything in it. Written out here so the
+  // test above is demonstrably about something.
+  const folderHeld = ["dave-receipt.pdf", "carol-photo.jpg"];
+  const attempted = folderHeld.map((name) => `t-in-alices-team/${name}`);
+
+  if (!attempted.includes("t-in-alices-team/carol-photo.jpg")) {
+    throw new Error("the guard's own example does not behave as described");
+  }
+
+  // And what the function does now cannot reach it: Carol's name is not in the
+  // answer my_attachment_names() gives Dave, so there is nothing to intersect.
+  const mine = readNames(["t-in-alices-team/dave-receipt.pdf"]);
+  if (mine === null || mine.includes("t-in-alices-team/carol-photo.jpg")) {
+    throw new Error("a name that is not the caller's is still reachable");
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 3. What a storage listing says
 // ---------------------------------------------------------------------------
 
@@ -454,3 +595,4 @@ Deno.test("the confirmation phrase names no company, no table and no code", () =
     throw new Error(`the phrase has something in it a phone will fight: ${CONFIRM_PHRASE}`);
   }
 });
+

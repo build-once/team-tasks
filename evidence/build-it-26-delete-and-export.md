@@ -1,10 +1,10 @@
 # Evidence: Build it 26 — delete your account, and download your data
 
-Result: **PASS for everything this repository can answer, and NOTHING has been applied or deployed.** The
-migration is applied nowhere, the function is deployed nowhere, and **no account has ever been deleted and
-no export file has ever been produced.** Five commands below with their exit codes, and four deliberate
-breakages.
-Date: 2026-10-13.
+Result: **AN ACCOUNT HAS NOW BEEN DELETED ON STAGING, AND IT FOUND THREE FAULTS — all three fixed here.**
+Section 2c is the owner's Dave test of 13 October 2026, what passed, what did not, and what the fixes
+can and cannot be said to prove. The **second** migration and the fixed function are applied and
+deployed **nowhere**.
+Date: 2026-10-13, and updated the same day after the owner's staging run.
 How checked: `node scripts/screen-state-check.mjs`, `deno test supabase/functions/_tests`,
 `npm run lint`, `npm run build`, `node scripts/check-workflows.mjs`.
 Checked by: Claude Code. **No dashboard, no connector, no browser, and nothing run against staging or
@@ -19,7 +19,8 @@ book's own prompts and checks, no added process.
 
 | | |
 |---|---|
-| `supabase/migrations/20261013140000_account_deletion.sql` | the **five** schema changes `docs/deletion.md` §6.1 names, and nothing else. **Applied nowhere** |
+| `supabase/migrations/20261013140000_account_deletion.sql` | the **five** schema changes `docs/deletion.md` §6.1 names, and nothing else. **APPLIED TO STAGING by the owner on 2026-10-13**, for the Dave test |
+| `supabase/migrations/20261013170000_my_attachment_names.sql` | **added after that test** — one `security definer` read, which is fault 1's fix. **Applied nowhere** |
 | `supabase/functions/delete-account/` | the nine steps of §3, in that order. **Deployed nowhere** |
 | `supabase/functions/_tests/delete_account_test.ts` | 22 tests over the real exported pieces of that function |
 | `web/src/lib/account-deletion.ts` | every sentence, the typed phrase, and the eight refusal codes. Import-free |
@@ -38,14 +39,14 @@ book's own prompts and checks, no added process.
 
 | Command | Result | Exit |
 |---|---|---|
-| `node scripts/screen-state-check.mjs` | **416 of 416 checks passed** | **0** |
-| `deno test … supabase/functions/_tests` | **ok \| 272 passed \| 0 failed** | **0** |
+| `node scripts/screen-state-check.mjs` | **425 of 425 checks passed** | **0** |
+| `deno test … supabase/functions/_tests` | **ok \| 278 passed \| 0 failed** | **0** |
 | `npm run lint` | no output, which is eslint saying nothing is wrong | **0** |
 | `npm run build` | every route compiled; see below | **0** |
 | `node scripts/check-workflows.mjs` | **6 workflow files, 27 jobs, 0 problems, 0 warnings** | **0** |
 
-**310 → 416 pure checks**, both numbers counted this session — the before by running `main`'s own copy of
-the script beside the real one (`310 of 310`) and deleting the temporary file. **250 → 272 Deno tests.**
+**310 → 425 pure checks**, both numbers counted this session — the before by running `main`'s own copy of
+the script beside the real one (`310 of 310`) and deleting the temporary file. **250 → 278 Deno tests.**
 
 **CI needs no change for either.** `.github/workflows/ci.yml:347` holds
 `EXPECTED_SCREEN_STATE_CHECKS: "297"` and `:857` holds `EXPECTED_FUNCTION_TESTS: "250"`; both comparisons
@@ -112,6 +113,69 @@ Exit **1**. Reverted: **272 passed**, and **416 of 416** pure checks.
 in Alice's team, and its expected count already requires that row to be there with a null `owner_id`.
 What the fix changes is that **a file Carol attached to it must still be there afterwards too** — which
 the count's `files` column already says is unchanged.
+
+## 2c. THE OWNER'S DAVE TEST ON STAGING — three faults, all three fixed. 13 Oct 2026
+
+**Owner-reported. Nobody writing this ran it, opened a browser or used a connector.** The function was
+deployed from `c09d6a1` and the coach confirmed the deployed source contains `folderPlan`.
+
+**What passed:** the login gone and sign-in refused; Dave's crew and his two own-list tasks gone; the
+invitation to his address gone; **his task in Alice's team survived with `owner_id` null**; the bucket
+back to its three pre-test files; no orphaned objects and none with a missing owner.
+
+### Fault 1 — a team mate's file was deleted from the surviving task
+
+The task ended with **0 files**: one uploaded by Dave at 14:37:33Z and one by another member at
+14:38:35Z, both gone.
+
+**The cause, and it was a piece of reasoning rather than a typo.** `clearMine` attempted every file on a
+surviving task and trusted the DELETE policy to refuse the ones that were not the caller's. True on a
+task somebody **else** created — and **false on a task the caller created**, where
+`"Attachments: delete a file you attached, or one on your task"` admits the task's **creator** for every
+file. Nothing was refused.
+
+**AND THE UNIT TEST SHARED THE ASSUMPTION WITH THE BUG.** It stubbed nothing about the policy, so "the
+policy refuses what is not yours" was taken as given by the thing testing it. No number of cases over
+`folderPlan` could have found this.
+
+**The fix: stop inferring, and ask.** A second migration,
+`20261013170000_my_attachment_names.sql` — `20261013140000` is applied on staging, so an edit to it was
+not available. One `security definer` function, `authenticated` only, taking **no arguments**, returning
+the names of the `attachments` objects whose `owner_id` is `auth.uid()`, with `is_active()` in the body.
+`delete-account` deletes exactly those under a surviving task; `clearMine` is **gone**, and §13d asserts
+its absence as well as the new shape.
+
+**WHAT THE NEW TESTS DO AND DO NOT PROVE, said plainly:**
+
+| | |
+|---|---|
+| **They prove** | that an unanswered `my_attachment_names()` is **not** read as "you uploaded nothing" (it refuses the whole deletion); that a malformed name never reaches a delete; and that only names under a **surviving** task are selected |
+| **They do not prove** | **anything about the real policy or the real function.** That `my_attachment_names()` returns exactly the caller's rows is a property of a migration **applied nowhere**; that the DELETE policy then admits the uploader for each of those names is a property of a policy no test here evaluates. **Only a staging run can say either** — which is the whole lesson of this fault, and why the re-test exists |
+
+### Fault 2 — the surviving task said nothing, and its team's owner had no Delete
+
+The owner's screenshot: title, team chip, Suggest subtasks, Files, Rename. **Nothing said its author had
+gone**, and the one person the new policy allows to remove it was offered no control — **a row nobody can
+act on**, which is the opposite of issue #83's fault and just as wrong.
+
+Both added: `FORMER_MEMBER` (the design's own words) drawn when `owner_id` is null, read out as "by
+Former member"; and `mayDeleteTask`, which admits the creator **or** the owner of its team when there is
+no creator — the same pair the policy admits. My tasks now reads `owner_id` on the teams query for that
+one question, and **an empty owned-team set on a failed read draws no Delete rather than one on a guess.**
+
+### Fault 3 — the export listed another person's file by name
+
+**A file name is free text somebody's phone chose**, so that was one person's file name inside another
+person's downloadable file. The listing is intersected with `my_attachment_names()` — the same source as
+fault 1 — an **absent** answer makes the whole section `could_not_be_read` rather than a shorter list
+presented as complete, and `NOT_IN_THIS_FILE` gained a **tenth** line saying other people's files on your
+tasks are not listed and why.
+
+### What it cost in checks
+
+**425 pure checks** (from 416) and **278 Deno tests** (from 272). Seen to fail, twice more:
+`mayDeleteTask` loosened to "any member may delete a former member's task" turned **2** red, and the
+export's intersection removed put `carol-photo.jpg` back in the file — **1** red, naming it.
 
 ## 3. Four deliberate breakages — can these checks fail?
 

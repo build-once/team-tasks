@@ -125,6 +125,12 @@ export const NOT_IN_THIS_FILE: ReadonlyArray<string> = [
   "Your sign-in tokens, and the hash of any invitation token you sent. Those are credentials.",
   "The attached files themselves. A single account may hold 100 MB of them, which does not belong in a JSON file -- so they are listed here and you open each one from My tasks.",
   "Anybody else's tasks, including tasks other people wrote in your teams. They are not your data.",
+  // ADDED AFTER THE OWNER'S DAVE TEST OF 13 OCTOBER 2026, which found the
+  // export listing BY NAME a file another person had uploaded to one of the
+  // caller's own tasks. A file name is free text somebody's phone chose, so
+  // that was one person's file name in another person's downloadable file. The
+  // listing is fixed; this is the sentence that says what the list is now.
+  "Files other people attached to your tasks. The list above is of files YOU uploaded — somebody else's file on one of your tasks is their data, not yours, and naming it here would put a name they chose into a file you can forward.",
   "The other members of your teams, and their nicknames. You can see a team's members on screen; a list of other people in a file you keep is a different thing.",
   "The sign-in log, and any IP address. Nothing in this app is built on it.",
   "How many times you used each limited feature on each day. The app keeps that for a few days and NOBODY can read it through the app, not even you -- ask the owner and they will tell you what it holds.",
@@ -331,6 +337,21 @@ export type ExportInput = {
     listings?: ReadonlyArray<{ taskId: unknown; rows?: unknown }>;
     /** How many of this person's tasks were NOT listed, and why. */
     tasksNotListed?: number;
+    /**
+     * The object names `public.my_attachment_names()` says are the caller's.
+     *
+     * ADDED AFTER THE OWNER'S DAVE TEST OF 13 OCTOBER 2026, which found this
+     * section listing BY NAME a file another person had uploaded to one of the
+     * caller's own tasks. A storage listing cannot tell them apart -- the
+     * installed client marks `owner` as "NOT returned by list() or remove()
+     * operations" -- so the export, like `delete-account`, stops inferring and
+     * asks.
+     *
+     * UNDEFINED IS NOT "NONE": a failed read of it makes the whole section
+     * `could_not_be_read`, because a list filtered by an answer nobody got
+     * would be a shorter list presented as a complete one.
+     */
+    mine?: ReadonlyArray<string>;
   };
 };
 
@@ -507,20 +528,34 @@ export function buildExport(input: ExportInput): Record<string, unknown> {
   // THE FILES SECTION DEPENDS ON THE TASKS SECTION, and not as a nicety: a
   // storage listing is BY PREFIX and a task's prefix is its id, so without the
   // tasks read there is nothing to list and no title to attach a file to.
+  // AND ONLY THE FILES THE CALLER UPLOADED, which is the fix the owner's Dave
+  // test of 13 October 2026 asked for. `input.files.mine` is the answer from
+  // `public.my_attachment_names()`; a listing cannot say who uploaded a file, so
+  // the names are intersected with it rather than filtered by a guess.
+  //
+  // AN ABSENT `mine` IS NOT AN EMPTY ONE. A list filtered by an answer nobody
+  // got would be a shorter list presented as a complete one, which is the same
+  // mistake as a failed read drawn as `[]` -- so the whole section says it could
+  // not be read.
+  const minePaths =
+    input.files.mine === undefined ? null : new Set(input.files.mine);
+
   const files =
-    input.files.failed || input.tasks.failed
+    input.files.failed || input.tasks.failed || minePaths === null
       ? note("files_on_your_tasks")
       : (input.files.listings ?? []).flatMap((listing) => {
           const id = text(listing.taskId);
           const onTask = id === null ? null : (titleByTaskId.get(id) ?? null);
-          return readExportFiles(listing.rows).map((file) => ({
-            name: file.name,
-            size_bytes: file.size_bytes,
-            uploaded_at: file.uploaded_at,
-            // The task's TITLE (rule 3), which is also the only thing in this
-            // section that says which list a file belongs to.
-            on_task: onTask,
-          }));
+          return readExportFiles(listing.rows)
+            .filter((file) => id !== null && minePaths.has(`${id}/${file.name}`))
+            .map((file) => ({
+              name: file.name,
+              size_bytes: file.size_bytes,
+              uploaded_at: file.uploaded_at,
+              // The task's TITLE (rule 3), which is also the only thing in this
+              // section that says which list a file belongs to.
+              on_task: onTask,
+            }));
         });
 
   // How many tasks were not listed for files, if the route stopped short. It is

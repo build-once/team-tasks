@@ -459,30 +459,62 @@ export default {
     // operations. This field should not be relied upon." So this cannot select
     // the caller's uploads and delete those.
     //
-    // What it does instead: it attempts each file ONE AT A TIME, and the DELETE
-    // policy decides. On a task the caller did not create, that policy admits
-    // "you uploaded it" and nothing else -- the creator branch is somebody
-    // else's -- so exactly the caller's own uploads are removed and every other
-    // file is silently left. Completeness comes from the policy, not from a
-    // read-back, and that is said plainly because it is the one step here whose
-    // success cannot be measured.
+    // SO IT ASKS WHICH FILES ARE THE CALLER'S, AND DOES NOT INFER IT FROM A
+    // REFUSAL. That inference is the fault the owner's Dave test of 13 October
+    // 2026 found, and it is worth writing out because it was a reasonable
+    // mistake: the first version attempted every file one at a time and trusted
+    // the DELETE policy to refuse the ones that were not the caller's. That is
+    // true on a task somebody ELSE created -- and false on a task the CALLER
+    // created, where the policy admits the task's CREATOR for every file. So on
+    // Dave's own surviving task nothing was refused, and a file another member
+    // had attached to it was deleted with his.
     //
-    // AND `folders.mineOnly` IS WIDER THAN `split.elsewhere`, which is the other
-    // half of the coach's fix: it also holds THE CALLER'S OWN TASKS THAT SURVIVE
-    // -- the ones they created in somebody else's team. On those the policy would
-    // admit them for every file, because they are the creator; this step
-    // deliberately does not use that, and takes only what they uploaded. The
-    // recorded decision is that a surviving task keeps its other members' files,
-    // and the person leaving takes theirs.
+    // `public.my_attachment_names()` is the answer, added by
+    // 20261013170000_my_attachment_names.sql: a `security definer` read of the
+    // caller's own `storage.objects` rows, taking no arguments. A storage
+    // listing cannot answer this -- the installed client marks `owner` as "NOT
+    // returned by list() or remove() operations" -- and no client role may read
+    // that table at all.
     //
-    // ONE AT A TIME RATHER THAN A BATCH, deliberately: nobody has established
-    // what Storage does with a `remove` whose list is partly permitted, and a
-    // batch refused whole would skip the caller's own files along with the rest.
-    // A REFUSAL IS NOT A FAILURE HERE: `clearMine` never reads the error from a
-    // `remove`, because being refused is what "that file is not mine" looks
-    // like. Only a folder it could not LIST sets `ok` false.
-    for (const taskId of folders.mineOnly) {
-      const cleared = await clearMine(ctx.supabase, taskId);
+    // AN UNREADABLE ANSWER IS NOT "I UPLOADED NOTHING". If this read fails the
+    // whole deletion stops: carrying on would leave files that NOBODY can ever
+    // reach, because after step 6 no live account matches their dangling owner
+    // and the task's-creator branch belongs to somebody else. The same way round
+    // as every other unknown in this app.
+    const mine = await ctx.supabase.rpc("my_attachment_names");
+    if (mine.error) {
+      return fail(
+        "Could not work out which files are yours, so nothing was deleted. Please try again.",
+        500,
+        "uploads_unknown",
+      );
+    }
+    const myNames = readNames(mine.data);
+    if (myNames === null) {
+      // No error and no list either. Not "none": an unanswered question.
+      return fail(
+        "Could not work out which files are yours, so nothing was deleted. Please try again.",
+        500,
+        "uploads_unknown",
+      );
+    }
+
+    // `folders.mineOnly` IS WIDER THAN `split.elsewhere`: it also holds THE
+    // CALLER'S OWN TASKS THAT SURVIVE -- the ones they created in somebody
+    // else's team. Those are exactly the tasks the old reasoning got wrong, and
+    // they are why this list and the names are intersected rather than either
+    // being used alone.
+    //
+    // The whole folders are skipped here: step 2 has already emptied them, and a
+    // name under one of them is gone.
+    const surviving = new Set(folders.mineOnly);
+    const toRemove = myNames.filter((name) => {
+      const taskId = name.slice(0, name.indexOf("/"));
+      return surviving.has(taskId);
+    });
+
+    for (const path of toRemove) {
+      const cleared = await removeNamed(ctx.supabase, path);
       if (!cleared.ok) {
         return fail(
           "Some of your files could not be removed, so nothing was deleted. Please try again.",
@@ -676,36 +708,79 @@ async function clearFolder(client: any, taskId: string): Promise<Cleared> {
 }
 
 /**
- * The caller's own uploads on one task they did NOT create, attempted one at a
- * time and the folder read back.
+ * ONE named object, removed, and the folder read back to prove it is gone.
  *
- * THE POLICY DECIDES WHICH ONES GO, and this function cannot tell which those
- * were -- a listing does not say who uploaded a file. So `ok` is true whenever
- * both listings succeeded: what remains is somebody else's and must remain.
+ * REPLACES `clearMine`, WHICH WAS THE FAULT. That one attempted every file on a
+ * task and read a refusal as "not mine" -- true on a task somebody else
+ * created, false on one the caller created, where the DELETE policy admits the
+ * task's creator for every file. So it deleted another member's file from Dave's
+ * surviving task, which the owner's Dave test of 13 October 2026 found.
  *
- * `removed` is the DIFFERENCE between the two listings, which is the only
- * honest number available: it counts what actually left the folder rather than
- * what was attempted.
+ * This one is handed the path of a file `public.my_attachment_names()` has said
+ * is the caller's. So it attempts exactly that, and a FAILURE IS A FAILURE here
+ * rather than the ordinary case: these names are the caller's own rows, and the
+ * DELETE policy admits the uploader, so a file that will not go is something
+ * wrong and not something forbidden.
+ *
+ * `ok` false when the folder could not be read back, or when the file is still
+ * there. A file this function could not confirm gone is a file that must stop
+ * the deletion, because after step 6 nobody can ever reach it.
  */
 // deno-lint-ignore no-explicit-any
-async function clearMine(client: any, taskId: string): Promise<Cleared> {
-  const before = await client.storage.from(BUCKET).list(taskId, { limit: LIST_LIMIT });
-  if (before.error) return { ok: false, removed: 0, code: before.error?.code };
+async function removeNamed(client: any, path: string): Promise<Cleared> {
+  const slash = path.indexOf("/");
+  const taskId = path.slice(0, slash);
+  const name = path.slice(slash + 1);
 
-  const names = namesOf(before.data);
-  if (names.length === 0) return { ok: true, removed: 0 };
-
-  for (const name of names) {
-    // A refusal here is the ordinary case -- it means the file is not the
-    // caller's -- so the error is not read and not returned. The read-back
-    // below is what reports anything.
-    await client.storage.from(BUCKET).remove([`${taskId}/${name}`]);
-  }
+  await client.storage.from(BUCKET).remove([path]);
 
   const after = await client.storage.from(BUCKET).list(taskId, { limit: LIST_LIMIT });
   if (after.error) return { ok: false, removed: 0, code: after.error?.code };
 
-  return { ok: true, removed: names.length - namesOf(after.data).length };
+  const left = namesOf(after.data).includes(name);
+  return { ok: !left, removed: left ? 0 : 1 };
+}
+
+/**
+ * The names `public.my_attachment_names()` answered with, or NULL.
+ *
+ * NULL IS NOT AN EMPTY LIST, and that distinction is the whole reason this
+ * returns one rather than the other: an unanswered question read as "you
+ * uploaded nothing" would leave files nobody can ever reach. The caller refuses
+ * the whole deletion on a null.
+ *
+ * The RPC returns `setof text`, which the client gives back as an array of
+ * strings. Anything in it that is not a usable `<task id>/<file name>` is
+ * dropped -- the SQL already refuses those with
+ * `attachments_task_id(name) is not null`, and this is the second lock, because
+ * the slice in the caller assumes a slash.
+ */
+export function readNames(rows: unknown): string[] | null {
+  if (!Array.isArray(rows)) return null;
+
+  const out: string[] = [];
+  for (const row of rows) {
+    // A `setof text` arrives as a bare string. A single-column table would
+    // arrive as `{ name }`, so both shapes are read rather than guessed at.
+    const name =
+      typeof row === "string"
+        ? row
+        : row !== null && typeof row === "object"
+          ? (row as { my_attachment_names?: unknown; name?: unknown })
+              .my_attachment_names ??
+            (row as { name?: unknown }).name
+          : undefined;
+
+    if (typeof name !== "string") continue;
+    const slash = name.indexOf("/");
+    // Exactly one slash, with something on each side: the same shape
+    // public.attachments_task_id() accepts, which is what the SQL filters on.
+    if (slash <= 0 || slash === name.length - 1) continue;
+    if (name.indexOf("/", slash + 1) !== -1) continue;
+    out.push(name);
+  }
+
+  return out;
 }
 
 /**
