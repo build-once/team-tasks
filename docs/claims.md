@@ -895,9 +895,16 @@ watches it.
 
 **The three verdicts are this file's own, unchanged.** A file and line; **NOT ENFORCED**, meaning
 nothing in this repository makes the words true; or **not verified**, meaning the thing that would
-decide lives in a dashboard and nobody here opened one. **A fourth is added for this section only:
+decide lives in a dashboard and nobody here opened one. **Two more are added for this section only:
 MUST NOT SAY YET**, meaning the sentence is true of nothing today and the page must leave it out until
-something makes it true.
+something makes it true — and **MUST NOT SAY**, used for the five sentences the owner's answers of
+2026-10-13 rule out **permanently**, which is a different thing and must not be read as a to-do.
+
+**UPDATED 2026-10-13 with the owner's answers to all seventeen questions.** Every row that one of them
+decides now carries the answer and the date. The five permanent refusals are worth reading together,
+because each is a sentence somebody drafting a policy would reach for by habit: *Sentry does not store
+your IP address*; *you accepted version X of these terms*; *we verify your age*; *reviewed by a
+lawyer*; and *we use no cookies at all*.
 
 `docs/data-inventory.md` is where each fact below was read from, and `docs/deletion.md` is where the
 designs are.
@@ -929,7 +936,8 @@ designs are.
 | Switching it off stops anything more going at once, and recalls nothing | the function reads the setting on every request and nothing caches it | **ENFORCED** |
 | Error reports go to Sentry, carrying the error, the page, the browser and **your user ID** | `web/src/sentry/options.ts`, and `web/src/lib/sentry-user.ts` for the id | **ENFORCED** |
 | They never carry your address, your task text, a team name, a file name or a token | `web/src/lib/sentry-scrub.ts`, checked by `scripts/sentry-scrub-check.mjs`; plus every `dataCollection` field switched off in `options.ts` | **ENFORCED in code**, and the page should say what the limit of it is — the plan's own caveat is that a pattern scrub cannot catch free text, so this app's code must not put task text in a message |
-| Sentry does not store your IP address | **two halves, and only one is held.** The SDK does not attach one (`userInfo: false`). **Whether Sentry records the sending address is a dashboard setting nobody has seen** | **MUST NOT SAY YET.** `docs/plan.md`: "Owner to set, not yet reported." The page may say "we do not send it" and must not say "it is not stored" |
+| **"We do not send your IP address to Sentry"** — **the wording DECIDED by answer 16, 2026-10-13** | `web/src/sentry/options.ts`, `userInfo: false`, cited against the installed package: `requestdata.js` reads `ip: options.include?.ip ?? dataCollection.userInfo` | **ENFORCED.** It is **our** code, in this repository, and it is the whole of what this app controls |
+| ~~Sentry does not store your IP address~~ | — | **MUST NOT SAY, and that is now a decision rather than a gap (answer 16).** Whether Sentry records the address a report arrives from is a dashboard setting **nobody has seen**, still "owner to set, not yet reported". **The two sentences are one word apart and the difference is who is promising** |
 | Sentry keeps reports for *N* days | Sentry's published free-plan retention | **MUST NOT SAY YET** — no number is written anywhere in this repository, because the page has not been read |
 | Invitation emails are sent by Resend, which sees the address, the team name and the link | `invite-member`'s `POST https://api.resend.com/emails` with `{from, to, subject, text}` | **ENFORCED** |
 | Your sign-up and password-reset emails are sent by Resend too | **production's Auth settings**, owner-reported for 11 Oct 2026 | **not verified** — nothing in this repository can read either project's SMTP setting, so if it were switched off tomorrow every document here would still say it is on |
@@ -959,7 +967,7 @@ designs are.
 | Deleting removes your tasks, your teams, your files, your nickname and your account | the eight steps in `docs/deletion.md` §3, plus the cascades | **NOT ENFORCED yet.** The cascades exist; the function does not |
 | Deleting a team does not delete other members' tasks — each returns to its creator | `tasks.team_id` is `on delete set null` (`20261002133637_tasks_join_teams.sql`) | **ENFORCED today**, before any of Build it 26 is built |
 | **A task you wrote in somebody else's team stays with that team, shown as "Former member"** — **NEW, from decision 1 of 2026-10-12** | the five schema changes in `docs/deletion.md` §6.1 | **NOT ENFORCED** — `tasks.owner_id` is `not null` with `on delete cascade` today, so the opposite is true. **MUST NOT SAY YET** |
-| **Nobody loses a task they wrote themselves** | `on delete set null` on `tasks.team_id`, and step 4a of the deletion deleting only the departing person's own rows | **ENFORCED today for the team case**, and it is the sentence **question 17** would reverse. If 17 comes back as the wide reading, **this row has to come off the page** — which is the clearest reason the question is worth asking before the page is drafted |
+| **Nobody loses a task they wrote themselves** | `on delete set null` on `tasks.team_id`, and step 4a of the deletion deleting only the departing person's own rows | **ENFORCED today for the team case, AND THE SENTENCE SURVIVES — answer 17, 2026-10-13, took the narrow reading.** This row said the wide reading would take it off the page; it did not come back. **One thing the page must add beside it**, because a true sentence can still surprise somebody: a task returning to its creator as a **personal** task is a task they may not expect to find there |
 | Copies of your data remain for up to about a fortnight and then go | the R2 lifecycle rule `delete-after-14-days`, plus the day Cloudflare allows for removal | **not verified** — owner-reported, never seen, and **nothing in this repository can read an R2 rule.** The first thing that will check it is the copy of 10 October disappearing, or not |
 | After a recovery you will be asked to sign in again | `docs/backups.md` → "What a restore promises": sessions and refresh tokens are deliberately not restored | **ENFORCED in the restore script**, and seen once in the drill of 10–11 Oct |
 | Error reports about you are deleted **on request** | the owner searching Sentry by user ID — **and only before the account is deleted** | **not verified, and not yet tried.** The page must say "on request", never "automatically" |
@@ -979,9 +987,25 @@ designs are.
 | The owner may suspend an account | `account_status`, `is_active()` and the five restrictive policies | **ENFORCED**, and the terms are the first document that would tell anybody it can happen — **nobody is notified**, which the plan decided on 4 Oct and the terms should say |
 | The owner may delete an account that is abusing the app | **nothing. There is no way to delete an account at all today**, and the trigger refuses it while files remain | **MUST NOT SAY YET** |
 | You are responsible for what you type, and must not put other people's personal details in a task | the hint on the screen, and the length limit | **ENFORCED as a request, not a control.** The terms must not imply the app checks |
-| Governing law is … , and disputes are heard in … | question 2 | **MUST NOT SAY YET** |
-| You must be at least *N* years old | question 3 | **MUST NOT SAY YET**, and if it is only stated rather than checked, it must read as a requirement rather than a verification |
-| You accepted version *X* of these terms on *date* | question 4 — **a new column, and a new fact held about a person** | **MUST NOT SAY YET**, and it needs `docs/plan.md` changed first (rule 9) |
+| **"These terms are governed by the law of England and Wales, and disputes are heard there"** | answer 2, **2026-10-13** | **ENFORCED by being the owner's statement of fact about the terms**, which is the one kind of claim in this register that nothing in code can keep. It is the controller's to stand behind |
+| **"This app is not for anybody under 16"** | answer 3, **2026-10-13: 16, STATED and NOT CHECKED** | **ENFORCED as a requirement.** And the row that matters more is the one it must **not** become: **"we verify that you are 16 or over" would be NOT ENFORCED** — nothing asks for an age, nothing holds one, and the appendix gains no row. The wording has to read as a condition of use, never as a check |
+| ~~You accepted version *X* of these terms on *date*~~ | — | **MUST NOT SAY, and it is now a decision: answer 4, 2026-10-13, is NO such record.** **A DELIBERATE DEPARTURE FROM THE BOOK**, whose chapter recap recommends recording who accepted which version. Nothing is stored, so **nothing may claim it** — and the honest consequence is that if somebody ever disputes which terms they were shown, there is nothing to answer with. `docs/plan.md`'s answer 4 carries the trade in both directions |
+| **The controller is `DHTA Ltd`, and the address for any of this is `dp@raj-dhonota.com`** | answer 1, **2026-10-13** | **ENFORCED by being published.** Two things follow and both belong on the page rather than only here: it is **a public address on a public page**, so it will be scraped; and it is **the only route** for every right in this plan, including a deletion request from somebody who cannot sign in — answer 14 left the app with no form on purpose |
+| ~~Reviewed by a lawyer / prepared by / checked for compliance~~ | — | **MUST NOT SAY, EVER — answer 5, 2026-10-13.** The owner reads both documents himself and **that is not a legal review.** No such sentence, and no badge, seal or date-of-review line that would read as one. §7f item 3 is the matching rule for statements about outside companies |
+
+### 7e-bis. Cookies — the sentences answer 15 decides, 2026-10-13
+
+**No banner, with disclosure.** So the page has no consent control and does have a list, and the list
+is short enough to print in full. Every row below rests on the owner's reading of production's
+signed-out `/login` at `45d187b`, in `evidence/cookies.md`.
+
+| The sentence the page will make | What would make it true | Verdict |
+|---|---|---|
+| **"We do not use cookies for analytics, advertising or tracking, and we use no tracker at all"** | the absence of one: `docs/plan.md`'s "Analytics: stays at none", no analytics package in `web/package.json`, and the only outside script the app loads is Cloudflare's, on three screens | **ENFORCED by absence**, and now by a reading as well |
+| **"Signed out, this app stores nothing on your device"** | measured: no cookie, no session storage, no local storage on this app's origin | **ENFORCED for `/login`.** The page must not stretch it to every screen: `/signup` and `/forgot-password` are **unlooked at**, and a **signed-in** page is expected to carry the session cookie |
+| **"When you sign in we set a cookie that keeps you signed in, and one short-lived cookie while a password-reset link is being used"** | `@supabase/ssr`'s `sb-<project ref>-auth-token` and its chunks and PKCE verifier; and `reset-link-used`, 900 seconds, `httpOnly`, `sameSite: lax` (`web/src/lib/password-reset.ts`) | **ENFORCED.** Both are strictly necessary, and `reset-link-used` is the only cookie this app writes itself. **Whether `@supabase/ssr` sets `httpOnly`** at this app's settings is still unread — the reading was signed out, so the cookie was not there |
+| **"The anti-robot check stores one item in your browser, `cf.turnstile.u`. It belongs to Cloudflare, not to us, and Cloudflare does not document what it is or how long it lasts"** | measured: one local-storage item, in `challenges.cloudflare.com`'s own frame. Three Cloudflare pages read on 2026-10-13 and not one mentions it | **ENFORCED as written, and it is the most carefully worded row in this section.** It names the thing, attributes it, and **says the limit of what anybody knows** rather than inventing a purpose. **It must not say "for a session" or "temporarily"**: local storage has no expiry of its own |
+| ~~"We use no cookies at all"~~ | — | **MUST NOT SAY.** True of a signed-out visitor and false the moment they sign in, which is the kind of sentence that is accurate on the day it is written and misleading for the rest of the app's life |
 
 ### 7f. What would check these rows, once the pages exist
 

@@ -2141,10 +2141,14 @@ before any code, which is the order rule 9 asks for.
    is the requirement and the list; this section is the release order around it.
 2. **Terms.** Public, reachable from every screen. What this app is, what it is not, what it does not
    promise, and the law it is read under.
-3. **An answer about cookies**, which is a list before it is a decision. `docs/data-inventory.md`
-   section 5 is the list, from the code and from Cloudflare's own documentation, and it **deliberately
-   does not conclude that no banner is needed** — three things are still unknown and one of them is a
-   legal judgement rather than a reading of the code.
+3. **An answer about cookies**, which was a list before it was a decision — and the decision is now
+   taken. `docs/data-inventory.md` section 5 is the list, from the code and from Cloudflare's own
+   documentation; **`evidence/cookies.md` is the reading of a real screen, and the answer is NO BANNER,
+   WITH DISCLOSURE** (question 15, 2026-10-13). What the reading found is smaller than the list
+   allowed for: on a signed-out `/login` **this app stores nothing at all on the device**, and the one
+   thing found is **Cloudflare's local-storage item `cf.turnstile.u`, in Cloudflare's own frame** —
+   which the privacy page must **name**, because a cookie answer that omits the one thing actually
+   found would be the sort of true-sounding omission this build exists to prevent.
 4. **Export your own data.** One JSON file, the signed-in person's own data and nobody else's, built
    **with their own rights and no secret key** — because nearly everything in it is something
    row-level security already lets them read. `docs/deletion.md` section 11.
@@ -2158,7 +2162,9 @@ before any code, which is the order rule 9 asks for.
 - **Not a consent record, unless the owner asks for one.** Recording which version of the terms
   somebody accepted at sign-up would be a **new column holding a new kind of fact about a person**, and
   it is question 4 below rather than an assumption here.
-- **Not a cookie banner**, on the evidence available. It is not ruled out either — see part 3 above.
+- **Not a cookie banner. DECIDED 2026-10-13**, on a reading of a real screen rather than on the
+  evidence being thin: there was nothing of ours on the device to ask about. Part 3 above, and
+  `evidence/cookies.md`.
 - **Not a change to what any outside company receives.** Nothing new leaves this project in this build.
   What changes is that people are **told**, and that they can ask for it to stop.
 
@@ -2209,22 +2215,52 @@ the one failure this whole build exists to avoid:
 Five the owner named, and the rest from writing the design. The documents cannot be drafted without 1
 to 5, and the code cannot be written without 6 to 16.
 
-**NINE OF THEM WERE ANSWERED ON 2026-10-12 — 6 to 14, all as recommended — and answering them produced
-a seventeenth.** Each answer is marked below and recorded in full where its design is, in
-`docs/deletion.md` §13. **What is still open is 1 to 5, 15, 16 and 17**: the five only the owner can
-answer, the two that need somebody to look at a dashboard or a rendered screen, and the one the answers
-themselves raised.
+**ALL SEVENTEEN ARE NOW ANSWERED.** Nine on **2026-10-12** — 6 to 14, all as recommended — and the
+remaining eight on **2026-10-13**: 1 to 5, 15, 16 and the seventeenth the first nine produced. Each
+answer is marked below and recorded in full where its design is: `docs/deletion.md` §13 for 6 to 14 and
+17, `evidence/cookies.md` for 15, `docs/claims.md` §7 for every sentence 1 to 5 and 16 decide.
 
-1. **Who is the data controller** — a person, or `DHTA Ltd`? — and **what contact address is published
-   on the page**? It will be a public address on a public page.
-2. **Which law governs the terms**, and where disputes are heard.
-3. **Is there a minimum age**, and if so what is it, and is it stated or checked? Stating it is a
-   sentence; checking it is a new field and a new kind of data.
-4. **Do the terms need an "accepted version" record at sign-up?** If yes, it is a new column and a new
-   fact held about a person, and this section is updated before it is built.
-5. **Who is the real person reading both documents before launch**, and by when? `docs/plan.md` has
-   said since 7 October that writing the words is the owner's, "not least because they carry legal
-   weight" — and a page written by an assistant and reviewed by nobody is the worst of the options.
+**One of the eight came with a reading of a rendered screen rather than a judgement**, and it is the
+only answer in this list that is a measurement: question 15. **Two of them are departures from the
+book**, named as such below — questions 4 and 17.
+
+1. ~~**Who is the data controller, and what contact address is published on the page?**~~ **ANSWERED
+   2026-10-13: the controller is `DHTA Ltd`, and the published address is `dp@raj-dhonota.com`.** Both
+   go on the privacy page and on the terms. **Two things follow that are worth writing down rather
+   than discovering**: it is **a public address on a public page**, so it will be scraped and will
+   receive rubbish — and it is **the address every right in this plan is exercised through**, including
+   the deletion requests of people who cannot sign in (question 14 left the app with no form, on
+   purpose), so it is the one address in this project that must not go unread.
+2. ~~**Which law governs the terms, and where disputes are heard?**~~ **ANSWERED 2026-10-13: England
+   and Wales**, for both.
+3. ~~**Is there a minimum age?**~~ **ANSWERED 2026-10-13: 16, STATED on the page and NOT CHECKED.**
+   That is the smaller of the two in every sense and the distinction has to survive into the wording:
+   the page says the app is **not for under-16s**, and it must **not** say or imply that anybody's age
+   is verified. **Nothing is asked, so nothing is held** — no date of birth, no age field, no new row,
+   and the appendix is untouched by this answer. `docs/claims.md` §7e is the row, and its verdict is
+   that a sentence which read as a verification would be **NOT ENFORCED**.
+4. ~~**Do the terms need an "accepted version" record at sign-up?**~~ **ANSWERED 2026-10-13: NO — and
+   it is a DELIBERATE DEPARTURE FROM THE BOOK, recorded as one at the owner's instruction.** The
+   chapter recap recommends recording **who accepted which version of the terms, and when**. This app
+   does not, and the reason is the reason this plan gives for everything else it declines: **it would
+   be a new column holding a new fact about a person** — one row per account, saying what they agreed
+   to and on what date — for a group of about six volunteers the owner will tell in person.
+   **So the trade is stated plainly in both directions.** What is given up: if somebody ever disputes
+   which terms they were shown, there is nothing in the database to answer with, and the honest answer
+   would be "we did not record it". What is gained: **no new personal data at all.** This is the line
+   to come back to if this app ever has people the owner does not know — and a version record added
+   later cannot be backdated, which is the part that makes it a decision rather than a deferral.
+5. ~~**Who is the real person reading both documents before launch?**~~ **ANSWERED 2026-10-13: the
+   owner reads both himself.** And the owner asked for the limit of that to be recorded, which is the
+   half that matters: **it is NOT a legal review.** Two consequences, and the second is a drafting rule
+   the pages are held to:
+   - **nothing in either document may say or imply that it was reviewed by a lawyer**, that it was
+     "prepared by" anybody, or that it has been checked for compliance with any law. No such sentence,
+     and no badge, seal or date-of-review line that would read as one;
+   - **and every statement in them about an outside company stays attributed.** "Anthropic publishes",
+     "Cloudflare states", "the project's settings say" — never this app's own voice asserting another
+     company's practice. `docs/claims.md` §7f item 3 is that rule, and it is the reviewer who has to
+     hold it, which is now the owner.
 6. ~~**Do tasks somebody created in other people's teams survive their account, shown as "Former
    member"?**~~ **ANSWERED 2026-10-12: YES.** And it costs **five** schema changes rather than the four
    this question named — a nullable `owner_id`, a new branch in `tasks_enforce_column_rules` **without
@@ -2261,26 +2297,63 @@ themselves raised.
 14. ~~**Does the deletion-request page have a form?**~~ **ANSWERED 2026-10-12: NO FORM.** Nothing is
     collected in the app; the cost is that the owner's own mailbox is the store, and that the owner has
     to check the request came from the address on the account.
-15. **Is the cookie answer "no banner"?** It cannot be settled from this repository: it needs one look
-    at a rendered sign-in screen and a legal judgement.
-16. **May the privacy page say Sentry does not store an IP address?** Today it may not: the SDK does
-    not attach one, and the Sentry setting that stops Sentry recording the sending address is **"owner
-    to set, not yet reported"**.
-17. **AND ONE THE ANSWERS THEMSELVES RAISED, added 2026-10-12. When a team's owner deletes their
-    account, does `delete-account` remove EVERY task in that team, or only the orphan-producing ones?**
-    Answer 7 says "removes that team's tasks … rather than leaving them to the set-null", and read
-    literally that destroys tasks **other members wrote**. It would reverse two things that are still
-    standing: `20261002133637_tasks_join_teams.sql` chose `on delete set null` over `cascade` for this
-    exact case — "Carol losing her own task because Alice closed her account is a stranger deleting
-    Carol's work" — and `docs/deletion.md`'s decision 2, taken as yes in the same message, is the
-    warning that promises **"nobody loses a task they wrote themselves"**. **`docs/deletion.md` is
-    written to the narrow reading** — step 4b removes only the tasks whose `owner_id` is already null,
-    which is the whole of the orphan-producing set and achieves answer 7's stated goal in full —
-    **because the wide reading costs somebody else's work and this is not the assistant's call to
-    make.**
+15. ~~**Is the cookie answer "no banner"?**~~ **ANSWERED 2026-10-13: NO BANNER, WITH DISCLOSURE — and
+    this is the one answer in the list that rests on a measurement rather than a judgement.** The owner
+    looked, in Chrome, at production's signed-out `/login` at version `45d187b`, with storage cleared
+    first and the widget settled, and found **less than anybody expected**:
 
-`docs/deletion.md` section 13 holds 6 to 14 with the answer each came back with; this list is where the
-answers are recorded, and **1 to 5, 15, 16 and 17 are what is still open.**
+    | Store | this app's origin | `challenges.cloudflare.com` |
+    |---|---|---|
+    | Cookies | **none** | **none** |
+    | Session storage | **empty** | **empty** |
+    | Local storage | **empty** | **ONE item: `cf.turnstile.u`** |
+
+    **So this app stores NOTHING on a signed-out visitor's device** — not a cookie, not a storage item.
+    The three things `docs/data-inventory.md` §5.1 says it can set are all written by signing in, by a
+    link exchange, or on the reset path, and a signed-out `/login` does none of those. **The one item
+    found is Cloudflare's, in Cloudflare's own frame**, which this app cannot read.
+
+    **"With disclosure" is the part that is not optional**: the privacy page **names `cf.turnstile.u`**,
+    says it is Cloudflare's and not ours, and says **Cloudflare does not document it** — because
+    **three Cloudflare pages were read on 2026-10-13 and not one mentions it.** Its purpose and its
+    lifetime are **NOT CONFIRMED**, and no guess at either is written anywhere; the only thing said
+    without a citation is that local storage has no expiry of its own, which is a property of the store.
+    `evidence/cookies.md` is the record, including the five things still not looked at — the other two
+    screens, any signed-in page, an interaction-required challenge, any other browser, and a phone.
+16. ~~**May the privacy page say Sentry does not store an IP address?**~~ **ANSWERED 2026-10-13: it may
+    say "we do not send your IP address to Sentry", and it may NOT say Sentry does not store one.**
+    Which is exactly the shape of what is held: `userInfo: false` in `web/src/sentry/options.ts` stops
+    the SDK attaching one — that is **our** code, in this repository, checkable — and whether Sentry
+    records the address a report arrives from is **a dashboard setting nobody has seen**, still "owner
+    to set, not yet reported". **The two sentences are one word apart and the difference is who is
+    promising**, which is why the answer is written as two sentences rather than one.
+17. ~~**Every task in a doomed team, or only the orphan-producing ones?**~~ **ANSWERED 2026-10-13: THE
+    NARROW READING — only the tasks that would become unreachable.** So step 4b stands as written, and
+    `docs/deletion.md` is now a design rather than a design with a question in it.
+
+    **AND THIS IS THE SECOND DELIBERATE DEPARTURE FROM THE BOOK, recorded as one at the owner's
+    instruction.** The book's Build it 26 text has a deleted owner's teams go **"with that team's
+    tasks"** — all of them. This app does not, and the reason is a decision already in this repository
+    and older than the question: `20261002133637_tasks_join_teams.sql` chose `on delete set null` over
+    `cascade` for this exact case, and said why in words this answer keeps — "Carol losing her own task
+    because Alice closed her account is a stranger deleting Carol's work, and this database has no
+    point-in-time restore on the free plan to undo it with."
+
+    **What that costs, stated rather than implied:** a team whose owner leaves does **not** take the
+    other members' tasks with it — each returns to the person who wrote it as a personal task, and
+    **that person may not expect to find it there.** The warning in `docs/deletion.md` §5 is where they
+    are told. The alternative cost somebody else's work, and this plan has preferred a surprise over a
+    loss since 2 October.
+**Where the question came from, kept because the order it happened in is the point.** It was not on the
+owner's list: it was raised on 2026-10-12 by writing answer 7 down, which said "removes that team's
+tasks … rather than leaving them to the set-null" — a sentence with two readings, one of which quietly
+reversed the `set null` decision and decision 2's own promise that "nobody loses a task they wrote
+themselves". `docs/deletion.md` was written to the narrow reading and **said so**, rather than choosing
+for the owner; the answer of 13 October is that the narrow reading was meant.
+
+`docs/deletion.md` section 13 holds 6 to 14 and 17 with the answer each came back with, and
+`evidence/cookies.md` holds 15's reading. **Nothing in this list is open.** What is left is not a
+question but a drafting job: **the words**, which answer 5 puts in the owner's hands.
 
 ### The order of the work
 
@@ -2296,7 +2369,7 @@ nobody can act on.
 |---|---|---|
 | **0** | **This one.** The plan, the inventory, the deletion design. Documents only | no |
 | **1** | The **privacy page** and the **terms page**: two public pages, footer links, and `"/privacy"`, `"/terms"` added to `PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` — **without which a signed-out visitor is sent to `/login`**. Plus a `docs/claims.md` row for every sentence | **no** — nothing touches the database. **But a look in a browser, on a phone**, which is the device this plan says the app is for |
-| **2** | The **cookie answer**: the list published on the privacy page, and a banner only if question 15 says so | no |
+| **2** | ~~The **cookie answer**.~~ **FOLDED INTO ROW 1 by answer 15 of 2026-10-13**: there is no banner to build, so what is left is the disclosure — the list, and `cf.turnstile.u` named — which belongs on the privacy page row 1 already builds. **Row 2 is therefore empty on purpose rather than deleted**, so the numbering below does not move under anybody reading an older version of this table | — |
 | **3** | The **export**. Read-only, no migration, no secret key, a route handler so the download needs no JavaScript | **yes.** Dave's export must contain Dave's data and none of Alice's |
 | **4** | The **deletion schema**: nullable `owner_id`, the foreign key as `on delete set null`, the new branch in `tasks_enforce_column_rules`, **both** new delete policies — the team owner's on `tasks` and the one on `storage.objects` without which the first is unusable — and the **tombstone** table | **yes**, and the owner applies it |
 | **5** | The **public deletion-request page** — **moved up from row 6 by answer 11** | no |
@@ -2439,7 +2512,9 @@ than five, counted here rather than remembered.
 - **A deletion request from somebody who cannot sign in** — an email address and whatever they write,
   **in the owner's own mailbox, outside this project**, because the public request page deliberately has
   no form and collects nothing in the app. It is in this list because "no table is involved" is not the
-  same as "no personal data is held". Added 2026-10-12
+  same as "no personal data is held". **The address is `dp@raj-dhonota.com`** — answer 1 of
+  2026-10-13 — and it is **published on a public page**, which is also what makes it the one address in
+  this project that must not go unread. Added 2026-10-12, address added 2026-10-13
 
 Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
 2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is

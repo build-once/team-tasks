@@ -363,7 +363,7 @@ address.
 | **Where it is held** | **NOT ESTABLISHED** |
 | **How long Cloudflare keeps a Signal** | **NOT CONFIRMED, and no number is written here.** The addendum, re-read on 2026-10-12, **states no retention period.** Turnstile's own analytics are kept "7 days maximum" on the free plan ([Plans](https://developers.cloudflare.com/turnstile/plans/), read 2026-10-11), which is a different thing from a Signal |
 | **Whether Cloudflare sells Signals or uses them for advertising** | **NOT CONFIRMED.** The addendum says the purpose "is not to identify, profile or target any individuals" and **carries no sentence saying the data is not sold.** Read the main Cloudflare privacy policy for that, or write that it could not be found |
-| **Cookies** | section 5 below |
+| **Cookies** | **NONE, measured 2026-10-13** — and **one local-storage item**, `cf.turnstile.u`, in Cloudflare's own frame, whose purpose and lifetime Cloudflare does not document. Section 5 below, and `evidence/cookies.md` |
 | **State** | **ON in both projects** since 11 Oct 2026 — staging with Cloudflare's dummy secret key, production with the real one — and a tokenless sign-in is refused with HTTP 400 `captcha_failed`. All owner-reported; `evidence/captcha.md` is the record. `docs/architecture.md` still says "CAPTCHA switched on in neither project" |
 
 ### 4.8 GitHub — the code, and one machine that holds everything for a few minutes
@@ -378,9 +378,11 @@ would make the list look complete when it is not.
 
 ## 5. Cookies and browser storage
 
-**The whole list, from the code and from Cloudflare's own documentation. Nothing is concluded about a
-banner until the last row is settled** — see the verdict at the end, which is deliberately not "no
-banner needed".
+**The whole list, from the code, from Cloudflare's own documentation, and — since 2026-10-13 — from a
+reading of a real screen.** This section was written with no conclusion about a banner on purpose. **It
+has one now: NO BANNER, WITH DISCLOSURE**, taken by the owner on 13 October on the reading in §5.2 and
+recorded in `evidence/cookies.md`. The list below is unchanged; what §5.2 and §5.4 gained is what was
+actually found.
 
 ### 5.1 What this app and its libraries set
 
@@ -425,19 +427,70 @@ The three that could plausibly appear on a page carrying a challenge widget:
 | `cf_chl_rc_i`, `cf_chl_rc_ni`, `cf_chl_rc_m` | "Challenge Platform internal diagnostics" | not stated |
 
 **That page does not mention Turnstile by name**, so which of them — if any — a Turnstile widget
-embedded in this app actually sets is **NOT CONFIRMED**. It is the cheapest unknown on this page to
-settle: **open production's or a Preview's sign-in screen in a browser and read the cookie jar.**
-Nothing in this repository can do it, and nobody writing this has opened a browser.
+embedded in this app actually sets was **NOT CONFIRMED** when this section was written. It was the
+cheapest unknown on this page to settle, and it has been settled.
+
+**SETTLED 2026-10-13 BY LOOKING, AND THE ANSWER IS "NONE OF THEM" — plus one thing this section did not
+think to ask about.** The owner opened **production's `/login`** at version `45d187b` in **Chrome**, in
+a normal window, with storage cleared first, signed out, and waited until the widget reached
+"Success!":
+
+| Store | this app's origin | `challenges.cloudflare.com` |
+|---|---|---|
+| **Cookies** | **none** | **none** |
+| **Session storage** | **empty** | **empty** |
+| **Local storage** | **empty** | **ONE item, key `cf.turnstile.u`** — value not recorded |
+
+**So no cookie was set by anybody**, and the one thing on the device is a **local-storage** item in
+**Cloudflare's own frame**, which this app cannot read — a different origin's local storage is
+unreachable from here by the browser's own rule.
+
+**What `cf.turnstile.u` is and how long it lasts: NOT CONFIRMED, and three Cloudflare pages were read
+on 2026-10-13 without finding it** — the Turnstile overview and FAQ, [Client-side
+rendering](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/), and the
+cookie page quoted above. The Privacy Addendum points at the last two rather than answering. **No guess
+at its purpose or its lifetime is written anywhere**; the one thing that can be said without a page is
+that **local storage has no expiry of its own**, which is a property of the store and not a statement
+about the item. `evidence/cookies.md` is the record and names what would settle it.
+
+**And the cookies named above are not ruled out for every case.** The run that happened settled itself
+without asking for a tick, and Cloudflare describes `cf_clearance` as "Challenge completion proof"
+that "is required for JavaScript detections" — so **an interaction-required challenge may yet set
+one**, and nobody has seen that case.
 
 ### 5.3 And one more that is not ours
 
 **Vercel may set a cookie on Preview deployments** for its toolbar or deployment protection. **NOT
-ESTABLISHED** — no page read and no dashboard opened. It would not appear on production for an ordinary
-visitor, which is why it is last; it still has to be checked before a cookie list is published.
+ESTABLISHED by a page** — none read, no dashboard opened — **and none was found on production.** The
+reading of 2026-10-13 above lists every cookie on production's `/login` and there were none at all, so
+whatever Vercel may do on a Preview, **it does not do it to an ordinary visitor of production's own
+address.** That is the half a published cookie list needs. A Preview deploy is still unchecked, and a
+Preview is not a page anybody using this app will open.
 
-### 5.4 The verdict, which is not a verdict yet
+### 5.4 The verdict — **TAKEN 2026-10-13: NO BANNER, WITH DISCLOSURE**
 
-**What IS established:**
+**This section was written as "the verdict, which is not a verdict yet", with three things a banner
+decision needed. One look answered all three, and the answer was smaller than any of them allowed
+for: on a signed-out `/login` there was NOTHING of ours on the device, and one item of
+Cloudflare's.** The three questions and what came back:
+
+| What this section said it needed | What the reading of 2026-10-13 found |
+|---|---|
+| **which Turnstile cookies actually land** | **none.** No cookie at all, from either origin. One **local-storage** item instead, `cf.turnstile.u`, in Cloudflare's own frame |
+| **whether Vercel sets anything** | **nothing on production's own address** |
+| **whether `@supabase/ssr` and the Sentry browser SDK write to browser storage** | **nothing**, on a signed-out visitor — both stores empty for this app's origin, which agrees with the code: no `localStorage` or `sessionStorage` anywhere in `web/src` |
+
+**The owner took the decision on that reading**, and the two halves of it are not interchangeable:
+**no banner**, because there is nothing of ours to ask consent for and nothing anywhere for marketing,
+analytics or profiling; **with disclosure**, because the privacy page must still **name
+`cf.turnstile.u`**, say it is Cloudflare's rather than ours, and say **Cloudflare does not document
+it.** `evidence/cookies.md` is the record, and it keeps the five cases nobody has looked at.
+
+**And it is a legal judgement rather than a reading of the code**, which is why it was the owner's:
+`docs/plan.md`'s answer 5 records that the owner's own reading of these documents is **not a legal
+review**.
+
+**What IS established, and it is what the decision rests on:**
 
 - **there is no analytics and no tracker.** `docs/plan.md`'s "Analytics: stays at none" is a decision,
   and a search of `web/src` finds no analytics package; the only outside script the app loads is
@@ -485,14 +538,22 @@ Everything above that nobody has settled, in one list, so the privacy page can b
 rather than over it.
 
 1. **How long Sentry keeps an error report on the free plan.** No Sentry page has been read.
-2. **Whether Sentry's "do not store IP" setting is on.** Owner to set, not yet reported — so the page
-   must not claim it.
+2. **Whether Sentry's "do not store IP" setting is on.** Owner to set, not yet reported. **Answer 16 of
+   2026-10-13 settles what the page may say about it rather than settling the setting**: it may say
+   "we do not send your IP address to Sentry", which `userInfo: false` in this repository keeps, and it
+   may **not** say Sentry does not store one.
 3. **Whether production's Sentry DSN is set.** Inferred from the build refusing without one; no
    dashboard opened.
 4. **How long Cloudflare keeps a Turnstile Signal**, and **whether it sells them or uses them for
    advertising.** The addendum states neither.
-5. **Which cookies Turnstile sets on this app's three screens.** One look at one rendered screen.
-6. **Whether Vercel sets a cookie**, and **where Vercel holds its access logs, and for how long.**
+5. ~~**Which cookies Turnstile sets on this app's three screens.**~~ **SETTLED 2026-10-13 for `/login`:
+   none, on either origin** — and **one local-storage item, `cf.turnstile.u`**, which replaces this
+   line with a narrower one: **what `cf.turnstile.u` is and how long it lasts is NOT CONFIRMED**, and
+   three Cloudflare pages were read on 13 October without finding it. `/signup`,
+   `/forgot-password`, any signed-in page and an interaction-required challenge are still unlooked at.
+6. **Whether Vercel sets a cookie — none on production's own address, measured 2026-10-13**; a Preview
+   deploy is unchecked. And **where Vercel holds its access logs, and for how long**, which is
+   untouched by that reading.
 7. **Where Anthropic holds a request**, and **where Resend holds its sending log.** Neither asked.
 8. **Where Supabase's own daily backups of production are held.**
 9. **Whether `storage.objects` has a `last_accessed_at` column**, and whether it is maintained — because
@@ -501,5 +562,7 @@ rather than over it.
     database and API logs. Only each dashboard says.
 11. **Whether "Confirm email" is on at all**, on either project. `docs/claims.md` records it as not
     verified.
-12. **Whether `@supabase/ssr` sets `httpOnly` on the session cookie** at this app's settings, and
-    **whether the Sentry browser SDK touches browser storage.**
+12. **Whether `@supabase/ssr` sets `httpOnly` on the session cookie** at this app's settings — still
+    open, because the reading of 2026-10-13 was **signed out** and the session cookie was therefore not
+    there to read. One look at a signed-in page settles it, and **its value must never be recorded.**
+    **The Sentry browser SDK half is settled**: both browser stores were empty for this app's origin.

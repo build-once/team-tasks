@@ -112,9 +112,17 @@ tasks other members wrote:
 - and **decision 2, taken as "yes" in the same message**, is the warning that says "**nobody loses a
   task they wrote themselves**".
 
-So the two cannot both be true. **Question 17** in `docs/plan.md` is which one the owner meant; until
-it is answered, this file is written to the narrow reading, because the narrow reading achieves the
-stated goal in full and the wide one costs somebody else's work.
+So the two cannot both be true. **ANSWERED BY THE OWNER, 2026-10-13: THE NARROW READING — only the
+tasks that would become unreachable.** So step 4b stands exactly as written above, and this is a design
+rather than a design with a question in it.
+
+**And the owner asked for the departure to be recorded as one.** The book's Build it 26 text has a
+deleted owner's teams go **"with that team's tasks"**, all of them. This app does not, because of a
+decision already in this repository and older than the question:
+`20261002133637_tasks_join_teams.sql` chose `on delete set null` over `cascade` for exactly this case.
+**What it costs is a surprise rather than a loss** — a team whose owner leaves does not take the other
+members' tasks with it, and each returns to the person who wrote it as a personal task they may not
+expect to find there. Section 5's warning is where they are told.
 
 **"The login last" is step 6, and it is the step everything else exists to make possible.** Two reasons
 it is last rather than first:
@@ -567,9 +575,15 @@ rows worth re-reading: 3 and 4.
 | 9 | Is the **export** counted against a daily limit? | **NO.** Three feature words, no migration, and the per-IP limits are all that bound it — said plainly in section 11.4 |
 | 10 | Does the **deletion-request page** have a form? | **NO.** Section 12.1 |
 
-**And one thing the answers produced that is a question rather than a decision: question 17** in
+**And one thing the answers produced that was a question rather than a decision: question 17** in
 `docs/plan.md`. Decision 3's instruction, read literally, would have `delete-account` remove **every**
 task in a doomed team rather than only the orphan-producing ones — which would destroy other members'
 work and reverse both `20261002133637_tasks_join_teams.sql`'s choice of `set null` over `cascade` and
-decision 2's own promise that "nobody loses a task they wrote themselves". This file is written to the
-narrow reading, and says so where it matters (section 3).
+decision 2's own promise that "nobody loses a task they wrote themselves". This file was written to the
+narrow reading and said so, rather than choosing for the owner.
+
+**ANSWERED 2026-10-13: the narrow reading was meant.** So nothing in this file is now open, and the
+departure from the book it implies is recorded in section 3 and in `docs/plan.md`'s answer 17 rather
+than left to be noticed. **What is left of Build it 26 is not a decision but the words**, which
+`docs/plan.md`'s answer 5 puts in the owner's hands — and answer 5's own limit, that the owner's
+reading is not a legal review, is a drafting rule the pages are held to.
