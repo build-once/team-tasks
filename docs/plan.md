@@ -2382,7 +2382,7 @@ nobody can act on.
 | | What | Needs a staging run? |
 |---|---|---|
 | **0** | **This one.** The plan, the inventory, the deletion design. Documents only | no |
-| **1** | The **privacy page** and the **terms page**: two public pages, footer links, and `"/privacy"`, `"/terms"` added to `PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` — **without which a signed-out visitor is sent to `/login`**. Plus a `docs/claims.md` row for every sentence | **no** — nothing touches the database. **But a look in a browser, on a phone**, which is the device this plan says the app is for |
+| **1** | **DONE — PR [#303](https://github.com/build-once/team-tasks/pull/303), merged 2026-10-13T08:56:44Z.** The **privacy page** and the **terms page**: two public pages, footer links, and `"/privacy"`, `"/terms"` added to `PUBLIC_PATHS` in `web/src/lib/supabase/proxy.ts` — **without which a signed-out visitor is sent to `/login`**. Plus a `docs/claims.md` row for every sentence | **no** — nothing touched the database. **And the browser look is done, phone included**: the owner read both pages off **production** signed out (`/privacy` 200, 50927 bytes, 13 phrases; `/terms` 200, 19646 bytes, 4 phrases; 2 of 2 PASS, against FAIL on both before the merge) and reports the mobile view is fine. Owner-reported. **No screenshot of either page** |
 | **2** | ~~The **cookie answer**.~~ **FOLDED INTO ROW 1 by answer 15 of 2026-10-13**: there is no banner to build, so what is left is the disclosure — the list, and `cf.turnstile.u` named — which belongs on the privacy page row 1 already builds. **Row 2 is therefore empty on purpose rather than deleted**, so the numbering below does not move under anybody reading an older version of this table | — |
 | **3** | The **export**. Read-only, no migration, no secret key, a route handler so the download needs no JavaScript | **yes.** Dave's export must contain Dave's data and none of Alice's |
 | **4** | The **deletion schema**: nullable `owner_id`, the foreign key as `on delete set null`, the new branch in `tasks_enforce_column_rules`, **both** new delete policies — the team owner's on `tasks` and the one on `storage.objects` without which the first is unusable — and the **tombstone** table | **yes**, and the owner applies it |
@@ -2468,6 +2468,21 @@ not the owner's cue to install anything.** From "AI suggestions — the consent 
    true.
 
 **Build it 26 delivers 2 and 3. It does not deliver 1**, and nothing in it should be read as doing so.
+
+**AND 2 AND 3 ARE NOW DELIVERED — 2026-10-13, on the merge of PR [#303](https://github.com/build-once/team-tasks/pull/303).**
+Condition **2** is met: both pages exist, the footer that links to them is in the root layout and so on
+every screen, and the owner read both off **production while signed out** —
+`scripts/staging/build-it-26-legal-pages-checks.mjs` answering `/privacy` 200, 50927 bytes, 13 phrases
+and `/terms` 200, 19646 bytes, 4 phrases, **2 of 2 PASS**, against **FAIL on both** from the same command
+before the merge. Condition **3** is met: `docs/claims.md` section 7 has a row for every sentence, located
+by document and heading because all of them live in one file. **Owner-reported; nobody writing this
+opened a browser or made a request.** `evidence/build-it-26-legal-pages.md` section 9 is the record, and
+the one thing nobody has is a screenshot.
+
+**CONDITION 1 IS STILL OPEN, and that is the whole of what is left of this gate.** The consent setting has
+never been **seen to refuse with it off on production**, because production has **no profile rows at
+all** — nobody has signed up. So **the production `AI_API_KEY` is still not to be installed**, and two
+met conditions out of three is not a cue to install it.
 
 ## Deliberately not in the first version
 

@@ -854,15 +854,21 @@ Collected so it is not buried in a table. Each one names what would settle it.
   an Edge Function is the code **on this commit**. `web/src/lib/suggestions.ts:7-14` records that this
   repository has twice been in a state where the deployed function was a different program. Settled by
   deploying, or by a staging run that exercises the refusal.
-- **STILL MISSING — there is no privacy page, and it is now a release gate: [#204](https://github.com/build-once/team-tasks/issues/204).**
-  #202 asked for the sentence "The person who runs this app can access the database" on the privacy page as
-  well as on the screen. The screen half is done (`web/src/app/tasks/page.tsx:379`, `:788-789`); the page
-  half had nowhere to go. Re-checked on 2026-10-07 and still true: `git ls-files` matching `privacy`,
-  `terms` or `legal` returns nothing; `web/src/app` has eight `page.tsx` files and none is a privacy page;
-  `web/src` contains no match for `privacy`. **It is no longer only a gap**: `docs/plan.md`'s "AI
-  suggestions — the consent setting" now names a privacy page as a precondition for installing the
-  production `AI_API_KEY`, because a setting is not consent if the person switching it on cannot find out
-  what it sends. Settled by #204, and writing the page's words is the owner's.
+- ~~**STILL MISSING — there is no privacy page, and it is now a release gate: [#204](https://github.com/build-once/team-tasks/issues/204).**~~
+  **BUILT, MERGED AND READ ON PRODUCTION — 2026-10-13.** The entry said: "#202 asked for the sentence
+  'The person who runs this app can access the database' on the privacy page as well as on the screen. The
+  screen half is done (`web/src/app/tasks/page.tsx:379`, `:788-789`); the page half had nowhere to go.
+  Re-checked on 2026-10-07 and still true: `git ls-files` matching `privacy`, `terms` or `legal` returns
+  nothing". **Every clause of that is now wrong.** PR #303 merged at **2026-10-13T08:56:44Z**
+  (`gh pr view 303 --json`), and the owner then read both pages off **production**, signed out, with
+  `scripts/staging/build-it-26-legal-pages-checks.mjs`: **`/privacy` 200, 50927 bytes, 13 phrases;
+  `/terms` 200, 19646 bytes, 4 phrases; 2 of 2 PASS.** The owner also read both documents and looked at
+  them **on a phone** — "mobile view is fine". **Owner-reported; nobody writing this opened a browser or
+  made a request.** `evidence/build-it-26-legal-pages.md` section 9 is the record.
+  **What is still open is condition 1 of #204 and nothing else here**: the consent setting has not been
+  **seen to refuse with it off on production**, because production has no profile rows at all. So the
+  production `AI_API_KEY` gate is **not** cleared by this. **And there is still no screenshot of either
+  page**, which is the one thing in that evidence file nobody has.
 - ~~**Outstanding — the exact wording for #199.**~~ **RESOLVED 2026-10-07**: the owner accepted "accept it",
   and the heading is `If you were invited, sign in to accept it.` (`web/src/app/invite/[token]/page.tsx:122`).
   §1g carries its citations and §4a row 3 keeps the argument for why the originally decided wording could
@@ -932,6 +938,20 @@ rather than typed, compares the figures with no constant in `web/` against the f
 requires all twelve subjects #204 and the owner demand, holds the contact address to one literal,
 requires the four optional paragraphs to reach no page, and refuses a claim about the export or
 delete-account before either is built.
+
+**AND BOTH PAGES HAVE NOW BEEN READ OFF PRODUCTION, SIGNED OUT — 2026-10-13, after PR #303 merged.**
+That is the one thing no check in this repository can answer, because `PUBLIC_PATHS` is a list in a
+module and the thing that reads it runs in the Edge runtime on a request. The owner's run of
+`scripts/staging/build-it-26-legal-pages-checks.mjs` against production: **`/privacy` 200, 50927 bytes,
+13 phrases; `/terms` 200, 19646 bytes, 4 phrases; 2 of 2 PASS** — against **FAIL on both** from the same
+command before the merge, which is the pair that makes it mean anything. The owner read both documents
+and looked at them **on a phone**: "mobile view is fine". **Owner-reported; nobody writing this opened a
+browser.** `evidence/build-it-26-legal-pages.md` section 9.
+
+**So two of #204's three conditions are met and the third is untouched.** Condition 2 is this page
+existing and being reachable from every screen; condition 3 is this section. **Condition 1 — the consent
+setting seen to refuse with it off ON PRODUCTION — is still open**, because production has no profile rows
+at all, so the production `AI_API_KEY` gate is not cleared. **And there is no screenshot of either page.**
 
 **Several of them were seen to fail before they passed**, and each red run was a finding rather than a
 typo — `day <= l_today - 7` appearing twice in a migration, `docs/backups.md` wrapping its figure

@@ -1,10 +1,11 @@
 # Evidence: Build it 26 PR 1 — the privacy page and the terms
 
-Result: **PASS for everything this repository can answer. The owner has opened both pages in a browser
-and both opened.** What is left is the **production AFTER run, which can only happen after the merge**,
-and a look on a phone.
-Date: 2026-10-13, and updated the same day twice — once for the review of the wording (section 7), once
-because **the owner ran the script and it misreported what it found** (section 8).
+Result: **PASS, and the production AFTER run is now done as well.** Nothing in this file is outstanding
+except a screenshot: PR #303 merged, the owner ran the script against production and got **PASS on both
+paths**, and the owner read both pages and looked at them **on a phone**. Section 9 is that run.
+Date: 2026-10-13, and updated the same day three times — once for the review of the wording (section 7),
+once because **the owner ran the script and it misreported what it found** (section 8), and once after
+the merge for the production AFTER run and the phone (section 9).
 How checked: four commands, below, with their exit codes. Plus two deliberate breakages, to show the
 check that matters most can fail.
 Checked by: Claude Code. **No dashboard, no connector, no browser, and nothing run against staging or
@@ -353,10 +354,106 @@ is the reason it was narrowed to the sentence rather than coupled through one co
 ### And the one check this change adds to CI, which the owner asked for
 
 **`scripts/staging/build-it-26-legal-pages-checks.mjs` is now named in CI's
-`staging-script-selftests` job**, with `EXPECTED_LEGAL_PAGES_CASES: "17"`.
+`staging-script-selftests` job**, with `EXPECTED_LEGAL_PAGES_CASES: "25"`.
+
+*That number said **17** in this file until 2026-10-13 and the workflow says **25**.* It was written when
+the line was added and section 8's eight new cases arrived afterwards, in the same pull request — so the
+sentence here went stale between two edits of one change. The workflow's value is the one that decides
+anything, it is a floor (`-lt`), and `.github/workflows/ci.yml:719` is where it is. Corrected by reading
+that line rather than by remembering it.
 
 **Rule 5 says `.github/workflows/` changes only when the owner asks, and the owner asked on
 2026-10-13** — which is why section 5 above was filed as
 [#302](https://github.com/build-once/team-tasks/issues/302) and left undone rather than slipped in on
 the reasoning that adding a check is harmless. `node scripts/check-workflows.mjs` after the edit:
 **6 workflow files, 27 jobs, 0 problems, 0 warnings.**
+
+---
+
+## 9. AFTER THE MERGE — the production run, and the phone. 2026-10-13
+
+**Reported by the owner. Nobody writing this opened a browser, made a request, or ran the script.** What
+this session did verify for itself is the merge, with `gh pr view 303 --json`, and nothing else.
+
+### 9.1 The merge
+
+| | |
+|---|---|
+| Pull request | **#303**, "feat: a privacy page and terms -- every sentence in one file, and five it may never say" |
+| State | **MERGED** |
+| Merged at | **2026-10-13T08:56:44Z** |
+| Merged by | **info423**, the owner — which is rule 2: the assistant never merges its own pull request |
+| Merge commit | `2e2926a6fe179ed962f386752bc360efff512748` |
+
+Read with `gh pr view 303 --json number,state,mergedAt,mergeCommit,mergedBy,title`. That is a read of
+GitHub's own record of what happened, not a claim about what is deployed.
+
+### 9.2 The AFTER run — PASS on both paths
+
+The run section 6 has been waiting for, which could not happen before the merge because the only address
+a script can read is production's:
+
+```sh
+node scripts/staging/build-it-26-legal-pages-checks.mjs https://team-tasks-virid.vercel.app
+```
+
+What the owner reports it printed:
+
+| Path | Status | Bytes | Phrases expected | Verdict |
+|---|---|---|---|---|
+| `/privacy` | **200** | **50927** | **13** | **PASS** |
+| `/terms` | **200** | **19646** | **4** | **PASS** |
+
+**2 of 2 pages passed.**
+
+**What that settles, and it is the one thing no check in this repository could:** a **signed-out** request
+reaches both pages on production. `scripts/screen-state-check.mjs` section 11 proves `"/privacy"` and
+`"/terms"` are in `PUBLIC_PATHS`; that list is a module, and the thing that reads it runs in the Edge
+runtime on a request. Section 4 item 2 of this file is now answered.
+
+**And it settles three smaller things in the same two requests**, because the judgement is not only about
+reachability: the **headings** rendered, all **seventeen** required phrases survived the build and the
+request, none of the **six** sentences `docs/claims.md` section 7 marks MUST NOT SAY appeared on either
+rendered page, and **neither placeholder** reached a page.
+
+**The pair is what makes it mean something.** Section 8 records the BEFORE: the same command, the same
+address, **FAIL on both**, before the merge. A page that was always reachable would have passed both
+times.
+
+**The byte counts are worth keeping** for the reason section 8 gives about the 334 KB ones: these are the
+sizes of *these two documents*, so a later run answering 334 KB again is answering about somebody else's
+application rather than about this app.
+
+### 9.3 The phone, which was the last thing section 4 was waiting for
+
+**The owner read both pages and looked at them on a phone: "mobile view is fine".** So section 4's items
+1 and 3 are answered — the laptop half was already done on the Preview at `bdc9f83`, and the phone is the
+device `docs/plan.md` says this app is for.
+
+**What that is, said exactly:** a person's reading, reported in a sentence. It is not a screenshot, it is
+not a measurement, and no check in this repository can repeat it. **Item 4 of section 4 therefore stands:
+there is still no screenshot of either page**, and the layout of two long documents on a narrow screen is
+held by one person having looked once. That is the same shape
+`evidence/build-it-23-attachments-screen.md` has carried about the files panel since 9 October.
+
+### 9.4 What #204's three conditions now stand at
+
+[#204](https://github.com/build-once/team-tasks/issues/204) is the gate on the production `AI_API_KEY`,
+and `docs/plan.md`'s "The gate this does not move" lists the three things that must be true before the
+owner installs it:
+
+| | Condition | Where it stands |
+|---|---|---|
+| **1** | the consent setting **live on production** and **seen to refuse with it off, on production** | **STILL OPEN.** Staging has been seen to refuse (`evidence/build-it-21-ai-consent-function-and-screen.md`); production has **no profile rows at all**, because nobody has signed up. Nothing in this change moves it |
+| **2** | **a privacy page exists in the app and is reachable from every screen**, carrying every item #204 lists | **MET.** Section 9.2 is the signed-out production read; the footer is in the root layout, which section 11's own check holds |
+| **3** | **a row in `docs/claims.md` for each of those sentences**, naming the file and line that makes it true | **MET.** Section 7 of that file, with the location convention written down: a row is found by its **document and heading**, because every sentence lives in `web/src/lib/legal.ts` |
+
+**So two of the three are met and the third is untouched**, which is what PR 1 was for and is the whole of
+what it claims. **Nobody should read this section as clearing the gate.** Condition 1 needs a real account
+on production, and `docs/plan.md`'s Build it 26 section says in as many words that this build "does not
+deliver 1, and nothing in it should be read as doing so".
+
+### 9.5 And one issue closes with the merge
+
+[#302](https://github.com/build-once/team-tasks/issues/302) — the staging script being named in no CI job
+— is answered by the line section 7 above records, which is now on `main`.
