@@ -21,7 +21,7 @@ book's own prompts and checks, no added process.
 |---|---|
 | `supabase/migrations/20261013140000_account_deletion.sql` | the **five** schema changes `docs/deletion.md` §6.1 names, and nothing else. **Applied nowhere** |
 | `supabase/functions/delete-account/` | the nine steps of §3, in that order. **Deployed nowhere** |
-| `supabase/functions/_tests/delete_account_test.ts` | 17 tests over the real exported pieces of that function |
+| `supabase/functions/_tests/delete_account_test.ts` | 22 tests over the real exported pieces of that function |
 | `web/src/lib/account-deletion.ts` | every sentence, the typed phrase, and the eight refusal codes. Import-free |
 | `web/src/app/settings/page.tsx` | the **Your data** card and the **Delete my account** card, two steps |
 | `web/src/app/settings/actions.ts` | `deleteAccount` — a server action, not a route |
@@ -38,14 +38,14 @@ book's own prompts and checks, no added process.
 
 | Command | Result | Exit |
 |---|---|---|
-| `node scripts/screen-state-check.mjs` | **414 of 414 checks passed** | **0** |
-| `deno test … supabase/functions/_tests` | **ok \| 267 passed \| 0 failed** | **0** |
+| `node scripts/screen-state-check.mjs` | **416 of 416 checks passed** | **0** |
+| `deno test … supabase/functions/_tests` | **ok \| 272 passed \| 0 failed** | **0** |
 | `npm run lint` | no output, which is eslint saying nothing is wrong | **0** |
 | `npm run build` | every route compiled; see below | **0** |
 | `node scripts/check-workflows.mjs` | **6 workflow files, 27 jobs, 0 problems, 0 warnings** | **0** |
 
-**310 → 414 pure checks**, both numbers counted this session — the before by running `main`'s own copy of
-the script beside the real one (`310 of 310`) and deleting the temporary file. **250 → 267 Deno tests.**
+**310 → 416 pure checks**, both numbers counted this session — the before by running `main`'s own copy of
+the script beside the real one (`310 of 310`) and deleting the temporary file. **250 → 272 Deno tests.**
 
 **CI needs no change for either.** `.github/workflows/ci.yml:347` holds
 `EXPECTED_SCREEN_STATE_CHECKS: "297"` and `:857` holds `EXPECTED_FUNCTION_TESTS: "250"`; both comparisons
@@ -68,6 +68,50 @@ paying for itself a third time.
   `?deleted=1`. It is a page with no data read and no secret, so the cost is a render rather than a
   query — but it is a change to the only page in this app that was prerendered for everybody, and it is
   recorded rather than left in a diff.
+
+## 2b. THE ONE BUG THE COACH'S READ FOUND, AND IT WAS A REAL ONE — 2026-10-13
+
+**Step 2 cleared the whole folder of every task the caller CREATED.** A task they created in **somebody
+else's team survives them** — that is decision 1, and the entire reason this change has a migration — so
+emptying its folder **deleted the files their team mates had attached to a task that was staying.**
+
+**Nothing here would have caught it.** All 17 tests were about which **rows** go, and every check in
+section 13 was about words, order and privilege. The bug was a `for` loop over the right list for the
+wrong job.
+
+**The recorded decision, which the fix implements:** remove every file the departing person **uploaded**,
+wherever it is; remove **everything** only on tasks that are themselves being deleted.
+
+| | |
+|---|---|
+| `folderPlan(split, ownedTeamIds)` | **new, and PURE, which is the point** — the two lists are worked out by a function a test can ask directly, rather than inside the handler's loops. `whole` is `tasksToDelete`'s list; `mineOnly` is the caller's own tasks that **survive**, plus every task they did not create |
+| the two walks | `for (const taskId of folders.whole)` and `for (const taskId of folders.mineOnly)`. **Neither iterates `split.own` or `split.elsewhere` any more**, and section 13d asserts both absences |
+| step 4a | uses `folders.whole` rather than calling `tasksToDelete` a second time, so **the rows deleted and the folders emptied cannot drift** |
+| a refusal on the uploader-only path | **already not a failure, and now said in the code**: `clearMine` never reads the error from a `remove`, because being refused is what "that file is not mine" looks like. Only a folder it could not **list** sets `ok` false |
+| the warning's file count | **it counted other people's files as this person's loss.** Counted only on the tasks being deleted now (`readWhatWouldGo` filters to personal-or-own-team), the sentence says "on **those** tasks", and `DELETE_UPLOADS_ELSEWHERE` says why the number is smaller: uploads on a surviving task go too, and other people's files on it do not |
+| the task count | **also narrowed**, in the same pass: the sentence says "will be deleted" and a task in somebody else's team will not be. And it is **null if the TEAMS read failed**, because without the owned team ids an undercount would be dressed as a fact |
+
+**Five new tests, including the one the coach asked for by name** — Dave's task in Alice's team with a
+file of his and one of Carol's: his goes, Carol's stays, the task stays. **22 passed, 0 failed**, and the
+folder went 267 → **272**.
+
+**Seen to fail.** `folderPlan`'s `whole` put back to every own task, which is exactly what the loop used
+to do:
+
+```
+THE FOLDER PLAN: whole only for the tasks that are going ... FAILED
+DAVE'S TASK IN ALICE'S TEAM: his file goes, Carol's stays, the task stays ... FAILED
+CAN THIS FAIL: the old implementation emptied every task he created ... FAILED
+every task is in exactly one of the two lists, never both and never neither ... FAILED
+FAILED | 18 passed | 4 failed
+```
+
+Exit **1**. Reverted: **272 passed**, and **416 of 416** pure checks.
+
+**What this does NOT change: the owner's steps.** The Dave test's step 5 already has Dave writing a task
+in Alice's team, and its expected count already requires that row to be there with a null `owner_id`.
+What the fix changes is that **a file Carol attached to it must still be there afterwards too** — which
+the count's `files` column already says is unchanged.
 
 ## 3. Four deliberate breakages — can these checks fail?
 

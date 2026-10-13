@@ -57,9 +57,14 @@ import { deleteAccount, saveAiSuggestions } from "./actions";
  * task is never counted into what "will be deleted". The SELECT policy on
  * `tasks` is wider than that on purpose, so the filter is what narrows it.
  *
- * `files` IS A LOWER BOUND WHEN THERE ARE MANY TASKS. `listFilesForExport` stops
- * at 200 tasks and reports how many it did not list; the warning says "at least"
- * in that case rather than a number that would be wrong.
+ * `files` IS COUNTED ONLY ON THE TASKS THAT ARE GOING, which is the coach's fix
+ * of 2026-10-13 arriving in the warning as well as in the function. A task the
+ * person created in SOMEBODY ELSE'S team survives them, and it keeps the files
+ * other people attached to it — so counting those into "will be deleted" was
+ * counting other people's files as this person's loss. What the deletion takes
+ * from a surviving task is only what they uploaded, which nothing here can count
+ * because a storage listing does not say who uploaded a file:
+ * `DELETE_UPLOADS_ELSEWHERE` is the sentence that says so.
  *
  * `teams` is the NAMES of the teams they own. Not a count: decision 2 of
  * 2026-10-12 asks for every name, one per line, because a count alone is a
@@ -75,15 +80,34 @@ async function readWhatWouldGo(
 }> {
   const tasksAnswer = await supabase
     .from("tasks")
-    .select("id")
+    .select("id, team_id")
     .eq("owner_id", userId);
 
   const teamsAnswer = await supabase
     .from("teams")
-    .select("name, owner_id")
+    .select("id, name, owner_id")
     .eq("owner_id", userId);
 
-  const taskIds = (tasksAnswer.data ?? [])
+  const ownedTeamIds = new Set(
+    (teamsAnswer.data ?? [])
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string" && id !== ""),
+  );
+
+  // THE TASKS THAT ARE ACTUALLY GOING: personal, or in a team this person owns.
+  // The same rule `tasksToDelete` and `folderPlan` use in the function, and the
+  // reason the file count is taken over these and not over every task they
+  // created.
+  //
+  // If the TEAMS read failed, this app does not know which of their team tasks
+  // are in a team they own -- so it counts none of them rather than guessing,
+  // and the sentence about teams already says the read failed.
+  const doomedTaskIds = (tasksAnswer.data ?? [])
+    .filter((row) => {
+      const teamId = (row as { team_id?: unknown }).team_id;
+      if (teamId === null || teamId === undefined) return true;
+      return typeof teamId === "string" && ownedTeamIds.has(teamId);
+    })
     .map((row) => (row as { id?: unknown }).id)
     .filter((id): id is string => typeof id === "string" && id !== "");
 
@@ -91,10 +115,19 @@ async function readWhatWouldGo(
   // read would be a number about nothing.
   const files = tasksAnswer.error
     ? null
-    : await listFilesForExport(supabase, taskIds);
+    : await listFilesForExport(supabase, doomedTaskIds);
 
   return {
-    tasks: tasksAnswer.error ? null : taskIds.length,
+    // THE TASK COUNT IS OF THE TASKS BEING DELETED, not of every task they
+    // created -- because the sentence says "will be deleted" and the ones in
+    // somebody else's team will not be. They stay as "Former member", which
+    // `DELETE_WHAT_STAYS` is the sentence for.
+    //
+    // AND IT IS NULL IF EITHER READ FAILED, including the TEAMS read: without
+    // the owned team ids this app cannot tell a task in a team of theirs from a
+    // task in somebody else's, so the count would be an undercount dressed as a
+    // fact. An unknown is said, never guessed at.
+    tasks: tasksAnswer.error || teamsAnswer.error ? null : doomedTaskIds.length,
     files:
       files === null || files.failed
         ? null

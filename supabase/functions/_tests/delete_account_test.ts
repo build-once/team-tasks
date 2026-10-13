@@ -30,6 +30,7 @@ import {
   CONFIRM_PHRASE,
   checkSuspension,
   confirmed,
+  folderPlan,
   MAX_TASKS_SCANNED,
   namesOf,
   splitTasks,
@@ -233,6 +234,118 @@ Deno.test("a null owner is NEVER treated as the caller, whatever the caller's id
   // docs/deletion.md section 6.2 says only the dashboard can produce.
   if (split.formerInOwnTeams.length !== 0) {
     throw new Error("an orphan with no team was planned as a team owner's to remove");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 2b. WHICH FOLDERS ARE EMPTIED WHOLE -- the coach's fix, 2026-10-13
+// ---------------------------------------------------------------------------
+//
+// THE BUG THIS EXISTS FOR. Step 2 used to clear the whole folder of every task
+// the caller CREATED. A task they created in somebody else's team SURVIVES them
+// (decision 1) -- so a departing person took with them every file their team
+// mates had attached to a task that was staying. Nothing in the old tests
+// noticed, because every one of them was about which ROWS go.
+//
+// The recorded decision, which `folderPlan` now implements:
+//
+//   remove every file the departing person UPLOADED, wherever it is;
+//   remove EVERYTHING only on tasks that are themselves being deleted.
+
+Deno.test("THE FOLDER PLAN: whole only for the tasks that are going", () => {
+  const plan = folderPlan(splitTasks(VISIBLE, DAVE, [DAVES_TEAM]), [DAVES_TEAM]);
+
+  const whole = [...plan.whole].sort();
+  if (JSON.stringify(whole) !== JSON.stringify(["t-in-own-team", "t-personal"])) {
+    throw new Error(`whole is wrong: ${JSON.stringify(whole)}`);
+  }
+
+  // THE ONE THAT MATTERS: Dave's task in Alice's team is NOT emptied whole.
+  if (plan.whole.includes("t-in-alices-team")) {
+    throw new Error(
+      "the folder of a task that SURVIVES is emptied whole, which deletes other members' files",
+    );
+  }
+  if (!plan.mineOnly.includes("t-in-alices-team")) {
+    throw new Error(
+      "a surviving task of Dave's is in neither list, so the files he uploaded to it are left behind",
+    );
+  }
+});
+
+Deno.test("DAVE'S TASK IN ALICE'S TEAM: his file goes, Carol's stays, the task stays", () => {
+  // The case the coach asked for, written as the three questions it asks.
+  const split = splitTasks(VISIBLE, DAVE, [DAVES_TEAM]);
+  const plan = folderPlan(split, [DAVES_TEAM]);
+  const TASK = "t-in-alices-team";
+
+  // 1. HIS FILE GOES. The task is in the uploader-only list, so each file on it
+  //    is attempted one at a time and the DELETE policy admits "you uploaded
+  //    it" -- which is true of Dave's file and false of Carol's.
+  if (!plan.mineOnly.includes(TASK)) {
+    throw new Error("Dave's own uploads on that task would never be attempted");
+  }
+
+  // 2. CAROL'S STAYS. The only way it could go is the folder being emptied
+  //    whole, which is what `whole` means -- and the task is not in it.
+  if (plan.whole.includes(TASK)) throw new Error("Carol's file would be deleted");
+
+  // 3. THE TASK STAYS. `tasksToDelete` is what step 4a deletes.
+  if (tasksToDelete(split.own, [DAVES_TEAM]).includes(TASK)) {
+    throw new Error("the task itself would be deleted");
+  }
+});
+
+Deno.test("CAN THIS FAIL: the old implementation emptied every task he created", () => {
+  // The implementation this guards against, written out so the two tests above
+  // are demonstrably about something. It is exactly what step 2 used to do.
+  const split = splitTasks(VISIBLE, DAVE, [DAVES_TEAM]);
+  const old = split.own.map((task) => task.id);
+
+  if (!old.includes("t-in-alices-team")) {
+    throw new Error("the guard's own example does not behave as described");
+  }
+  if (folderPlan(split, [DAVES_TEAM]).whole.length === old.length) {
+    throw new Error("folderPlan still empties every task the caller created");
+  }
+});
+
+Deno.test("every task is in exactly one of the two lists, never both and never neither", () => {
+  for (const owned of [[], [DAVES_TEAM], [DAVES_TEAM, ALICES_TEAM]]) {
+    const split = splitTasks(VISIBLE, DAVE, owned);
+    const plan = folderPlan(split, owned);
+
+    const all = [...plan.whole, ...plan.mineOnly];
+    const unique = new Set(all);
+    if (all.length !== unique.size) {
+      throw new Error(`a task is in both lists with owned=${JSON.stringify(owned)}`);
+    }
+
+    // Every task the caller can see is in one of them -- `elsewhere` plus `own`
+    // covers the lot, and `formerInOwnTeams` is a subset of `elsewhere`.
+    const visible = new Set(VISIBLE.map((task) => task.id));
+    for (const id of visible) {
+      if (!unique.has(id)) {
+        throw new Error(
+          `${id} is in neither list with owned=${JSON.stringify(owned)}, so its files are never looked at`,
+        );
+      }
+    }
+  }
+});
+
+Deno.test("with BOTH teams his, the task in Alice's team IS emptied whole", () => {
+  // Because then it is not surviving: `tasksToDelete` takes it, so the row goes
+  // and nothing may be left on it. The two lists follow the ROWS rather than a
+  // rule about whose team it is.
+  const split = splitTasks(VISIBLE, DAVE, [DAVES_TEAM, ALICES_TEAM]);
+  const plan = folderPlan(split, [DAVES_TEAM, ALICES_TEAM]);
+
+  if (!plan.whole.includes("t-in-alices-team")) {
+    throw new Error("a task that IS being deleted is not emptied whole");
+  }
+  if (plan.mineOnly.includes("t-in-alices-team")) {
+    throw new Error("a task being deleted is also in the uploader-only list");
   }
 });
 

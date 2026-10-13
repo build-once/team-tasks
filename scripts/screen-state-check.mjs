@@ -3736,13 +3736,35 @@ check(
   [true, true, true, true, true, true, true],
 );
 
+// THE FILE COUNT IS OF THE TASKS BEING DELETED, AND THE WARNING SAYS SO -- the
+// coach's fix of 2026-10-13, which this check is the words half of.
+//
+// A task the person created in SOMEBODY ELSE'S team survives them and keeps the
+// files OTHER PEOPLE attached to it. So "N files on your tasks" counted other
+// people's files as this person's loss, and the deletion itself was emptying
+// those folders. Both are fixed; this is the pair of sentences that makes the
+// smaller number honest.
+check(
+  "the file count is of the tasks being deleted, and the warning says why that is smaller",
+  [
+    // The count's own sentence says "those tasks", not "your tasks".
+    WARNED.some((s) => s.includes("2 files on those tasks")),
+    WARNED.some((s) => s.includes("files on your tasks")),
+    // AND THE SENTENCE THAT EXPLAINS IT: uploads elsewhere go, other people's
+    // files on a surviving task do not.
+    WARNED.some((s) => s.includes("Files you attached to a task that stays are removed too")),
+    WARNED.some((s) => s.includes("files other people attached to those tasks are not")),
+  ],
+  [true, false, true, true],
+);
+
 check(
   "one task and one file are singular, because a warning that says '1 tasks' reads as a bug",
   (() => {
     const one = deletionWarning({ tasks: 1, files: 1, teams: [] });
     return [
       one.some((s) => s.includes("1 task of yours")),
-      one.some((s) => s.includes("1 file on your tasks")),
+      one.some((s) => s.includes("1 file on those tasks")),
       // No team, so no sentence about teams going.
       one.some((s) => s.includes("Each team below is deleted")),
     ];
@@ -3901,6 +3923,33 @@ check(
     return [files > 0, files < tasks, tasks < login];
   })(),
   [true, true, true],
+);
+
+// AND THE WHOLE FOLDER IS EMPTIED ONLY FOR A TASK THAT IS GOING -- the coach's
+// fix of 2026-10-13, and the code half of the pair above.
+//
+// The first version looped `clearFolder` over `split.own`: every task the caller
+// CREATED, including the ones that survive them. So a departing person took with
+// them every file their team mates had attached to a task that was staying.
+// `folderPlan` is the pure function that splits the two, which is what lets
+// supabase/functions/_tests/delete_account_test.ts ask it the question directly.
+check(
+  "the two storage walks are driven by folderPlan, and never by the raw own-task list",
+  [
+    // ONE source for both lists, and the row delete uses the same `whole`.
+    count(DELETE_FUNCTION_CODE, "folderPlan(split, ownedTeamIds)"),
+    count(DELETE_FUNCTION_CODE, "for (const taskId of folders.whole)"),
+    count(DELETE_FUNCTION_CODE, "for (const taskId of folders.mineOnly)"),
+    count(DELETE_FUNCTION_CODE, "const doomed = folders.whole"),
+    // THE BUG ITSELF: neither walk iterates the own-task list or the
+    // elsewhere list directly any more.
+    count(DELETE_FUNCTION_CODE, "for (const task of split.own)"),
+    count(DELETE_FUNCTION_CODE, "for (const task of split.elsewhere)"),
+    // And `tasksToDelete` is called in exactly one place -- inside folderPlan --
+    // so the rows deleted and the folders emptied cannot drift.
+    count(DELETE_FUNCTION_CODE, "tasksToDelete(split.own, ownedTeamIds)"),
+  ],
+  [1, 1, 1, 1, 0, 0, 1],
 );
 
 // AND THE INVITATIONS ADDRESSED TO THEM, which do NOT cascade: they are keyed by

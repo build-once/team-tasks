@@ -271,6 +271,48 @@ export function tasksToDelete(
     .map((task) => task.id);
 }
 
+/**
+ * Which folders are emptied WHOLE, and which only of the caller's own uploads.
+ *
+ * THIS FUNCTION EXISTS BECAUSE THE FIRST VERSION GOT IT WRONG, and the mistake
+ * is worth naming: step 2 cleared the whole folder of every task the caller
+ * CREATED -- and a task they created in somebody else's team SURVIVES them
+ * (decision 1). So a departing person took with them every file their team
+ * mates had attached to a task that was staying. The recorded decision is the
+ * other way round:
+ *
+ *   remove every file the departing person UPLOADED, wherever it is;
+ *   remove EVERYTHING only on tasks that are themselves being deleted.
+ *
+ * `whole`    the tasks in `tasksToDelete` -- personal, or in a team the caller
+ *            owns. The row is going, so nothing on it may be left behind, and
+ *            the DELETE policy admits the task's creator for every file on it
+ *            whoever uploaded it (the owner's decision of 8 October 2026).
+ * `mineOnly` everything else the caller can reach: their own tasks that SURVIVE,
+ *            and every task they did not create. On those the policy admits
+ *            only "you uploaded it", so attempting each file removes exactly
+ *            theirs and leaves every other -- and a refusal is the ordinary
+ *            case rather than a failure.
+ *
+ * A task is in exactly one of the two lists, never both and never neither.
+ */
+export function folderPlan(
+  split: TaskSplit,
+  ownedTeamIds: ReadonlyArray<string>,
+): { whole: ReadonlyArray<string>; mineOnly: ReadonlyArray<string> } {
+  const doomed = new Set(tasksToDelete(split.own, ownedTeamIds));
+
+  return {
+    whole: split.own.filter((task) => doomed.has(task.id)).map((task) => task.id),
+    mineOnly: [
+      // THE CALLER'S OWN TASKS THAT SURVIVE. This is the list the first version
+      // was missing, and it is the whole of the fix.
+      ...split.own.filter((task) => !doomed.has(task.id)).map((task) => task.id),
+      ...split.elsewhere.map((task) => task.id),
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The handler
 // ---------------------------------------------------------------------------
@@ -366,15 +408,23 @@ export default {
     }
 
     const split = splitTasks(visible, callerId, ownedTeamIds);
+    const folders = folderPlan(split, ownedTeamIds);
 
     let filesRemoved = 0;
 
-    // ---- Step 2: every file on every task the caller created -------------
+    // ---- Step 2: every file on every task that is BEING DELETED -----------
     //
-    // AS THE CALLER. The storage DELETE policy admits the task's creator, so on
-    // their own tasks every file is theirs to remove whoever uploaded it -- the
-    // owner's decision of 8 October 2026, which the files panel already relies
-    // on when a task is deleted.
+    // NOT "every task the caller created", which is what the first version of
+    // this said and is the one bug the coach's read of this file found. A task
+    // the caller created in SOMEBODY ELSE'S team survives them (decision 1), so
+    // emptying its folder would take with them every file their team mates had
+    // attached to a task that was staying. `folderPlan` is where the two lists
+    // are worked out, and its comment carries the argument.
+    //
+    // AS THE CALLER. On a task that is going, the storage DELETE policy admits
+    // the task's creator for every file on it whoever uploaded it -- the owner's
+    // decision of 8 October 2026, which the files panel already relies on when a
+    // task is deleted.
     //
     // ONE BATCH PER TASK, and then THE FOLDER IS READ BACK, which is the half
     // that matters: `remove` documents its own answer as `{"data": []}` for a
@@ -382,8 +432,8 @@ export default {
     // anything. A delete that answered without an error and removed nothing
     // would otherwise be counted as a success -- and the task would then be
     // refused by tasks_refuse_delete_with_files with nothing to explain it.
-    for (const task of split.own) {
-      const cleared = await clearFolder(ctx.supabase, task.id);
+    for (const taskId of folders.whole) {
+      const cleared = await clearFolder(ctx.supabase, taskId);
       if (!cleared.ok) {
         return fail(
           "Some of your files could not be removed, so nothing was deleted. Please try again.",
@@ -409,19 +459,30 @@ export default {
     // operations. This field should not be relied upon." So this cannot select
     // the caller's uploads and delete those.
     //
-    // What it does instead: on a task the caller did NOT create, it attempts
-    // each file ONE AT A TIME. The existing DELETE policy on that task admits
+    // What it does instead: it attempts each file ONE AT A TIME, and the DELETE
+    // policy decides. On a task the caller did not create, that policy admits
     // "you uploaded it" and nothing else -- the creator branch is somebody
     // else's -- so exactly the caller's own uploads are removed and every other
     // file is silently left. Completeness comes from the policy, not from a
     // read-back, and that is said plainly because it is the one step here whose
     // success cannot be measured.
     //
+    // AND `folders.mineOnly` IS WIDER THAN `split.elsewhere`, which is the other
+    // half of the coach's fix: it also holds THE CALLER'S OWN TASKS THAT SURVIVE
+    // -- the ones they created in somebody else's team. On those the policy would
+    // admit them for every file, because they are the creator; this step
+    // deliberately does not use that, and takes only what they uploaded. The
+    // recorded decision is that a surviving task keeps its other members' files,
+    // and the person leaving takes theirs.
+    //
     // ONE AT A TIME RATHER THAN A BATCH, deliberately: nobody has established
     // what Storage does with a `remove` whose list is partly permitted, and a
     // batch refused whole would skip the caller's own files along with the rest.
-    for (const task of split.elsewhere) {
-      const cleared = await clearMine(ctx.supabase, task.id);
+    // A REFUSAL IS NOT A FAILURE HERE: `clearMine` never reads the error from a
+    // `remove`, because being refused is what "that file is not mine" looks
+    // like. Only a folder it could not LIST sets `ok` false.
+    for (const taskId of folders.mineOnly) {
+      const cleared = await clearMine(ctx.supabase, taskId);
       if (!cleared.ok) {
         return fail(
           "Some of your files could not be removed, so nothing was deleted. Please try again.",
@@ -439,7 +500,11 @@ export default {
     // decision 1 keeps: the ones they created in somebody else's team.
     //
     // As the caller, through "Owners can remove their own tasks".
-    const doomed = tasksToDelete(split.own, ownedTeamIds);
+    //
+    // `folders.whole` AND NOT A SECOND CALL TO `tasksToDelete`: it is the same
+    // list by construction, and the rows deleted here must be exactly the
+    // folders emptied in step 2. Two calls could drift; one cannot.
+    const doomed = folders.whole;
     let tasksRemoved = 0;
 
     if (doomed.length > 0) {

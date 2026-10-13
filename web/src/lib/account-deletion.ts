@@ -88,6 +88,23 @@ export const DELETE_WHAT_STAYS =
   "Your name is not on them any more, and nothing links them to you.";
 
 /**
+ * And what happens to the FILES on a task that stays.
+ *
+ * ADDED WITH THE COACH'S FIX of 2026-10-13, which is the same correction in
+ * words that `folderPlan` is in code. The deletion takes every file the person
+ * uploaded, wherever it is -- including on a task that survives -- and takes
+ * everything only on a task that is itself going.
+ *
+ * SO THE COUNT ABOVE IS OF THE TASKS BEING DELETED, and this sentence is why
+ * the number can be smaller than "all my files". Without it somebody would read
+ * the count as the whole of what they lose, and the first version of this
+ * warning counted other people's files into it.
+ */
+export const DELETE_UPLOADS_ELSEWHERE =
+  "Files you attached to a task that stays are removed too, wherever it is — but files other " +
+  "people attached to those tasks are not, so the count above is of the tasks being deleted.";
+
+/**
  * And what happens to a team the person owns.
  *
  * TWO FACTS IN ONE SENTENCE, and the second is the reassuring one that has to be
@@ -164,12 +181,16 @@ export function deletionWarning(counts: {
         : `${counts.tasks} tasks of yours will be deleted.`,
   );
 
+  // "ON THOSE TASKS", not "on your tasks", and the change of two words is the
+  // coach's fix of 2026-10-13 said out loud: the count is of the files on the
+  // tasks BEING DELETED, because a task of theirs in somebody else's team
+  // survives and keeps the files other people put on it.
   said.push(
     counts.files === null
       ? "We could not count your files, so this page cannot tell you how many will go."
       : counts.files === 1
-        ? "1 file on your tasks will be deleted."
-        : `${counts.files} files on your tasks will be deleted.`,
+        ? "1 file on those tasks will be deleted."
+        : `${counts.files} files on those tasks will be deleted.`,
   );
 
   if (counts.teams === null) {
@@ -180,7 +201,12 @@ export function deletionWarning(counts: {
     said.push(DELETE_TEAMS_GO);
   }
 
-  said.push(DELETE_WHAT_STAYS, DELETE_COPIES_REMAIN, DELETE_CANNOT_RECALL);
+  said.push(
+    DELETE_WHAT_STAYS,
+    DELETE_UPLOADS_ELSEWHERE,
+    DELETE_COPIES_REMAIN,
+    DELETE_CANNOT_RECALL,
+  );
 
   return said;
 }
