@@ -471,6 +471,12 @@ jobs:
   # THE SIXTH ARRIVED WITH BUILD IT 25 PART 1 (issue #284):
   # scripts/staging/build-it-25-captcha-checks.mjs. Its own expected count and
   # the reason for it are beside the others in the env block below.
+  # THE NINTH ARRIVED WITH BUILD IT 26 PART 1 (#302), and it is the first line in
+  # this job the OWNER ASKED FOR rather than one added with the script:
+  # scripts/staging/build-it-26-legal-pages-checks.mjs went in with no line here,
+  # its absence was filed as #302 because rule 5 reserves this file to the owner,
+  # and the owner asked for it on 2026-10-13. The gap it closes is the one #167
+  # and #102 both record — a check that exists and runs nowhere.
   staging-script-selftests:
     name: Staging script self-tests (can these checks fail?)
     runs-on: ubuntu-latest
@@ -669,6 +675,48 @@ jobs:
       # code: 54000",...} -- and require the per-task judgement to FAIL on it. Plus
       # the arithmetic that explains why a run of 30 uploads cleans up 28 files.
       EXPECTED_UPLOAD_COUNT_CASES: "45"
+
+      # THE NINTH ARRIVED WITH BUILD IT 26 PART 1, AND THE OWNER ASKED FOR THIS
+      # LINE BY NAME ON 2026-10-13 — which is what rule 5 requires: "Change
+      # .github/workflows/ only when the owner asks, and never to skip or weaken
+      # a check." This adds a check rather than weakening one, and it was filed
+      # as #302 and left undone until the owner asked, rather than being slipped
+      # in on the reasoning that adding is harmless.
+      #
+      # scripts/staging/build-it-26-legal-pages-checks.mjs is the before/after
+      # the owner runs against a DEPLOYED build, and the one thing it answers
+      # that nothing in this repository can: whether the Proxy actually lets a
+      # SIGNED-OUT visitor reach /privacy and /terms. screen-state-check's
+      # section 11 proves "/privacy" and "/terms" are in PUBLIC_PATHS; that list
+      # is a module, and the thing that reads it runs in the Edge runtime on a
+      # request. The failure it would otherwise hide is silent and total — a
+      # privacy page that redirects to /login is a privacy page only people with
+      # an account can read, which is the opposite of what #204 asks for.
+      #
+      # 17 -> 25 ON 2026-10-13, after the owner ran the script and IT MISREPORTED
+      # WHAT IT FOUND. It said both paths were "redirected to /login" and pointed
+      # at this app's PUBLIC_PATHS; what it had met was VERCEL'S DEPLOYMENT
+      # PROTECTION, whose own page says it "requires authentication for all
+      # requests, including those to Routing Middleware" — so this app's code had
+      # not run at all. The script compared the final PATH and ignored the HOST,
+      # and `/login` is the one string the two cases have in common.
+      #
+      # So eight cases arrived, and the two that matter are built from WHAT WAS
+      # ACTUALLY OBSERVED — status 200, bodies of 334009 and 334001 bytes, a
+      # redirect to /login — and they require more than a verdict: a FAIL with
+      # the WRONG EXPLANATION is what happened, so each requires the right
+      # sentence to be present and the blaming one to be absent.
+      #
+      # The rest are the six sentences docs/claims.md section 7 marks MUST NOT
+      # SAY, each fed to the judgement on a page that says it; this app's own
+      # /login redirect, which must still point at PUBLIC_PATHS; and an unfilled
+      # [COMPANY NUMBER] placeholder reaching a page.
+      #
+      # IT MAKES NO REQUEST HERE. --selftest returns before the argument is read,
+      # so there is no address, no network and no account involved — the same as
+      # the eight above it. Its real run needs one public web address and no
+      # secret of any kind, because the script has none.
+      EXPECTED_LEGAL_PAGES_CASES: "25"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -676,7 +724,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Run all eight self-tests, and count the cases each one ran
+      - name: Run all nine self-tests, and count the cases each one ran
         run: |
           set -euo pipefail
 
@@ -707,6 +755,7 @@ jobs:
           run_and_count build-it-25-captcha-checks           scripts/staging/build-it-25-captcha-checks.mjs           "$EXPECTED_CAPTCHA_CASES"
           run_and_count build-it-25-limits-checks            scripts/staging/build-it-25-limits-checks.mjs            "$EXPECTED_LIMITS_CASES"
           run_and_count build-it-25-upload-count-checks      scripts/staging/build-it-25-upload-count-checks.mjs      "$EXPECTED_UPLOAD_COUNT_CASES"
+          run_and_count build-it-26-legal-pages-checks       scripts/staging/build-it-26-legal-pages-checks.mjs       "$EXPECTED_LEGAL_PAGES_CASES"
 
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the

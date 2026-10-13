@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { appVersion } from "@/lib/app-version";
+import { PRIVACY_TITLE, TERMS_TITLE } from "@/lib/legal";
 
 // The footer, on every screen, saying which build you are looking at.
 //
@@ -24,12 +27,25 @@ import { appVersion } from "@/lib/app-version";
 //
 // IT IS IN THE ROOT LAYOUT, so there is no screen without it and no screen that
 // has to remember to add it.
+//
+// AND THAT IS WHY THE TWO LINKS ADDED IN BUILD IT 26 ARE HERE. Issue #204's first
+// condition is that a privacy page is "reachable from every screen -- most
+// naturally from the footer, which is already in the root layout". Any other
+// placement would be a list of screens somebody has to keep in step; this is the
+// one component there is no screen without.
+//
+// The two labels come from web/src/lib/legal.ts rather than being typed here, so
+// the words on the link and the heading on the page cannot drift apart.
 export function Footer() {
   const version = appVersion(process.env.APP_COMMIT, process.env.VERCEL_ENV);
 
   return (
     <footer className="footer">
       Team Tasks — {version.label}
+      {" · "}
+      <Link href="/privacy">{PRIVACY_TITLE}</Link>
+      {" · "}
+      <Link href="/terms">{TERMS_TITLE}</Link>
     </footer>
   );
 }
