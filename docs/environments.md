@@ -759,9 +759,20 @@ that one process, and nothing writes them to disk.
 
 The names the scripts expect, as they are read in the code today:
 
-**Eight** scripts read them today, and `scripts/staging/` holds all eight. **This said "five" and listed
-five until 2026-10-08**, when the eighth was added and the count was checked by listing the directory
-rather than trusting the sentence; the three rows in the middle had been missing since Build it 18.
+~~**Eight** scripts read them today, and `scripts/staging/` holds all eight.~~ **`scripts/staging/`
+holds THIRTEEN, counted by listing the directory on 2026-10-13, and this sentence has now been wrong
+twice in the same way.** It said "five" until 2026-10-08 and "eight" until today; four scripts arrived
+with Build it 25 and Build it 26 and the sentence was not re-read. **The number here is the one the
+directory gave, not the one the previous sentence implied.**
+
+**Nine of the thirteen have a row in the table below.** The row for `export` is added today, because
+this is the one place a reader finds out which names a script needs, and a script with no row is a
+script somebody loads this file for and gets nothing from — which is exactly what the 2026-10-04 note
+at the end of this subsection says about `doors`. **The four still missing rows are
+`build-it-25-captcha-checks`, `build-it-25-limits-checks`, `build-it-25-upload-count-checks` and
+`build-it-26-legal-pages-checks`**, and that is filed rather than mentioned:
+[#308](https://github.com/build-once/team-tasks/issues/308). Writing their rows needs somebody to read
+each script for the names it actually uses, which is more than a count.
 
 | Short name | File | What it checks | Does it write? |
 |---|---|---|---|
@@ -772,6 +783,7 @@ rather than trusting the sentence; the three rows in the middle had been missing
 | `suspend` | `build-it-16-suspend-checks.mjs` | the three Edge Functions refuse a **suspended** caller, and still answer an active one normally (issue #133) | no — every body it sends is one each function refuses on its own merits, so there is nothing to create |
 | `status` | `build-it-18-invitation-status-checks.mjs` | the deployed `invite-member` writes down what happened to an invitation's email, and the team's owner can read it | **yes** — one invitation, to one fixed plus-address, and **it cannot be deleted from the script**: `invitations` has no delete policy, so the owner removes the row by hand. The statement is printed at the end of every run |
 | `ai` | `build-it-20-ai-checks.mjs` | the deployed `suggest-subtasks`: what it sends, the consent setting, and today's limit | **yes**, and **it is the only one that COSTS MONEY** — metered requests to Anthropic. It creates a task and deletes it again |
+| `export` | `build-it-26-export-checks.mjs` | **the export**: that Alice's own export reads her rows and not Carol's, that the SELECT policy on `tasks` would have shown Carol's — so the filter is what keeps it out — that Bob and a caller with no session read nothing from any of its five reads, that `usage_counts` and `account_status` refuse even the person they are about, and that the consent setting is readable only through `my_ai_suggestions()` and cannot be asked about anybody else. With `--app=<https address>` it also reads a **deployed** build with no cookie at all | **yes** — two tasks, one as Alice and one as Carol, both titled from one fixed prefix, removed in a `finally`, with `--cleanup` for a run that was interrupted. **No file is uploaded** ([#298](https://github.com/build-once/team-tasks/issues/298)), no email is sent, nothing is spent at any vendor, and no setting is switched. **Its pull request has no migration**, so sections 1 to 6 must pass **before and after** — they are a control rather than a before/after, and a difference between the two runs is somebody's visibility having moved |
 | `files` | `build-it-23-attachment-checks.mjs` | the rules on the `attachments` bucket: who may read, list, sign, upload and delete, the bucket's own 5 MB and six named types, three files per task, that nothing may be replaced or renamed, and that a task cannot be deleted while a file is on it | **yes** — two tasks and up to four files, **all removed at the end**, and a judgement that lists both prefixes to prove it. One run sends about **5 MB**, nearly all of it the one deliberately oversized upload the 5 MB check needs. **Run it before `supabase db push` and after**: before, it must fail |
 
 `suspend` needs one of `--expect-suspended` or `--expect-active`, and will not run without one: only
@@ -785,14 +797,20 @@ three people and creates a task in a team, so the "Read by" column below is not 
 of the eight have a `--selftest` that needs none of these and is run by CI: `doors`, `suspend`, `status`,
 `ai` and `files`.
 
+**CORRECTED 2026-10-13, and both numbers were counted rather than carried.** **TEN** of the thirteen have
+a `--selftest` (`grep -ln '--selftest' scripts/staging/*.mjs`), and **NINE** of those ten are named in
+CI's `staging-script-selftests` job. The tenth is `export`, which has one and is named nowhere —
+[#304](https://github.com/build-once/team-tasks/issues/304), and rule 5 reserves that workflow file to
+the owner. **A selftest nothing runs can quietly stop being able to fail.**
+
 | Variable | Read by | What it is |
 |---|---|---|
-| `ALICE_EMAIL` | `rules`, `tasks`, `doors`, `suspend` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
-| `ALICE_PASSWORD` | `rules`, `tasks`, `doors`, `suspend` | Alice's staging password. **Secret** — never printed, by that script or any other |
-| `BOB_EMAIL` | `bob`, `rules`, `tasks`, `doors`, `suspend` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
-| `BOB_PASSWORD` | `bob`, `rules`, `tasks`, `doors`, `suspend` | Bob's staging password. **Secret** — never printed |
-| `CAROL_EMAIL` | `rules`, `tasks` | `teamtasks.staging.test+carol@gmail.com`. Not secret |
-| `CAROL_PASSWORD` | `rules`, `tasks` | Carol's staging password. **Secret** — never printed |
+| `ALICE_EMAIL` | `rules`, `tasks`, `doors`, `suspend`, `export` | `teamtasks.staging.test+alice@gmail.com`. Not secret |
+| `ALICE_PASSWORD` | `rules`, `tasks`, `doors`, `suspend`, `export` | Alice's staging password. **Secret** — never printed, by that script or any other |
+| `BOB_EMAIL` | `bob`, `rules`, `tasks`, `doors`, `suspend`, `export` | `teamtasks.staging.test+bob@gmail.com`. Not secret |
+| `BOB_PASSWORD` | `bob`, `rules`, `tasks`, `doors`, `suspend`, `export` | Bob's staging password. **Secret** — never printed |
+| `CAROL_EMAIL` | `rules`, `tasks`, `export` | `teamtasks.staging.test+carol@gmail.com`. Not secret |
+| `CAROL_PASSWORD` | `rules`, `tasks`, `export` | Carol's staging password. **Secret** — never printed |
 | `ALICE_TEAM_ID` | `bob`, `rules`, `tasks`, `doors`, `suspend` | The UUID of the team Bob must be refused, the team whose roster Alice and Carol must both see, the team Alice's test task is filed into, and — in `suspend` — the team Alice reads to show that an active person's reads still work. Not secret, and it changes whenever staging's seed data is reloaded |
 | `CAROL_TEAM_ID` | `tasks` | The UUID of a second team that **Carol belongs to and Alice does not** — the team Carol must not be able to move Alice's task into. Carol owning a team of her own is the easy way to have one. Not secret; it must not be the same team as `ALICE_TEAM_ID`, and that script refuses to start if it is |
 | `EXPIRED_ACCESS_TOKEN` | `doors`, optional | A correctly signed access token that has lapsed — the other half of issue #110, which that script cannot make for itself. **Secret while it lasts**, never printed, and the check says UNVERIFIED rather than passing when it is absent |
@@ -806,7 +824,9 @@ The pattern for any further account is the same two names per person, `<NAME>_EM
 `<NAME>_PASSWORD`, and a row here.
 
 The staging URL and publishable key are **not** in that file: they live in `web/.env.local`, which
-all five scripts read directly.
+~~all five scripts~~ **TWELVE of the thirteen** read directly — counted on 2026-10-13 with
+`grep -ln 'env.local' scripts/staging/*.mjs`. The one that does not is `build-it-26-legal-pages-checks`,
+which takes a public web address as its only argument and has no Supabase setting at all.
 
 ## Checks you can do yourself (no coding needed)
 

@@ -218,7 +218,7 @@ function flag(value: unknown): boolean | null {
  * RULE 4 OF THE HEADER, AND THE ONE CHECK IN THIS FILE THAT GUARDS AGAINST A
  * MISTAKE RATHER THAN AGAINST A FAILURE. The SELECT policy on `tasks` returns
  * every task in every team the caller belongs to -- written by anybody -- so a
- * query that forgot `.eq("owner_id", â€¦)` would put a team mate's task into this
+ * query that forgot `.eq("owner_id", ...)` would put a team mate's task into this
  * person's download, and every other check in this feature would still pass.
  *
  * A row with no `owner_id` at all is dropped too. That is not a theoretical
@@ -588,7 +588,7 @@ export const EXPORT_LINK_LABEL = "Download my data";
 export const EXPORT_WORDS: ReadonlyArray<string> = [
   "You can download what this app holds about you, as one file.",
   "It holds your tasks, your teams, the invitations you sent, your nickname and your AI suggestions setting, and a list of the files on your tasks.",
-  "The file itself says what is deliberately not in it, and why â€” including two things nobody can see through this app, not even you.",
+  "The file itself says what is deliberately not in it, and why — including two things nobody can see through this app, not even you.",
   "It gathers everything about you into one place, so anybody you send it to can read all of it. Please keep it carefully.",
 ];
 

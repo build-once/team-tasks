@@ -982,8 +982,12 @@ export now exists, so 11i turned from a refusal into a **requirement**: the priv
 download and must say where it is, and must still **not** claim it holds "everything". **The
 delete-account half is untouched**, because PR 6 has not happened — and that asymmetry is the point. A
 check relaxed for both at once would have stopped holding the half that still needs holding. §7d's two
-rows carry it, and the script's own total went **310 → 383** with PR 3's section 12 (73 checks over the
-export itself, which is §2f rather than this section).
+rows carry it, and the script's own total went **310 → 384** with PR 3's section 12 (74 checks over the
+export itself, which is §2f rather than this section). **One of those 74 is about this file's own
+words**: it refuses a mangled character — the `â€` a UTF-8 punctuation mark becomes when it is read as
+Windows-1252 — anywhere in `web/src/lib/legal.ts` or `web/src/lib/export-data.ts`, because one was
+committed into a sentence on 2026-10-13 and every check over that sentence passed, each having tested a
+substring that stopped before the dash.
 
 **AND BOTH PAGES HAVE NOW BEEN READ OFF PRODUCTION, SIGNED OUT — 2026-10-13, after PR #303 merged.**
 That is the one thing no check in this repository can answer, because `PUBLIC_PATHS` is a list in a

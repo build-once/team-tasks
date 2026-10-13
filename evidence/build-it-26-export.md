@@ -37,7 +37,8 @@ BEFORE is *for*.
 | `web/src/lib/attachment-store.ts` | one function added, `listFilesForExport`, and the four that were there are untouched |
 | `web/src/app/settings/page.tsx` | a **Your data** card: four sentences from the module, and an `<a download>` |
 | `web/src/lib/legal.ts` | **one sentence added to the privacy page**, which is what the export being built now permits |
-| `scripts/screen-state-check.mjs` | **section 12, seventy-three new checks**, and section 11i changed in one direction |
+| `scripts/screen-state-check.mjs` | **section 12, seventy-four new checks**, and section 11i changed in one direction |
+| `docs/environments.md` | a row for the new staging script, and **three counts corrected by measuring** — see section 8 item 4 |
 | `scripts/staging/build-it-26-export-checks.mjs` | the before/after the owner runs, with 44 selftest cases |
 
 ## 2. The four commands
@@ -45,19 +46,24 @@ BEFORE is *for*.
 ### 2.1 The pure checks — `node scripts/screen-state-check.mjs`
 
 ```
-383 of 383 checks passed.
+384 of 384 checks passed.
 ```
 
 Exit code **0**.
 
-**310 before this change, 383 after — SEVENTY-THREE new checks, and both numbers were counted in this
-session rather than carried.** The before was read by running `main`'s own copy of the script:
+**310 before this change, 384 after — SEVENTY-FOUR new checks, and both numbers were counted in this
+session rather than carried.** (It was 383 until section 3.6 added the mangled-character guard.) The before was read by running `main`'s own copy of the script:
 `git show main:scripts/screen-state-check.mjs` into a file beside the real one, so its relative paths
 still resolved, then `node` on it — **310 of 310** — and the temporary file deleted.
 
 **CI needs no change for them to be enforced.** `.github/workflows/ci.yml:347` holds
-`EXPECTED_SCREEN_STATE_CHECKS: "297"` and the comparison is a floor (`-lt`), so 383 passes it and a
+`EXPECTED_SCREEN_STATE_CHECKS: "297"` and the comparison is a floor (`-lt`), so 384 passes it and a
 later run that lost coverage would not.
+
+**THE NUMBERS IN SECTION 3 BELOW ARE OUT OF 383, NOT 384, AND THAT IS CORRECT RATHER THAN STALE.** The
+four breakage runs were made before section 3.6's mangled-character guard existed, and they are what
+was actually run. They are not re-stated at the new total, because a run that happened at 383 did not
+happen at 384.
 
 The section headings, which are what the checks are about:
 
@@ -202,6 +208,47 @@ Exit code **1**.
 **All five breakages were reverted** — restored with `git checkout --` from the index — and the runs
 after them are exit code **0** again, at 383 of 383 and 44 of 44.
 
+## 3.6 AND A THIRD FINDING, WHICH NO CHECK CAUGHT AND WHICH WAS COMMITTED
+
+**A sentence a person reads went out with a mangled character in it, and every check over that sentence
+passed.**
+
+`EXPORT_WORDS[2]` is "The file itself says what is deliberately not in it, and why — including two
+things nobody can see through this app, not even you." A PowerShell
+`Get-Content | Set-Content -Encoding utf8` round trip — used to rename one type in that module — read
+its UTF-8 bytes as the system codepage and wrote them back, so the **em dash became `â€”`** and an
+ellipsis in a comment became `â€¦`. **It was committed.**
+
+**Why nothing noticed.** Section 12j's check is
+`EXPORT_WORDS.some((s) => s.includes("deliberately not in it"))` — a substring that stops **before** the
+dash. Every other check over those sentences is about a word, a count or a refusal pattern. So a
+mangled character sat in a sentence that would have been drawn on a screen, with 383 checks green.
+
+**What changed:** the two characters are repaired, and **section 12j gained a check** that `â€` appears
+in none of the four sentences, none of the nine `NOT_IN_THIS_FILE` lines, neither refusal sentence, and
+nowhere in `web/src/lib/export-data.ts` or `web/src/lib/legal.ts` at all — comments included, because a
+mangled character in a comment is the signal that the **file** was written wrongly and the next edit may
+land on a sentence. `â€` is the tell: it is what the first two bytes of a UTF-8 punctuation character
+become when read as Windows-1252.
+
+**Seen to fail.** The committed, mangled copy was restored with
+`git show HEAD:web/src/lib/export-data.ts` and the check run against it:
+
+```
+FAIL  no sentence carries a mangled character from an encoding round trip
+383 of 384 checks passed.
+```
+
+Exit code **1**. The fixed copy was put back: **384 of 384**, exit **0**.
+
+**The lesson, which is bigger than the fix: a check on a substring passes over a mangled character
+inside the same sentence.** `grep -rln 'â€' docs/ web/src/ scripts/ evidence/` now reports exactly one
+file — `scripts/screen-state-check.mjs`, which is the check looking for it.
+
+**And it is why `docs/environments.md` was restored and re-edited.** The same round trip had mangled
+every em dash in that file; it was reset with `git checkout --` and the edits redone with a tool that
+writes UTF-8.
+
 ## 4. Two findings in these checks' own first run, and both were real
 
 Neither was a typo. Recording them because each says something about the thing being checked.
@@ -281,10 +328,11 @@ fails even if the path looks right.
    type (`web/node_modules/@supabase/auth-js/dist/module/lib/types.d.ts:402-416`, read this session) and
    no real answer has been looked at.
 
-## 8. The three gaps this change leaves, each filed rather than mentioned
+## 8. The four gaps this change leaves, each filed rather than mentioned
 
 | | What | Issue |
 |---|---|---|
 | **1** | **`scripts/staging/build-it-26-export-checks.mjs` is named in no CI job**, so its 44 logic cases run nowhere and cannot fail a pull request. The same fault as [#302](https://github.com/build-once/team-tasks/issues/302) the day before, and [#167](https://github.com/build-once/team-tasks/issues/167) and [#102](https://github.com/build-once/team-tasks/issues/102) before that. **Not fixed here on purpose**: the fix is one line in `.github/workflows/ci.yml` plus one expected count, and **AGENTS.md rule 5 says that file changes only when the owner asks.** Adding a selftest strengthens a check rather than weakening one, so it is a question rather than a refusal | [#304](https://github.com/build-once/team-tasks/issues/304) |
 | **2** | **The file listing stops at 200 tasks**, so a person near the 500-task cap gets a file whose `files_on_your_tasks` section is partial, and the only thing that says so is a number inside it. **And nobody has measured what 200 listings cost**, so the ceiling protects against something whose shape nobody has seen | [#305](https://github.com/build-once/team-tasks/issues/305) |
 | **3** | **No export file has ever been produced.** Nothing run against staging, nobody has downloaded one, no screen opened — and two fields (`created_at` on a Storage listing, and on the session's user object) are read off an installed package's type rather than off an answer. Section 7 above is the list, and the issue is the version of it somebody can tick off | [#306](https://github.com/build-once/team-tasks/issues/306) |
+| **4** | **Four of the thirteen staging scripts have no row in `docs/environments.md`**, which is the only instruction in this repository for running one at all. Found while adding a row for this change's script. **Three counts in that subsection were wrong and ARE corrected here** — "eight scripts" where there are thirteen, "five of the eight have a selftest" where ten do and nine are in CI, and "all five read `web/.env.local`" where twelve of thirteen do — each measured with one command. **The four rows are not written here**, because that needs a careful read of each script rather than a count | [#308](https://github.com/build-once/team-tasks/issues/308) |

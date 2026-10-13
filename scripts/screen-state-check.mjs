@@ -3495,6 +3495,33 @@ check(
 
 check("four sentences, and a heading and a label beside them", [EXPORT_WORDS.length, EXPORT_HEADING, EXPORT_LINK_LABEL], [4, "Your data", "Download my data"]);
 
+// AND NOT ONE OF THEM CARRIES A MANGLED CHARACTER, which is here because it
+// HAPPENED while this change was being written.
+//
+// A PowerShell `Get-Content | Set-Content -Encoding utf8` round trip read the
+// module's UTF-8 bytes as the system codepage and wrote them back, turning the
+// em dash in `EXPORT_WORDS[2]` into `â€”` -- and it was COMMITTED, because every
+// check over that sentence tested a substring that stopped before the dash.
+//
+// `â€` is the tell: it is what the first two bytes of a UTF-8 punctuation
+// character become when they are read as Windows-1252. Checked across all three
+// kinds of string a person reads, not only the four sentences, because the
+// mistake is about how a file was written and not about which line it hit.
+check(
+  "no sentence carries a mangled character from an encoding round trip",
+  [
+    EXPORT_WORDS.filter((s) => s.includes("â€")).length,
+    NOT_IN_THIS_FILE.filter((s) => s.includes("â€")).length,
+    Object.values(EXPORT_REFUSAL_SENTENCES).filter((s) => s.includes("â€")).length,
+    // And the whole module, so a comment cannot carry one either -- a mangled
+    // character in a comment is the signal that the file was written wrongly,
+    // and the next edit may land on a sentence.
+    count(readFileSync(resolve(LIB, "export-data.ts"), "utf8"), "â€"),
+    count(LEGAL_SOURCE, "â€"),
+  ],
+  [0, 0, 0, 0, 0],
+);
+
 // THE SENTENCE THAT IS NOT OBVIOUS. Every row in the file is something this
 // person can already read on a screen; what is new is that they are gathered
 // into one artefact that can be forwarded. docs/deletion.md section 11.4 says
