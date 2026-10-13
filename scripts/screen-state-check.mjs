@@ -2321,7 +2321,7 @@ check(
 // build resolves. What this section wants of it is a promise about wording, and
 // that is a question text can answer.
 console.log(
-  "\n11. The privacy page and the terms -- one file of sentences, five refusals, and the numbers",
+  "\n11. The privacy page and the terms -- one file of sentences, six refusals, and the numbers",
 );
 
 const LEGAL_SOURCE = readFileSync(resolve(LIB, "legal.ts"), "utf8");
@@ -2428,8 +2428,15 @@ check(
 //   4. answer 5  -- the owner's own reading is not a legal review.
 //   5. answer 15 -- "no cookies at all" is true signed out and false the moment
 //      somebody signs in.
+//   6. the coach's review of PR #303 -- that any outside company "never
+//      receives" something. The Sentry sentence said exactly that about five
+//      things, and docs/plan.md already records why it cannot be promised: "A
+//      pattern scrub cannot recognise free text that no known phrase
+//      introduces". What the page may say is what this app DOES -- it does not
+//      attach them, and it removes the ones it can recognise -- which is a
+//      promise about our own code rather than about a scrub's completeness.
 check(
-  "the five sentences docs/claims.md marks MUST NOT SAY appear nowhere in the words",
+  "the six sentences docs/claims.md marks MUST NOT SAY appear nowhere in the words",
   [
     (LEGAL_WORDS.match(/does not store (your )?ip/gi) ?? []).length,
     (LEGAL_WORDS.match(/accepted version|you accepted (these )?terms on/gi) ?? [])
@@ -2438,8 +2445,9 @@ check(
     (LEGAL_WORDS.match(/reviewed by|prepared by|legal (advice|review)/gi) ?? [])
       .length,
     (LEGAL_WORDS.match(/no cookies at all|we (use|set) no cookies/gi) ?? []).length,
+    (LEGAL_WORDS.match(/never receives|never sees|never gets/gi) ?? []).length,
   ],
-  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0],
 );
 
 // 11c. AND THE TWO SENTENCES THAT MUST BE THERE INSTEAD.
@@ -2452,8 +2460,77 @@ check(
   [
     count(LEGAL_WORDS, "We do not send your IP address to Sentry"),
     count(LEGAL_WORDS, "do not keep a record of which version"),
+    // The replacement for "never receives", which is two promises about our own
+    // code and one statement of the limit. All three, or the sentence is back to
+    // claiming a scrub is complete.
+    has(LEGAL_WORDS, "does not attach your email address"),
+    has(LEGAL_WORDS, "removes the ones it can recognise"),
+    has(LEGAL_WORDS, "cannot promise to catch text it has no way of recognising"),
   ],
-  [1, 1],
+  [1, 1, true, true, true],
+);
+
+// 11c-bis. THE FOUR SENTENCES THE COACH'S REVIEW OF PR #303 FOUND, each held by
+// the absence of what it said and the presence of what replaced it.
+//
+// These are not style. Each of the four was a sentence that stated more than the
+// code or a cited page supports, and three of them would have been read by
+// somebody as a promise:
+//
+//   1. "nothing anybody typed is lost" after a rebuild. FALSE: a copy is a copy
+//      of a moment. The figure is docs/backups.md's own replacement sentence --
+//      about a day and a quarter on a normal night, about two and a half days if
+//      a run is dropped -- and NOT the owner's "at most one day" target, which
+//      that page says in as many words "is NOT what this design delivers".
+//   2. a usage count "kept for 7 days and then removed". Not true for somebody
+//      who does not come back: the sweep inside count_daily_use is scoped to the
+//      caller (#223), so it only runs when that person uses the feature again.
+//   3. Sentry "never receives" five things -- see the pattern above.
+//   4. "DHTA Ltd is answerable" beside "There is no larger organisation behind
+//      it", which on a plain reading contradict each other.
+check(
+  "the four sentences the review of PR #303 found are gone, and their replacements are there",
+  [
+    // 1. the backup window
+    has(LEGAL_WORDS, "nothing anybody typed is lost"),
+    has(LEGAL_WORDS, "about a day and a quarter"),
+    has(LEGAL_WORDS, "about two and a half days"),
+    has(LEGAL_WORDS, "Most nights an encrypted copy"),
+    // 2. the usage count
+    has(LEGAL_WORDS, "kept for 7 days and then removed"),
+    has(LEGAL_WORDS, "the last few counts stay until you come back"),
+    // 4. the contradiction
+    has(LEGAL_WORDS, "no larger organisation"),
+    has(LEGAL_WORDS, "is the company answerable for the data this app holds"),
+    has(LEGAL_WORDS, "one person runs the app day to day"),
+  ],
+  [false, true, true, true, false, true, false, true, true],
+);
+
+// AND THE FIGURE IN 1 IS THE ONE docs/backups.md HOLDS, compared rather than
+// copied -- the same move as the three outside figures below. If that page's
+// measurement is ever revised, this goes red rather than the page quietly
+// carrying the old number.
+check(
+  "the backup window on the page is the figure docs/backups.md measured",
+  [
+    // A LINE-SAFE SUBSTRING, because that page wraps its sentence across a
+    // newline between "about a day" and "and a quarter". The first version of
+    // this check looked for the whole phrase and went red for that reason,
+    // which is a finding about reading a prose file as text rather than about
+    // the figure.
+    has(BACKUPS_DOC, "a quarter on a normal night"),
+    has(BACKUPS_DOC, "about two and a half days if GitHub drops a run"),
+  ],
+  [true, true],
+);
+
+// AND #223 IS NAMED where the usage-count sentence is written, so the next
+// person to read that paragraph finds the gap rather than rediscovering it.
+check(
+  "the usage-count paragraph names the issue that makes the simpler sentence untrue",
+  [has(LEGAL_SOURCE, "issues/223")],
+  [true],
 );
 
 // 11d. EVERY NUMBER THE APP OWNS IS INTERPOLATED, NEVER TYPED.
@@ -2477,7 +2554,13 @@ check(
     count(LEGAL_WORDS, "100 MB"),
     count(LEGAL_WORDS, "200 characters"),
     count(LEGAL_WORDS, "7 days"),
-    count(LEGAL_WORDS, "England and Wales,"),
+    // THE GOVERNING-LAW SENTENCE, not the bare phrase. The optional paragraph
+    // for the company's registered details says "registered in England and
+    // Wales, company number ...", which is a DIFFERENT FACT -- where the
+    // company is registered rather than which law the terms are read under --
+    // and the two should not be coupled through one constant just to make a
+    // check pass. So the check names the sentence it is about.
+    count(LEGAL_WORDS, "England and Wales, and any dispute"),
     count(LEGAL_WORDS, "under 16"),
   ],
   [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
@@ -2586,6 +2669,36 @@ check(
     longLiterals(FOOTER_SOURCE),
   ],
   [1, 1, 1, 1, 1, 0],
+);
+
+// 11h-bis. THE FOUR OPTIONAL PARAGRAPHS REACH NO PAGE.
+//
+// The coach's review of PR #303 asked for four paragraphs the owner can accept
+// or strike -- why the data is held, the right to complain to the regulator, a
+// plain statement that things are held in the United States, and a placeholder
+// for the company's registered details. Three of the four are matters of law
+// and the fourth is a fact only the owner has, so NONE of them may be published
+// by this change.
+//
+// They live in `OPTIONAL_PRIVACY`, which is exported and rendered by nobody.
+// This check is what makes "rendered by nobody" a fact rather than an intention:
+// neither page imports it, and the placeholder brackets appear nowhere a page
+// could draw them.
+check(
+  "the four optional paragraphs are in the file and reach no page",
+  [
+    count(LEGAL_SOURCE, "export const OPTIONAL_PRIVACY"),
+    // Four entries, each with the four fields that make it answerable.
+    count(LEGAL_SOURCE, '    id: "'),
+    count(PRIVACY_PAGE, "OPTIONAL_PRIVACY"),
+    count(TERMS_PAGE, "OPTIONAL_PRIVACY"),
+    // The placeholder nobody may publish. It is in the optional array only, so
+    // it must not be anywhere either page can reach -- and if a later change
+    // accepts that paragraph without filling the blanks in, this goes red.
+    count(PRIVACY_PAGE, "[COMPANY NUMBER]"),
+    count(TERMS_PAGE, "[COMPANY NUMBER]"),
+  ],
+  [1, 4, 0, 0, 0, 0],
 );
 
 // 11i. AND NEITHER DOCUMENT CLAIMS A FEATURE THAT DOES NOT EXIST YET.

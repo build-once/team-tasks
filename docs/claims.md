@@ -924,17 +924,62 @@ than by a line number that would be wrong by the next edit. One file is also wha
 possible: the owner reading "both documents" is the owner reading one file.
 
 **What holds the discipline rather than anybody remembering it:
-`scripts/screen-state-check.mjs` section 11**, in CI's pure-checks job, which is **nine checks** and
-takes the section's count from 297 to 306. It refuses a sentence-shaped literal in either page file,
-refuses each of the five **MUST NOT SAY** patterns in the words, requires the two sentences those
-refusals leave room for, requires every figure the app owns to be interpolated from the app's own
-constant rather than typed, compares the three figures with no constant in `web/` against the file that
-owns each, requires all twelve subjects #204 and the owner demand, holds the contact address to one
-literal, and refuses a claim about the export or delete-account before either is built.
+`scripts/screen-state-check.mjs` section 11**, in CI's pure-checks job, which is **thirteen checks** and
+takes the script's count from 297 to **310**. It refuses a sentence-shaped literal in either page file,
+refuses each of the **six MUST NOT SAY** patterns in the words, requires the sentences those refusals
+leave room for, requires every figure the app owns to be interpolated from the app's own constant
+rather than typed, compares the figures with no constant in `web/` against the file that owns each,
+requires all twelve subjects #204 and the owner demand, holds the contact address to one literal,
+requires the four optional paragraphs to reach no page, and refuses a claim about the export or
+delete-account before either is built.
 
-**Four of those nine were seen to fail before they passed** — three on wrong expected counts while they
-were being written, and the MUST NOT SAY check twice on purpose, once for four of its five patterns and
-once for the fifth. `evidence/build-it-26-legal-pages.md` has the red output and the exit codes.
+**Several of them were seen to fail before they passed**, and each red run was a finding rather than a
+typo — `day <= l_today - 7` appearing twice in a migration, `docs/backups.md` wrapping its figure
+across a newline, `longLiterals` counting the quotations inside file headers, and the governing-law
+check tripping on a different fact that happens to name the same place. **The MUST NOT SAY check was
+broken twice on purpose**, once for four of its patterns and once for the fifth, because a
+four-of-five pass had read as five-of-five. `evidence/build-it-26-legal-pages.md` has the output and
+the exit codes.
+
+### AND THE DRAFT WAS REVIEWED, which is the whole reason this section is laid out the way it is
+
+**The coach read `web/src/lib/legal.ts` on 2026-10-13 and found four sentences that stated more than
+the code or a cited page supports.** Every one of them is a row in this section now — the struck-through
+original beside its replacement — and **each is held by a check**, because the point of a register is
+that a sentence cannot quietly come back:
+
+| | What was wrong | Where the row is |
+|---|---|---|
+| **1** | "nothing anybody typed is lost" after a rebuild | §7d, with the figure `docs/backups.md` supports and the reason it is not the owner's target |
+| **2** | a usage count "kept for seven days and then removed" | §7a, with [#223](https://github.com/build-once/team-tasks/issues/223) as what makes it untrue |
+| **3** | Sentry "never receives" five things | §7b, and it is the **sixth** permanent refusal |
+| **4** | "`DHTA Ltd` is answerable" beside "no larger organisation behind it" | §7e, as a contradiction rather than a falsehood |
+
+**Three of the four were reassuring**, which is the pattern worth naming: a page describing what an app
+holds drifts towards comfort, not towards alarm, and the sentences that need a check are the ones a
+reader would be pleased to see. **The fourth was two true facts arranged so that each denied the
+other.**
+
+**Eleven more were changed on a re-read of both arrays by the assistant**, in the same change and
+listed in `evidence/build-it-26-legal-pages.md` section 7 — each one a sentence that was slightly
+larger than what holds it, none of them caught by any check, and all of them found by reading the
+words again with the question "what makes this true?" rather than "does this read well?".
+
+### The four OPTIONAL paragraphs, which are drafted and on no page
+
+Asked for by the same review. `OPTIONAL_PRIVACY` in `web/src/lib/legal.ts` holds four paragraphs for
+the owner to **accept or strike** — why the data is held, the right to complain to the Information
+Commissioner's Office, a plain statement that the database and the error reports are in the United
+States, and a **placeholder** for `DHTA Ltd`'s registered number and office.
+
+**None of them is rendered, and that is checked rather than intended**: section 11 requires that
+neither page imports the array, and the staging script refuses `[COMPANY NUMBER]` on a rendered page —
+so an optional paragraph accepted without being completed is caught by the deployed check rather than
+by somebody reading it.
+
+**Three of the four are matters of law and the fourth is a fact only the owner has**, so none has a
+verdict in this register yet. They get one when the owner accepts one: a row each, as every other
+sentence here has.
 
 ### 7a. What is held, and who receives it
 
@@ -964,6 +1009,8 @@ once for the fifth. `evidence/build-it-26-legal-pages.md` has the red output and
 | Error reports go to Sentry, carrying the error, the page, the browser and **your user ID** | `web/src/sentry/options.ts`, and `web/src/lib/sentry-user.ts` for the id | **ENFORCED** |
 | They never carry your address, your task text, a team name, a file name or a token | `web/src/lib/sentry-scrub.ts`, checked by `scripts/sentry-scrub-check.mjs`; plus every `dataCollection` field switched off in `options.ts` | **ENFORCED in code**, and the page should say what the limit of it is — the plan's own caveat is that a pattern scrub cannot catch free text, so this app's code must not put task text in a message |
 | **"We do not send your IP address to Sentry"** — **the wording DECIDED by answer 16, 2026-10-13** | `web/src/sentry/options.ts`, `userInfo: false`, cited against the installed package: `requestdata.js` reads `ip: options.include?.ip ?? dataCollection.userInfo` | **ENFORCED.** It is **our** code, in this repository, and it is the whole of what this app controls |
+| ~~Sentry "never receives your email address, your task text, a team name, a file name or any sign-in token"~~ | — | **MUST NOT SAY — ADDED 2026-10-13, the coach's review of PR #303, and it is the SIXTH permanent refusal.** The sentence was on the drafted page and it overclaims **a limit this project has already written down about itself**: `docs/plan.md` says "A pattern scrub cannot recognise free text that no known phrase introduces, so error messages written by this app must never include task text, names or addresses." A scrub that works by recognising patterns cannot promise to catch what it cannot recognise, so "never receives" is a promise about somebody's completeness rather than about our code. **`scripts/screen-state-check.mjs` section 11 now refuses `never receives`, `never sees` and `never gets` by pattern**, and `scripts/staging/build-it-26-legal-pages-checks.mjs` refuses them on the rendered page |
+| **"This app does not attach your email address, your task text, a team name, a file name or any sign-in token to a report, and it removes the ones it can recognise before a report is sent. That removal works by recognising patterns, so it cannot promise to catch text it has no way of recognising — which is why this app's own error messages are written not to carry any of it."** | **three things, and each is ours**: not attaching them is every `dataCollection` field in `web/src/sentry/options.ts` (bodies, cookies, query parameters, stack-frame variables, breadcrumbs, database query data — each default cited against the installed package); removing the recognisable ones is `web/src/lib/sentry-scrub.ts`, checked by `scripts/sentry-scrub-check.mjs`; and the limit is the plan's own sentence | **ENFORCED, and it is the replacement the refusal above leaves room for.** Section 11 requires all three clauses, so the sentence cannot be shortened back into a promise |
 | ~~Sentry does not store your IP address~~ | — | **MUST NOT SAY, and that is now a decision rather than a gap (answer 16).** Whether Sentry records the address a report arrives from is a dashboard setting **nobody has seen**, still "owner to set, not yet reported". **The two sentences are one word apart and the difference is who is promising** |
 | Sentry keeps reports for *N* days | Sentry's published free-plan retention | **MUST NOT SAY YET** — no number is written anywhere in this repository, because the page has not been read |
 | Invitation emails are sent by Resend, which sees the address, the team name and the link | `invite-member`'s `POST https://api.resend.com/emails` with `{from, to, subject, text}` | **ENFORCED** |
@@ -997,11 +1044,15 @@ once for the fifth. `evidence/build-it-26-legal-pages.md` has the red output and
 | **Nobody loses a task they wrote themselves** | `on delete set null` on `tasks.team_id`, and step 4a of the deletion deleting only the departing person's own rows | **ENFORCED today for the team case, AND THE SENTENCE SURVIVES — answer 17, 2026-10-13, took the narrow reading.** This row said the wide reading would take it off the page; it did not come back. **One thing the page must add beside it**, because a true sentence can still surprise somebody: a task returning to its creator as a **personal** task is a task they may not expect to find there |
 | Copies of your data remain for up to about a fortnight and then go | the R2 lifecycle rule `delete-after-14-days`, plus the day Cloudflare allows for removal | **not verified** — owner-reported, never seen, and **nothing in this repository can read an R2 rule.** The first thing that will check it is the copy of 10 October disappearing, or not |
 | After a recovery you will be asked to sign in again | `docs/backups.md` → "What a restore promises": sessions and refresh tokens are deliberately not restored | **ENFORCED in the restore script**, and seen once in the drill of 10–11 Oct |
+| ~~"If this app ever has to be rebuilt from one of those copies, **nothing anybody typed is lost**"~~ | — | **FALSE, and the coach's review of PR #303 caught it on the drafted page, 2026-10-13.** A copy is a copy of a **moment**: everything that changed after it is gone. It is the plainest overclaim of the four, and the most reassuring, which is the combination worth catching |
+| **"everything that changed after that copy was made is lost — on a normal night that is up to about a day and a quarter, and up to about two and a half days if a night's copy is missed. We would not be able to tell you which it had been."** | `docs/backups.md` → "The two targets", whose own replacement sentence this is: "we lose at most about a day and a quarter on a normal night, and about two and a half days if GitHub drops a run — and we would not know which had happened" | **ENFORCED by comparison rather than by copying**: `scripts/screen-state-check.mjs` section 11 reads that page and fails if either figure stops being there, so a revised measurement turns the check red rather than leaving the page carrying an old number. **And it is deliberately NOT the owner's target of "at most one day"** — that page says in as many words that the target "is NOT what this design delivers", because a late copy stretches the window and a dropped one doubles it. The first figure is **measured once**; the second is **GitHub's published behaviour and has not been observed here** |
+| **"Most nights an encrypted copy … is made"** | the schedule in `.github/workflows/backup-production.yml`, and `docs/backups.md`'s measurement of the first scheduled run starting **5h 57m 24s** late | **ENFORCED as written, and "every night" would not be.** GitHub's own page, quoted on that page: "If the load is sufficiently high enough, some queued jobs may be dropped." |
 | Error reports about you are deleted **on request** | the owner searching Sentry by user ID — **and only before the account is deleted** | **not verified, and not yet tried.** The page must say "on request", never "automatically" |
 | What has already gone to Anthropic cannot be recalled, and cannot be found, because nothing identifying you was sent | the request body, which carries no user id | **ENFORCED**, and it is the one row here where a privacy decision makes a right impossible — which the page should say rather than hide |
 | If you cannot sign in, write to … to ask for your account to be deleted | the public request page, and the address in question 1 | **MUST NOT SAY YET** — no page, and no published address |
 | You can change your email address | **nothing.** There is no screen for it, and nothing in this app changes an address | **MUST NOT SAY.** The page should say an address change is the owner, by hand |
-| **The app counts how many times you used each limited feature on each day, and keeps it for seven days** — **NEW, from decision 8c of 2026-10-12** | `public.usage_counts`, four columns, and the 7-day sweep inside `count_daily_use` (`20261008115900_usage_counts.sql`) | **ENFORCED.** It is on the page **because** the export deliberately leaves it out: nobody may read that table, not even the person it is about, so saying so is the honest version of omitting it. The page must say "seven days" and not "a week", because the boundary is `day <= today - 7` — today and the six days before it |
+| ~~The app counts how many times you used each limited feature on each day, **and keeps it for seven days**~~ | `public.usage_counts` and the sweep inside `count_daily_use` | **NOT ENFORCED FOR EVERYBODY — the coach's review of PR #303 caught this on the drafted page, 2026-10-13.** The sweep is `where user_id = p_user_id`, **scoped to the caller**, and that is not an optimisation: a statement sweeping the whole table would make every count a write against other people's rows. So it runs only when that person **uses a limited feature again**, and **somebody who stops using the app keeps the rows they had.** [#223](https://github.com/build-once/team-tasks/issues/223) is the gap, and the migration's own comment states it: "a person who stops using the app keeps the rows they had until they come back, because nothing else ever runs." **This row is what turns #223 from an internal note into a user-visible claim** |
+| **A daily usage count is removed 7 days later, by the same thing that writes one — so the counts go once you use that feature again. If you stop using the app, the last few counts stay until you come back or your account is deleted. There is nothing in them but a number, a feature and a date.** | the sweep inside `count_daily_use` (`20261008115900_usage_counts.sql`), and the table's four columns | **ENFORCED, and worded for what the code does TODAY.** The alternative was to fix [#223](https://github.com/build-once/team-tasks/issues/223) first, and that is a migration with a real decision in it: unscoping the sweep is the thing the scoping exists to prevent, and moving it to a clock is what `docs/plan.md` declined when it chose this shape. **It belongs in its own pull request.** `scripts/screen-state-check.mjs` section 11 requires the page's own source to name #223, so the next person to read that paragraph finds the gap rather than rediscovering it. It is on the page at all **because** the export deliberately leaves the counts out (decision 8c) |
 | **…and nobody can see it through the app, including you — ask the owner and they will tell you what it holds** | the privilege layer: `revoke all` from PUBLIC, `anon`, `authenticated` **and `service_role`**, and no policy at all | **ENFORCED for the first half.** The second half is **a promise about a person, not about code** — the owner answering a request — and it is the first sentence in this register that nothing in this repository could ever keep. It is here so that it is a deliberate commitment rather than a form of words |
 | **If the owner has suspended your account there is a row saying so, when, and optionally why — ask and they will tell you** — **NEW, from decision 8d** | `public.account_status`, and the same privilege shape | **ENFORCED for what is held**, and the same caveat as the row above for the asking. **And one thing the page must not imply**: `reason` is the owner's own note, it can name a third party, and `docs/plan.md` asks for it to be "short and factual" — a page that promised the reason verbatim would be promising something the owner may have to redact |
 
@@ -1017,6 +1068,7 @@ once for the fifth. `evidence/build-it-26-legal-pages.md` has the red output and
 | **"These terms are governed by the law of England and Wales, and disputes are heard there"** | answer 2, **2026-10-13** | **ENFORCED by being the owner's statement of fact about the terms**, which is the one kind of claim in this register that nothing in code can keep. It is the controller's to stand behind |
 | **"This app is not for anybody under 16"** | answer 3, **2026-10-13: 16, STATED and NOT CHECKED** | **ENFORCED as a requirement.** And the row that matters more is the one it must **not** become: **"we verify that you are 16 or over" would be NOT ENFORCED** — nothing asks for an age, nothing holds one, and the appendix gains no row. The wording has to read as a condition of use, never as a check |
 | ~~You accepted version *X* of these terms on *date*~~ | — | **MUST NOT SAY, and it is now a decision: answer 4, 2026-10-13, is NO such record.** **A DELIBERATE DEPARTURE FROM THE BOOK**, whose chapter recap recommends recording who accepted which version. Nothing is stored, so **nothing may claim it** — and the honest consequence is that if somebody ever disputes which terms they were shown, there is nothing to answer with. `docs/plan.md`'s answer 4 carries the trade in both directions |
+| ~~"`DHTA Ltd` is answerable for the data this app holds" **beside** "There is no larger organisation behind it"~~ | — | **A CONTRADICTION ON A PLAIN READING, caught by the coach's review of PR #303, 2026-10-13.** Both facts are true and they answer different questions — **who is answerable**, which is a company, and **how big the operation is**, which is one person — but two paragraphs apart they read as one denying the other. **Rewritten into one paragraph that states both**: "`DHTA Ltd` is the company answerable for the data this app holds, and one person runs the app day to day. That is the same person who can read the whole database", followed by "So there is no support team and nobody else to escalate to". Section 11 refuses the phrase `no larger organisation` and requires both halves of the replacement |
 | **The controller is `DHTA Ltd`, and the address for any of this is `dp@raj-dhonota.com`** | answer 1, **2026-10-13** | **ENFORCED by being published.** Two things follow and both belong on the page rather than only here: it is **a public address on a public page**, so it will be scraped; and it is **the only route** for every right in this plan, including a deletion request from somebody who cannot sign in — answer 14 left the app with no form on purpose |
 | ~~Reviewed by a lawyer / prepared by / checked for compliance~~ | — | **MUST NOT SAY, EVER — answer 5, 2026-10-13.** The owner reads both documents himself and **that is not a legal review.** No such sentence, and no badge, seal or date-of-review line that would read as one. §7f item 3 is the matching rule for statements about outside companies |
 

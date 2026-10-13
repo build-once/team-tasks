@@ -97,6 +97,14 @@ const PAGES = [
       "asked to sign in again",
       "cf.turnstile.u",
       "no way to delete your account in this app",
+      // THE FOUR THE COACH'S REVIEW OF PR #303 FIXED, checked on the rendered
+      // page as well as in the source. Each replaced a sentence that stated
+      // more than the code or a cited page supports, so each is worth proving
+      // survived the build rather than only the check.
+      "about a day and a quarter",
+      "the last few counts stay until you come back",
+      "removes the ones it can recognise",
+      "is the company answerable for the data this app holds",
     ],
   },
   {
@@ -111,16 +119,28 @@ const PAGES = [
   },
 ];
 
-// The five sentences docs/claims.md section 7 marks MUST NOT SAY. Checked on the
+// The SIX sentences docs/claims.md section 7 marks MUST NOT SAY. Checked on the
 // rendered page as well as in the source, because the point of this pair is that
 // a thing can be right in a module and wrong on a screen.
+//
+// THE SIXTH ARRIVED WITH THE COACH'S REVIEW OF PR #303: that any outside company
+// "never receives" something. The Sentry sentence said it about five things, and
+// docs/plan.md already records why it cannot be promised -- "A pattern scrub
+// cannot recognise free text that no known phrase introduces".
 const FORBIDDEN = [
   /does not store (your )?ip/i,
   /accepted version|you accepted (these )?terms on/i,
   /verif(y|ies|ied|ying) (your |their )?age/i,
   /reviewed by|prepared by|legal (advice|review)/i,
   /no cookies at all|we (use|set) no cookies/i,
+  /never receives|never sees|never gets/i,
 ];
+
+// AND THE PLACEHOLDER NOBODY MAY PUBLISH. `OPTIONAL_PRIVACY` in
+// web/src/lib/legal.ts holds four paragraphs for the owner to accept or strike,
+// one of which is a blank only the owner can fill in. None of them is rendered,
+// and this is the half of that which a deployed page can prove.
+const NEVER_RENDERED = ["[COMPANY NUMBER]", "[REGISTERED OFFICE ADDRESS]"];
 
 // ---------------------------------------------------------------------------
 // The judgements -- pure functions, which is what --selftest exercises
@@ -188,8 +208,19 @@ export function judge(page, answer) {
   );
   for (const pattern of said) notes.push(`FORBIDDEN SENTENCE MATCHED: ${pattern}`);
 
+  const leaked = NEVER_RENDERED.filter((marker) => body.includes(marker));
+  for (const marker of leaked) {
+    notes.push(
+      `AN UNFILLED PLACEHOLDER REACHED THE PAGE: ${marker}` +
+        ` -- an OPTIONAL_PRIVACY paragraph has been accepted without being completed`,
+    );
+  }
+
   return {
-    verdict: hasHeading && missing.length === 0 && said.length === 0 ? "PASS" : "FAIL",
+    verdict:
+      hasHeading && missing.length === 0 && said.length === 0 && leaked.length === 0
+        ? "PASS"
+        : "FAIL",
     reachable: true,
     notes,
   };
@@ -308,6 +339,24 @@ function selftest() {
       want: "FAIL",
     },
     {
+      name: "a page that says Sentry NEVER RECEIVES something FAILS -- the sixth refusal",
+      got: judge(privacy, {
+        status: 200,
+        body: `${good}<p>Sentry never receives your task text.</p>`,
+        finalPath: "/privacy",
+      }),
+      want: "FAIL",
+    },
+    {
+      name: "an unfilled [COMPANY NUMBER] placeholder on the page FAILS",
+      got: judge(privacy, {
+        status: 200,
+        body: `${good}<p>Company number [COMPANY NUMBER].</p>`,
+        finalPath: "/privacy",
+      }),
+      want: "FAIL",
+    },
+    {
       name: "a request that never arrived FAILS",
       got: judge(privacy, null),
       want: "FAIL",
@@ -335,7 +384,7 @@ function selftest() {
   }
 
   console.log(
-    `PASS every judgement can fail: ${cases.length} cases, including each of the five sentences docs/claims.md marks MUST NOT SAY, and the redirect to /login this script exists to catch\n`,
+    `PASS every judgement can fail: ${cases.length} cases, including each of the six sentences docs/claims.md marks MUST NOT SAY, an unfilled placeholder reaching a page, and the redirect to /login this script exists to catch\n`,
   );
 }
 
