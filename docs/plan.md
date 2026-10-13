@@ -2231,6 +2231,20 @@ book**, named as such below — questions 4 and 17.
    receive rubbish — and it is **the address every right in this plan is exercised through**, including
    the deletion requests of people who cannot sign in (question 14 left the app with no form, on
    purpose), so it is the one address in this project that must not go unread.
+   **AND ONE THING ABOUT THE CONTROLLER IS STILL OPEN, recorded here at the owner's instruction on
+   2026-10-13: `DHTA Ltd`'s COMPANY NUMBER AND REGISTERED OFFICE ARE NOT PUBLISHED.** A paragraph
+   giving them was drafted for the privacy page as one of four optional ones, and the owner's answer
+   was **not now** — and to **delete the placeholder rather than leave it**, because a blank in square
+   brackets sitting in a file is a thing that eventually reaches a page.
+
+   **So it is an open item for the owner rather than a decision anybody has taken against it.** It is
+   the one thing on this whole list that could not be drafted: a registered number and a registered
+   office are **facts only the owner has**, not judgements, so guessing at them was never available.
+   The page names the company and the address to write to, which is what somebody needs in order to
+   reach anybody; what it does not do is identify the company in a register.
+   `scripts/screen-state-check.mjs` section 11 refuses the placeholder anywhere in
+   `web/src/lib/legal.ts` or either page, so this stays an item on this list until the owner supplies
+   the two values — at which point it is one paragraph and one claims-register row.
 2. ~~**Which law governs the terms, and where disputes are heard?**~~ **ANSWERED 2026-10-13: England
    and Wales**, for both.
 3. ~~**Is there a minimum age?**~~ **ANSWERED 2026-10-13: 16, STATED on the page and NOT CHECKED.**

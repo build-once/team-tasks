@@ -2671,34 +2671,48 @@ check(
   [1, 1, 1, 1, 1, 0],
 );
 
-// 11h-bis. THE FOUR OPTIONAL PARAGRAPHS REACH NO PAGE.
+// 11h-bis. THE FOUR OPTIONAL PARAGRAPHS, AS THE OWNER ANSWERED THEM.
 //
-// The coach's review of PR #303 asked for four paragraphs the owner can accept
-// or strike -- why the data is held, the right to complain to the regulator, a
-// plain statement that things are held in the United States, and a placeholder
-// for the company's registered details. Three of the four are matters of law
-// and the fourth is a fact only the owner has, so NONE of them may be published
-// by this change.
+// The coach's review of PR #303 asked for four the owner could accept or strike,
+// and they lived in an `OPTIONAL_PRIVACY` array rendered by nobody. **The owner
+// answered all four on 2026-10-13**, so this check changed shape with them:
 //
-// They live in `OPTIONAL_PRIVACY`, which is exported and rendered by nobody.
-// This check is what makes "rendered by nobody" a fact rather than an intention:
-// neither page imports it, and the placeholder brackets appear nowhere a page
-// could draw them.
+//   1. why the data is held               ACCEPTED, into "Who holds this data"
+//   2. the Information Commissioner's      ACCEPTED, into "What you can ask for"
+//      Office
+//   3. "in plain words ... the United      ACCEPTED, into "Who else receives"
+//      States"
+//   4. the registered number and office    NOT NOW, and DELETED rather than
+//                                          left as a placeholder
+//
+// THE ARRAY IS GONE, and this check is what stops it coming back as a quiet
+// holding place: a paragraph in a file nothing renders is a paragraph nobody
+// reviews, and the whole point of one-file-of-sentences is that reading one file
+// is reading both documents.
+//
+// AND THE PLACEHOLDER MUST APPEAR NOWHERE AT ALL -- not in either page, and not
+// in legal.ts either, which is the stronger version of the first check: a
+// `[COMPANY NUMBER]` sitting in a file is a thing that eventually reaches a
+// page. docs/plan.md's Build it 26 section is where item 4 lives now, as an open
+// item for the owner, because it is a FACT ONLY THE OWNER HAS.
 check(
-  "the four optional paragraphs are in the file and reach no page",
+  "the three accepted paragraphs are on the page, and the fourth is deleted rather than parked",
   [
+    // Accepted, by a distinctive phrase each.
+    has(LEGAL_WORDS, "because the app cannot do what you asked of it without them"),
+    has(LEGAL_WORDS, "Information Commissioner's Office"),
+    has(LEGAL_WORDS, "In plain words: the database, the files you attach"),
+    // The holding place is gone.
     count(LEGAL_SOURCE, "export const OPTIONAL_PRIVACY"),
-    // Four entries, each with the four fields that make it answerable.
-    count(LEGAL_SOURCE, '    id: "'),
     count(PRIVACY_PAGE, "OPTIONAL_PRIVACY"),
     count(TERMS_PAGE, "OPTIONAL_PRIVACY"),
-    // The placeholder nobody may publish. It is in the optional array only, so
-    // it must not be anywhere either page can reach -- and if a later change
-    // accepts that paragraph without filling the blanks in, this goes red.
+    // And neither placeholder is anywhere.
+    count(LEGAL_SOURCE, "[COMPANY NUMBER]"),
+    count(LEGAL_SOURCE, "[REGISTERED OFFICE ADDRESS]"),
     count(PRIVACY_PAGE, "[COMPANY NUMBER]"),
     count(TERMS_PAGE, "[COMPANY NUMBER]"),
   ],
-  [1, 4, 0, 0, 0, 0],
+  [true, true, true, 0, 0, 0, 0, 0, 0, 0],
 );
 
 // 11i. AND NEITHER DOCUMENT CLAIMS A FEATURE THAT DOES NOT EXIST YET.

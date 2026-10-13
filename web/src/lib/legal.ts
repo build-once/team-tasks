@@ -212,6 +212,15 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
       `${CONTROLLER} is the company answerable for the data this app holds, and one person runs the app day to day. That is the same person who can read the whole database, including everything listed below.`,
       `So there is no support team and nobody else to escalate to: ${CONTACT_ADDRESS} reaches that person, and it is the only way to reach anybody about this app.`,
       `If you cannot sign in — a forgotten password, a suspended account, or an invitation to an address that never became an account — it is also how you ask for your data to be deleted.`,
+      // ACCEPTED BY THE OWNER, 2026-10-13 -- optional paragraph 1 of the four
+      // the coach's review of PR #303 asked for, moved in from OPTIONAL_PRIVACY
+      // and that array deleted with it.
+      //
+      // IT IS THE OWNER'S JUDGEMENT AND NOT A LEGAL REVIEW, which is answer 5
+      // and is why this paragraph is plain English rather than a term of art:
+      // nothing in this repository can check whether these are the right words
+      // for it, and `docs/claims.md` section 7a says so in the row.
+      `We hold what is listed here for two reasons and no others: because the app cannot do what you asked of it without them — a list needs its tasks, a team needs its members, signing in needs an address and a password — and because keeping it working and safe needs a few things nobody asked for, like knowing how often a feature was used.`,
     ],
   },
   {
@@ -282,6 +291,11 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
       // contradicting the six companies named directly above it. What is meant
       // is selling and advertising, so that is what it now says.
       `Nothing else receives any of it, none of it is sold, and none of it is used for advertising.`,
+      // ACCEPTED BY THE OWNER, 2026-10-13 -- optional paragraph 3, and the only
+      // one of the four that is not a judgement: everything above it names a
+      // region code or a "data region", and neither of those says a country to
+      // somebody who has not met one. It adds no new fact.
+      `In plain words: the database, the files you attach and the error reports are all held in the United States. The nightly copy is held in Europe, and it is encrypted so that the company holding it cannot read it.`,
     ],
   },
   {
@@ -353,6 +367,11 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
       // routine. docs/claims.md's verdict for this row is "not verified, and not
       // yet tried", so the page says so.
       `Error reports about you can be deleted at Sentry on request, and the moment to ask is before the account goes — afterwards the identifier in them is the only thing left to search by, and nobody writes it down. So ask for both in the same message. Nobody has had to do this yet.`,
+      // ACCEPTED BY THE OWNER, 2026-10-13 -- optional paragraph 2. It names the
+      // regulator for England and Wales, which is where answer 2 puts these
+      // terms. The order matters and is deliberate: write here first, and the
+      // regulator if that does not settle it.
+      `If you are not happy with how this is handled, write to ${CONTACT_ADDRESS} first — and if that does not settle it, you can complain to the Information Commissioner's Office, the UK's regulator for this, at ico.org.uk.`,
     ],
   },
   {
@@ -399,66 +418,43 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
 ];
 
 // ---------------------------------------------------------------------------
-// FOUR OPTIONAL PARAGRAPHS, FOR THE OWNER TO ACCEPT OR STRIKE
+// THE FOUR OPTIONAL PARAGRAPHS ARE GONE FROM THIS FILE, AND HERE IS WHERE THEY WENT
 // ---------------------------------------------------------------------------
 //
-// Asked for by the coach's review of PR #303. Four things a privacy page of this
-// kind usually says and this one does not, drafted so the owner can answer yes
-// or no to each rather than start from nothing.
+// An `OPTIONAL_PRIVACY` array stood here, holding four paragraphs for the owner
+// to accept or strike (the coach's review of PR #303). The owner answered all
+// four on 2026-10-13, so the array is deleted rather than left empty: a holding
+// place with nothing in it is a thing somebody has to work out the status of.
 //
-// NOTHING BELOW IS ON THE PAGE. This array is exported and is rendered by
-// nobody; `scripts/screen-state-check.mjs` section 11 requires that neither page
-// imports it, so none of it can be published by accident.
+//   1. why the data is held            ACCEPTED -> "Who holds this data"
+//   2. the Information Commissioner's
+//      Office                          ACCEPTED -> "What you can ask for"
+//   3. "in plain words ... the United
+//      States"                         ACCEPTED -> "Who else receives any of it"
+//   4. the company's registered number
+//      and office                      NOT NOW -- and DELETED rather than left
+//                                      as a placeholder, at the owner's
+//                                      instruction. A blank in square brackets
+//                                      left in a file is a thing that
+//                                      eventually reaches a page.
 //
-//   TO ACCEPT ONE: move the string into the PRIVACY array above, into the
-//                  section its `into` field names, and delete it from here.
-//   TO STRIKE ONE: delete it from here.
+// AND THIS COMMENT DELIBERATELY DOES NOT SPELL THAT BLANK. Section 11 refuses
+// the placeholder ANYWHERE in this file, and the first version of this note went
+// red by naming the string it was explaining the deletion of -- the third time
+// in this change that a comment tripped a check it was describing.
 //
-// AND NONE OF IT IS A LEGAL REVIEW, which is answer 5 of 13 Oct 2026 and the
-// reason these four are a question rather than a change. Three of them are
-// matters of law rather than matters of code: whichever words end up on the
-// page, nothing in this repository can check whether they are the right ones.
-// The fourth is a fact only the owner has.
+// WHERE ITEM 4 LIVES NOW: docs/plan.md's Build it 26 section, as an open item
+// for the owner. It is a FACT ONLY THE OWNER HAS rather than a decision, so it
+// could not be drafted and should not be guessed.
 //
-// THE ONE THING THAT IS NOT A JUDGEMENT IS (c). The page already says "West US
-// (Oregon)" and "Sentry's organisation data region is the United States", and
-// neither of those reads as "the United States" to somebody who has not met a
-// region code. (c) says it in plain words and adds nothing new.
-export const OPTIONAL_PRIVACY: ReadonlyArray<{
-  readonly id: string;
-  readonly into: string;
-  readonly why: string;
-  readonly paragraph: string;
-}> = [
-  {
-    id: "basis",
-    into: "Who holds this data, and how to reach us",
-    why:
-      "Why the data is held at all. A page of this kind usually says it, and the right words for it are a matter of law rather than of code -- so this is a plain-English draft to replace or strike, not a term of art.",
-    paragraph: `We hold what is listed here for two reasons and no others: because the app cannot do what you asked of it without them — a list needs its tasks, a team needs its members, signing in needs an address and a password — and because keeping it working and safe needs a few things nobody asked for, like knowing how often a feature was used.`,
-  },
-  {
-    id: "complain",
-    into: "What you can ask for",
-    why:
-      "The right to complain to the regulator. The owner's answer 2 puts these terms under England and Wales, which makes the Information Commissioner's Office the body somebody would go to.",
-    paragraph: `If you are not happy with how this is handled, write to ${CONTACT_ADDRESS} first — and if that does not settle it, you can complain to the Information Commissioner's Office, the UK's regulator for this, at ico.org.uk.`,
-  },
-  {
-    id: "united-states",
-    into: "Who else receives any of it, and where it is held",
-    why:
-      "The plainest of the four, and the only one that is not a judgement: the page names a region code and a data region, and neither says 'the United States' to a volunteer.",
-    paragraph: `In plain words: the database, the files you attach and the error reports are all held in the United States. The nightly copy is held in Europe, and it is encrypted so that the company holding it cannot read it.`,
-  },
-  {
-    id: "registered-details",
-    into: "Who holds this data, and how to reach us",
-    why:
-      "A placeholder, and the only item here nobody but the owner can fill in: a company's registered number and registered office are facts, and this file has neither. Left as a visible blank rather than guessed.",
-    paragraph: `${CONTROLLER} is registered in England and Wales, company number [COMPANY NUMBER], at [REGISTERED OFFICE ADDRESS].`,
-  },
-];
+// The three that were accepted are marked where they sit, and each has a row in
+// docs/claims.md section 7 saying it is the OWNER'S JUDGEMENT and not a legal
+// review -- which is answer 5, and is the reason none of them is written as a
+// term of art.
+//
+// scripts/screen-state-check.mjs section 11 holds all of that: the three
+// paragraphs must be present, `OPTIONAL_PRIVACY` must not exist, and neither
+// placeholder may appear anywhere in this file or either page.
 
 // ---------------------------------------------------------------------------
 // The terms

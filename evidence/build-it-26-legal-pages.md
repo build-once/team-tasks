@@ -1,8 +1,10 @@
 # Evidence: Build it 26 PR 1 — the privacy page and the terms
 
-Result: **PASS for everything this repository can answer. UNVERIFIED for everything a browser would
-answer** — no screen has been opened, and the before/after run against a deployed build is the owner's.
-Date: 2026-10-13
+Result: **PASS for everything this repository can answer. The owner has opened both pages in a browser
+and both opened.** What is left is the **production AFTER run, which can only happen after the merge**,
+and a look on a phone.
+Date: 2026-10-13, and updated the same day twice — once for the review of the wording (section 7), once
+because **the owner ran the script and it misreported what it found** (section 8).
 How checked: four commands, below, with their exit codes. Plus two deliberate breakages, to show the
 check that matters most can fail.
 Checked by: Claude Code. **No dashboard, no connector, no browser, and nothing run against staging or
@@ -55,12 +57,14 @@ leaves.
 ### 2.2 The staging script's selftest — `--selftest`
 
 ```
-15 logic cases, 0 wrong.
-PASS every judgement can fail: 15 cases, including each of the five sentences docs/claims.md marks
-MUST NOT SAY, and the redirect to /login this script exists to catch
+25 logic cases, 0 wrong.
+PASS every judgement can fail: 25 cases, including each of the six sentences docs/claims.md marks
+MUST NOT SAY, an unfilled placeholder reaching a page, and -- told apart by HOST and checked on the
+SENTENCE, not just the verdict -- Vercel's own gate against this app's own /login
 ```
 
-Exit code **0**.
+Exit code **0**. **15 cases at the first commit, 17 after the review of the wording, 25 after the
+owner's run found the script misreporting Vercel's gate** — section 8.
 
 ### 2.3 `npm run lint`
 
@@ -126,13 +130,17 @@ being counted:
 
 ## 4. What is NOT checked here, and it is everything a browser would say
 
-1. **No screen has been opened.** Not on a laptop and not on a phone, which is the device
-   `docs/plan.md` says this app is for. Two long documents on a narrow screen is exactly the layout
-   nobody has looked at — the same item `evidence/build-it-23-attachments-screen.md` has carried about
-   the files panel since 9 October.
-2. **No deployed build has been fetched.** `PUBLIC_PATHS` is a list in a module; the thing that reads
-   it runs in the Edge runtime, on a request. Section 2.1 proves the list; only a `GET` proves the
-   Proxy. **That is the owner's run**, and it is the before/after in section 6.
+1. ~~**No screen has been opened.**~~ **THE LAPTOP HALF IS DONE, 2026-10-13**: the owner opened
+   `/privacy` and `/terms` on the Preview at `bdc9f83`, **signed out of the app**, and both opened.
+   **The phone is still unchecked**, which is the device `docs/plan.md` says this app is for — two long
+   documents on a narrow screen is the layout nobody has looked at, the same item
+   `evidence/build-it-23-attachments-screen.md` has carried about the files panel since 9 October. No
+   screenshot of either.
+2. **No deployed build has been fetched by the script and passed.** `PUBLIC_PATHS` is a list in a
+   module; the thing that reads it runs in the Edge runtime, on a request. Section 2.1 proves the list;
+   only a `GET` proves the Proxy — and **the only address a script can read is production's**, which
+   does not serve this change until it is merged (section 8). **The owner's browser is what stands in
+   for it until then**, and it is a person's reading rather than a check.
 3. **Nobody has read the words for what they say.** Section 11 holds the discipline, the refusals and
    the numbers. It cannot tell whether a sentence is **true**, whether it is **clear**, or whether it
    is **complete** — and answer 5 puts all three in the owner's hands.
@@ -157,29 +165,121 @@ pull-request description.
 expected count and the workflow lint's output. **#302 closes with this change**, and the gap it records
 is the one #167 and #102 both describe: a check that exists and runs nowhere.
 
-## 6. The before/after the owner runs, which is the half this file cannot have
+## 6. The before/after the owner runs — CORRECTED 2026-10-13, and BOTH RUNS ARE PRODUCTION
+
+**This section said the AFTER was against this branch's Vercel Preview. That was wrong, the owner found
+it by running it, and section 8 is what happened.** A preview cannot be read by a script at all.
 
 Two runs of one command, each taking a public web address and **no secret of any kind** — the script
 has none, sends two `GET` requests, and creates, sends and spends nothing.
 
-**BEFORE**, against the address serving the build *without* this change:
+**BEFORE** — production, **before the merge**. **DONE: the owner ran it and got FAIL on both paths**,
+which is the expected before:
 
 ```sh
 node scripts/staging/build-it-26-legal-pages-checks.mjs https://team-tasks-virid.vercel.app
 ```
 
-Expect **FAIL on both paths** — a redirect or a 404. That is what makes the after mean something.
-
-**AFTER**, against this branch's Vercel Preview address:
+**AFTER** — production, **after the merge**. The same line, against the same address:
 
 ```sh
-node scripts/staging/build-it-26-legal-pages-checks.mjs https://<this branch's preview>.vercel.app
+node scripts/staging/build-it-26-legal-pages-checks.mjs https://team-tasks-virid.vercel.app
 ```
 
 Expect **PASS on both** — status 200 signed out, both headings, and every required phrase.
 
+**Why the after cannot come earlier**, which is the cost of the correction rather than a preference:
+the only address a script can read is production's, and production does not serve this change until it
+is merged. **So the deployed half of this evidence is written after the merge, not before it** — and
+what stands in for it beforehand is the owner opening the Preview in a browser, which is the next
+paragraph and which the owner has now done.
+
 **And one thing no script can do: open both pages in a phone browser and read them.** That is the
-check that answers 3 and 4 of section 4, and it is the one worth doing last and carefully.
+check that answers 3 and 4 of section 4, and it is the one worth doing last and carefully. **The laptop
+half is done** — section 8.
+
+---
+
+## 8. The owner's run of 2026-10-13, and the script was wrong about it
+
+**Reported by the owner. Nobody writing this opened a browser or made a request.**
+
+| What | What happened |
+|---|---|
+| The script against **production** | **FAIL on both paths** — the expected BEFORE |
+| The script against the **Preview at `bdc9f83`** | **FAIL on both**, reported as `redirected to /login`, with bodies of **334009** and **334001** bytes |
+| The owner then opened **`/privacy` and `/terms` on that Preview in a browser**, **signed out of the app** | **both pages opened** |
+
+**Both of those are true, and the script's conclusion was false.** It said the paths were missing from
+`PUBLIC_PATHS`; a page cannot both be missing from that list and open for a signed-out visitor.
+
+### What it had actually met, confirmed from both sides
+
+**From Vercel's own documentation**, [Deployment
+Protection](https://vercel.com/docs/deployment-protection), read **2026-10-13**:
+
+> "Deployment Protection lets you control who can access your preview and production URLs."
+
+> "**Standard Protection**: Protects all deployments **except** production domains"
+
+> "Deployment Protection requires authentication for all requests, **including those to Routing
+> Middleware**."
+
+**The third sentence settles it.** The gate runs **before** this app's Proxy, so `PUBLIC_PATHS` was
+never evaluated and could not have been the cause. The second explains why production answered
+differently from a preview. And of the method itself: "**Vercel Authentication**: Restricts access to
+only Vercel users with suitable access rights" — the owner's browser was signed in to Vercel, which is
+why the pages opened for a person and not for a script.
+
+**From the script**, which is where the fault is: `judge()` compared `finalPath` and **ignored the
+host**. Vercel's gate redirects to a path literally called `/login`, on `vercel.com`; this app's Proxy
+redirects to `/login` on this app's own host. **The one string it matched on was the one string the two
+cases have in common.** The **334 KB** body was a second signal it ignored — these two pages are a few
+kilobytes, and 334 KB is somebody else's application.
+
+### What changed
+
+- **`judge()` compares the HOST first**, and `isVercelHost()` decides which sentence comes out:
+  `vercel.com` or a subdomain of it gets **"Vercel's protection: this address cannot be checked from a
+  script; check production after merge or open it in a browser signed in to Vercel"**, with the
+  documentation's own sentence beside it and **`PUBLIC_PATHS` explicitly ruled out**. Any other foreign
+  host gets "redirected off this address", which blames neither. **Only a redirect on our own host**
+  points at `PUBLIC_PATHS`.
+- **`fetchPage()` returns `finalHost`**, which the first version did not.
+- **Eight new selftest cases, 17 → 25**, and the two that matter are **built from what was observed**:
+  status 200, bodies of 334009 and 334001 bytes, a redirect to `/login` on `vercel.com`.
+- **And the cases now check the SENTENCE, not only the verdict.** That is the lesson rather than the
+  fix: the first version got the **verdict** right — FAIL on both — and the **explanation** wrong, which
+  sent the owner looking at a list in this repository for something that is a setting in somebody
+  else's dashboard. A case may now require a sentence to be present and another to be absent, and a
+  case with the right verdict and the wrong words is **WRONG**.
+- **`isVercelHost` is an exact match or a dot-suffix**, never `includes`: `notvercel.com` and
+  `vercel.com.example.invalid` are not Vercel's, and **`team-tasks-virid.vercel.app` is not either** —
+  that is `.app`, and it is where this app lives. Four cases cover those.
+- **The owner steps and this file's section 6 are corrected**: the AFTER run is **production after the
+  merge**.
+
+### And Vercel's bypass is deliberately not used
+
+Vercel documents "Protection Bypass for Automation" for exactly this case. **It is a secret**, which
+would mean a secret on a command line — which rule 7 forbids outright. **A script that cannot read a
+preview is the correct outcome**, not a limitation to work round, and the script now says so in the one
+place somebody would look: its own output.
+
+### The third time a comment tripped a check it was describing
+
+Worth recording because it happened three times in one pull request, each time in the same shape: a
+comment or an assertion **naming the string it exists to forbid**.
+
+1. `longLiterals` counted the quotations inside file headers — fixed by stripping comments first.
+2. The Vercel cases' `mustNotSay: "PUBLIC_PATHS"` **tripped on its own exoneration**: the note names
+   `PUBLIC_PATHS` in order to rule it out. Narrowed to `missing from PUBLIC_PATHS`, the sentence that
+   actually blames it.
+3. The comment in `legal.ts` explaining that the registered-details placeholder was **deleted** spelled
+   the placeholder, and section 11 refuses it anywhere in that file. Reworded to "a blank in square
+   brackets".
+
+**All three were the check being right.** None of them was a false positive.
 
 ---
 

@@ -693,18 +693,30 @@ jobs:
       # privacy page that redirects to /login is a privacy page only people with
       # an account can read, which is the opposite of what #204 asks for.
       #
-      # 17 cases. The ones that matter are the six sentences docs/claims.md
-      # section 7 marks MUST NOT SAY — each fed to the judgement on a page that
-      # says it, and each required to come out FAIL — plus the redirect to
-      # /login, and an unfilled [COMPANY NUMBER] placeholder reaching a page,
-      # which is how an OPTIONAL_PRIVACY paragraph accepted and not completed
-      # would be caught.
+      # 17 -> 25 ON 2026-10-13, after the owner ran the script and IT MISREPORTED
+      # WHAT IT FOUND. It said both paths were "redirected to /login" and pointed
+      # at this app's PUBLIC_PATHS; what it had met was VERCEL'S DEPLOYMENT
+      # PROTECTION, whose own page says it "requires authentication for all
+      # requests, including those to Routing Middleware" — so this app's code had
+      # not run at all. The script compared the final PATH and ignored the HOST,
+      # and `/login` is the one string the two cases have in common.
+      #
+      # So eight cases arrived, and the two that matter are built from WHAT WAS
+      # ACTUALLY OBSERVED — status 200, bodies of 334009 and 334001 bytes, a
+      # redirect to /login — and they require more than a verdict: a FAIL with
+      # the WRONG EXPLANATION is what happened, so each requires the right
+      # sentence to be present and the blaming one to be absent.
+      #
+      # The rest are the six sentences docs/claims.md section 7 marks MUST NOT
+      # SAY, each fed to the judgement on a page that says it; this app's own
+      # /login redirect, which must still point at PUBLIC_PATHS; and an unfilled
+      # [COMPANY NUMBER] placeholder reaching a page.
       #
       # IT MAKES NO REQUEST HERE. --selftest returns before the argument is read,
       # so there is no address, no network and no account involved — the same as
       # the eight above it. Its real run needs one public web address and no
       # secret of any kind, because the script has none.
-      EXPECTED_LEGAL_PAGES_CASES: "17"
+      EXPECTED_LEGAL_PAGES_CASES: "25"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

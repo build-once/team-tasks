@@ -22,18 +22,66 @@
 // for. One `GET` settles it, and nothing short of a deployed build can make it.
 //
 // ---------------------------------------------------------------------------
-// THE BEFORE AND THE AFTER, AND THEY ARE TWO ADDRESSES RATHER THAN TWO MOMENTS
+// THE BEFORE AND THE AFTER, AND THEY ARE BOTH PRODUCTION
 // ---------------------------------------------------------------------------
 //
-// Every other before/after script in this folder is run twice against ONE
-// project, either side of a change the owner makes in a dashboard. There is no
-// dashboard here: the change is a deploy. So the pair is
+// CORRECTED 2026-10-13, after the owner ran it and this script misreported what
+// it found. The pair is:
 //
-//   BEFORE  the address serving the build WITHOUT this change -- the current
-//           production site, or main's own deploy. Expect: both paths redirect
-//           to /login, or 404. That is what makes the AFTER mean something.
-//   AFTER   this branch's Vercel PREVIEW address. Expect: both answer 200,
-//           signed out, carrying their headings and the sentences below.
+//   BEFORE  production, before the merge. Expect: both paths redirect or 404.
+//           That is what makes the AFTER mean something.
+//   AFTER   production, AFTER THE MERGE. Expect: both answer 200, signed out,
+//           carrying their headings and the phrases below.
+//
+// IT IS NOT A PREVIEW, AND THAT IS THE CORRECTION. The first version of this
+// header said the AFTER was "this branch's Vercel PREVIEW address", and a
+// preview cannot be read by a script at all -- see the section below.
+//
+// WHICH MEANS THE AFTER COMES AFTER THE MERGE, and there is no way round that:
+// the only address a script can read is production's, and production does not
+// serve this change until it is merged. The thing a preview CAN answer is a
+// person opening it in a browser, which is the owner's third step and is the
+// one this script never claimed.
+//
+// ---------------------------------------------------------------------------
+// WHAT WENT WRONG ON 2026-10-13, AND WHY IT IS THIS SCRIPT'S FAULT
+// ---------------------------------------------------------------------------
+//
+// The owner ran it against the Preview at `bdc9f83` and got FAIL on both paths,
+// "redirected to /login", with bodies of 334009 and 334001 bytes -- and then
+// opened both pages in a browser, SIGNED OUT OF THE APP, and both opened.
+//
+// Both facts were true and this script's conclusion was wrong. What it met was
+// VERCEL'S DEPLOYMENT PROTECTION, not this app's `/login`:
+//
+//   "Deployment Protection lets you control who can access your preview and
+//    production URLs."
+//   "Standard Protection: Protects all deployments EXCEPT production domains"
+//   "Deployment Protection requires authentication for all requests, INCLUDING
+//    THOSE TO ROUTING MIDDLEWARE."
+//
+//   -- https://vercel.com/docs/deployment-protection, read 2026-10-13
+//
+// The third sentence is the one that settles it: the gate runs BEFORE this app's
+// Proxy, so `PUBLIC_PATHS` was never evaluated and could not have been the
+// cause. The second explains why production answered differently from a
+// preview. And the owner's browser was signed in to Vercel, which is what
+// "Vercel Authentication: Restricts access to only Vercel users with suitable
+// access rights" admits.
+//
+// THE FAULT IN THIS FILE: `judge` compared the final PATH and ignored the HOST.
+// Vercel's gate redirects to a path literally called `/login`, on `vercel.com`
+// -- so the one string this script matched on was the one string the two cases
+// have in common. The 334 KB body was a second signal it ignored: these two
+// pages are a few kilobytes.
+//
+// SO IT NOW COMPARES THE HOST FIRST, and says which of the two it found.
+//
+// AND IT DOES NOT USE VERCEL'S BYPASS. Vercel documents "Protection Bypass for
+// Automation" for exactly this, and it is a SECRET -- which would mean a secret
+// on a command line, which this project's rules forbid outright. A script that
+// cannot read a preview is the correct outcome rather than a limitation to work
+// around.
 //
 // ---------------------------------------------------------------------------
 // WHAT IT SENDS, CREATES AND SPENDS: NOTHING
@@ -61,10 +109,12 @@
 //   node scripts/staging/build-it-26-legal-pages-checks.mjs --selftest
 //   node scripts/staging/build-it-26-legal-pages-checks.mjs <base address>
 //
-// For example, in Git Bash:
+// Both runs are against PRODUCTION, in Git Bash:
 //
 //   node scripts/staging/build-it-26-legal-pages-checks.mjs https://team-tasks-virid.vercel.app
-//   node scripts/staging/build-it-26-legal-pages-checks.mjs https://team-tasks-git-feat-build-it-26-privacy-and-terms-info423.vercel.app
+//
+// -- before the merge, where both paths are expected to FAIL, and again after
+// it, where both are expected to PASS.
 //
 // NO SECRET IS EVER ON THE COMMAND LINE, because this script has no secret. The
 // only argument is a public web address.
@@ -153,13 +203,31 @@ const NEVER_RENDERED = ["[COMPANY NUMBER]", "[REGISTERED OFFICE ADDRESS]"];
 // exactly the shape the fetch below produces.
 
 /**
+ * Is this host one of Vercel's own, rather than the address we asked for?
+ *
+ * `vercel.com` and anything under it. Vercel's Deployment Protection redirects
+ * there, and the only thing this function decides is WHICH SENTENCE the run
+ * prints -- so an unknown host still fails, it just fails saying so.
+ *
+ * It is an exact match or a dot-suffix, never `includes`: a host ending
+ * `notvercel.com` is not Vercel's, and `vercel.com.example.invalid` certainly
+ * is not.
+ */
+export function isVercelHost(host) {
+  if (typeof host !== "string") return false;
+  const h = host.trim().toLowerCase();
+  return h === "vercel.com" || h.endsWith(".vercel.com");
+}
+
+/**
  * What one page's answer means.
  *
  * @param page one entry of PAGES
- * @param answer { status, body, finalPath } -- finalPath is where the request
- *   ended up, which is how a redirect to /login is told from a 200
+ * @param answer { status, body, finalPath, finalHost } -- where the request
+ *   ENDED UP, host and path, which is how Vercel's gate is told from this app's
+ * @param expectedHost the host that was asked for
  */
-export function judge(page, answer) {
+export function judge(page, answer, expectedHost) {
   const notes = [];
 
   if (answer === null) {
@@ -170,16 +238,50 @@ export function judge(page, answer) {
     };
   }
 
-  // A REDIRECT TO /login IS THE FAILURE THIS SCRIPT EXISTS FOR, and it is told
-  // apart from every other failure because it has its own cause and its own
-  // one-line fix: the path is missing from PUBLIC_PATHS.
+  // THE HOST FIRST, AND THAT ORDERING IS THE WHOLE OF THE 2026-10-13 FIX.
+  //
+  // Vercel's Deployment Protection redirects to a path literally called
+  // `/login`, on `vercel.com`. This app's Proxy redirects to `/login` on this
+  // app's own host. Comparing the PATH alone -- which the first version of this
+  // function did -- matches the one string the two cases have in common, and
+  // reports a configuration fault in this repository for something that is a
+  // setting in somebody else's dashboard.
+  if (answer.finalHost !== expectedHost) {
+    if (isVercelHost(answer.finalHost)) {
+      return {
+        verdict: "FAIL",
+        reachable: false,
+        notes: [
+          `Vercel's protection: this address cannot be checked from a script;` +
+            ` check production after merge or open it in a browser signed in to Vercel`,
+          `(the request ended at ${answer.finalHost}${answer.finalPath}, which is Vercel's own` +
+            ` sign-in and not this app's. Vercel's own page: "Deployment Protection requires` +
+            ` authentication for all requests, including those to Routing Middleware" -- so this` +
+            ` app's PUBLIC_PATHS was never reached and is NOT the cause)`,
+        ],
+      };
+    }
+
+    return {
+      verdict: "FAIL",
+      reachable: false,
+      notes: [
+        `redirected off this address, to ${answer.finalHost}${answer.finalPath}.` +
+          ` That is not this app's doing -- something between the request and the app answered it`,
+      ],
+    };
+  }
+
+  // SAME HOST, DIFFERENT PATH: now a redirect to /login really is this app's,
+  // and it has its own cause and its own one-line fix.
   if (answer.finalPath !== page.path) {
     return {
       verdict: "FAIL",
       reachable: false,
       notes: [
-        `redirected to ${answer.finalPath} -- a signed-out visitor cannot read it.` +
-          ` If that is /login, the path is missing from PUBLIC_PATHS in web/src/lib/supabase/proxy.ts`,
+        `redirected to ${answer.finalPath} on this app's own host -- a signed-out visitor` +
+          ` cannot read it. If that is /login, the path is missing from PUBLIC_PATHS in` +
+          ` web/src/lib/supabase/proxy.ts`,
       ],
     };
   }
@@ -263,102 +365,204 @@ function selftest() {
   const good =
     `<h1>${privacy.heading}</h1>` + privacy.phrases.map((p) => `<p>${p}</p>`).join("");
 
+  // THE HOST THIS SCRIPT ASKED FOR, and the one every "ours" answer comes back
+  // on. A made-up name on purpose: the cases are about the comparison, not about
+  // any real deployment.
+  const HOST = "team-tasks-example.invalid";
+
+  // An answer from the host we asked, which is the ordinary case.
+  const ours = (extra) => ({
+    status: 200,
+    body: good,
+    finalPath: "/privacy",
+    finalHost: HOST,
+    ...extra,
+  });
+
   const cases = [
     {
       name: "the happy answer PASSES, so the other cases mean something",
-      got: judge(privacy, { status: 200, body: good, finalPath: "/privacy" }),
+      got: judge(privacy, ours(), HOST),
       want: "PASS",
     },
+
+    // ----------------------------------------------------------------- the two
+    // THE TWO REDIRECTS, WHICH THE FIRST VERSION OF THIS SCRIPT COULD NOT TELL
+    // APART, AND WHICH THE OWNER'S RUN OF 2026-10-13 PROVED IT COULD NOT.
+    //
+    // Both end at a path called `/login`. One is this app's Proxy and means a
+    // path is missing from PUBLIC_PATHS. The other is Vercel's Deployment
+    // Protection and means nothing about this repository at all. Each case below
+    // requires BOTH that the verdict is FAIL and that the RIGHT SENTENCE came
+    // out -- a FAIL with the wrong explanation is what happened on 13 October.
     {
-      name: "A REDIRECT TO /login FAILS -- the failure this script exists for",
-      got: judge(privacy, { status: 200, body: good, finalPath: "/login" }),
+      name: "VERCEL'S GATE: /login on vercel.com FAILS, and says this address cannot be checked from a script",
+      got: judge(
+        privacy,
+        // BUILT FROM WHAT WAS ACTUALLY OBSERVED: the owner's run against the
+        // Preview at bdc9f83 gave status 200, a body of 334009 bytes, and a
+        // redirect to a path called /login. The body is filled to that length
+        // because its SIZE was the second signal the first version ignored:
+        // these two pages are a few kilobytes, and 334 KB is somebody else's
+        // application.
+        ours({
+          body: "x".repeat(334009),
+          finalPath: "/login",
+          finalHost: "vercel.com",
+        }),
+        HOST,
+      ),
+      want: "FAIL",
+      mustSay: "cannot be checked from a script",
+      // NOT the bare word: the Vercel note NAMES PUBLIC_PATHS in order to rule it
+      // out, and the first version of this assertion tripped on its own
+      // exoneration. What must not appear is the sentence that BLAMES it.
+      mustNotSay: "missing from PUBLIC_PATHS",
+    },
+    {
+      name: "and the other one the owner saw, 334001 bytes on /terms, reads the same way",
+      got: judge(
+        PAGES[1],
+        {
+          status: 200,
+          body: "x".repeat(334001),
+          finalPath: "/login",
+          finalHost: "vercel.com",
+        },
+        HOST,
+      ),
+      want: "FAIL",
+      mustSay: "Vercel's protection",
+      // NOT the bare word: the Vercel note NAMES PUBLIC_PATHS in order to rule it
+      // out, and the first version of this assertion tripped on its own
+      // exoneration. What must not appear is the sentence that BLAMES it.
+      mustNotSay: "missing from PUBLIC_PATHS",
+    },
+    {
+      name: "THIS APP'S PROXY: /login on OUR OWN host FAILS, and DOES point at PUBLIC_PATHS",
+      got: judge(privacy, ours({ finalPath: "/login" }), HOST),
+      want: "FAIL",
+      mustSay: "missing from PUBLIC_PATHS",
+      mustNotSay: "cannot be checked from a script",
+    },
+    {
+      name: "a redirect to some third host FAILS, and blames neither",
+      got: judge(
+        privacy,
+        ours({ finalPath: "/", finalHost: "proxy.example.invalid" }),
+        HOST,
+      ),
+      want: "FAIL",
+      mustSay: "redirected off this address",
+      // NOT the bare word: the Vercel note NAMES PUBLIC_PATHS in order to rule it
+      // out, and the first version of this assertion tripped on its own
+      // exoneration. What must not appear is the sentence that BLAMES it.
+      mustNotSay: "missing from PUBLIC_PATHS",
+    },
+    {
+      name: "a host that merely ENDS with vercel.com is not Vercel's -- notvercel.com",
+      got: { verdict: isVercelHost("notvercel.com") ? "PASS" : "FAIL" },
       want: "FAIL",
     },
     {
+      name: "and a host that merely CONTAINS it is not either",
+      got: { verdict: isVercelHost("vercel.com.example.invalid") ? "PASS" : "FAIL" },
+      want: "FAIL",
+    },
+    {
+      name: "vercel.com itself is",
+      got: { verdict: isVercelHost("vercel.com") ? "PASS" : "FAIL" },
+      want: "PASS",
+    },
+    {
+      name: "and so is a subdomain of it",
+      got: { verdict: isVercelHost("my-team.vercel.com") ? "PASS" : "FAIL" },
+      want: "PASS",
+    },
+    {
+      name: "a deployment address under vercel.APP is NOT Vercel's gate -- it is where this app lives",
+      got: { verdict: isVercelHost("team-tasks-virid.vercel.app") ? "PASS" : "FAIL" },
+      want: "FAIL",
+    },
+
+    // ------------------------------------------------- everything else answering
+    {
       name: "a 404 FAILS",
-      got: judge(privacy, { status: 404, body: "", finalPath: "/privacy" }),
+      got: judge(privacy, ours({ status: 404, body: "" }), HOST),
       want: "FAIL",
     },
     {
       name: "a 200 with no heading FAILS -- some other page answered",
-      got: judge(privacy, { status: 200, body: "<h1>Sign in</h1>", finalPath: "/privacy" }),
+      got: judge(privacy, ours({ body: "<h1>Sign in</h1>" }), HOST),
       want: "FAIL",
     },
     {
       name: "a 200 missing ONE required phrase FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: good.replace("cf.turnstile.u", "something else"),
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: good.replace("cf.turnstile.u", "something else") }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "a page that says Sentry does not store an IP address FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>Sentry does not store your IP address.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: `${good}<p>Sentry does not store your IP address.</p>` }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "a page that claims a legal review FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>This page was reviewed by a lawyer.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: `${good}<p>This page was reviewed by a lawyer.</p>` }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "a page that claims an age check FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>We verify your age.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(privacy, ours({ body: `${good}<p>We verify your age.</p>` }), HOST),
       want: "FAIL",
     },
     {
       name: "a page that claims a version record FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>Your accepted version is stored.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: `${good}<p>Your accepted version is stored.</p>` }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "a page that says no cookies at all FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>We use no cookies at all.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(privacy, ours({ body: `${good}<p>We use no cookies at all.</p>` }), HOST),
       want: "FAIL",
     },
     {
       name: "a page that says Sentry NEVER RECEIVES something FAILS -- the sixth refusal",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>Sentry never receives your task text.</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: `${good}<p>Sentry never receives your task text.</p>` }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "an unfilled [COMPANY NUMBER] placeholder on the page FAILS",
-      got: judge(privacy, {
-        status: 200,
-        body: `${good}<p>Company number [COMPANY NUMBER].</p>`,
-        finalPath: "/privacy",
-      }),
+      got: judge(
+        privacy,
+        ours({ body: `${good}<p>Company number [COMPANY NUMBER].</p>` }),
+        HOST,
+      ),
       want: "FAIL",
     },
     {
       name: "a request that never arrived FAILS",
-      got: judge(privacy, null),
+      got: judge(privacy, null, HOST),
       want: "FAIL",
     },
     { name: "http is refused", got: { verdict: usableBase("http://example.invalid") ? "PASS" : "FAIL" }, want: "FAIL" },
@@ -367,11 +571,32 @@ function selftest() {
     { name: "an https address is accepted", got: { verdict: usableBase("https://example.invalid") ? "PASS" : "FAIL" }, want: "PASS" },
   ];
 
+
   let wrong = 0;
   for (const c of cases) {
-    const ok = c.got.verdict === c.want;
+    // THE VERDICT IS NOT THE WHOLE OF IT ANY MORE, and that is the lesson of
+    // 2026-10-13: the first version of this script got the VERDICT right -- FAIL
+    // on both paths -- and the EXPLANATION wrong, which sent the owner looking
+    // at PUBLIC_PATHS for something that was a setting in Vercel's dashboard. So
+    // a case may also require a sentence to be present, or absent, and a case
+    // with the right verdict and the wrong words is WRONG.
+    const said = (c.got.notes ?? []).join(" ");
+
+    const ok =
+      c.got.verdict === c.want &&
+      (c.mustSay === undefined || said.includes(c.mustSay)) &&
+      (c.mustNotSay === undefined || !said.includes(c.mustNotSay));
+
     if (!ok) wrong += 1;
     console.log(`  ${ok ? "ok  " : "WRONG"}  ${c.name}`);
+
+    if (!ok && c.got.verdict === c.want) {
+      console.log(
+        `          the verdict was right and the words were not.` +
+          `${c.mustSay ? ` Wanted: "${c.mustSay}".` : ""}` +
+          `${c.mustNotSay ? ` Must not have said: "${c.mustNotSay}".` : ""}`,
+      );
+    }
   }
 
   console.log(`\n${cases.length} logic cases, ${wrong} wrong.`);
@@ -384,7 +609,7 @@ function selftest() {
   }
 
   console.log(
-    `PASS every judgement can fail: ${cases.length} cases, including each of the six sentences docs/claims.md marks MUST NOT SAY, an unfilled placeholder reaching a page, and the redirect to /login this script exists to catch\n`,
+    `PASS every judgement can fail: ${cases.length} cases, including each of the six sentences docs/claims.md marks MUST NOT SAY, an unfilled placeholder reaching a page, and -- told apart by HOST and checked on the SENTENCE, not just the verdict -- Vercel's own gate against this app's own /login\n`,
   );
 }
 
@@ -402,10 +627,15 @@ async function fetchPage(base, path) {
       headers: { accept: "text/html" },
     });
 
+    const ended = new URL(response.url);
+
     return {
       status: response.status,
       body: await response.text(),
-      finalPath: new URL(response.url).pathname,
+      finalPath: ended.pathname,
+      // THE HOST, which the first version of this function did not return and
+      // which is the one field that tells Vercel's gate from this app's Proxy.
+      finalHost: ended.host,
     };
   } catch {
     return null;
@@ -413,17 +643,22 @@ async function fetchPage(base, path) {
 }
 
 async function run(base) {
+  // THE HOST WE ASKED FOR, which is what every answer is compared against.
+  const expectedHost = new URL(base).host;
+
   console.log(`\nbuild-it-26-legal-pages-checks\n  address: ${base}\n`);
   console.log(
     "  Two GET requests, no cookie, no session, no key, no account.\n" +
-      "  Nothing is created, sent or spent, and no page body is printed.\n",
+      "  Nothing is created, sent or spent, and no page body is printed.\n" +
+      "  A redirect off this host is reported as such -- Vercel's own protection\n" +
+      "  is not this app's /login, and the two were confused once.\n",
   );
 
   let failures = 0;
 
   for (const page of PAGES) {
     const answer = await fetchPage(base, page.path);
-    const result = judge(page, answer);
+    const result = judge(page, answer, expectedHost);
 
     const size = answer && typeof answer.body === "string" ? answer.body.length : 0;
     console.log(
@@ -441,8 +676,12 @@ async function run(base) {
 
   if (failures > 0) {
     console.log(
-      "A FAIL here against a PREVIEW of this branch is a real problem.\n" +
-        "A FAIL against the address serving the OLD build is the expected BEFORE.\n",
+      "WHICH FAIL IS THIS? There are three and they mean different things:\n\n" +
+        "  * PRODUCTION BEFORE THE MERGE -- expected. That is the BEFORE.\n" +
+        "  * PRODUCTION AFTER THE MERGE -- a real problem. Read the note above.\n" +
+        "  * A PREVIEW address -- not a problem and not an answer: Vercel's\n" +
+        "    Deployment Protection stops a script reading one at all, and the\n" +
+        "    note above says so by name. Open it in a browser instead.\n",
     );
     process.exit(1);
   }
@@ -462,9 +701,13 @@ if (args.includes("--selftest")) {
       "\nbuild-it-26-legal-pages-checks needs one argument: the https address to read.\n\n" +
         "  node scripts/staging/build-it-26-legal-pages-checks.mjs --selftest\n" +
         "  node scripts/staging/build-it-26-legal-pages-checks.mjs https://<address>\n\n" +
-        "Run it twice: once against the address serving the build WITHOUT this\n" +
-        "change (expect both paths to redirect or 404 -- that is the BEFORE), and\n" +
-        "once against this branch's Vercel Preview (expect both to answer 200).\n\n" +
+        "RUN IT TWICE, BOTH TIMES AGAINST PRODUCTION: once BEFORE the merge\n" +
+        "(expect both paths to redirect or 404 -- that is the BEFORE), and once\n" +
+        "AFTER it (expect both to answer 200).\n\n" +
+        "NOT A PREVIEW ADDRESS. Vercel's Deployment Protection covers every\n" +
+        "deployment except production domains and runs before this app's own\n" +
+        "code, so a script gets Vercel's sign-in page rather than the app. A\n" +
+        "preview is for opening in a browser.\n\n" +
         "It sends two GET requests and nothing else. There is no secret to pass.\n",
     );
     process.exit(1);

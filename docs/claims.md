@@ -965,21 +965,47 @@ listed in `evidence/build-it-26-legal-pages.md` section 7 — each one a sentenc
 larger than what holds it, none of them caught by any check, and all of them found by reading the
 words again with the question "what makes this true?" rather than "does this read well?".
 
-### The four OPTIONAL paragraphs, which are drafted and on no page
+### 7g. The three accepted optional paragraphs — THE OWNER'S JUDGEMENT, AND NOT A LEGAL REVIEW
+
+**Answered 2026-10-13.** Three of the four were accepted and are now on the page; the fourth was
+declined and **deleted rather than parked**. The `OPTIONAL_PRIVACY` array is gone.
+
+**EVERY ROW BELOW CARRIES THE SAME WARNING, and it is not boilerplate.** These three are the only
+sentences in either document whose verdict is **not** a file and a line: nothing in this repository can
+check whether they are the right words, because what makes them right is a matter of law. They are on
+the page because **the owner judged they should be**, and `docs/plan.md`'s answer 5 records that the
+owner's own reading of these documents **is not a legal review**. So the verdict column says who is
+standing behind each one, which is the honest version of "ENFORCED".
+
+| The sentence | What would make it true | Verdict |
+|---|---|---|
+| **"We hold what is listed here for two reasons and no others: because the app cannot do what you asked of it without them — a list needs its tasks, a team needs its members, signing in needs an address and a password — and because keeping it working and safe needs a few things nobody asked for, like knowing how often a feature was used."** | **the rest of this register.** The first clause is checkable against the app: every column in §7a exists because a feature needs it, and `docs/plan.md`'s "Collecting less" lists are the record of what was refused. The second names the one category that is **not** asked for by a feature — the usage counts — rather than hiding it inside the first | **THE OWNER'S JUDGEMENT, 2026-10-13. NOT A LEGAL REVIEW.** What the register can say is that the *facts* it rests on are the ones in §7a and that it claims **no basis in law by name** — it is plain English on purpose, so that it cannot be a term of art used wrongly. Whether those are the right words for why data may be held is **not something this repository can check** |
+| **"If you are not happy with how this is handled, write to dp@raj-dhonota.com first — and if that does not settle it, you can complain to the Information Commissioner's Office, the UK's regulator for this, at ico.org.uk."** | the address is `CONTACT_ADDRESS`, one constant, checked by section 11. The regulator is the one for **England and Wales**, which is where answer 2 puts these terms | **THE OWNER'S JUDGEMENT, 2026-10-13. NOT A LEGAL REVIEW.** The **order** is deliberate and is the part worth defending: write here first, the regulator if that does not settle it. **Not verified by us**: nobody here has read the ICO's own pages, and the sentence describes the regulator rather than quoting it |
+| **"In plain words: the database, the files you attach and the error reports are all held in the United States. The nightly copy is held in Europe, and it is encrypted so that the company holding it cannot read it."** | **the only one of the three that is not a judgement at all.** Every fact in it is already a row above: West US (Oregon) from the owner's screenshot of 10 Oct, Sentry's organisation data region from the owner's choice of 5 Oct, and the copy's Western Europe region and its encryption from `.github/workflows/backup-production.yml` and `scripts/backup/` | **ENFORCED to the same degree as the rows it summarises**, which is "owner-reported" for the two regions and "our code" for the encryption. It adds **no new fact**: it exists because "West US (Oregon)" and "organisation data region" do not say a country to somebody who has not met a region code |
+
+**And the fourth: `DHTA Ltd`'s company number and registered office are NOT PUBLISHED.** Declined for
+now, and **the placeholder was deleted rather than left in the file** — a blank in square brackets is a
+thing that eventually reaches a page. It is **the one item in Build it 26 that could not be drafted**: a
+registered number is a fact only the owner has, not a judgement. `docs/plan.md`'s answer 1 carries it as
+an open item, and section 11 refuses the placeholder anywhere in `web/src/lib/legal.ts` or either page.
+
+### The four OPTIONAL paragraphs as they were proposed, kept for the record
 
 Asked for by the same review. `OPTIONAL_PRIVACY` in `web/src/lib/legal.ts` holds four paragraphs for
 the owner to **accept or strike** — why the data is held, the right to complain to the Information
 Commissioner's Office, a plain statement that the database and the error reports are in the United
 States, and a **placeholder** for `DHTA Ltd`'s registered number and office.
 
-**None of them is rendered, and that is checked rather than intended**: section 11 requires that
-neither page imports the array, and the staging script refuses `[COMPANY NUMBER]` on a rendered page —
-so an optional paragraph accepted without being completed is caught by the deployed check rather than
-by somebody reading it.
+**They were rendered by nobody while they waited, and that was checked rather than intended.** The
+array existed for one day; **§7g above is what the owner answered**, and this subsection is kept only
+so that the four are on the record as *proposals* — three accepted, one declined — rather than
+appearing to have always been on the page.
 
-**Three of the four are matters of law and the fourth is a fact only the owner has**, so none has a
-verdict in this register yet. They get one when the owner accepts one: a row each, as every other
-sentence here has.
+**The check changed shape with the answers.** It used to require the array to exist and neither page to
+import it; it now requires the **three accepted paragraphs to be present**, `OPTIONAL_PRIVACY` to be
+**gone**, and **neither placeholder to appear anywhere** in `web/src/lib/legal.ts` or either page — and
+the staging script refuses `[COMPANY NUMBER]` on a rendered page, so a paragraph accepted without being
+completed is caught by the deployed check rather than by somebody noticing.
 
 ### 7a. What is held, and who receives it
 
