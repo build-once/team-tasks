@@ -442,6 +442,27 @@ the policy says the two closed tables exist and how to ask for them. Decision 9:
 counted against a daily limit.** The shape below was the proposal and is now the design; each decision
 is marked where it bites.
 
+**AND IT IS BUILT — 2026-10-13, PR 3 of the order of work, with no migration and no secret key.**
+`web/src/lib/export-data.ts` is the half that decides what ends up in the file, and
+`web/src/app/settings/export/route.ts` is the half that makes the requests. **Three things this file
+proposed and the build departed from, each written down rather than left in a diff:**
+
+- **no uuid goes in the file at all.** Section 11.2 asks for a task's team by **name**; the build
+  extends that to every id — no task id, no team id, not the person's own — so a file is attached to its
+  task by that task's **title**. A file somebody keeps for years should read as their own list rather
+  than as a database extract.
+- **a section whose read failed says `could_not_be_read`, is named at the top of the file, and sets
+  `complete` to false.** This file did not say what happens when a read fails, and an empty `[]` in a
+  **downloaded file** is this app telling somebody in writing that it holds nothing of theirs.
+- **the file listing stops at 200 tasks, 8 at a time, and the file says how many it did not list.** A
+  listing is one request per task ([#244](https://github.com/build-once/team-tasks/issues/244)) and the
+  cap is 500 tasks per person, so an unbounded version would make up to five hundred requests inside
+  one download.
+
+**Nothing has been run against staging and no export file has ever been produced.**
+`evidence/build-it-26-export.md` is the record, and its section 7 is the list of what only a staging run
+or a browser can say.
+
 ### 11.1 What it is
 
 **One JSON file, downloaded by the signed-in person, holding what this app holds about them and nothing

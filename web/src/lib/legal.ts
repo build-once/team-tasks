@@ -351,6 +351,18 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
   {
     heading: "What you can ask for",
     paragraphs: [
+      // ADDED WITH THE EXPORT, Build it 26 PR 3, and not one word of it before
+      // the feature existed: scripts/screen-state-check.mjs section 11i refused
+      // any claim about a download until there was one, and docs/claims.md
+      // section 7d's row for it said MUST NOT SAY YET.
+      //
+      // IT NAMES WHERE, because a right somebody cannot find is not a right
+      // they have -- the same argument docs/plan.md makes for the consent
+      // setting having a page of its own rather than a box on another screen.
+      //
+      // AND IT SAYS WHAT THE FILE DOES NOT HOLD rather than listing it here.
+      // The list is in the file, which is where the person reading it is.
+      `You can download what this app holds about you, as one file, from Settings. The file itself says what is deliberately not in it, and why.`,
       `You can change your tasks and your nickname yourself, and you can switch AI suggestions off at any time, which stops anything more being sent immediately.`,
       // CHANGED on the re-read: the first version said "we will delete it" with
       // nothing about how. It is done BY HAND, in a dashboard, and today the

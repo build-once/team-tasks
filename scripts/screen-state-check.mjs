@@ -96,6 +96,27 @@ const {
   readButtonId,
 } = await load("buttons.ts");
 
+// Build it 26, PR 3. web/src/lib/export-data.ts has no imports either, for the
+// same reason the four above have none: so this script can load the REAL module
+// and call it, rather than proving that a copy of it works.
+const {
+  EXPORT_FORMAT_VERSION,
+  EXPORT_HEADING,
+  EXPORT_LINK_LABEL,
+  EXPORT_PATH,
+  EXPORT_REFUSAL_SENTENCES,
+  EXPORT_REFUSED,
+  EXPORT_SECTIONS,
+  EXPORT_UNKNOWN,
+  EXPORT_WORDS,
+  NOT_IN_THIS_FILE,
+  buildExport,
+  exportFileName,
+  exportRefusalSentence,
+  ownRowsOnly,
+  readExportFiles,
+} = await load("export-data.ts");
+
 // web/src/lib/teams.ts as TEXT, for the reason given at the top: it imports from
 // words.ts through an alias only the Next.js build resolves, so it cannot be
 // imported here. What this script wants of it is a promise about wording, and that
@@ -2718,19 +2739,803 @@ check(
 // 11i. AND NEITHER DOCUMENT CLAIMS A FEATURE THAT DOES NOT EXIST YET.
 //
 // The export and delete-account are PR 3 and PR 6 of docs/plan.md's order of
-// work. Until they land, the page has to say the opposite -- which is #204's
-// sixth required item, "that there is no way to delete an account in the app" --
-// and this check is what stops the two sentences being written before the
-// features they describe.
+// work. Until each lands, the page has to say the opposite -- which for the
+// second is #204's sixth required item, "that there is no way to delete an
+// account in the app" -- and this check is what stops a sentence being written
+// before the feature it describes.
+//
+// CHANGED WITH PR 3, AND IN ONE DIRECTION ONLY. The export now exists, so the
+// first half of this check turned from a refusal into a REQUIREMENT: the page
+// must claim it, must say where it is, and must not claim it holds things it
+// leaves out. The delete-account half is untouched, because PR 6 has not
+// happened -- and that asymmetry is the point. A check that had been relaxed for
+// both at once would have stopped holding the half that still needs holding.
 check(
-  "the export and delete-account are not claimed before they are built",
+  "the export IS claimed now that it exists, and delete-account still is NOT",
   [
-    (LEGAL_WORDS.match(/download (everything|your data|a copy of)/gi) ?? []).length,
-    (LEGAL_WORDS.match(/export your|delete your account in the app|Delete my account/gi) ?? [])
+    // The export, which must be there and must say where.
+    has(LEGAL_WORDS, "download what this app holds about you"),
+    has(LEGAL_WORDS, "from Settings"),
+    // AND IT MUST NOT CLAIM THE FILE IS EVERYTHING. Decisions 8b, 8c and 8d
+    // leave real things out of it, so "everything we hold" would be the kind of
+    // reassuring overclaim the review of PR #303 found four of.
+    (LEGAL_WORDS.match(/download everything|everything we hold about you/gi) ?? [])
+      .length,
+    // Delete-account, unchanged: still refused, and the opposite still required.
+    (LEGAL_WORDS.match(/delete your account in the app|Delete my account/gi) ?? [])
       .length,
     count(LEGAL_WORDS, "no way to delete your account in this app"),
   ],
-  [0, 0, 1],
+  [true, true, 0, 0, 1],
+);
+
+// =========================================================================
+// 12. The export -- Build it 26, PR 3
+// =========================================================================
+//
+// WHAT THIS SECTION IS FOR. The export is the first thing in this app that
+// gathers everything about one person into a single artefact, and the two ways
+// it can be wrong are not symmetrical:
+//
+//   TOO MUCH   a row that is not this person's, or a column nobody asked for,
+//              reaching a file they can forward to anybody. The SELECT policy on
+//              `tasks` is deliberately WIDER than the export -- it returns every
+//              task in every team you are in, written by anybody -- so the thing
+//              that keeps the file to one person is a FILTER, and a filter is a
+//              thing somebody can delete while tidying up.
+//   TOO LITTLE a read that failed arriving as `[]`. On a screen that is a
+//              moment's confusion; in a DOWNLOADED FILE it is this app telling
+//              somebody in writing that it holds nothing of theirs.
+//
+// So most of what follows is one of those two. It calls the real
+// web/src/lib/export-data.ts, and reads the route and the settings page as text
+// for the handful of promises that are about a file rather than a value.
+console.log(
+  "\n12. the export -- own rows only, a failed read is never empty, and nothing it was not asked for",
+);
+
+const EXPORT_ROUTE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "settings", "export", "route.ts"),
+  "utf8",
+);
+// The settings page is already read as text by section 4b, which is where
+// SETTINGS_PAGE is declared -- it is the same file and there is no reason for a
+// second copy of it in memory.
+
+// A person, their task, their team, and a TEAM MATE'S task in the same team --
+// which is the row the SELECT policy would hand over and the export must not.
+const ME = "11111111-1111-1111-1111-111111111111";
+const THEM = "22222222-2222-2222-2222-222222222222";
+const TEAM = "33333333-3333-3333-3333-333333333333";
+const TASK = "44444444-4444-4444-4444-444444444444";
+
+const MINE = {
+  id: TASK,
+  title: "Collect the keys",
+  done: false,
+  created_at: "2026-10-13T09:00:00Z",
+  team_id: TEAM,
+  owner_id: ME,
+};
+const THEIRS = {
+  id: "55555555-5555-5555-5555-555555555555",
+  title: "Carol wrote this one",
+  done: true,
+  created_at: "2026-10-12T09:00:00Z",
+  team_id: TEAM,
+  owner_id: THEM,
+};
+
+// Everything answering, so every other case below is a departure from one world
+// rather than from eight different ones.
+const whole = {
+  generatedAt: "2026-10-13T10:11:12.000Z",
+  userId: ME,
+  account: { failed: false, email: "alice@example.invalid", created_at: "2026-10-01T00:00:00Z" },
+  profile: { failed: false, row: { display_name: "Alice", created_at: "2026-10-02T00:00:00Z" } },
+  aiSuggestions: { failed: false, enabled: true, changed_at: "2026-10-08T00:00:00Z" },
+  tasks: { failed: false, rows: [MINE] },
+  teams: {
+    failed: false,
+    rows: [{ id: TEAM, name: "Tuesday crew", created_at: "2026-10-03T00:00:00Z", owner_id: ME }],
+  },
+  memberships: { failed: false, rows: [{ team_id: TEAM, joined_at: "2026-10-04T00:00:00Z" }] },
+  invitations: {
+    failed: false,
+    rows: [
+      {
+        team_id: TEAM,
+        email: "bob@example.invalid",
+        status: "sent",
+        failure_code: null,
+        created_at: "2026-10-05T00:00:00Z",
+        expires_at: "2026-10-12T00:00:00Z",
+      },
+    ],
+  },
+  files: {
+    failed: false,
+    listings: [
+      {
+        taskId: TASK,
+        rows: [{ name: "receipt.pdf", id: "o1", created_at: "2026-10-06T00:00:00Z", metadata: { size: 2048 } }],
+      },
+    ],
+    tasksNotListed: 0,
+  },
+};
+
+const built = buildExport(whole);
+
+// ----------------------------------------------------- 12a. the format itself
+console.log("\n12a. the format: eight sections, and three fields before any data");
+
+check("the eight sections, in the order they appear", EXPORT_SECTIONS, [
+  "account",
+  "profile",
+  "ai_suggestions",
+  "tasks",
+  "teams_you_own",
+  "teams_you_belong_to",
+  "invitations_you_sent",
+  "files_on_your_tasks",
+]);
+
+check("the format version is in the file", EXPORT_FORMAT_VERSION, 1);
+
+// THE KEY ORDER IS PART OF THE DESIGN, not tidiness. A reader who stops after
+// three lines has still been told whether the file is complete; a `complete`
+// flag at the bottom of a file nobody scrolls would be a flag nobody reads.
+check(
+  "every top-level key, in order -- how much to trust it comes before any data",
+  Object.keys(built),
+  [
+    "what_this_is",
+    "format_version",
+    "generated_at",
+    "complete",
+    "sections_that_could_not_be_read",
+    "tasks_whose_files_were_not_listed",
+    "what_is_not_in_this_file",
+    ...EXPORT_SECTIONS,
+  ],
+);
+
+check(
+  "a whole file is complete, with nothing missing and nothing unlisted",
+  [built.complete, built.sections_that_could_not_be_read, built.tasks_whose_files_were_not_listed],
+  [true, [], 0],
+);
+
+// 12a-bis. WHAT IS LEFT OUT IS SAID IN THE FILE, which is where the person
+// reading it is. docs/deletion.md section 11.3 is nine rows and this is nine
+// lines, and the two that matter are the last of the app's own: the usage
+// counts and the suspension row, which decisions 8c and 8d leave out because
+// NOBODY may read either table through the app -- so the honest form is to say
+// they exist and how to ask, which is a promise docs/claims.md section 7d
+// carries.
+check(
+  "the file says what is not in it: nine things, including the two nobody can read",
+  [
+    NOT_IN_THIS_FILE.length,
+    NOT_IN_THIS_FILE.some((line) => line.includes("ask the owner") && line.includes("limited feature")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("suspended")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("one-way hash")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("credentials")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("sign-in log")),
+    // And the list is IN the built file, not only in the module.
+    built.what_is_not_in_this_file.length,
+  ],
+  [9, true, true, true, true, true, 9],
+);
+
+// ------------------------------------- 12b. a failed read is never an empty one
+console.log("\n12b. a failed read is NEVER an empty section -- eight sections, one at a time");
+
+// Each section's read failed in turn. The value must be the refusal shape, the
+// name must be listed, and `complete` must be false. An `[]` here is this app
+// telling somebody their tasks are gone, in a file they keep.
+const failOne = (patch) => buildExport({ ...whole, ...patch });
+
+check(
+  "account: a failed read says so rather than giving an empty address",
+  (() => {
+    const f = failOne({ account: { failed: true } });
+    return [f.account, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["account"]],
+);
+
+check(
+  "profile: a failed read is not 'no nickname'",
+  (() => {
+    const f = failOne({ profile: { failed: true } });
+    return [f.profile, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["profile"]],
+);
+
+check(
+  "ai_suggestions: a failed read is not 'off' -- the same way round as consentState",
+  (() => {
+    const f = failOne({ aiSuggestions: { failed: true } });
+    return [f.ai_suggestions, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["ai_suggestions"]],
+);
+
+// THE ONE THAT MATTERS MOST: a failed tasks read takes the FILES section with
+// it, because a storage listing is by prefix and a task's prefix is its id --
+// so there is nothing to list and no title to attach a file to. Two names, in
+// the order the sections appear.
+check(
+  "tasks: a failed read empties nothing, and takes the files section with it",
+  (() => {
+    const f = failOne({ tasks: { failed: true, rows: [] } });
+    return [f.tasks, f.files_on_your_tasks, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [
+    { could_not_be_read: true },
+    { could_not_be_read: true },
+    false,
+    ["tasks", "files_on_your_tasks"],
+  ],
+);
+
+check(
+  "teams: a failed read takes BOTH team sections, because one holds the other's names",
+  (() => {
+    const f = failOne({ teams: { failed: true, rows: [] } });
+    return [
+      f.teams_you_own,
+      f.teams_you_belong_to,
+      f.sections_that_could_not_be_read,
+    ];
+  })(),
+  [
+    { could_not_be_read: true },
+    { could_not_be_read: true },
+    ["teams_you_own", "teams_you_belong_to"],
+  ],
+);
+
+check(
+  "memberships: a failed read takes ONLY the belong-to section",
+  (() => {
+    const f = failOne({ memberships: { failed: true, rows: [] } });
+    return [
+      Array.isArray(f.teams_you_own),
+      f.teams_you_belong_to,
+      f.sections_that_could_not_be_read,
+    ];
+  })(),
+  [true, { could_not_be_read: true }, ["teams_you_belong_to"]],
+);
+
+check(
+  "invitations: a failed read is not 'you sent none'",
+  (() => {
+    const f = failOne({ invitations: { failed: true, rows: [] } });
+    return [f.invitations_you_sent, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, ["invitations_you_sent"]],
+);
+
+check(
+  "files: a failed listing is not 'you attached nothing', even with the tasks read fine",
+  (() => {
+    const f = failOne({ files: { failed: true } });
+    return [f.files_on_your_tasks, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, ["files_on_your_tasks"]],
+);
+
+// EVERY READ FAILING is still a file, and it says so eight times over. A route
+// that refused outright here would hand somebody nothing to act on.
+check(
+  "all eight at once: eight names, and a file that says it is not complete",
+  (() => {
+    const f = buildExport({
+      ...whole,
+      account: { failed: true },
+      profile: { failed: true },
+      aiSuggestions: { failed: true },
+      tasks: { failed: true },
+      teams: { failed: true },
+      memberships: { failed: true },
+      invitations: { failed: true },
+      files: { failed: true },
+    });
+    return [f.sections_that_could_not_be_read.length, f.complete];
+  })(),
+  [8, false],
+);
+
+// THE CONTROL, and it is what makes the eight above mean anything: a read that
+// genuinely found nothing IS an empty list, and the file is still complete.
+// "Nothing to show" and "we could not look" must arrive differently, and this
+// is the half that proves the first one still works.
+check(
+  "a read that found nothing really is empty, and the file is still complete",
+  (() => {
+    const f = buildExport({
+      ...whole,
+      tasks: { failed: false, rows: [] },
+      invitations: { failed: false, rows: [] },
+      memberships: { failed: false, rows: [] },
+      files: { failed: false, listings: [] },
+    });
+    return [f.tasks, f.invitations_you_sent, f.teams_you_belong_to, f.files_on_your_tasks, f.complete];
+  })(),
+  [[], [], [], [], true],
+);
+
+// AND A BOUNDED SWEEP SAYS WHAT IT DROPPED. listFilesForExport stops at 200
+// tasks, and a file that stopped short must not read as "you have no other
+// files" -- which is the same rule as the eight above, applied to a ceiling
+// rather than to a failure.
+check(
+  "a listing that stopped short says how many tasks it did not list, and is not complete",
+  (() => {
+    const f = failOne({ files: { ...whole.files, tasksNotListed: 7 } });
+    return [f.tasks_whose_files_were_not_listed, f.complete];
+  })(),
+  [7, false],
+);
+
+// ------------------------------------------- 12c. only this person's own rows
+console.log("\n12c. only rows this person created, checked on the rows and not only in the query");
+
+check("their own task is kept", ownRowsOnly([MINE], ME).length, 1);
+
+// THE ROW THE POLICY WOULD HAND OVER. The SELECT policy on `tasks` returns
+// every task in every team you belong to, written by anybody, so this is not a
+// hypothetical shape -- it is what comes back if the query's `.eq("owner_id")`
+// is ever removed.
+check("A TEAM MATE'S TASK IS DROPPED, which the policy alone would not do", ownRowsOnly([MINE, THEIRS], ME).length, 1);
+
+// PR 4 of docs/plan.md makes `tasks.owner_id` nullable, so a task written by
+// somebody who has deleted their account stays in its team as "Former member".
+// It is somebody else's row and it is nobody's to export.
+check(
+  "a task with NO owner at all is dropped -- the shape PR 4 introduces",
+  ownRowsOnly([{ ...MINE, owner_id: null }], ME).length,
+  0,
+);
+
+check("an undefined owner is dropped too", ownRowsOnly([{ ...MINE, owner_id: undefined }], ME).length, 0);
+check("a failed read is not an array, so nothing comes back", ownRowsOnly(null, ME), []);
+check("neither is an object", ownRowsOnly({ rows: [MINE] }, ME), []);
+check("no id to compare against means nothing comes back", ownRowsOnly([MINE], ""), []);
+check("an id that is not a string means nothing comes back", ownRowsOnly([MINE], 7), []);
+check("a row that is not an object is dropped", ownRowsOnly(["Collect the keys", null, 7], ME), []);
+
+// And the whole file, through the real path rather than through the guard alone.
+check(
+  "the built file holds one task and it is theirs",
+  (() => {
+    const f = failOne({ tasks: { failed: false, rows: [MINE, THEIRS] } });
+    return [f.tasks.length, f.tasks[0].title];
+  })(),
+  [1, "Collect the keys"],
+);
+
+check(
+  "and a team mate's title appears NOWHERE in the file, not even on a file's on_task",
+  JSON.stringify(
+    failOne({ tasks: { failed: false, rows: [MINE, THEIRS] } }),
+  ).includes("Carol wrote this one"),
+  false,
+);
+
+// ------------------------------- 12d. nothing it was not asked for, and no ids
+console.log("\n12d. nothing this file was not asked for: no credential, no column, no uuid");
+
+// EVERY FIELD IS WRITTEN OUT BY NAME AND NOTHING IS SPREAD, and this is the
+// check that holds it. The rows below carry what the real queries' tables carry
+// and a few things they do not -- a token hash above all, which
+// docs/deletion.md section 11.3 names first among what must stay out.
+const noisy = buildExport({
+  ...whole,
+  profile: {
+    failed: false,
+    row: {
+      display_name: "Alice",
+      created_at: "2026-10-02T00:00:00Z",
+      user_id: ME,
+      ai_suggestions_enabled: true,
+      ai_suggestions_changed_at: "2026-10-08T00:00:00Z",
+    },
+  },
+  tasks: { failed: false, rows: [{ ...MINE, secret_column: "SHOULD-NOT-TRAVEL" }] },
+  invitations: {
+    failed: false,
+    rows: [
+      {
+        ...whole.invitations.rows[0],
+        id: "66666666-6666-6666-6666-666666666666",
+        token_hash: "a".repeat(64),
+        invited_by: ME,
+        accepted_at: null,
+      },
+    ],
+  },
+});
+
+const noisyText = JSON.stringify(noisy);
+
+check(
+  "a token hash, a column nobody asked for, and every id are all absent",
+  [
+    noisyText.includes("token_hash"),
+    noisyText.includes("a".repeat(64)),
+    noisyText.includes("secret_column"),
+    noisyText.includes("SHOULD-NOT-TRAVEL"),
+    noisyText.includes("invited_by"),
+    noisyText.includes("accepted_at"),
+    noisyText.includes("ai_suggestions_enabled"),
+    noisyText.includes("user_id"),
+    noisyText.includes("owner_id"),
+  ],
+  [false, false, false, false, false, false, false, false, false],
+);
+
+// NO UUID GOES IN THE FILE -- not a task id, not a team id, not the person's
+// own. docs/deletion.md asks for a task's team by NAME, and once that is true
+// for one id it may as well be true for all of them: a file somebody keeps for
+// years should read as their own list rather than as a database extract.
+//
+// The rows above carry FIVE different uuids between them, so this is a real
+// test of the assembly and not of an empty object.
+check(
+  "and not one uuid anywhere in the file, in any field",
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(noisyText),
+  false,
+);
+
+// The one address in the file that is not the person's own is there ON PURPOSE:
+// decision 8a, 2026-10-12. They typed it, and My teams already shows it to
+// them -- and leaving it out would hide from somebody the one piece of other
+// people's data they themselves put into this app.
+check(
+  "the invited address IS in the file -- decision 8a -- with the status and the code beside it",
+  [
+    noisy.invitations_you_sent[0].to,
+    noisy.invitations_you_sent[0].status,
+    noisy.invitations_you_sent[0].failure_code,
+    noisy.invitations_you_sent[0].team,
+  ],
+  ["bob@example.invalid", "sent", null, "Tuesday crew"],
+);
+
+// ------------------------------------------------- 12e. the three profile shapes
+console.log("\n12e. the profile has THREE shapes, and the middle one is the ordinary state of a new account");
+
+check(
+  "a row: the nickname, and the date the ROW was made",
+  built.profile,
+  { nickname: "Alice", profile_created_at: "2026-10-02T00:00:00Z" },
+);
+
+// NO ROW IS NOT A FAILURE. An account has no profile until somebody saves a
+// nickname -- there is no trigger on auth.users and display_name is not null
+// with no default (issue #207) -- so this is the ordinary state of a new
+// account, and it must not arrive looking like a failed read.
+check(
+  "no row at all: said as itself, not as a failure and not as an empty nickname",
+  (() => {
+    const f = failOne({ profile: { failed: false, row: null } });
+    return [f.profile, f.complete];
+  })(),
+  [{ there_is_no_profile_row: true }, true],
+);
+
+// AND THE FIELD IS NOT CALLED "when you set your nickname". `profiles` has one
+// `created_at`, which is when the ROW was made; nothing in this app records a
+// later change to a nickname, so a field named for one would be a claim nothing
+// keeps.
+check(
+  "the date's name does not claim to be when the nickname was set",
+  [
+    Object.keys(built.profile),
+    /nickname_(set|changed)/.test(JSON.stringify(built.profile)),
+  ],
+  [["nickname", "profile_created_at"], false],
+);
+
+// -------------------------------------------------- 12f. the setting is a word
+console.log("\n12f. the AI setting is a WORD, so a missing field cannot read as 'off'");
+
+const settingOf = (enabled) =>
+  failOne({ aiSuggestions: { failed: false, enabled, changed_at: null } }).ai_suggestions
+    .setting;
+
+check("true is on", settingOf(true), "on");
+check("false is off", settingOf(false), "off");
+// The string "false" is the shape a boolean column read back as text arrives
+// in, and a truthy test would read it as consent. The same reasoning as
+// consentState and as checkAiConsent in the function.
+check('the STRING "false" is neither, and must not become consent', settingOf("false"), null);
+check('the STRING "true" is neither either', settingOf("true"), null);
+check("nothing at all is neither", settingOf(undefined), null);
+check("null is neither", settingOf(null), null);
+check("a number is neither", settingOf(1), null);
+
+// ------------------------------------------------------- 12g. the file's name
+console.log("\n12g. the download's name: a fixed word and a date, and nothing about the person");
+
+check("the day out of the moment", exportFileName("2026-10-13T10:11:12.000Z"), "team-tasks-export-2026-10-13.json");
+check("a bare date works too", exportFileName("2026-10-13"), "team-tasks-export-2026-10-13.json");
+check("an unusable moment gives the bare name, never one with undefined in it", exportFileName("today"), "team-tasks-export.json");
+check("nothing at all gives the bare name", exportFileName(undefined), "team-tasks-export.json");
+check("a number gives the bare name", exportFileName(1760000000000), "team-tasks-export.json");
+check(
+  "the name carries no path segment, so a Content-Disposition cannot be bent",
+  /[\/\\"\r\n;]/.test(exportFileName("2026-10-13T10:11:12.000Z")),
+  false,
+);
+
+// ---------------------------------------------------------- 12h. the files list
+console.log("\n12h. the files on a task: three fields, a title rather than an id, and folders dropped");
+
+check(
+  "a file, with its size and when it arrived",
+  readExportFiles([{ name: "a.png", id: "x", created_at: "2026-10-06T00:00:00Z", metadata: { size: 1234 } }]),
+  [{ name: "a.png", size_bytes: 1234, uploaded_at: "2026-10-06T00:00:00Z" }],
+);
+check(
+  "A FOLDER IS DROPPED: Supabase marks one with a null id",
+  readExportFiles([{ name: "sub", id: null, metadata: null }]),
+  [],
+);
+check(
+  "a row with no usable name is dropped",
+  readExportFiles([{ id: "x" }, { name: 7, id: "x" }, { name: "  ", id: "x" }]),
+  [],
+);
+check(
+  "an unknown size and an unknown date are null, not a nought and not a guess",
+  readExportFiles([{ name: "a.png", id: "x", metadata: {} }]),
+  [{ name: "a.png", size_bytes: null, uploaded_at: null }],
+);
+check(
+  "sorted by name, so two exports of one task read the same",
+  readExportFiles([
+    { name: "c.png", id: "x", metadata: { size: 1 } },
+    { name: "a.png", id: "x", metadata: { size: 1 } },
+  ]).map((f) => f.name),
+  ["a.png", "c.png"],
+);
+check("a failed listing is not an empty list of files", [readExportFiles(null), readExportFiles({})], [[], []]);
+
+check(
+  "a file says which task it is on BY TITLE, and carries no id",
+  built.files_on_your_tasks,
+  [
+    {
+      name: "receipt.pdf",
+      size_bytes: 2048,
+      uploaded_at: "2026-10-06T00:00:00Z",
+      on_task: "Collect the keys",
+    },
+  ],
+);
+
+// A listing for a task that is not in the tasks section -- which no rule makes
+// reachable, because both reads are the same person's -- is reported rather
+// than guessed at.
+check(
+  "a listing for a task that is not in the file says so with a null rather than an id",
+  failOne({
+    files: {
+      failed: false,
+      listings: [{ taskId: "77777777-7777-7777-7777-777777777777", rows: [{ name: "x.png", id: "o", metadata: {} }] }],
+    },
+  }).files_on_your_tasks[0].on_task,
+  null,
+);
+
+// ------------------------------------------------- 12i. the route, as text
+console.log("\n12i. the route: the caller's own rights, a filter that is load-bearing, and no cache");
+
+// THE CODE ONLY, WITH EVERY COMMENT REMOVED, and that is not tidiness -- it is
+// the fix for a mistake this check made on its first run and that this
+// repository has now made FOUR times in two pull requests:
+// `evidence/build-it-26-legal-pages.md` records three, each one a comment or an
+// assertion NAMING THE STRING IT EXISTS TO FORBID.
+//
+// Here it was `token_hash`. The route's own comment says "token_hash IS NOT
+// SELECTED, and would be dropped by buildExport even if it were", which is the
+// explanation of the absence -- and the count found it and called it a presence.
+// So the comments go first, exactly as `longLiterals` above does it, and what is
+// left is what the route actually asks Supabase for.
+const EXPORT_ROUTE_CODE = sentencesOnly(EXPORT_ROUTE);
+
+// NO SERVICE-ROLE KEY, AND NO SECOND CLIENT. The whole feature rests on the
+// policies deciding what comes back, and a key would mean no policy was
+// evaluated at all -- which is issue #240's argument about the upload path,
+// arriving at the one place in this app that reads everything about somebody.
+check(
+  "no secret key, no service role, and no client built with one",
+  [
+    count(EXPORT_ROUTE_CODE, "service_role"),
+    count(EXPORT_ROUTE_CODE, "SERVICE_ROLE"),
+    count(EXPORT_ROUTE_CODE, "createServerClient"),
+    count(EXPORT_ROUTE_CODE, "createSupabaseClient"),
+    // The one client it uses is the request's own.
+    count(EXPORT_ROUTE_CODE, 'from "@/lib/supabase/server"'),
+  ],
+  [0, 0, 0, 0, 1],
+);
+
+// THE FILTER IS LOAD-BEARING, and the second lock is in export-data.ts. Both are
+// required here, so removing either turns this red.
+//
+// `.eq("user_id", userId)` IS TWO, not one, and that number was wrong on this
+// check's first run. The two are `profiles` -- where it narrows a table whose
+// policy also lets a team mate's row through -- and `team_members`, where the
+// policy already says `auth.uid() = user_id` and the filter is belt and braces.
+// Counting them as one would have let a later change delete either.
+check(
+  "every read is narrowed to this person: owner_id, invited_by, and user_id TWICE",
+  [
+    count(EXPORT_ROUTE_CODE, '.eq("owner_id", userId)'),
+    count(EXPORT_ROUTE_CODE, '.eq("invited_by", userId)'),
+    count(EXPORT_ROUTE_CODE, '.eq("user_id", userId)'),
+  ],
+  [1, 1, 2],
+);
+
+check(
+  "a suspended account is refused, and an unreadable check is NOT a yes",
+  [
+    count(EXPORT_ROUTE_CODE, '"is_active"'),
+    // The error branch comes BEFORE the value branch, so an unknown cannot fall
+    // through to the data. Compared by position, which is the only way to say
+    // "first" about source.
+    EXPORT_ROUTE_CODE.indexOf("activeError") <
+      EXPORT_ROUTE_CODE.indexOf("activeData !== true"),
+    // And it is `!== true`, not a truthy test.
+    count(EXPORT_ROUTE_CODE, "activeData !== true"),
+  ],
+  [1, true, 1],
+);
+
+// NEVER A STAR, AND NEVER THE TWO CLOSED COLUMNS. After the consent migration a
+// `select *` on `profiles` by a signed-in caller fails outright, and no client
+// role may even name `ai_suggestions_enabled`.
+check(
+  "no select star anywhere, and neither consent column nor a token hash is ever named",
+  [
+    count(EXPORT_ROUTE_CODE, 'select("*")'),
+    count(EXPORT_ROUTE_CODE, "ai_suggestions_enabled"),
+    count(EXPORT_ROUTE_CODE, "ai_suggestions_changed_at"),
+    count(EXPORT_ROUTE_CODE, "token_hash"),
+    // The setting comes from the function, which takes no arguments.
+    count(EXPORT_ROUTE_CODE, '"my_ai_suggestions"'),
+  ],
+  [0, 0, 0, 0, 1],
+);
+
+// IT WRITES NOTHING. The export is a read, decision 9 says it is not counted,
+// and nothing in it may change a row -- which is worth asserting rather than
+// reading, because a download that quietly wrote something would be the one
+// place nobody would look.
+check(
+  "the route writes nothing at all: no insert, update, delete or count",
+  [
+    count(EXPORT_ROUTE_CODE, ".insert("),
+    count(EXPORT_ROUTE_CODE, ".update("),
+    count(EXPORT_ROUTE_CODE, ".delete("),
+    count(EXPORT_ROUTE_CODE, ".upsert("),
+    count(EXPORT_ROUTE_CODE, "count_daily_use"),
+  ],
+  [0, 0, 0, 0, 0],
+);
+
+// AND NOTHING KEEPS A COPY. This body is everything this app holds about one
+// person; `no-store` is not a performance setting here.
+check(
+  "the answer is a download that nothing between here and the browser may keep",
+  [
+    count(EXPORT_ROUTE_CODE, "content-disposition"),
+    count(EXPORT_ROUTE_CODE, "attachment; filename="),
+    count(EXPORT_ROUTE_CODE, "no-store"),
+    count(EXPORT_ROUTE_CODE, "nosniff"),
+    count(EXPORT_ROUTE_CODE, "exportFileName(generatedAt)"),
+  ],
+  [1, 1, 1, 1, 1],
+);
+
+// ------------------------------------------------ 12j. the screen, and the path
+console.log("\n12j. the screen: one file of sentences, a link rather than a button, and a private path");
+
+// THE PATH IS NOT PUBLIC, and this is the half that would fail silently and
+// totally: `/settings` is absent from PUBLIC_PATHS, so `/settings/export` is
+// behind the proxy's sign-in check. A later change adding "/settings" to that
+// list would open this download to a signed-out visitor, and the route's own
+// getClaims() is the backstop rather than the control.
+check(
+  "the export path is under /settings and /settings is not public",
+  [
+    EXPORT_PATH,
+    count(PROXY_SOURCE, '  "/settings",'),
+    count(PROXY_SOURCE, '"/settings/export"'),
+  ],
+  ["/settings/export", 0, 0],
+);
+
+// Every sentence comes from the module, and the page holds none of its own --
+// the same shape as the two legal pages and as TURNSTILE_WORDS.
+check(
+  "the settings page draws the export's words from the module and spells none of them",
+  [
+    count(SETTINGS_PAGE, "EXPORT_WORDS.map("),
+    count(SETTINGS_PAGE, 'from "@/lib/export-data"'),
+    EXPORT_WORDS.some((sentence) => SETTINGS_PAGE.includes(sentence)),
+    // The heading and the label come from the module too.
+    count(SETTINGS_PAGE, "{EXPORT_HEADING}"),
+    count(SETTINGS_PAGE, "{EXPORT_LINK_LABEL}"),
+    SETTINGS_PAGE.includes(EXPORT_HEADING) && !SETTINGS_PAGE.includes("{EXPORT_HEADING}") ? 1 : 0,
+  ],
+  [1, 1, false, 1, 1, 0],
+);
+
+// A LINK, NOT A FORM. The whole reason the export is a route handler is that a
+// GET answering with a Content-Disposition header needs NO JAVASCRIPT.
+check(
+  "it is an anchor to the route, and not a button, a form or an action",
+  [
+    count(SETTINGS_PAGE, "href={EXPORT_PATH}"),
+    count(SETTINGS_PAGE, `action={`) > 1 ? "more than the consent form" : "one form only",
+    SETTINGS_PAGE.includes("download>"),
+  ],
+  [1, "one form only", true],
+);
+
+check("four sentences, and a heading and a label beside them", [EXPORT_WORDS.length, EXPORT_HEADING, EXPORT_LINK_LABEL], [4, "Your data", "Download my data"]);
+
+// THE SENTENCE THAT IS NOT OBVIOUS. Every row in the file is something this
+// person can already read on a screen; what is new is that they are gathered
+// into one artefact that can be forwarded. docs/deletion.md section 11.4 says
+// so in those terms, and the screen has to say it where somebody is deciding.
+check(
+  "the words say what the file does not hold, and that it gathers everything into one place",
+  [
+    EXPORT_WORDS.some((s) => s.includes("deliberately not in it")),
+    EXPORT_WORDS.some((s) => s.includes("one place") && s.includes("keep it carefully")),
+    EXPORT_WORDS.some((s) => s.includes("not even you")),
+    // AND NO SENTENCE CLAIMS IT IS EVERYTHING, which decisions 8b, 8c and 8d
+    // make untrue.
+    EXPORT_WORDS.some((s) => /everything (this app|we) hold/i.test(s)),
+  ],
+  [true, true, true, false],
+);
+
+// ------------------------------------------------- 12k. the two refusals
+console.log("\n12k. the two refusals: a code this app wrote, and never a message");
+
+check("the two codes", [EXPORT_REFUSED, EXPORT_UNKNOWN], ["exportrefused", "exportunknown"]);
+check("a suspended caller gets the sentence create-team already gives one", exportRefusalSentence(EXPORT_REFUSED), "You can't do that at the moment.");
+check("an unreadable check says so, and says nothing was downloaded", exportRefusalSentence(EXPORT_UNKNOWN).includes("nothing was downloaded"), true);
+check("trimmed, because a code arrives out of a URL", exportRefusalSentence("  exportrefused  "), "You can't do that at the moment.");
+// NULL FOR ANYTHING THIS APP DID NOT WRITE, which is what stops a crafted
+// `/settings?problem=` printing chosen words on this site -- the hole
+// web/src/app/teams/page.tsx had and closed.
+check("a code this app did not write shows nothing at all", exportRefusalSentence("anything-else"), null);
+check("and neither does a sentence passed as the code", exportRefusalSentence("You have been hacked, telephone this number"), null);
+check("nor a non-string", [exportRefusalSentence(undefined), exportRefusalSentence(["exportrefused"])], [null, null]);
+
+// NOT ONE WORD SUPABASE, POSTGRES OR CLOUDFLARE CHOSE. Derived from the table
+// rather than written out, so a sentence added later is covered.
+check(
+  "neither sentence names a company, a status, a code or a table",
+  Object.values(EXPORT_REFUSAL_SENTENCES).filter((sentence) =>
+    /supabase|postgres|storage|rpc|42501|403|500|is_active|account_status|usage_counts|service_role/i.test(
+      sentence,
+    ),
+  ),
+  [],
 );
 
 // ------------------------------------------------------------------- the score

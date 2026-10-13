@@ -431,6 +431,35 @@ said once here rather than in every row:
 | `Attaching a file needs JavaScript, because the file goes from this browser straight to the file store. Opening and deleting the files already here work without it.` | the `<noscript>` line in `web/src/app/tasks/AttachFile.tsx` | **True, and it is the one place in this app where it is true.** The upload is made from the browser as the signed-in person so that the `INSERT` policy is evaluated and the two counted limits are reached ([#240](https://github.com/build-once/team-tasks/issues/240)); `docs/architecture.md` sets out why the two alternatives were not chosen. The second sentence is true by construction: the file list is server-rendered and Open and Delete are forms posting to server actions |
 | `Files` on a task's row, with a count beside it when there is one | `web/src/app/tasks/page.tsx` | The count is of the rows **this page just read** from the task's folder, so it cannot disagree with the panel underneath it. **No count when the listings failed**, and **never a `0`** — a zero in a chip reads as a measurement, and the absence of the chip says the same thing without claiming it |
 
+### 2f. Your data — the export, `/settings` and `/settings/export` — NEW, Build it 26 PR 3
+
+**Every sentence lives in `web/src/lib/export-data.ts`** and the settings page holds none of its own,
+which is the shape `TURNSTILE_WORDS` and `legal.ts` already have and which
+`scripts/screen-state-check.mjs` section 12j asserts by comparing the module's strings against the
+page's source. `docs/deletion.md` section 11 is the design and the owner's decisions 8a–8d and 9 of
+2026-10-12 are what the file contains.
+
+| The sentence | Where it is | What makes it true |
+|---|---|---|
+| `You can download what this app holds about you, as one file.` | `EXPORT_WORDS[0]`, on the **Your data** card | **ENFORCED** — `web/src/app/settings/export/route.ts`, a `GET` answering `application/json` with a `Content-Disposition` header. It deliberately does **not** say "everything": decisions 8b, 8c and 8d leave real things out, and section 11i refuses the words `download everything` and `everything we hold about you` anywhere in the two legal documents for the same reason |
+| `It holds your tasks, your teams, the invitations you sent, your nickname and your AI suggestions setting, and a list of the files on your tasks.` | `EXPORT_WORDS[1]` | **ENFORCED** — those are the eight sections of `EXPORT_SECTIONS`, and the key order of the built file is checked against that list. "A **list** of the files" rather than the files: a 100 MB allowance does not fit in a JSON file |
+| `The file itself says what is deliberately not in it, and why — including two things nobody can see through this app, not even you.` | `EXPORT_WORDS[2]` | **ENFORCED** — `NOT_IN_THIS_FILE`, nine lines, carried **inside** the download rather than only in `docs/deletion.md`, because a person reading the file is the person who wants to know what is missing. The "two things" are `usage_counts` and `account_status`, and the staging script's section 5 **checks that both really are closed to the person they are about** — if either ever answered rows, the reason for leaving it out would have gone |
+| `It gathers everything about you into one place, so anybody you send it to can read all of it. Please keep it carefully.` | `EXPORT_WORDS[3]` | **ENFORCED as a disclosure, and it is the one sentence here that is not obvious.** Every row in the file is something the person can already read on a screen; what is new is the artefact. `docs/deletion.md` section 11.4 puts it in those terms. The same shape as the photograph line in §2e: said where somebody is deciding |
+| `You can't do that at the moment.` | `EXPORT_REFUSAL_SENTENCES.exportrefused`, drawn as a banner on `/settings` | **ENFORCED** — the route calls `public.is_active()` and redirects to `/settings?problem=exportrefused` when it is not `true`. **The same sentence `create-team` gives a suspended caller** (§2d), deliberately: it says what happened and claims nothing about why, and `docs/plan.md`'s decision 7 of 2026-10-12 is that a suspended person asks the owner |
+| `We could not check your account just now, so nothing was downloaded. Please try again.` | `EXPORT_REFUSAL_SENTENCES.exportunknown` | **ENFORCED, and it is the half worth reading twice: AN UNKNOWN IS NOT A YES.** If `is_active()` cannot be read the file is not built — because for a suspended person every policy returns nothing, so the download would be an **empty** file headed "Everything Team Tasks holds about one person", which is the worst sentence this feature could produce. Checked by position in the source, so the error branch cannot drift below the value branch |
+| Anything else in `?problem=` | — | **Nothing is drawn.** `exportRefusalSentence` answers null for any code this app did not write, which is what stops a crafted `/settings?problem=…` printing chosen words on this site — the hole `web/src/app/teams/page.tsx` had and closed |
+
+**And three claims the FILE makes about itself**, which are sentences as much as anything on a screen:
+
+| In the file | What makes it true |
+|---|---|
+| `what_this_is`: "Everything Team Tasks holds about one person, as that person asked for it. It was built from this account's own data and nobody else's." | **ENFORCED for the second sentence and DELIBERATELY BROADER THAN THE FIRST**, which is worth saying plainly: the file is not everything — `what_is_not_in_this_file` is the nine-line list of what it is not, three lines below it. The second sentence is the checkable one: the owner filter in the route, and `ownRowsOnly` checking the same thing again on the rows that come back |
+| `complete: false`, and `sections_that_could_not_be_read` | **ENFORCED** — Build it 19's rule applied to a file. A section whose read failed says `could_not_be_read`, is named at the **top** of the file, and sets `complete` to false. Eight checks, one per section, plus a control that a read which genuinely found nothing still gives `[]` and a complete file. Seen to fail: nine red (`evidence/build-it-26-export.md` §3.1) |
+| `tasks_whose_files_were_not_listed` | **ENFORCED** — the listing stops at `EXPORT_LIST_TASK_LIMIT` (200 tasks, 8 at a time) because a listing is one request per task and the cap is 500 tasks per person. **A silent truncation would read as "you have no other files"**, so the number is in the file and sets `complete` to false. **Never non-zero outside a check**: nobody has 200 tasks |
+
+**What no row above rests on:** nothing here has been run against staging, no export file has ever been
+produced, and no screen has been opened. `evidence/build-it-26-export.md` section 7 is the list.
+
 ---
 
 ## 3. Testimonials, numbers and screenshots, and where each came from
@@ -879,6 +908,15 @@ Collected so it is not buried in a table. Each one names what would settle it.
   staging and setting a key there on 7 October 2026. The production half of the plan's claim is still
   correct. Not changed here: this task was the claims register, and what staging holds today is the owner's
   to confirm.
+- **NOT VERIFIED — no export file has ever been produced, which is every row of §2f at once.**
+  `buildExport` has been called hundreds of times with rows invented in a check and never with a real
+  one; nothing has been run against staging; no browser has downloaded the file; and the **Your data**
+  card has not been looked at on a laptop or a phone. Two fields are read off an installed package's
+  **type** rather than off an answer — `created_at` on a Storage listing, and `created_at` on the
+  session's user object — so if either is absent the file says `null` for everybody and nothing here
+  would notice. Settled by the owner's staging run, the production `--app=` run after the merge, and
+  somebody opening the file. [#306](https://github.com/build-once/team-tasks/issues/306) is the list,
+  and `evidence/build-it-26-export.md` section 7 is the same list with the reasons.
 - **Unverified — no screen was opened for this file.** Every claim's wording was read out of a source
   file, not off a rendered page. A screen could differ from its source if a CSS rule hid something, and
   nothing here would see that.
@@ -938,6 +976,14 @@ rather than typed, compares the figures with no constant in `web/` against the f
 requires all twelve subjects #204 and the owner demand, holds the contact address to one literal,
 requires the four optional paragraphs to reach no page, and refuses a claim about the export or
 delete-account before either is built.
+
+**One of those thirteen changed on 2026-10-13 with Build it 26 PR 3, and in ONE DIRECTION ONLY.** The
+export now exists, so 11i turned from a refusal into a **requirement**: the privacy page must claim the
+download and must say where it is, and must still **not** claim it holds "everything". **The
+delete-account half is untouched**, because PR 6 has not happened — and that asymmetry is the point. A
+check relaxed for both at once would have stopped holding the half that still needs holding. §7d's two
+rows carry it, and the script's own total went **310 → 383** with PR 3's section 12 (73 checks over the
+export itself, which is §2f rather than this section).
 
 **AND BOTH PAGES HAVE NOW BEEN READ OFF PRODUCTION, SIGNED OUT — 2026-10-13, after PR #303 merged.**
 That is the one thing no check in this repository can answer, because `PUBLIC_PATHS` is a list in a
@@ -1082,7 +1128,8 @@ completed is caught by the deployed check rather than by somebody noticing.
 
 | The sentence | What would make it true | Verdict today |
 |---|---|---|
-| You can download everything this app holds about you, as one file | the export | **NOT ENFORCED** — it does not exist. **MUST NOT SAY YET** |
+| ~~You can download everything this app holds about you, as one file~~ | — | **MUST NOT SAY, AND NOW PERMANENTLY — Build it 26 PR 3, 2026-10-13.** This row said "NOT ENFORCED — it does not exist. MUST NOT SAY YET", and the export now exists — but the word **everything** does not survive it: decisions 8b, 8c and 8d leave other people's data, the usage counts and the suspension row out of the file on purpose. So the sentence the page may make is the row below, and `scripts/screen-state-check.mjs` section 11i refuses `download everything` and `everything we hold about you` by pattern |
+| **"You can download what this app holds about you, as one file, from Settings. The file itself says what is deliberately not in it, and why."** | `web/src/app/settings/export/route.ts`, and `NOT_IN_THIS_FILE` in `web/src/lib/export-data.ts` carried **inside** the download | **ENFORCED — and it is the first row in this section to move from MUST NOT SAY YET to ENFORCED.** Section 11i turned from a refusal into a requirement in one direction only: the export must now be claimed and must say **where**, and the delete-account half is untouched, because PR 6 has not happened. §2f has a row for each of the four sentences on the screen and the three the file makes about itself. **What it rests on is checks and not an observation**: no export file has ever been produced, and nothing has been run against staging |
 | You can delete your account from inside the app, and it is real | delete-account | **NOT ENFORCED** — it does not exist. **MUST NOT SAY YET**, and until it does the page has to say the opposite, which is #204's own sixth item: "that there is **no way** to delete an account in the app" |
 | Deleting removes your tasks, your teams, your files, your nickname and your account | the eight steps in `docs/deletion.md` §3, plus the cascades | **NOT ENFORCED yet.** The cascades exist; the function does not |
 | Deleting a team does not delete other members' tasks — each returns to its creator | `tasks.team_id` is `on delete set null` (`20261002133637_tasks_join_teams.sql`) | **ENFORCED today**, before any of Build it 26 is built |

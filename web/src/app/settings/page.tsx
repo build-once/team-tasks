@@ -19,6 +19,13 @@ import {
   settingsSentence,
   settingsWentWell,
 } from "@/lib/consent";
+import {
+  EXPORT_HEADING,
+  EXPORT_LINK_LABEL,
+  EXPORT_PATH,
+  EXPORT_WORDS,
+  exportRefusalSentence,
+} from "@/lib/export-data";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import { DISPLAY_NAME_MAX } from "@/lib/teams";
@@ -117,7 +124,14 @@ export default async function SettingsPage({
   const profileUnknown = Boolean(profileError);
   const needsNickname = !profileUnknown && profile === null;
 
-  const outcome = settingsSentence(saved ?? problem);
+  // TWO TABLES, ASKED IN ORDER, and neither of them ever reads a message.
+  //
+  // The consent table is this page's own; the export's two refusals live in
+  // web/src/lib/export-data.ts because they are about the download rather than
+  // about the setting. Both answer null for a code this app did not write, which
+  // is what stops a crafted `?problem=` printing chosen words on this site.
+  const outcome =
+    settingsSentence(saved ?? problem) ?? exportRefusalSentence(problem);
   const outcomeIsGood = settingsWentWell(saved);
 
   return (
@@ -243,6 +257,45 @@ export default async function SettingsPage({
             once more.
           </p>
         ) : null}
+
+        {/* YOUR DATA -- Build it 26, PR 3. docs/deletion.md section 11.
+
+            A LINK AND NOT A BUTTON, which is the whole reason the export is a
+            route handler rather than a server action: an ordinary GET answering
+            with a Content-Disposition header is a download a browser performs
+            with NO JAVASCRIPT. Attaching a file is the one thing in this app
+            that needs any, and docs/architecture.md records that as a cost.
+
+            EVERY SENTENCE COMES FROM web/src/lib/export-data.ts, and this card
+            holds none of its own -- the same shape as the consent card above and
+            as the two legal pages, and each one is a row in docs/claims.md
+            section 2f.
+
+            THE FOURTH SENTENCE IS THE ONE THAT IS NOT OBVIOUS. Every row in the
+            file is something this person can already read on a screen today;
+            what is new is that they are gathered into one artefact that can be
+            forwarded. docs/deletion.md section 11.4 says so in those terms. */}
+        <section className="card">
+          <h2>{EXPORT_HEADING}</h2>
+
+          {EXPORT_WORDS.map((sentence) => (
+            <p className="hint" key={sentence}>
+              {sentence}
+            </p>
+          ))}
+
+          {/* btn--quiet rather than btn--primary: the primary action on this
+              page is Save, above, and a page with two green buttons on it has
+              no primary action. `.btn` alone would be nearly invisible on an
+              anchor -- it sets a transparent border and no background, and the
+              only other `.btn` in this app without a variant is on a <button>,
+              which a browser gives a background of its own. */}
+          <p>
+            <a className="btn btn--quiet" href={EXPORT_PATH} download>
+              {EXPORT_LINK_LABEL}
+            </a>
+          </p>
+        </section>
       </main>
     </>
   );
