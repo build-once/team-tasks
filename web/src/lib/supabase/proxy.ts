@@ -35,6 +35,23 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 //
 // They are also the first two entries here that hold NOTHING and decide NOTHING.
 // Every other path above is a form or a link exchange; these two are text.
+//
+// "/delete-account" is public for the plainest reason of all, and it is the one
+// entry on this list whose absence would make the page pointless rather than
+// merely awkward: it is the page for people who CANNOT SIGN IN -- somebody who
+// has forgotten their password, somebody who signed up and never confirmed, and
+// an invited person whose address is in `invitations` and who never had an
+// account at all. A request page that redirected them to `/login` would be a
+// route for people who do not need it.
+//
+// It is also where a SUSPENDED person is sent. They can sign in, so the proxy
+// would let them through either way -- but decision 7 of 2026-10-12 refuses them
+// the button in Settings and the refusal points here, and a refusal that points
+// at a page somebody is bounced off is a refusal nobody can act on.
+//
+// IT HOLDS NOTHING AND COLLECTS NOTHING. Decision 10: no form, no endpoint, no
+// email sent by this app. It is text and one `mailto:` link, which is why being
+// public costs nothing.
 const PUBLIC_PATHS = [
   "/login",
   "/signup",
@@ -44,6 +61,7 @@ const PUBLIC_PATHS = [
   "/reset-password",
   "/privacy",
   "/terms",
+  "/delete-account",
 ];
 
 function isPublic(pathname: string) {

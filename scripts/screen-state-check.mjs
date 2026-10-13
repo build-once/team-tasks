@@ -96,6 +96,42 @@ const {
   readButtonId,
 } = await load("buttons.ts");
 
+// Build it 26, PR 3. web/src/lib/export-data.ts has no imports either, for the
+// same reason the four above have none: so this script can load the REAL module
+// and call it, rather than proving that a copy of it works.
+const {
+  EXPORT_FORMAT_VERSION,
+  EXPORT_HEADING,
+  EXPORT_LINK_LABEL,
+  EXPORT_PATH,
+  EXPORT_REFUSAL_SENTENCES,
+  EXPORT_REFUSED,
+  EXPORT_SECTIONS,
+  EXPORT_UNKNOWN,
+  EXPORT_WORDS,
+  NOT_IN_THIS_FILE,
+  buildExport,
+  exportFileName,
+  exportRefusalSentence,
+  ownRowsOnly,
+  readExportFiles,
+} = await load("export-data.ts");
+
+// And the deletion's words. Import-free for the same reason.
+const {
+  ACCOUNT_DELETED,
+  CONFIRM_PHRASE,
+  DELETE_CODES,
+  DELETE_SENTENCES,
+  REQUEST_ADDRESS,
+  REQUEST_PATH,
+  REQUEST_WORDS,
+  deleteOutcome,
+  deleteSentence,
+  deletionWarning,
+  phraseMatches,
+} = await load("account-deletion.ts");
+
 // web/src/lib/teams.ts as TEXT, for the reason given at the top: it imports from
 // words.ts through an alias only the Next.js build resolves, so it cannot be
 // imported here. What this script wants of it is a promise about wording, and that
@@ -548,10 +584,22 @@ check(
 // fetched a reset link before anybody clicked it, so the page now verifies
 // nothing and the token is spent only by the action this identifier reaches.
 // Counted from the list in this session.
+//
+// 20 -> 21 WITH BUILD IT 26, and the one new button is `account_delete` -- the
+// ONLY IRREVERSIBLE BUTTON IN THE APP. Raising this number is the only thing a
+// new button may do to this check: the two assertions that matter -- that every
+// identifier is lower-case-and-underscores, and that no LABEL is in the list --
+// are untouched, and `account_delete` passes both. The pull request has its own
+// line about the number (AGENTS.md rule 20).
+//
+// AND THE BUTTON IS NOT WHAT GUARDS THE DELETION, which is why adding it is a
+// one-number change rather than a decision: the action also requires a typed
+// phrase, and supabase/functions/delete-account checks that phrase again for
+// itself. Section 13a is where that pair is held.
 check(
   "the buttons that actually exist, counted from the list",
   ALL_BUTTON_IDS.length,
-  20,
+  21,
 );
 
 // ---- readButtonId -------------------------------------------------------
@@ -2617,7 +2665,11 @@ check(
     has(LEGAL_WORDS, "recall what was already sent"),
     has(LEGAL_WORDS, "can read the whole database"),
     has(LEGAL_WORDS, "which page, which browser"),
-    has(LEGAL_WORDS, "no way to delete your account in this app"),
+    // #204's sixth item WAS "that there is no way to delete an account in the
+    // app", and Build it 26 built one -- so the requirement turns over: what the
+    // page must now carry is where the deletion is, and the old sentence would
+    // be false. 11i is where both halves are held.
+    has(LEGAL_WORDS, "delete your account yourself, in Settings"),
     has(LEGAL_WORDS, "West US (Oregon)"),
     has(LEGAL_WORDS, "Western Europe"),
     has(LEGAL_WORDS, "about a fortnight"),
@@ -2718,19 +2770,1407 @@ check(
 // 11i. AND NEITHER DOCUMENT CLAIMS A FEATURE THAT DOES NOT EXIST YET.
 //
 // The export and delete-account are PR 3 and PR 6 of docs/plan.md's order of
-// work. Until they land, the page has to say the opposite -- which is #204's
-// sixth required item, "that there is no way to delete an account in the app" --
-// and this check is what stops the two sentences being written before the
-// features they describe.
+// work. Until each lands, the page has to say the opposite -- which for the
+// second is #204's sixth required item, "that there is no way to delete an
+// account in the app" -- and this check is what stops a sentence being written
+// before the feature it describes.
+//
+// CHANGED WITH PR 3, AND IN ONE DIRECTION ONLY. The export now exists, so the
+// first half of this check turned from a refusal into a REQUIREMENT: the page
+// must claim it, must say where it is, and must not claim it holds things it
+// leaves out. The delete-account half is untouched, because PR 6 has not
+// happened -- and that asymmetry is the point. A check that had been relaxed for
+// both at once would have stopped holding the half that still needs holding.
 check(
-  "the export and delete-account are not claimed before they are built",
+  "both features are claimed now that both exist, and the old refusals are gone",
   [
-    (LEGAL_WORDS.match(/download (everything|your data|a copy of)/gi) ?? []).length,
-    (LEGAL_WORDS.match(/export your|delete your account in the app|Delete my account/gi) ?? [])
+    // The export, which must be there and must say where.
+    has(LEGAL_WORDS, "download what this app holds about you"),
+    has(LEGAL_WORDS, "from Settings"),
+    // AND IT MUST NOT CLAIM THE FILE IS EVERYTHING. Decisions 8b, 8c and 8d
+    // leave real things out of it, so "everything we hold" would be the kind of
+    // reassuring overclaim the review of PR #303 found four of.
+    (LEGAL_WORDS.match(/download everything|everything we hold about you/gi) ?? [])
       .length,
+    // THE DELETION, which turned over with Build it 26: what the page had to say
+    // was that there was NO way, and now it must say where the way is.
+    has(LEGAL_WORDS, "delete your account yourself, in Settings"),
+    has(LEGAL_WORDS, "cannot be undone"),
+    // AND IT SAYS WHAT STAYS, which is the half somebody would not guess and the
+    // half that is somebody ELSE'S data: decision 1 keeps a task they wrote in
+    // another person's team, and `set null` on team_id returns every other
+    // member's task to them.
+    has(LEGAL_WORDS, "Former member"),
+    has(LEGAL_WORDS, "nobody loses work they wrote themselves"),
+    // AND THE ROUTE FOR SOMEBODY WHO CANNOT SIGN IN, which is the only route a
+    // suspended person has and the only one an invited-but-never-signed-up
+    // person has ever had.
+    has(LEGAL_WORDS, "If you cannot sign in"),
+    // THE SENTENCE THAT IS NOW FALSE, and must be gone rather than reworded.
     count(LEGAL_WORDS, "no way to delete your account in this app"),
   ],
-  [0, 0, 1],
+  [true, true, 0, true, true, true, true, true, 0],
+);
+
+// =========================================================================
+// 12. The export -- Build it 26, PR 3
+// =========================================================================
+//
+// WHAT THIS SECTION IS FOR. The export is the first thing in this app that
+// gathers everything about one person into a single artefact, and the two ways
+// it can be wrong are not symmetrical:
+//
+//   TOO MUCH   a row that is not this person's, or a column nobody asked for,
+//              reaching a file they can forward to anybody. The SELECT policy on
+//              `tasks` is deliberately WIDER than the export -- it returns every
+//              task in every team you are in, written by anybody -- so the thing
+//              that keeps the file to one person is a FILTER, and a filter is a
+//              thing somebody can delete while tidying up.
+//   TOO LITTLE a read that failed arriving as `[]`. On a screen that is a
+//              moment's confusion; in a DOWNLOADED FILE it is this app telling
+//              somebody in writing that it holds nothing of theirs.
+//
+// So most of what follows is one of those two. It calls the real
+// web/src/lib/export-data.ts, and reads the route and the settings page as text
+// for the handful of promises that are about a file rather than a value.
+console.log(
+  "\n12. the export -- own rows only, a failed read is never empty, and nothing it was not asked for",
+);
+
+const EXPORT_ROUTE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "settings", "export", "route.ts"),
+  "utf8",
+);
+// The settings page is already read as text by section 4b, which is where
+// SETTINGS_PAGE is declared -- it is the same file and there is no reason for a
+// second copy of it in memory.
+
+// A person, their task, their team, and a TEAM MATE'S task in the same team --
+// which is the row the SELECT policy would hand over and the export must not.
+const ME = "11111111-1111-1111-1111-111111111111";
+const THEM = "22222222-2222-2222-2222-222222222222";
+const TEAM = "33333333-3333-3333-3333-333333333333";
+const TASK = "44444444-4444-4444-4444-444444444444";
+
+const MINE = {
+  id: TASK,
+  title: "Collect the keys",
+  done: false,
+  created_at: "2026-10-13T09:00:00Z",
+  team_id: TEAM,
+  owner_id: ME,
+};
+const THEIRS = {
+  id: "55555555-5555-5555-5555-555555555555",
+  title: "Carol wrote this one",
+  done: true,
+  created_at: "2026-10-12T09:00:00Z",
+  team_id: TEAM,
+  owner_id: THEM,
+};
+
+// Everything answering, so every other case below is a departure from one world
+// rather than from eight different ones.
+const whole = {
+  generatedAt: "2026-10-13T10:11:12.000Z",
+  userId: ME,
+  account: { failed: false, email: "alice@example.invalid", created_at: "2026-10-01T00:00:00Z" },
+  profile: { failed: false, row: { display_name: "Alice", created_at: "2026-10-02T00:00:00Z" } },
+  aiSuggestions: { failed: false, enabled: true, changed_at: "2026-10-08T00:00:00Z" },
+  tasks: { failed: false, rows: [MINE] },
+  teams: {
+    failed: false,
+    rows: [{ id: TEAM, name: "Tuesday crew", created_at: "2026-10-03T00:00:00Z", owner_id: ME }],
+  },
+  memberships: { failed: false, rows: [{ team_id: TEAM, joined_at: "2026-10-04T00:00:00Z" }] },
+  invitations: {
+    failed: false,
+    rows: [
+      {
+        team_id: TEAM,
+        email: "bob@example.invalid",
+        status: "sent",
+        failure_code: null,
+        created_at: "2026-10-05T00:00:00Z",
+        expires_at: "2026-10-12T00:00:00Z",
+      },
+    ],
+  },
+  files: {
+    failed: false,
+    listings: [
+      {
+        taskId: TASK,
+        rows: [{ name: "receipt.pdf", id: "o1", created_at: "2026-10-06T00:00:00Z", metadata: { size: 2048 } }],
+      },
+    ],
+    tasksNotListed: 0,
+  },
+};
+
+const built = buildExport(whole);
+
+// ----------------------------------------------------- 12a. the format itself
+console.log("\n12a. the format: eight sections, and three fields before any data");
+
+check("the eight sections, in the order they appear", EXPORT_SECTIONS, [
+  "account",
+  "profile",
+  "ai_suggestions",
+  "tasks",
+  "teams_you_own",
+  "teams_you_belong_to",
+  "invitations_you_sent",
+  "files_on_your_tasks",
+]);
+
+check("the format version is in the file", EXPORT_FORMAT_VERSION, 1);
+
+// THE KEY ORDER IS PART OF THE DESIGN, not tidiness. A reader who stops after
+// three lines has still been told whether the file is complete; a `complete`
+// flag at the bottom of a file nobody scrolls would be a flag nobody reads.
+check(
+  "every top-level key, in order -- how much to trust it comes before any data",
+  Object.keys(built),
+  [
+    "what_this_is",
+    "format_version",
+    "generated_at",
+    "complete",
+    "sections_that_could_not_be_read",
+    "tasks_whose_files_were_not_listed",
+    "what_is_not_in_this_file",
+    ...EXPORT_SECTIONS,
+  ],
+);
+
+check(
+  "a whole file is complete, with nothing missing and nothing unlisted",
+  [built.complete, built.sections_that_could_not_be_read, built.tasks_whose_files_were_not_listed],
+  [true, [], 0],
+);
+
+// 12a-bis. WHAT IS LEFT OUT IS SAID IN THE FILE, which is where the person
+// reading it is. docs/deletion.md section 11.3 is nine rows and this is nine
+// lines, and the two that matter are the last of the app's own: the usage
+// counts and the suspension row, which decisions 8c and 8d leave out because
+// NOBODY may read either table through the app -- so the honest form is to say
+// they exist and how to ask, which is a promise docs/claims.md section 7d
+// carries.
+check(
+  "the file says what is not in it: nine things, including the two nobody can read",
+  [
+    NOT_IN_THIS_FILE.length,
+    NOT_IN_THIS_FILE.some((line) => line.includes("ask the owner") && line.includes("limited feature")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("suspended")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("one-way hash")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("credentials")),
+    NOT_IN_THIS_FILE.some((line) => line.includes("sign-in log")),
+    // And the list is IN the built file, not only in the module.
+    built.what_is_not_in_this_file.length,
+  ],
+  [9, true, true, true, true, true, 9],
+);
+
+// ------------------------------------- 12b. a failed read is never an empty one
+console.log("\n12b. a failed read is NEVER an empty section -- eight sections, one at a time");
+
+// Each section's read failed in turn. The value must be the refusal shape, the
+// name must be listed, and `complete` must be false. An `[]` here is this app
+// telling somebody their tasks are gone, in a file they keep.
+const failOne = (patch) => buildExport({ ...whole, ...patch });
+
+check(
+  "account: a failed read says so rather than giving an empty address",
+  (() => {
+    const f = failOne({ account: { failed: true } });
+    return [f.account, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["account"]],
+);
+
+check(
+  "profile: a failed read is not 'no nickname'",
+  (() => {
+    const f = failOne({ profile: { failed: true } });
+    return [f.profile, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["profile"]],
+);
+
+check(
+  "ai_suggestions: a failed read is not 'off' -- the same way round as consentState",
+  (() => {
+    const f = failOne({ aiSuggestions: { failed: true } });
+    return [f.ai_suggestions, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, false, ["ai_suggestions"]],
+);
+
+// THE ONE THAT MATTERS MOST: a failed tasks read takes the FILES section with
+// it, because a storage listing is by prefix and a task's prefix is its id --
+// so there is nothing to list and no title to attach a file to. Two names, in
+// the order the sections appear.
+check(
+  "tasks: a failed read empties nothing, and takes the files section with it",
+  (() => {
+    const f = failOne({ tasks: { failed: true, rows: [] } });
+    return [f.tasks, f.files_on_your_tasks, f.complete, f.sections_that_could_not_be_read];
+  })(),
+  [
+    { could_not_be_read: true },
+    { could_not_be_read: true },
+    false,
+    ["tasks", "files_on_your_tasks"],
+  ],
+);
+
+check(
+  "teams: a failed read takes BOTH team sections, because one holds the other's names",
+  (() => {
+    const f = failOne({ teams: { failed: true, rows: [] } });
+    return [
+      f.teams_you_own,
+      f.teams_you_belong_to,
+      f.sections_that_could_not_be_read,
+    ];
+  })(),
+  [
+    { could_not_be_read: true },
+    { could_not_be_read: true },
+    ["teams_you_own", "teams_you_belong_to"],
+  ],
+);
+
+check(
+  "memberships: a failed read takes ONLY the belong-to section",
+  (() => {
+    const f = failOne({ memberships: { failed: true, rows: [] } });
+    return [
+      Array.isArray(f.teams_you_own),
+      f.teams_you_belong_to,
+      f.sections_that_could_not_be_read,
+    ];
+  })(),
+  [true, { could_not_be_read: true }, ["teams_you_belong_to"]],
+);
+
+check(
+  "invitations: a failed read is not 'you sent none'",
+  (() => {
+    const f = failOne({ invitations: { failed: true, rows: [] } });
+    return [f.invitations_you_sent, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, ["invitations_you_sent"]],
+);
+
+check(
+  "files: a failed listing is not 'you attached nothing', even with the tasks read fine",
+  (() => {
+    const f = failOne({ files: { failed: true } });
+    return [f.files_on_your_tasks, f.sections_that_could_not_be_read];
+  })(),
+  [{ could_not_be_read: true }, ["files_on_your_tasks"]],
+);
+
+// EVERY READ FAILING is still a file, and it says so eight times over. A route
+// that refused outright here would hand somebody nothing to act on.
+check(
+  "all eight at once: eight names, and a file that says it is not complete",
+  (() => {
+    const f = buildExport({
+      ...whole,
+      account: { failed: true },
+      profile: { failed: true },
+      aiSuggestions: { failed: true },
+      tasks: { failed: true },
+      teams: { failed: true },
+      memberships: { failed: true },
+      invitations: { failed: true },
+      files: { failed: true },
+    });
+    return [f.sections_that_could_not_be_read.length, f.complete];
+  })(),
+  [8, false],
+);
+
+// THE CONTROL, and it is what makes the eight above mean anything: a read that
+// genuinely found nothing IS an empty list, and the file is still complete.
+// "Nothing to show" and "we could not look" must arrive differently, and this
+// is the half that proves the first one still works.
+check(
+  "a read that found nothing really is empty, and the file is still complete",
+  (() => {
+    const f = buildExport({
+      ...whole,
+      tasks: { failed: false, rows: [] },
+      invitations: { failed: false, rows: [] },
+      memberships: { failed: false, rows: [] },
+      files: { failed: false, listings: [] },
+    });
+    return [f.tasks, f.invitations_you_sent, f.teams_you_belong_to, f.files_on_your_tasks, f.complete];
+  })(),
+  [[], [], [], [], true],
+);
+
+// AND A BOUNDED SWEEP SAYS WHAT IT DROPPED. listFilesForExport stops at 200
+// tasks, and a file that stopped short must not read as "you have no other
+// files" -- which is the same rule as the eight above, applied to a ceiling
+// rather than to a failure.
+check(
+  "a listing that stopped short says how many tasks it did not list, and is not complete",
+  (() => {
+    const f = failOne({ files: { ...whole.files, tasksNotListed: 7 } });
+    return [f.tasks_whose_files_were_not_listed, f.complete];
+  })(),
+  [7, false],
+);
+
+// ------------------------------------------- 12c. only this person's own rows
+console.log("\n12c. only rows this person created, checked on the rows and not only in the query");
+
+check("their own task is kept", ownRowsOnly([MINE], ME).length, 1);
+
+// THE ROW THE POLICY WOULD HAND OVER. The SELECT policy on `tasks` returns
+// every task in every team you belong to, written by anybody, so this is not a
+// hypothetical shape -- it is what comes back if the query's `.eq("owner_id")`
+// is ever removed.
+check("A TEAM MATE'S TASK IS DROPPED, which the policy alone would not do", ownRowsOnly([MINE, THEIRS], ME).length, 1);
+
+// PR 4 of docs/plan.md makes `tasks.owner_id` nullable, so a task written by
+// somebody who has deleted their account stays in its team as "Former member".
+// It is somebody else's row and it is nobody's to export.
+check(
+  "a task with NO owner at all is dropped -- the shape PR 4 introduces",
+  ownRowsOnly([{ ...MINE, owner_id: null }], ME).length,
+  0,
+);
+
+check("an undefined owner is dropped too", ownRowsOnly([{ ...MINE, owner_id: undefined }], ME).length, 0);
+check("a failed read is not an array, so nothing comes back", ownRowsOnly(null, ME), []);
+check("neither is an object", ownRowsOnly({ rows: [MINE] }, ME), []);
+check("no id to compare against means nothing comes back", ownRowsOnly([MINE], ""), []);
+check("an id that is not a string means nothing comes back", ownRowsOnly([MINE], 7), []);
+check("a row that is not an object is dropped", ownRowsOnly(["Collect the keys", null, 7], ME), []);
+
+// And the whole file, through the real path rather than through the guard alone.
+check(
+  "the built file holds one task and it is theirs",
+  (() => {
+    const f = failOne({ tasks: { failed: false, rows: [MINE, THEIRS] } });
+    return [f.tasks.length, f.tasks[0].title];
+  })(),
+  [1, "Collect the keys"],
+);
+
+check(
+  "and a team mate's title appears NOWHERE in the file, not even on a file's on_task",
+  JSON.stringify(
+    failOne({ tasks: { failed: false, rows: [MINE, THEIRS] } }),
+  ).includes("Carol wrote this one"),
+  false,
+);
+
+// ------------------------------- 12d. nothing it was not asked for, and no ids
+console.log("\n12d. nothing this file was not asked for: no credential, no column, no uuid");
+
+// EVERY FIELD IS WRITTEN OUT BY NAME AND NOTHING IS SPREAD, and this is the
+// check that holds it. The rows below carry what the real queries' tables carry
+// and a few things they do not -- a token hash above all, which
+// docs/deletion.md section 11.3 names first among what must stay out.
+const noisy = buildExport({
+  ...whole,
+  profile: {
+    failed: false,
+    row: {
+      display_name: "Alice",
+      created_at: "2026-10-02T00:00:00Z",
+      user_id: ME,
+      ai_suggestions_enabled: true,
+      ai_suggestions_changed_at: "2026-10-08T00:00:00Z",
+    },
+  },
+  tasks: { failed: false, rows: [{ ...MINE, secret_column: "SHOULD-NOT-TRAVEL" }] },
+  invitations: {
+    failed: false,
+    rows: [
+      {
+        ...whole.invitations.rows[0],
+        id: "66666666-6666-6666-6666-666666666666",
+        token_hash: "a".repeat(64),
+        invited_by: ME,
+        accepted_at: null,
+      },
+    ],
+  },
+});
+
+const noisyText = JSON.stringify(noisy);
+
+check(
+  "a token hash, a column nobody asked for, and every id are all absent",
+  [
+    noisyText.includes("token_hash"),
+    noisyText.includes("a".repeat(64)),
+    noisyText.includes("secret_column"),
+    noisyText.includes("SHOULD-NOT-TRAVEL"),
+    noisyText.includes("invited_by"),
+    noisyText.includes("accepted_at"),
+    noisyText.includes("ai_suggestions_enabled"),
+    noisyText.includes("user_id"),
+    noisyText.includes("owner_id"),
+  ],
+  [false, false, false, false, false, false, false, false, false],
+);
+
+// NO UUID GOES IN THE FILE -- not a task id, not a team id, not the person's
+// own. docs/deletion.md asks for a task's team by NAME, and once that is true
+// for one id it may as well be true for all of them: a file somebody keeps for
+// years should read as their own list rather than as a database extract.
+//
+// The rows above carry FIVE different uuids between them, so this is a real
+// test of the assembly and not of an empty object.
+check(
+  "and not one uuid anywhere in the file, in any field",
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(noisyText),
+  false,
+);
+
+// The one address in the file that is not the person's own is there ON PURPOSE:
+// decision 8a, 2026-10-12. They typed it, and My teams already shows it to
+// them -- and leaving it out would hide from somebody the one piece of other
+// people's data they themselves put into this app.
+check(
+  "the invited address IS in the file -- decision 8a -- with the status and the code beside it",
+  [
+    noisy.invitations_you_sent[0].to,
+    noisy.invitations_you_sent[0].status,
+    noisy.invitations_you_sent[0].failure_code,
+    noisy.invitations_you_sent[0].team,
+  ],
+  ["bob@example.invalid", "sent", null, "Tuesday crew"],
+);
+
+// ------------------------------------------------- 12e. the three profile shapes
+console.log("\n12e. the profile has THREE shapes, and the middle one is the ordinary state of a new account");
+
+check(
+  "a row: the nickname, and the date the ROW was made",
+  built.profile,
+  { nickname: "Alice", profile_created_at: "2026-10-02T00:00:00Z" },
+);
+
+// NO ROW IS NOT A FAILURE. An account has no profile until somebody saves a
+// nickname -- there is no trigger on auth.users and display_name is not null
+// with no default (issue #207) -- so this is the ordinary state of a new
+// account, and it must not arrive looking like a failed read.
+check(
+  "no row at all: said as itself, not as a failure and not as an empty nickname",
+  (() => {
+    const f = failOne({ profile: { failed: false, row: null } });
+    return [f.profile, f.complete];
+  })(),
+  [{ there_is_no_profile_row: true }, true],
+);
+
+// AND THE FIELD IS NOT CALLED "when you set your nickname". `profiles` has one
+// `created_at`, which is when the ROW was made; nothing in this app records a
+// later change to a nickname, so a field named for one would be a claim nothing
+// keeps.
+check(
+  "the date's name does not claim to be when the nickname was set",
+  [
+    Object.keys(built.profile),
+    /nickname_(set|changed)/.test(JSON.stringify(built.profile)),
+  ],
+  [["nickname", "profile_created_at"], false],
+);
+
+// -------------------------------------------------- 12f. the setting is a word
+console.log("\n12f. the AI setting is a WORD, so a missing field cannot read as 'off'");
+
+const settingOf = (enabled) =>
+  failOne({ aiSuggestions: { failed: false, enabled, changed_at: null } }).ai_suggestions
+    .setting;
+
+check("true is on", settingOf(true), "on");
+check("false is off", settingOf(false), "off");
+// The string "false" is the shape a boolean column read back as text arrives
+// in, and a truthy test would read it as consent. The same reasoning as
+// consentState and as checkAiConsent in the function.
+check('the STRING "false" is neither, and must not become consent', settingOf("false"), null);
+check('the STRING "true" is neither either', settingOf("true"), null);
+check("nothing at all is neither", settingOf(undefined), null);
+check("null is neither", settingOf(null), null);
+check("a number is neither", settingOf(1), null);
+
+// ------------------------------------------------------- 12g. the file's name
+console.log("\n12g. the download's name: a fixed word and a date, and nothing about the person");
+
+check("the day out of the moment", exportFileName("2026-10-13T10:11:12.000Z"), "team-tasks-export-2026-10-13.json");
+check("a bare date works too", exportFileName("2026-10-13"), "team-tasks-export-2026-10-13.json");
+check("an unusable moment gives the bare name, never one with undefined in it", exportFileName("today"), "team-tasks-export.json");
+check("nothing at all gives the bare name", exportFileName(undefined), "team-tasks-export.json");
+check("a number gives the bare name", exportFileName(1760000000000), "team-tasks-export.json");
+check(
+  "the name carries no path segment, so a Content-Disposition cannot be bent",
+  /[\/\\"\r\n;]/.test(exportFileName("2026-10-13T10:11:12.000Z")),
+  false,
+);
+
+// ---------------------------------------------------------- 12h. the files list
+console.log("\n12h. the files on a task: three fields, a title rather than an id, and folders dropped");
+
+check(
+  "a file, with its size and when it arrived",
+  readExportFiles([{ name: "a.png", id: "x", created_at: "2026-10-06T00:00:00Z", metadata: { size: 1234 } }]),
+  [{ name: "a.png", size_bytes: 1234, uploaded_at: "2026-10-06T00:00:00Z" }],
+);
+check(
+  "A FOLDER IS DROPPED: Supabase marks one with a null id",
+  readExportFiles([{ name: "sub", id: null, metadata: null }]),
+  [],
+);
+check(
+  "a row with no usable name is dropped",
+  readExportFiles([{ id: "x" }, { name: 7, id: "x" }, { name: "  ", id: "x" }]),
+  [],
+);
+check(
+  "an unknown size and an unknown date are null, not a nought and not a guess",
+  readExportFiles([{ name: "a.png", id: "x", metadata: {} }]),
+  [{ name: "a.png", size_bytes: null, uploaded_at: null }],
+);
+check(
+  "sorted by name, so two exports of one task read the same",
+  readExportFiles([
+    { name: "c.png", id: "x", metadata: { size: 1 } },
+    { name: "a.png", id: "x", metadata: { size: 1 } },
+  ]).map((f) => f.name),
+  ["a.png", "c.png"],
+);
+check("a failed listing is not an empty list of files", [readExportFiles(null), readExportFiles({})], [[], []]);
+
+check(
+  "a file says which task it is on BY TITLE, and carries no id",
+  built.files_on_your_tasks,
+  [
+    {
+      name: "receipt.pdf",
+      size_bytes: 2048,
+      uploaded_at: "2026-10-06T00:00:00Z",
+      on_task: "Collect the keys",
+    },
+  ],
+);
+
+// A listing for a task that is not in the tasks section -- which no rule makes
+// reachable, because both reads are the same person's -- is reported rather
+// than guessed at.
+check(
+  "a listing for a task that is not in the file says so with a null rather than an id",
+  failOne({
+    files: {
+      failed: false,
+      listings: [{ taskId: "77777777-7777-7777-7777-777777777777", rows: [{ name: "x.png", id: "o", metadata: {} }] }],
+    },
+  }).files_on_your_tasks[0].on_task,
+  null,
+);
+
+// ------------------------------------------------- 12i. the route, as text
+console.log("\n12i. the route: the caller's own rights, a filter that is load-bearing, and no cache");
+
+// THE CODE ONLY, WITH EVERY COMMENT REMOVED, and that is not tidiness -- it is
+// the fix for a mistake this check made on its first run and that this
+// repository has now made FOUR times in two pull requests:
+// `evidence/build-it-26-legal-pages.md` records three, each one a comment or an
+// assertion NAMING THE STRING IT EXISTS TO FORBID.
+//
+// Here it was `token_hash`. The route's own comment says "token_hash IS NOT
+// SELECTED, and would be dropped by buildExport even if it were", which is the
+// explanation of the absence -- and the count found it and called it a presence.
+// So the comments go first, exactly as `longLiterals` above does it, and what is
+// left is what the route actually asks Supabase for.
+const EXPORT_ROUTE_CODE = sentencesOnly(EXPORT_ROUTE);
+
+// NO SERVICE-ROLE KEY, AND NO SECOND CLIENT. The whole feature rests on the
+// policies deciding what comes back, and a key would mean no policy was
+// evaluated at all -- which is issue #240's argument about the upload path,
+// arriving at the one place in this app that reads everything about somebody.
+check(
+  "no secret key, no service role, and no client built with one",
+  [
+    count(EXPORT_ROUTE_CODE, "service_role"),
+    count(EXPORT_ROUTE_CODE, "SERVICE_ROLE"),
+    count(EXPORT_ROUTE_CODE, "createServerClient"),
+    count(EXPORT_ROUTE_CODE, "createSupabaseClient"),
+    // The one client it uses is the request's own.
+    count(EXPORT_ROUTE_CODE, 'from "@/lib/supabase/server"'),
+  ],
+  [0, 0, 0, 0, 1],
+);
+
+// THE FILTER IS LOAD-BEARING, and the second lock is in export-data.ts. Both are
+// required here, so removing either turns this red.
+//
+// `.eq("user_id", userId)` IS TWO, not one, and that number was wrong on this
+// check's first run. The two are `profiles` -- where it narrows a table whose
+// policy also lets a team mate's row through -- and `team_members`, where the
+// policy already says `auth.uid() = user_id` and the filter is belt and braces.
+// Counting them as one would have let a later change delete either.
+check(
+  "every read is narrowed to this person: owner_id, invited_by, and user_id TWICE",
+  [
+    count(EXPORT_ROUTE_CODE, '.eq("owner_id", userId)'),
+    count(EXPORT_ROUTE_CODE, '.eq("invited_by", userId)'),
+    count(EXPORT_ROUTE_CODE, '.eq("user_id", userId)'),
+  ],
+  [1, 1, 2],
+);
+
+check(
+  "a suspended account is refused, and an unreadable check is NOT a yes",
+  [
+    count(EXPORT_ROUTE_CODE, '"is_active"'),
+    // The error branch comes BEFORE the value branch, so an unknown cannot fall
+    // through to the data. Compared by position, which is the only way to say
+    // "first" about source.
+    EXPORT_ROUTE_CODE.indexOf("activeError") <
+      EXPORT_ROUTE_CODE.indexOf("activeData !== true"),
+    // And it is `!== true`, not a truthy test.
+    count(EXPORT_ROUTE_CODE, "activeData !== true"),
+  ],
+  [1, true, 1],
+);
+
+// NEVER A STAR, AND NEVER THE TWO CLOSED COLUMNS. After the consent migration a
+// `select *` on `profiles` by a signed-in caller fails outright, and no client
+// role may even name `ai_suggestions_enabled`.
+check(
+  "no select star anywhere, and neither consent column nor a token hash is ever named",
+  [
+    count(EXPORT_ROUTE_CODE, 'select("*")'),
+    count(EXPORT_ROUTE_CODE, "ai_suggestions_enabled"),
+    count(EXPORT_ROUTE_CODE, "ai_suggestions_changed_at"),
+    count(EXPORT_ROUTE_CODE, "token_hash"),
+    // The setting comes from the function, which takes no arguments.
+    count(EXPORT_ROUTE_CODE, '"my_ai_suggestions"'),
+  ],
+  [0, 0, 0, 0, 1],
+);
+
+// IT WRITES NOTHING. The export is a read, decision 9 says it is not counted,
+// and nothing in it may change a row -- which is worth asserting rather than
+// reading, because a download that quietly wrote something would be the one
+// place nobody would look.
+check(
+  "the route writes nothing at all: no insert, update, delete or count",
+  [
+    count(EXPORT_ROUTE_CODE, ".insert("),
+    count(EXPORT_ROUTE_CODE, ".update("),
+    count(EXPORT_ROUTE_CODE, ".delete("),
+    count(EXPORT_ROUTE_CODE, ".upsert("),
+    count(EXPORT_ROUTE_CODE, "count_daily_use"),
+  ],
+  [0, 0, 0, 0, 0],
+);
+
+// AND NOTHING KEEPS A COPY. This body is everything this app holds about one
+// person; `no-store` is not a performance setting here.
+check(
+  "the answer is a download that nothing between here and the browser may keep",
+  [
+    count(EXPORT_ROUTE_CODE, "content-disposition"),
+    count(EXPORT_ROUTE_CODE, "attachment; filename="),
+    count(EXPORT_ROUTE_CODE, "no-store"),
+    count(EXPORT_ROUTE_CODE, "nosniff"),
+    count(EXPORT_ROUTE_CODE, "exportFileName(generatedAt)"),
+  ],
+  [1, 1, 1, 1, 1],
+);
+
+// ------------------------------------------------ 12j. the screen, and the path
+console.log("\n12j. the screen: one file of sentences, a link rather than a button, and a private path");
+
+// THE PATH IS NOT PUBLIC, and this is the half that would fail silently and
+// totally: `/settings` is absent from PUBLIC_PATHS, so `/settings/export` is
+// behind the proxy's sign-in check. A later change adding "/settings" to that
+// list would open this download to a signed-out visitor, and the route's own
+// getClaims() is the backstop rather than the control.
+check(
+  "the export path is under /settings and /settings is not public",
+  [
+    EXPORT_PATH,
+    count(PROXY_SOURCE, '  "/settings",'),
+    count(PROXY_SOURCE, '"/settings/export"'),
+  ],
+  ["/settings/export", 0, 0],
+);
+
+// Every sentence comes from the module, and the page holds none of its own --
+// the same shape as the two legal pages and as TURNSTILE_WORDS.
+check(
+  "the settings page draws the export's words from the module and spells none of them",
+  [
+    count(SETTINGS_PAGE, "EXPORT_WORDS.map("),
+    count(SETTINGS_PAGE, 'from "@/lib/export-data"'),
+    EXPORT_WORDS.some((sentence) => SETTINGS_PAGE.includes(sentence)),
+    // The heading and the label come from the module too.
+    count(SETTINGS_PAGE, "{EXPORT_HEADING}"),
+    count(SETTINGS_PAGE, "{EXPORT_LINK_LABEL}"),
+    SETTINGS_PAGE.includes(EXPORT_HEADING) && !SETTINGS_PAGE.includes("{EXPORT_HEADING}") ? 1 : 0,
+  ],
+  [1, 1, false, 1, 1, 0],
+);
+
+// A LINK, NOT A FORM. The whole reason the export is a route handler is that a
+// GET answering with a Content-Disposition header needs NO JAVASCRIPT.
+// A LINK, NOT A FORM, AND THE CHECK IS ABOUT THE EXPORT AND NOT ABOUT THE PAGE.
+//
+// Its first version counted the forms on this page and required exactly one,
+// which was true for an afternoon: Build it 26 added a second (the deletion),
+// and the check went red over something that was right. The question it was
+// trying to ask is "is the export reached by a GET rather than by a post", so
+// that is what it asks now -- the export's path is in an `href` and in no
+// `action`.
+check(
+  "the export is an anchor to the route, and its path is in no form action",
+  [
+    count(SETTINGS_PAGE, "href={EXPORT_PATH}"),
+    count(SETTINGS_PAGE, "action={EXPORT_PATH}"),
+    count(SETTINGS_PAGE, 'action="/settings/export"'),
+    SETTINGS_PAGE.includes("download>"),
+  ],
+  [1, 0, 0, true],
+);
+
+check("four sentences, and a heading and a label beside them", [EXPORT_WORDS.length, EXPORT_HEADING, EXPORT_LINK_LABEL], [4, "Your data", "Download my data"]);
+
+// AND NOT ONE OF THEM CARRIES A MANGLED CHARACTER, which is here because it
+// HAPPENED while this change was being written.
+//
+// A PowerShell `Get-Content | Set-Content -Encoding utf8` round trip read the
+// module's UTF-8 bytes as the system codepage and wrote them back, turning the
+// em dash in `EXPORT_WORDS[2]` into `â€”` -- and it was COMMITTED, because every
+// check over that sentence tested a substring that stopped before the dash.
+//
+// `â€` is the tell: it is what the first two bytes of a UTF-8 punctuation
+// character become when they are read as Windows-1252. Checked across all three
+// kinds of string a person reads, not only the four sentences, because the
+// mistake is about how a file was written and not about which line it hit.
+check(
+  "no sentence carries a mangled character from an encoding round trip",
+  [
+    EXPORT_WORDS.filter((s) => s.includes("â€")).length,
+    NOT_IN_THIS_FILE.filter((s) => s.includes("â€")).length,
+    Object.values(EXPORT_REFUSAL_SENTENCES).filter((s) => s.includes("â€")).length,
+    // And the whole module, so a comment cannot carry one either -- a mangled
+    // character in a comment is the signal that the file was written wrongly,
+    // and the next edit may land on a sentence.
+    count(readFileSync(resolve(LIB, "export-data.ts"), "utf8"), "â€"),
+    count(LEGAL_SOURCE, "â€"),
+    // AND THE DELETION'S WORDS, added with Build it 26. They carry curly quotes
+    // and em dashes in the sentence somebody reads before pressing the one
+    // button that cannot be undone, which is the worst place in this app for a
+    // character that looks like a mistake.
+    count(readFileSync(resolve(LIB, "account-deletion.ts"), "utf8"), "â€"),
+  ],
+  [0, 0, 0, 0, 0, 0],
+);
+
+// THE SENTENCE THAT IS NOT OBVIOUS. Every row in the file is something this
+// person can already read on a screen; what is new is that they are gathered
+// into one artefact that can be forwarded. docs/deletion.md section 11.4 says
+// so in those terms, and the screen has to say it where somebody is deciding.
+check(
+  "the words say what the file does not hold, and that it gathers everything into one place",
+  [
+    EXPORT_WORDS.some((s) => s.includes("deliberately not in it")),
+    EXPORT_WORDS.some((s) => s.includes("one place") && s.includes("keep it carefully")),
+    EXPORT_WORDS.some((s) => s.includes("not even you")),
+    // AND NO SENTENCE CLAIMS IT IS EVERYTHING, which decisions 8b, 8c and 8d
+    // make untrue.
+    EXPORT_WORDS.some((s) => /everything (this app|we) hold/i.test(s)),
+  ],
+  [true, true, true, false],
+);
+
+// ------------------------------------------------- 12k. the two refusals
+console.log("\n12k. the two refusals: a code this app wrote, and never a message");
+
+check("the two codes", [EXPORT_REFUSED, EXPORT_UNKNOWN], ["exportrefused", "exportunknown"]);
+check("a suspended caller gets the sentence create-team already gives one", exportRefusalSentence(EXPORT_REFUSED), "You can't do that at the moment.");
+check("an unreadable check says so, and says nothing was downloaded", exportRefusalSentence(EXPORT_UNKNOWN).includes("nothing was downloaded"), true);
+check("trimmed, because a code arrives out of a URL", exportRefusalSentence("  exportrefused  "), "You can't do that at the moment.");
+// NULL FOR ANYTHING THIS APP DID NOT WRITE, which is what stops a crafted
+// `/settings?problem=` printing chosen words on this site -- the hole
+// web/src/app/teams/page.tsx had and closed.
+check("a code this app did not write shows nothing at all", exportRefusalSentence("anything-else"), null);
+check("and neither does a sentence passed as the code", exportRefusalSentence("You have been hacked, telephone this number"), null);
+check("nor a non-string", [exportRefusalSentence(undefined), exportRefusalSentence(["exportrefused"])], [null, null]);
+
+// NOT ONE WORD SUPABASE, POSTGRES OR CLOUDFLARE CHOSE. Derived from the table
+// rather than written out, so a sentence added later is covered.
+check(
+  "neither sentence names a company, a status, a code or a table",
+  Object.values(EXPORT_REFUSAL_SENTENCES).filter((sentence) =>
+    /supabase|postgres|storage|rpc|42501|403|500|is_active|account_status|usage_counts|service_role/i.test(
+      sentence,
+    ),
+  ),
+  [],
+);
+
+// =========================================================================
+// 13. Deleting an account -- Build it 26
+// =========================================================================
+//
+// WHAT THIS SECTION IS FOR. The deletion is the only irreversible thing in this
+// app, and the two ways it can be wrong are not symmetrical:
+//
+//   TOO MUCH   somebody else's work destroyed. Decision 1 of 2026-10-12 keeps a
+//              task the person wrote in SOMEBODY ELSE'S team, and
+//              `20261002133637_tasks_join_teams.sql` already chose `set null`
+//              over `cascade` so that "Carol losing her own task because Alice
+//              closed her account" cannot happen. The plan of the deletion is a
+//              pure function and this is where it is asked.
+//   TOO LITTLE a button that destroys on one click, or a warning that names
+//              nothing. "A deletion that names nothing is a deletion nobody can
+//              consent to", and a count this app could not read drawn as a 0 is
+//              the worst `0` in the whole app.
+//
+// THE PLAN ITSELF IS CHECKED BY THE DENO TESTS, not here:
+// supabase/functions/_tests/delete_account_test.ts imports the real
+// `splitTasks`, `tasksToDelete`, `confirmed` and `namesOf` out of the function
+// and asks them 17 questions. This section is the SCREEN'S half -- the words,
+// the two steps, the path, and the sentences a refusal earns.
+console.log(
+  "\n13. deleting an account -- the warning names things, and one click is not a confirmation",
+);
+
+const DELETE_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "delete-account", "page.tsx"),
+  "utf8",
+);
+// The settings action is already read as text by section 4b, where
+// SETTINGS_ACTIONS is declared. Same file, so no second copy of it in memory.
+const HOME_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "page.tsx"),
+  "utf8",
+);
+// LINE ENDINGS ARE NORMALISED, and that is a finding rather than tidiness: two
+// of these checks matched on a multi-line literal and went red the moment git
+// re-checked the file out with CRLF. A check that passes on Linux and fails on
+// Windows is a check that would turn somebody's pull request red for a reason
+// that has nothing to do with what it tests -- the exact failure
+// `web/tests/staging.mjs` guards against beside `signIn`.
+const DELETE_FUNCTION = readFileSync(
+  resolve(HERE, "..", "supabase", "functions", "delete-account", "index.ts"),
+  "utf8",
+).replace(/\r\n/g, "\n");
+const DELETE_FUNCTION_CODE = sentencesOnly(DELETE_FUNCTION);
+
+// ------------------------------------------- 13a. one click is not a confirmation
+console.log("\n13a. the typed phrase: one click is not a confirmation");
+
+check(
+  "the phrase, trimmed and in any case",
+  [
+    phraseMatches(CONFIRM_PHRASE),
+    phraseMatches(`  ${CONFIRM_PHRASE}  `),
+    phraseMatches(CONFIRM_PHRASE.toUpperCase()),
+    phraseMatches("Delete My Account"),
+  ],
+  [true, true, true, true],
+);
+
+// THE SHAPES A SINGLE CLICK WOULD SEND. A truthy check would take every one.
+check(
+  "and nothing else is one: a boolean, a number, 'yes', or the phrase with more after it",
+  [
+    phraseMatches(true),
+    phraseMatches(1),
+    phraseMatches("yes"),
+    phraseMatches("ok"),
+    phraseMatches(`${CONFIRM_PHRASE} please`),
+    phraseMatches(""),
+    phraseMatches(undefined),
+    phraseMatches(null),
+    phraseMatches([CONFIRM_PHRASE]),
+  ],
+  [false, false, false, false, false, false, false, false, false],
+);
+
+// AND THE FUNCTION CHECKS IT AGAIN, which is the check that counts: a screen can
+// be skipped. The two spell the phrase separately -- the function is Deno code
+// nothing in web/ can import -- so this is the only thing that would notice a
+// drift between them.
+check(
+  "the function holds the SAME phrase, compared across the language boundary",
+  [
+    count(DELETE_FUNCTION_CODE, `"${CONFIRM_PHRASE}"`),
+    // And it compares it the same way: trimmed and case-folded, not truthily.
+    has(DELETE_FUNCTION_CODE, "trim().toLowerCase() === CONFIRM_PHRASE"),
+  ],
+  [1, true],
+);
+
+// ------------------------------------------- 13b. the warning names things
+console.log("\n13b. the warning: counts, every team by name, and no 0 it does not know");
+
+const WARNED = deletionWarning({ tasks: 3, files: 2, teams: ["Tuesday crew"] });
+
+check(
+  "it says it cannot be undone, what goes, what stays, the fortnight and what cannot be recalled",
+  [
+    WARNED.some((s) => s.includes("cannot be undone")),
+    WARNED.some((s) => s.includes("3 tasks")),
+    WARNED.some((s) => s.includes("2 files")),
+    WARNED.some((s) => s.includes("Former member")),
+    WARNED.some((s) => s.includes("about a fortnight")),
+    WARNED.some((s) => s.includes("cannot be recalled")),
+    // AND THE TEAMS SENTENCE ONLY WHEN THERE IS A TEAM.
+    WARNED.some((s) => s.includes("Each team below is deleted")),
+  ],
+  [true, true, true, true, true, true, true],
+);
+
+check(
+  "one task and one file are singular, because a warning that says '1 tasks' reads as a bug",
+  (() => {
+    const one = deletionWarning({ tasks: 1, files: 1, teams: [] });
+    return [
+      one.some((s) => s.includes("1 task of yours")),
+      one.some((s) => s.includes("1 file on your tasks")),
+      // No team, so no sentence about teams going.
+      one.some((s) => s.includes("Each team below is deleted")),
+    ];
+  })(),
+  [true, true, false],
+);
+
+// A COUNT THIS APP COULD NOT READ IS SAID, NEVER DRAWN AS A NOUGHT. Build it
+// 19's rule applied to the sentence somebody reads before pressing the one
+// button that cannot be undone -- and this is the worst `0` in the app, because
+// "0 tasks will be deleted" over an unreadable count invites somebody to press
+// it believing they are losing nothing.
+check(
+  "an unreadable count says so, and a 0 appears nowhere in those sentences",
+  (() => {
+    const unknown = deletionWarning({ tasks: null, files: null, teams: null });
+    const said = unknown.join(" ");
+    return [
+      said.includes("could not count your tasks"),
+      said.includes("could not count your files"),
+      said.includes("could not read your teams"),
+      /\b0 (tasks|files)\b/.test(said),
+    ];
+  })(),
+  [true, true, true, false],
+);
+
+check(
+  "a real nought is still a nought, so the sentence above is about an UNKNOWN and not about nothing",
+  (() => {
+    const none = deletionWarning({ tasks: 0, files: 0, teams: [] });
+    const said = none.join(" ");
+    return [said.includes("0 tasks of yours"), said.includes("could not count")];
+  })(),
+  [true, false],
+);
+
+// AND IT NAMES NO PERSON AND NO ADDRESS. docs/deletion.md section 5: "It must
+// not name the other members, and it must not name anybody's address."
+check(
+  "no sentence in the warning names a member, a nickname or an address",
+  [
+    /@/.test(WARNED.join(" ")),
+    /member's name|nicknames|their email/i.test(WARNED.join(" ")),
+  ],
+  [false, false],
+);
+
+// ------------------------------------------- 13c. two steps, and a POST
+console.log("\n13c. two steps on the screen, and a destruction that a link cannot reach");
+
+check(
+  "the card draws a link first and the warning only on ?delete=1",
+  [
+    count(SETTINGS_PAGE, '"/settings?delete=1"'),
+    count(SETTINGS_PAGE, 'wantsDelete === "1"'),
+    // The form, the typed box and the button are inside the branch.
+    count(SETTINGS_PAGE, "action={deleteAccount}"),
+    count(SETTINGS_PAGE, "deletionWarning(deletion)"),
+  ],
+  [1, 1, 1, 1],
+);
+
+// A SERVER ACTION AND NOT A ROUTE, which is the opposite of the export one card
+// above -- and deliberately. An export is a GET somebody may repeat; this must
+// be a POST that a link, a prefetch or a mail scanner cannot reach.
+check(
+  "it is an action, and there is no GET route that could delete anything",
+  [
+    count(SETTINGS_ACTIONS, "export async function deleteAccount"),
+    count(SETTINGS_ACTIONS, "export async function GET"),
+    // The press is authorised by the identifier, never by the label.
+    count(SETTINGS_ACTIONS, "BUTTON_IDS.accountDelete"),
+    // And the phrase is checked before anything is invoked.
+    SETTINGS_ACTIONS.indexOf("phraseMatches(typed)") <
+      SETTINGS_ACTIONS.indexOf('functions.invoke("delete-account"'),
+  ],
+  [1, 0, 1, true],
+);
+
+// NOTHING ABOUT WHO IS ASKING IS IN THE BODY. `invoke` sends the signed-in
+// person's token, and the function takes the id from that verified token -- so a
+// signed-in person cannot delete somebody else's account by editing a form.
+// THE BODY, AND ONLY THE BODY. The first version of this counted
+// `user_id: userId` across the whole file and went red on the CONSENT action's
+// insert, which has to carry one -- a check about one request reading another
+// one's. So it reads the invoke call itself: the body is `{ confirm }` and has
+// exactly one field.
+check(
+  "the request body carries the phrase and nothing about who is asking",
+  (() => {
+    const call = /invoke\("delete-account",\s*\{([\s\S]*?)\}\s*\);/.exec(
+      SETTINGS_ACTIONS,
+    );
+    const body = call === null ? "" : call[1];
+    return [
+      call !== null,
+      body.includes("confirm: CONFIRM_PHRASE"),
+      /user_id|userId|\bid\b|email/.test(body),
+    ];
+  })(),
+  [true, true, false],
+);
+
+// ------------------------------------------- 13d. the function's own two checks
+console.log("\n13d. the fifth door keeps the suspension check, and the key is used once");
+
+check(
+  "it is the fifth door and it checks account_status like the other four",
+  [
+    count(DELETE_FUNCTION_CODE, 'from("account_status")'),
+    // TWO, not three: the exported function and the one call. The type is named
+    // only in comments, which are stripped.
+    count(DELETE_FUNCTION_CODE, "checkSuspension"),
+    // BEFORE the body is parsed, which is where the other four put it too.
+    DELETE_FUNCTION_CODE.indexOf("checkSuspension(() =>") <
+      DELETE_FUNCTION_CODE.indexOf("await req.json()"),
+    // AND IT DOES NOT CALL is_active(), which would be false for every caller on
+    // an admin connection -- the trap create-team's header spells out.
+    count(DELETE_FUNCTION_CODE, "is_active"),
+  ],
+  [1, 2, true, 0],
+);
+
+// THE SECRET KEY IS USED EXACTLY TWICE, and both are things no policy can
+// express: removing an invitation addressed to the caller (that table has no
+// delete policy at all) and removing the auth.users row. Everything else is the
+// caller's own rights, which is docs/deletion.md's own decision.
+check(
+  "supabaseAdmin twice, and the rest of the work is the caller's own rights",
+  [
+    count(DELETE_FUNCTION_CODE, "ctx.supabaseAdmin"),
+    count(DELETE_FUNCTION_CODE, "auth.admin.deleteUser"),
+    // The caller's client does the reads, the task deletes and every storage walk.
+    count(DELETE_FUNCTION_CODE, "ctx.supabase\n") +
+      count(DELETE_FUNCTION_CODE, "ctx.supabase.") +
+      count(DELETE_FUNCTION_CODE, "ctx.supabase,") >
+      3,
+    // A HARD DELETE: the second argument is omitted, and the installed client
+    // documents it as defaulting to false.
+    count(DELETE_FUNCTION_CODE, "deleteUser(\n      callerId,\n    )"),
+  ],
+  [3, 1, true, 1],
+);
+
+// THE ORDER IS FORCED, NOT PREFERRED, and this is the one check in this section
+// that is about a sequence rather than a value. Files before tasks, because a
+// SQL delete cannot remove a file; tasks before the login, because the right to
+// delete a file on a task comes FROM the task.
+check(
+  "files, then tasks, then the login -- in that order in the source",
+  (() => {
+    const files = DELETE_FUNCTION_CODE.indexOf("clearFolder(ctx.supabase");
+    const tasks = DELETE_FUNCTION_CODE.indexOf('.from("tasks")\n        .delete()');
+    const login = DELETE_FUNCTION_CODE.indexOf("auth.admin.deleteUser");
+    return [files > 0, files < tasks, tasks < login];
+  })(),
+  [true, true, true],
+);
+
+// AND THE INVITATIONS ADDRESSED TO THEM, which do NOT cascade: they are keyed by
+// an ADDRESS. Without this step the app keeps the email address of somebody who
+// has just left -- the one thing in the whole operation that would be a retained
+// personal detail rather than an unreachable row.
+check(
+  "invitations addressed to the caller are removed, by an address from the VERIFIED token",
+  [
+    count(DELETE_FUNCTION_CODE, 'from("invitations")'),
+    has(DELETE_FUNCTION_CODE, "ctx.userClaims?.email"),
+    // Lowercased, because the column is stored lowercase and carries a
+    // constraint saying so.
+    has(DELETE_FUNCTION_CODE, "trim().toLowerCase()"),
+  ],
+  [1, true, true],
+);
+
+// ------------------------------------------- 13e. the refusals
+console.log("\n13e. the refusals: a code this app wrote, and never a message");
+
+check("the eight codes", DELETE_CODES, [
+  "phrase",
+  "button",
+  "suspended",
+  "toomany",
+  "files",
+  "login",
+  "failed",
+  "unreachable",
+]);
+
+check(
+  "each of the function's codes maps to one of them, and nothing else does",
+  [
+    deleteOutcome({ reached: true, status: 403, code: "account_suspended" }),
+    deleteOutcome({ reached: true, status: 400, code: "not_confirmed" }),
+    deleteOutcome({ reached: true, status: 409, code: "too_much_to_scan" }),
+    deleteOutcome({ reached: true, status: 500, code: "files_not_cleared" }),
+    deleteOutcome({ reached: true, status: 500, code: "login_not_deleted" }),
+    deleteOutcome({ reached: true, status: 500 }),
+    deleteOutcome({ reached: false }),
+    // A code this app did not write falls to the sentence that claims nothing.
+    deleteOutcome({ reached: true, status: 500, code: "something_else" }),
+  ],
+  [
+    "suspended",
+    "phrase",
+    "toomany",
+    "files",
+    "login",
+    "failed",
+    "unreachable",
+    "failed",
+  ],
+);
+
+// THE SUSPENDED REFUSAL POINTS SOMEWHERE, which is decision 7's other half: the
+// request page is a suspended person's ONLY route, so a refusal that pointed
+// nowhere would be the shape docs/plan.md calls a refusal nobody can act on.
+check(
+  "the suspended and too-many sentences both point at the request page",
+  [
+    DELETE_SENTENCES.suspended.includes(REQUEST_PATH),
+    DELETE_SENTENCES.toomany.includes(REQUEST_PATH),
+    // AND THE ONE THAT ADMITS SOMETHING HAPPENED does not say "nothing was
+    // deleted", because that would be false: everything but the login has gone.
+    DELETE_SENTENCES.login.includes("were removed"),
+    /nothing was deleted/.test(DELETE_SENTENCES.login),
+  ],
+  [true, true, true, false],
+);
+
+check(
+  "not one sentence names a company, a status, a table or a code",
+  Object.values(DELETE_SENTENCES).filter((sentence) =>
+    /supabase|postgres|storage|auth\.users|account_status|42501|403|500|service_role|rpc/i.test(
+      sentence,
+    ),
+  ),
+  [],
+);
+
+check(
+  "and a code this app did not write draws nothing at all",
+  [
+    deleteSentence("anything-else"),
+    deleteSentence("You have been hacked, telephone this number"),
+    deleteSentence(undefined),
+    deleteSentence(["phrase"]),
+  ],
+  [null, null, null, null],
+);
+
+// ------------------------------------------- 13f. the request page, and the path
+console.log("\n13f. the request page: public, no form, and one address");
+
+check(
+  "the path is public, and that is what the page is FOR",
+  [
+    count(PROXY_SOURCE, '  "/delete-account",'),
+    count(DELETE_PAGE, 'from "@/lib/account-deletion"'),
+    // NO FORM AT ALL -- decision 10. No form element, no action, no input.
+    count(DELETE_PAGE, "<form"),
+    count(DELETE_PAGE, "action="),
+    count(DELETE_PAGE, "<input"),
+    // One mailto and nothing else that posts anywhere.
+    count(DELETE_PAGE, "mailto:"),
+  ],
+  [1, 1, 0, 0, 0, 1],
+);
+
+check(
+  "the page holds no sentence of its own, and the address is one constant compared with legal.ts's",
+  [
+    longLiterals(DELETE_PAGE),
+    REQUEST_ADDRESS,
+    count(LEGAL_SOURCE, REQUEST_ADDRESS),
+    count(DELETE_PAGE, "@raj-dhonota.com"),
+  ],
+  [0, "dp@raj-dhonota.com", 1, 0],
+);
+
+check(
+  "and it says the request must come from the address on the account, which is the only control there is",
+  [
+    REQUEST_WORDS.some((s) => s.includes("from the email address on the account")),
+    REQUEST_WORDS.some((s) => s.includes("anybody who knew your address")),
+    // The invited-but-never-signed-up person, who has no other way to be heard.
+    REQUEST_WORDS.some((s) => s.includes("invited to a team and never signed up")),
+    // And that it is a person, not a button.
+    REQUEST_WORDS.some((s) => s.includes("not a button")),
+  ],
+  [true, true, true, true],
+);
+
+// ------------------------------------------- 13g. afterwards
+console.log("\n13g. afterwards: signed out, and one sentence on the only page left");
+
+check(
+  "the action signs out and sends them to the home page, which is public",
+  [
+    count(SETTINGS_ACTIONS, "auth.signOut()"),
+    count(SETTINGS_ACTIONS, 'redirect("/?deleted=1")'),
+    // scope is left at the default: a global sign-out is pointless once the
+    // login row is gone, and issue #150 records what one cost.
+    count(SETTINGS_ACTIONS, "scope: \"global\""),
+  ],
+  [1, 1, 0],
+);
+
+check(
+  "the home page draws ONE fixed sentence for ?deleted=1, and nothing from the address bar",
+  [
+    count(HOME_PAGE, 'deleted === "1"'),
+    count(HOME_PAGE, "{ACCOUNT_DELETED}"),
+    // The sentence lives in the module, not in the page.
+    HOME_PAGE.includes(ACCOUNT_DELETED),
+    // AND IT REPEATS THE FORTNIGHT, which docs/plan.md requires this build to
+    // tell somebody -- at the moment they are most likely to read it. "Your
+    // account is deleted" alone would be a true-sounding word that misleads.
+    ACCOUNT_DELETED.includes("about a fortnight"),
+  ],
+  [1, 1, false, true],
+);
+
+// ------------------------------------------- 13h. the migration
+console.log("\n13h. the migration: five changes, and nothing that deletes anything");
+
+const DELETION_MIGRATION_SOURCE = readFileSync(
+  resolve(
+    HERE,
+    "..",
+    "supabase",
+    "migrations",
+    "20261013140000_account_deletion.sql",
+  ),
+  "utf8",
+);
+
+// THE STATEMENTS ONLY, WITH EVERY `--` COMMENT REMOVED, and this is the FIFTH
+// time in three pull requests that a comment has tripped a check it was
+// describing: `evidence/build-it-26-legal-pages.md` section 8 records three and
+// `evidence/build-it-26-delete-and-export.md` records the fourth. Here it was
+// `is_team_member` -- the migration's own note saying both new policies read
+// `teams.owner_id` DIRECTLY rather than through that function, which the count
+// found and called a use.
+//
+// So the comments go first, exactly as `longLiterals` and `EXPORT_ROUTE_CODE`
+// do it, and what is left is what the database will actually run.
+const DELETION_MIGRATION = DELETION_MIGRATION_SOURCE.split("\n")
+  .filter((line) => !line.trimStart().startsWith("--"))
+  .join("\n");
+
+check(
+  "owner_id becomes nullable and its foreign key becomes set null",
+  [
+    count(DELETION_MIGRATION, "alter column owner_id drop not null"),
+    count(DELETION_MIGRATION, "references auth.users (id) on delete set null"),
+    // THE OLD CONSTRAINT IS FOUND BY WHAT IT IS, NOT BY ITS NAME: the original
+    // was declared inline with no name, so writing one here would be a guess
+    // about this database.
+    has(DELETION_MIGRATION, "from pg_constraint con"),
+    has(DELETION_MIGRATION, "Nothing has been applied."),
+  ],
+  [1, 1, true, true],
+);
+
+check(
+  "the trigger gains the branch without which the deletion is refused outright",
+  [
+    count(DELETION_MIGRATION, "create or replace function public.tasks_enforce_column_rules()"),
+    has(DELETION_MIGRATION, "select 1 from auth.users u where u.id = old.owner_id"),
+    // IT DOES NOT `return new` IN THAT BRANCH: the owner_id guard is FIRST, so
+    // returning there would skip the id and created_at guards, and a cascade's
+    // update must not become a way to change an id.
+    count(DELETION_MIGRATION, "if new.id is distinct from old.id then"),
+    count(DELETION_MIGRATION, "if new.created_at is distinct from old.created_at then"),
+  ],
+  [1, true, 1, 1],
+);
+
+check(
+  "two new delete policies, and the second is what makes the first usable",
+  [
+    count(DELETION_MIGRATION, `create policy "Team owners can remove a former member's task"`),
+    count(DELETION_MIGRATION, `create policy "Attachments: a team owner clears a former member's task"`),
+    // THE STORAGE ONE ASKS is_active(), because storage.objects has no
+    // restrictive policy of its own. The tasks one does not need to: public.tasks
+    // carries "Suspended accounts are refused everything", `for all`.
+    count(DELETION_MIGRATION, "(select public.is_active())"),
+    // Both read teams.owner_id DIRECTLY rather than through is_team_member(), so
+    // members gain nothing.
+    count(DELETION_MIGRATION, "is_team_member"),
+  ],
+  [1, 1, 1, 0],
+);
+
+// BOTH NAMES FIT IN A POSTGRESQL IDENTIFIER. A policy name is cut at 63 bytes,
+// WITH ONLY A NOTICE -- which a migration run with -q does not show -- and the
+// attachments migration records what that cost the first time: this repository
+// and the database would disagree about a policy's name, and a later
+// `drop policy` by the written name would fail.
+check(
+  "neither policy name is long enough to be silently truncated at 63 bytes",
+  [
+    Buffer.byteLength("Team owners can remove a former member's task") <= 63,
+    Buffer.byteLength("Attachments: a team owner clears a former member's task") <= 63,
+  ],
+  [true, true],
+);
+
+// AND NOTHING IN THE MIGRATION DELETES ANYTHING. No routine, no scheduled job,
+// no new cascade. The deletion is nine steps in a function, and the only reason
+// that order is forced is this file.
+check(
+  "the migration adds no tombstone table and destroys nothing",
+  [
+    count(DELETION_MIGRATION, "create table"),
+    // THE WORD IS IN THE COMMENTS, which is where it belongs: the migration says
+    // in capitals that the tombstone is NOT part of this change and names the
+    // issue. So this looks at the SOURCE -- the only check in this section that
+    // does -- and case-insensitively, because the first version looked for a
+    // lower-case "tombstone" in a sentence that shouts it.
+    /tombstone/i.test(DELETION_MIGRATION_SOURCE),
+    (DELETION_MIGRATION.match(/^\s*delete from/gim) ?? []).length,
+    (DELETION_MIGRATION.match(/^\s*drop table/gim) ?? []).length,
+    (DELETION_MIGRATION.match(/^\s*truncate/gim) ?? []).length,
+  ],
+  [0, true, 0, 0, 0],
 );
 
 // ------------------------------------------------------------------- the score

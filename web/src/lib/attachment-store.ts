@@ -172,6 +172,84 @@ export async function filesForTasks(
 }
 
 /**
+ * How many prefixes the export lists at once, and how many tasks it will list
+ * at all.
+ *
+ * WHY THERE IS A CEILING ON THE SECOND, said plainly rather than left for
+ * somebody to hit. A listing is BY PREFIX and a task's prefix is its id, so
+ * "the files on these tasks" is one request per task -- issue #244 records that
+ * cost for the My tasks page, which draws a dozen. The export is handed
+ * EVERYTHING this person created, and `docs/plan.md`'s cap is 500 live tasks per
+ * person, so an unbounded version would make up to five hundred requests inside
+ * one download and would be the one page in this app capable of timing out.
+ *
+ * So it lists at most 200 tasks, eight at a time, AND THE FILE SAYS WHAT IT DID
+ * NOT LIST. A silent truncation would read as "you have no other files", which
+ * is the one thing a downloaded file must never say by accident -- the same rule
+ * as a failed read never being an empty section.
+ *
+ * 200 is chosen to be past any volunteer's real list and short of a problem:
+ * at eight at a time it is 25 rounds. The order is the tasks' own, which is
+ * newest first, so the tasks a person is actually working on are the ones
+ * listed.
+ */
+export const EXPORT_LIST_BATCH = 8;
+export const EXPORT_LIST_TASK_LIMIT = 200;
+
+/**
+ * The storage listings the export needs: the RAW rows, per task.
+ *
+ * WHY NOT `filesForTasks` ABOVE, which makes the same requests. That function
+ * narrows each row with `readFileList`, whose answer is `{ name, size }` --
+ * what the files panel draws -- and the export also wants WHEN each file was
+ * uploaded. Widening `StoredFile` would change what six existing checks compare,
+ * and AGENTS.md rule 20 makes changing a check the owner's call. So this returns
+ * the rows as they came and `readExportFiles` in web/src/lib/export-data.ts
+ * narrows them for the one caller that needs the extra field.
+ *
+ * `failed` IS SET BY ANY ONE LISTING FAILING, for the same reason it is above: a
+ * file that says "no files" for a task whose folder could not be read is this
+ * app telling somebody in writing that their attachment is gone.
+ */
+export async function listFilesForExport(
+  supabase: Client,
+  taskIds: readonly string[],
+): Promise<{
+  listings: Array<{ taskId: string; rows: unknown }>;
+  failed: boolean;
+  notListed: number;
+}> {
+  const listing = taskIds.slice(0, EXPORT_LIST_TASK_LIMIT);
+  const notListed = Math.max(0, taskIds.length - listing.length);
+
+  const listings: Array<{ taskId: string; rows: unknown }> = [];
+  let failed = false;
+
+  for (let at = 0; at < listing.length; at += EXPORT_LIST_BATCH) {
+    const batch = listing.slice(at, at + EXPORT_LIST_BATCH);
+
+    const answers = await Promise.all(
+      batch.map(async (taskId) => {
+        const { data, error } = await supabase.storage
+          .from(BUCKET)
+          .list(taskId, { limit: MAX_FILES_PER_TASK + 1 });
+        return { taskId, data, error };
+      }),
+    );
+
+    for (const answer of answers) {
+      if (answer.error) {
+        failed = true;
+        continue;
+      }
+      listings.push({ taskId: answer.taskId, rows: answer.data });
+    }
+  }
+
+  return { listings, failed, notListed };
+}
+
+/**
  * A link to one file, good for five minutes, or null.
  *
  * THE CHECK HAPPENS HERE AND NEVER AGAIN, which is the design's one sharp edge
