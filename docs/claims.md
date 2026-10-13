@@ -909,6 +909,33 @@ lawyer*; and *we use no cookies at all*.
 `docs/data-inventory.md` is where each fact below was read from, and `docs/deletion.md` is where the
 designs are.
 
+### BUILT 2026-10-13 — where the words now live, and how a row in this section is located
+
+**The two pages exist.** `web/src/app/privacy/page.tsx` and `web/src/app/terms/page.tsx`, linked from
+`web/src/app/components/Footer.tsx`, which is in the root layout and therefore on every screen — which
+is [#204](https://github.com/build-once/team-tasks/issues/204)'s first condition — and public through
+`"/privacy"` and `"/terms"` in `web/src/lib/supabase/proxy.ts`'s `PUBLIC_PATHS`.
+
+**And a row in this section is located differently from every row above it, on purpose.** Sections 1
+and 2 give a file and a line, because a screen's sentence is one line in one page. **Every sentence in
+both documents lives in `web/src/lib/legal.ts`**, in the `PRIVACY` and `TERMS` arrays, and **neither
+page file holds a sentence at all** — so a row here is located by its **document and heading** rather
+than by a line number that would be wrong by the next edit. One file is also what makes answer 5
+possible: the owner reading "both documents" is the owner reading one file.
+
+**What holds the discipline rather than anybody remembering it:
+`scripts/screen-state-check.mjs` section 11**, in CI's pure-checks job, which is **nine checks** and
+takes the section's count from 297 to 306. It refuses a sentence-shaped literal in either page file,
+refuses each of the five **MUST NOT SAY** patterns in the words, requires the two sentences those
+refusals leave room for, requires every figure the app owns to be interpolated from the app's own
+constant rather than typed, compares the three figures with no constant in `web/` against the file that
+owns each, requires all twelve subjects #204 and the owner demand, holds the contact address to one
+literal, and refuses a claim about the export or delete-account before either is built.
+
+**Four of those nine were seen to fail before they passed** — three on wrong expected counts while they
+were being written, and the MUST NOT SAY check twice on purpose, once for four of its five patterns and
+once for the fifth. `evidence/build-it-26-legal-pages.md` has the red output and the exit codes.
+
 ### 7a. What is held, and who receives it
 
 | The sentence the page will make | What would make it true | Verdict today |

@@ -2290,6 +2290,322 @@ check(
   [1, 1, 0],
 );
 
+// =========================================================================
+// 11. The privacy page and the terms -- Build it 26, PR 1
+// =========================================================================
+//
+// WHAT THIS SECTION IS FOR, and it is not the same job as every section above
+// it. Those read a screen's sentence and check the thing that keeps it. A
+// privacy policy's sentences are PROMISES TO PEOPLE ABOUT THEIR OWN DATA, and
+// the failure mode is not an ugly screen -- it is telling somebody something
+// untrue about where their data went. docs/claims.md section 1f is the
+// precedent this project already has: "That link didn't work", drawn over a
+// link that had worked, on production, watched by the owner.
+//
+// So this section checks three things no other section needs to:
+//
+//   THE DISCIPLINE  every sentence lives in one file, and neither page holds
+//                   one. Two long documents have far more room to drift than
+//                   the four anti-robot sentences TURNSTILE_WORDS keeps.
+//   THE REFUSALS    the five sentences docs/claims.md section 7 marks MUST NOT
+//                   SAY -- permanently -- cannot be slipped back in by a later
+//                   edit. Each is one a drafter would reach for by habit.
+//   THE NUMBERS     every figure is interpolated from the constant the app
+//                   itself uses, or -- for the three with no constant in web/ --
+//                   is compared with the file that holds the authority. A
+//                   policy that says "5 MB" as a literal is a policy that goes
+//                   stale against the bucket.
+//
+// IT READS legal.ts AS TEXT rather than importing it, for the reason the top of
+// this file gives about teams.ts: it imports through an alias only the Next.js
+// build resolves. What this section wants of it is a promise about wording, and
+// that is a question text can answer.
+console.log(
+  "\n11. The privacy page and the terms -- one file of sentences, five refusals, and the numbers",
+);
+
+const LEGAL_SOURCE = readFileSync(resolve(LIB, "legal.ts"), "utf8");
+const PRIVACY_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "privacy", "page.tsx"),
+  "utf8",
+);
+const TERMS_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "terms", "page.tsx"),
+  "utf8",
+);
+const FOOTER_SOURCE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "components", "Footer.tsx"),
+  "utf8",
+);
+const PROXY_SOURCE = readFileSync(
+  resolve(LIB, "supabase", "proxy.ts"),
+  "utf8",
+);
+const INVITATIONS_MIGRATION = readFileSync(
+  resolve(
+    HERE,
+    "..",
+    "supabase",
+    "migrations",
+    "20260930193813_create_invitations.sql",
+  ),
+  "utf8",
+);
+const USAGE_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261008115900_usage_counts.sql"),
+  "utf8",
+);
+const BACKUPS_DOC = readFileSync(
+  resolve(HERE, "..", "docs", "backups.md"),
+  "utf8",
+);
+
+// THE SENTENCES ONLY, with every comment removed.
+//
+// This is not tidiness: the header of legal.ts NAMES all five forbidden
+// sentences, in order to forbid them. A pattern test over the whole file would
+// match the prohibition and report the thing it exists to prevent. So the
+// comments go first, and what is left is what a person reads on the screen.
+function sentencesOnly(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^\s*\/\/.*$/gm, " ");
+}
+
+const LEGAL_WORDS = sentencesOnly(LEGAL_SOURCE);
+
+// A sentence-shaped literal: a quoted run of more than 32 characters.
+//
+// COMMENTS GO FIRST, AND THAT IS NOT OPTIONAL. Every file this is pointed at
+// quotes somebody -- an issue, a decision, a vendor's own page -- in its header,
+// and a quotation inside a comment is not a sentence anybody reads on a screen.
+// Import lines go too, because a module path is long and is not a sentence.
+function longLiterals(source) {
+  const body = sentencesOnly(source)
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("import"))
+    .join("\n");
+
+  return (body.match(/"[^"\n]{33,}"|'[^'\n]{33,}'|`[^`\n]{33,}`/g) ?? []).length;
+}
+
+// Is this string in there at all? Used where the check is about a SUBJECT not
+// leaving the page rather than about a count -- so a sentence can be reworded,
+// or said twice, without turning this section red for the wrong reason.
+function has(haystack, needle) {
+  return haystack.includes(needle);
+}
+
+// 11a. NO SENTENCE LIVES IN A PAGE.
+//
+// The two pages map over the arrays in legal.ts and render nothing of their own,
+// so a reviewer reading one file has read every word of both documents. The
+// `<head>` description is in that file too, for the reason legal.ts gives: it is
+// a sentence, it is shown in a search result, and it is therefore a claim.
+check(
+  "neither page holds a sentence of its own: every word comes from legal.ts",
+  [
+    longLiterals(PRIVACY_PAGE),
+    longLiterals(TERMS_PAGE),
+    count(PRIVACY_PAGE, 'from "@/lib/legal"'),
+    count(TERMS_PAGE, 'from "@/lib/legal"'),
+    count(PRIVACY_PAGE, "PRIVACY.map("),
+    count(TERMS_PAGE, "TERMS.map("),
+  ],
+  [0, 0, 1, 1, 1, 1],
+);
+
+// 11b. THE FIVE PERMANENT REFUSALS, each by the pattern a drafter would write.
+//
+// docs/claims.md section 7 marks these MUST NOT SAY rather than MUST NOT SAY
+// YET, and the difference matters: nothing will ever make them true, so a later
+// edit that adds one is a mistake and not a step forward.
+//
+//   1. answer 16 -- we do not SEND an IP to Sentry, which is our code. What
+//      Sentry STORES is a dashboard setting nobody here has seen.
+//   2. answer 4  -- no record of which version anybody accepted is kept.
+//   3. answer 3  -- 16 is stated, never verified. Nothing asks for an age.
+//   4. answer 5  -- the owner's own reading is not a legal review.
+//   5. answer 15 -- "no cookies at all" is true signed out and false the moment
+//      somebody signs in.
+check(
+  "the five sentences docs/claims.md marks MUST NOT SAY appear nowhere in the words",
+  [
+    (LEGAL_WORDS.match(/does not store (your )?ip/gi) ?? []).length,
+    (LEGAL_WORDS.match(/accepted version|you accepted (these )?terms on/gi) ?? [])
+      .length,
+    (LEGAL_WORDS.match(/verif(y|ies|ied|ying) (your |their )?age/gi) ?? []).length,
+    (LEGAL_WORDS.match(/reviewed by|prepared by|legal (advice|review)/gi) ?? [])
+      .length,
+    (LEGAL_WORDS.match(/no cookies at all|we (use|set) no cookies/gi) ?? []).length,
+  ],
+  [0, 0, 0, 0, 0],
+);
+
+// 11c. AND THE TWO SENTENCES THAT MUST BE THERE INSTEAD.
+//
+// A refusal is only half of answer 16: the page may say the thing our own code
+// keeps. Checking the absence without the presence would pass on a page that
+// said nothing about Sentry at all.
+check(
+  "and the sentences the refusals leave room for ARE there",
+  [
+    count(LEGAL_WORDS, "We do not send your IP address to Sentry"),
+    count(LEGAL_WORDS, "do not keep a record of which version"),
+  ],
+  [1, 1],
+);
+
+// 11d. EVERY NUMBER THE APP OWNS IS INTERPOLATED, NEVER TYPED.
+//
+// Each of these figures has a constant, and each sentence uses it. A literal
+// here would be a second place to change, and the one nobody would think to
+// look at when a limit moves.
+check(
+  "the app's own figures come from its own constants, not from literals",
+  [
+    count(LEGAL_SOURCE, "${TITLE_MAX}"),
+    count(LEGAL_SOURCE, "${NAME_MAX}"),
+    count(LEGAL_SOURCE, "${MAX_FILES_PER_TASK}"),
+    count(LEGAL_SOURCE, "${MAX_FILE_WORDS}"),
+    count(LEGAL_SOURCE, "${PER_PERSON_WORDS}"),
+    count(LEGAL_SOURCE, "${INVITATION_DAYS}"),
+    count(LEGAL_SOURCE, "${MINIMUM_AGE}"),
+    count(LEGAL_SOURCE, "${GOVERNING_LAW}"),
+    // The literals those replace, which must appear nowhere in the words.
+    count(LEGAL_WORDS, "5 MB"),
+    count(LEGAL_WORDS, "100 MB"),
+    count(LEGAL_WORDS, "200 characters"),
+    count(LEGAL_WORDS, "7 days"),
+    count(LEGAL_WORDS, "England and Wales,"),
+    count(LEGAL_WORDS, "under 16"),
+  ],
+  [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+);
+
+// 11e. THE THREE FIGURES WITH NO CONSTANT IN web/, COMPARED WITH THEIR AUTHORITY.
+//
+// This is the move auth-screens-check.mjs made first -- comparing a string in
+// the code with an instruction in a document -- and here it is the only way to
+// hold three numbers that are not this app's to declare:
+//
+//   the usage count's 7 days  lives in a migration, because nothing in web/ can
+//                             read that table and nothing may
+//   the backups' 14 days      lives in an R2 lifecycle rule at Cloudflare, which
+//                             nothing in this repository can read. docs/backups.md
+//                             is where the owner's decision is written down
+//   the invitation's 7 days   lives in the migration's own default, and the web
+//                             constant has to agree with it
+check(
+  "the three figures with no constant in web/ agree with the file that owns each",
+  [
+    count(LEGAL_SOURCE, "USAGE_COUNT_DAYS = 7"),
+    // The STATEMENT, not the comment above it that quotes the same expression.
+    count(USAGE_MIGRATION, "and day <= l_today - 7;"),
+    count(LEGAL_SOURCE, "BACKUP_DAYS = 14"),
+    // The lifecycle rule's own name, which is the one string in docs/backups.md
+    // that carries the figure and cannot be reworded without renaming the rule
+    // in Cloudflare too. PRESENCE, not a count: that page names it more than
+    // once and may name it again.
+    has(BACKUPS_DOC, "delete-after-14-days"),
+    count(INVITATIONS_MIGRATION, "interval '7 days'"),
+    count(LEGAL_SOURCE, "EMAIL_LOG_DAYS = 30"),
+  ],
+  [1, 1, 1, true, 1, 1],
+);
+
+// 11f. THE ELEVEN THINGS ISSUE #204 AND THE OWNER REQUIRE THE PAGE TO SAY.
+//
+// Six from #204's own "What it must say", and five the owner added afterwards:
+// where data is held (10 Oct), that copies remain for about a fortnight and that
+// a recovery signs everybody out (10 and 11 Oct), that there is no way to delete
+// an account yet, and -- answer 15 -- the one thing actually found on a
+// visitor's device.
+//
+// Each is a distinctive phrase rather than a whole sentence, so the wording can
+// be edited without this check going red for the wrong reason. What it holds is
+// that the SUBJECT has not quietly left the page.
+check(
+  "every item #204 and the owner require is on the page",
+  [
+    has(LEGAL_WORDS, "title of that one task"),
+    has(LEGAL_WORDS, "Nothing that says who asked"),
+    has(LEGAL_WORDS, "within 30 days of receipt or generation"),
+    has(LEGAL_WORDS, "recall what was already sent"),
+    has(LEGAL_WORDS, "can read the whole database"),
+    has(LEGAL_WORDS, "which page, which browser"),
+    has(LEGAL_WORDS, "no way to delete your account in this app"),
+    has(LEGAL_WORDS, "West US (Oregon)"),
+    has(LEGAL_WORDS, "Western Europe"),
+    has(LEGAL_WORDS, "about a fortnight"),
+    has(LEGAL_WORDS, "asked to sign in again"),
+    has(LEGAL_WORDS, "cf.turnstile.u"),
+  ],
+  [true, true, true, true, true, true, true, true, true, true, true, true],
+);
+
+// 11g. THE ADDRESS IS IN ONE PLACE, AND IT IS THE ROUTE FOR EVERY RIGHT.
+//
+// Answer 14 left the app with no deletion-request form on purpose, so this
+// address is the only way somebody who cannot sign in reaches anybody. One
+// literal, in the constant; every sentence interpolates it; and neither page
+// file holds it, because neither page file holds any sentence.
+check(
+  "the contact address is one constant, used by the sentences and typed in no page",
+  [
+    count(LEGAL_SOURCE, "dp@raj-dhonota.com"),
+    count(PRIVACY_PAGE, "dp@raj-dhonota.com"),
+    count(TERMS_PAGE, "dp@raj-dhonota.com"),
+    count(PROXY_SOURCE, "dp@raj-dhonota.com"),
+  ],
+  [1, 0, 0, 0],
+);
+
+// 11h. BOTH PAGES ARE PUBLIC, AND BOTH ARE LINKED FROM EVERY SCREEN.
+//
+// The two halves fail in opposite ways and both are silent. Without PUBLIC_PATHS
+// a signed-out visitor is sent to /login, so the privacy page would be readable
+// only by people who already have an account. Without the footer links there is
+// a page nobody can find, which is #204's first condition failing with no error
+// anywhere.
+//
+// The footer is the one component there is no screen without, which is why
+// #204 names it: "most naturally from the footer, which is already in the root
+// layout".
+check(
+  "both paths are public, and the footer on every screen links to both",
+  [
+    // The ARRAY ENTRY, with its indentation and comma -- not the comment above
+    // the array, which names both paths in prose.
+    count(PROXY_SOURCE, '  "/privacy",'),
+    count(PROXY_SOURCE, '  "/terms",'),
+    count(FOOTER_SOURCE, 'href="/privacy"'),
+    count(FOOTER_SOURCE, 'href="/terms"'),
+    count(FOOTER_SOURCE, 'from "@/lib/legal"'),
+    // The labels come from legal.ts, so a link and its page cannot disagree.
+    longLiterals(FOOTER_SOURCE),
+  ],
+  [1, 1, 1, 1, 1, 0],
+);
+
+// 11i. AND NEITHER DOCUMENT CLAIMS A FEATURE THAT DOES NOT EXIST YET.
+//
+// The export and delete-account are PR 3 and PR 6 of docs/plan.md's order of
+// work. Until they land, the page has to say the opposite -- which is #204's
+// sixth required item, "that there is no way to delete an account in the app" --
+// and this check is what stops the two sentences being written before the
+// features they describe.
+check(
+  "the export and delete-account are not claimed before they are built",
+  [
+    (LEGAL_WORDS.match(/download (everything|your data|a copy of)/gi) ?? []).length,
+    (LEGAL_WORDS.match(/export your|delete your account in the app|Delete my account/gi) ?? [])
+      .length,
+    count(LEGAL_WORDS, "no way to delete your account in this app"),
+  ],
+  [0, 0, 1],
+);
+
 // ------------------------------------------------------------------- the score
 const total = passed + failures.length;
 console.log(`\n${passed} of ${total} checks passed.`);

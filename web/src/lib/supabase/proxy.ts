@@ -27,6 +27,14 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 // acceptance created -- so the page's own check, not the proxy, is what guards
 // it. Being public is what lets somebody whose link has expired read why,
 // instead of being bounced to the sign-in page with no explanation.
+// "/privacy" and "/terms" are public for the plainest reason on this list: a
+// privacy page a signed-out visitor cannot open is a privacy page for people who
+// already have an account, which is the opposite of what it is for. Issue #204
+// asks for one "reachable from every screen", and the footer that links to them
+// is drawn on screens nobody is signed in to.
+//
+// They are also the first two entries here that hold NOTHING and decide NOTHING.
+// Every other path above is a form or a link exchange; these two are text.
 const PUBLIC_PATHS = [
   "/login",
   "/signup",
@@ -34,6 +42,8 @@ const PUBLIC_PATHS = [
   "/invite",
   "/forgot-password",
   "/reset-password",
+  "/privacy",
+  "/terms",
 ];
 
 function isPublic(pathname: string) {
