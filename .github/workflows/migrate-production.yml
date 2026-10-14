@@ -416,6 +416,38 @@ jobs:
 
             checked=$((checked + 1))
 
+            # ---- THE ONE FUNCTION THAT CANNOT ANSWER 401 -------------------
+            #
+            # stripe-webhook runs with verify_jwt = false, because Stripe sends
+            # no Supabase token and has never heard of one. So the platform
+            # never refuses its callers and the 401 below can never happen.
+            #
+            # IT IS CHECKED, NOT SKIPPED, and the owner authorised this shape on
+            # 2026-10-14 in preference to a plain skip. A credential-less POST
+            # with no Stripe-Signature must answer 400: that is OUR door
+            # refusing an unverifiable body, which is a STRONGER thing to have
+            # proved than 401 ever was. 401 says the platform worked; 400 says
+            # the function's own signature check worked, on production, after a
+            # deploy.
+            #
+            # A 200 here would be the worst result this job could produce: a
+            # webhook that accepts unsigned bodies is a webhook anybody can use
+            # to grant themselves a paid plan.
+            if [ "$name" = "stripe-webhook" ]; then
+              body="$(mktemp)"
+              status="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 \
+                -X POST "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${name}")" || true
+              rm -f "$body"
+
+              if [ "$status" = "400" ]; then
+                echo "PASS  $name: HTTP 400 -- an unsigned body was refused by the function's own signature check."
+              else
+                echo "FAIL  $name: expected HTTP 400 for an unsigned POST, got ${status}."
+                failed=$((failed + 1))
+              fi
+              continue
+            fi
+
             body="$(mktemp)"
             # No Authorization header, no apikey, no body. --max-time so a hang
             # cannot eat the job's ten minutes. -s and NOT -S on purpose: see the

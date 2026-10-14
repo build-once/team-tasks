@@ -318,3 +318,25 @@ svg {
   font-weight: 700;
   text-decoration: underline;
 }
+
+/* TEST MODE -- Build it 27. Drawn by web/src/app/components/TestModeBanner.tsx
+   only when the Stripe publishable key starts with pk_test_, and absent
+   entirely otherwise.
+
+   LOUD ON PURPOSE, which is the one place in this app's design that is true.
+   Everything else here is quiet: the actions on a task row are "quiet on
+   purpose: renaming and deleting should be findable, not loud." This is the
+   opposite, because its whole job is to stop somebody mistaking a rehearsal for
+   the real thing, and a tasteful banner is one the eye skips.
+
+   NOT position: fixed. It scrolls away with the page, which is right: it is a
+   fact about the build, not a warning about what you are currently doing, and a
+   strip permanently covering the top of a phone screen would cost more than it
+   is worth on every screen that has nothing to do with payments. */
+.test-mode {
+  padding: 8px 16px;
+  color: #fff;
+  font-size: 0.9375rem;
+  text-align: center;
+  background: var(--danger-ink);
+}

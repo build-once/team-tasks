@@ -1107,6 +1107,67 @@ export default {
       );
     }
 
+    // ---- IS THERE ROOM IN THE TEAM AT ALL? (Build it 27) -----------------
+    //
+    // docs/plan.md, "A paid Team plan, and the first team size limit": a team
+    // may have 10 members, or 25 if its OWNER holds an active Team plan. This
+    // is the first limit this app has ever had on how many people are in a
+    // team, and it is a different thing from the 20-pending check above --
+    // that one caps addresses waiting, this one caps people who have arrived.
+    //
+    // CHECKED IN BOTH DOORS, and this is only the first of them. An invitation
+    // can be sent while a team has room and accepted after it has filled, so a
+    // check here alone would let the limit be walked past by whoever accepts
+    // last. accept-invite carries the same check for that reason.
+    //
+    // THE NUMBER COMES FROM THE DATABASE, not from this file and not from
+    // limits.ts. public.team_member_limit() answers 10 or 25 by looking at the
+    // team's owner's entitlement -- a row this function must not read directly
+    // and does not. Asking a function for the number means the entitlement
+    // never passes through here, which is also why nothing in this file can
+    // leak whether somebody is paying.
+    const limitAnswer = await ctx.supabaseAdmin.rpc("team_member_limit", {
+      p_team_id: teamId,
+    });
+
+    const memberLimit =
+      typeof limitAnswer.data === "number" ? limitAnswer.data : null;
+
+    if (limitAnswer.error || memberLimit === null) {
+      // An unknown is not a large number. The same direction every other check
+      // in this project fails in, and the cost of getting it the other way
+      // round is a team that quietly grows past what anybody agreed to.
+      return fail(
+        "Could not check how many people this team may have, so no invitation was sent. Please try again.",
+        500,
+      );
+    }
+
+    const memberCount = await ctx.supabaseAdmin
+      .from("team_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("team_id", teamId);
+
+    if (memberCount.error || typeof memberCount.count !== "number") {
+      return fail(
+        "Could not check how many people are in this team, so no invitation was sent. Please try again.",
+        500,
+      );
+    }
+
+    if (memberCount.count >= memberLimit) {
+      // THE SENTENCE NAMES THE NUMBER AND WHAT WOULD CHANGE IT, and nothing
+      // about anybody's payment status. "You own 3 teams, the most allowed" is
+      // the shape this follows -- a refusal a person can act on earns its own
+      // words. What it does NOT say is "upgrade to get 25", because this
+      // function is not a sales page and the owner of the team may not be the
+      // person reading it.
+      return fail(
+        `This team has ${memberCount.count} members, the most allowed on its current plan. Remove somebody, or the team's owner can raise the limit on the settings page.`,
+        409,
+      );
+    }
+
     // AND A RETRY IS COUNTED HERE TOO, WHICH IS WRONG AND IS NOT FIXED HERE. A
     // failed invitation is still pending by this count -- not accepted, not expired
     // -- so a team sitting at 20 cannot send one of them again, even though a retry

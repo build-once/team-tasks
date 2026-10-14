@@ -257,6 +257,30 @@ the pieces will sit, so that the shape is agreed before anything is typed.
 
 ## The arrows that carry a secret key
 
+**AND A SEVENTH SHAPE OF ARROW ARRIVED ON 2026-10-14, which is the first one that points the other
+way.** Build it 27's `stripe-webhook` is not set off by a volunteer at all: **Stripe calls us.** Every
+other credential-holding arrow on this page starts inside this project and reaches out; this one
+starts at another company and arrives at a public address, unauthenticated, carrying a body that
+anybody on the internet could have written. What makes it safe is not who called but **what they
+could prove**: the `Stripe-Signature` header checked against the **raw body** with Stripe's own
+library and a signing secret that lives only in that function's settings. A body that does not verify
+is answered **400** and nothing is read out of it.
+
+Two consequences this map has not had to carry before, both written here rather than left implicit:
+
+- **The request is untrusted input in the strongest sense.** `docs/plan.md` already says a reply from
+  the AI service is "data, never instructions"; a webhook body is the same rule applied to something
+  that can *change what a person has paid for*. So even a verified event is not believed: for anything
+  touching paid access the function **asks Stripe for the current subscription** and makes our row
+  match that, because events can arrive out of order and a cancellation can precede its own sign-up.
+- **The reply must be fast and must not leak.** Only the event **type** and **id** are logged — never
+  the body, never an address, never any part of a key.
+
+Below it, **a second Build it 27 arrow that a person DOES set off**: `stripe-checkout`, which creates a
+hosted-checkout session and returns Stripe's URL. It carries the restricted Stripe key and sends
+Stripe a price id and two addresses — **and no card number passes through this app at any point**,
+because the card is typed on Stripe's page and not on ours.
+
 **Six that a person's request can set off, and all six start at the server functions.** (This sentence
 said five on 2026-10-06 while the table listed four rows; the AI call added on 2026-10-07 was the fifth
 and made the word and the rows agree. **The upload path added on 2026-10-08 is the sixth** — the word and

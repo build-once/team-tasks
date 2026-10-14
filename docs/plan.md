@@ -2469,9 +2469,154 @@ not the owner's cue to install anything.** From "AI suggestions — the consent 
 
 **Build it 26 delivers 2 and 3. It does not deliver 1**, and nothing in it should be read as doing so.
 
+## A paid Team plan, and the first team size limit
+
+Added 2026-10-14, for Build it 27, at the owner's instruction. **This one is a new thing people can
+press, and it is the first thing in this app that takes money.** It is in the plan for three reasons,
+and the third is the one this plan has never had to write before: it adds a **new outside company**
+(Stripe), it holds a **new kind of row about a person** (what they are paying for), and it introduces
+**the first limit this app has ever had on how many people may be in a team**.
+
+**THE WHOLE OF IT IS A REHEARSAL. The owner's decision of 2026-10-14: build and test entirely in
+Stripe's sandbox, and DO NOT CREATE LIVE KEYS.** So no money moves, nobody is charged, and the
+production half of every arrangement below is written down and deliberately left unbuilt. That is not
+a shortcut — it is the point of the step. What is being proved is the plumbing: that the server
+decides, that a webhook is verified, that a repeat is ignored, and that no card number comes near this
+app.
+
+### What it is
+
+A team may have **10 members**. A team whose **owner** holds an active Team plan may have **25**.
+That is the whole of what the money buys in this version.
+
+**And the 10 is new.** There has never been a limit on how many people are in a team: `docs/plan.md`
+feature 2 caps teams per person at 3, and feature 3 caps **pending invitations** at 20 per team, and
+neither of those is a size. So this build adds a rule that refuses somebody, which is worth saying
+plainly rather than letting it arrive as a side effect of a pricing page. At the plan's group size —
+"a volunteer group of about six" — nobody meets either number.
+
+**Where it is checked: `invite-member` and `accept-invite`, against the entitlements table, in the
+server functions.** Not on a screen, for the reason this plan gives everywhere else, and not in a
+row-level policy, because a count across a team's rows is the same shape of question as "at most 3
+teams per person" and "at most 20 pending" — both of which are already counted in a function that can
+see all the rows and that the person cannot edit.
+
+**Both doors, not one.** An invitation can be sent while a team has room and accepted after it has
+filled, so checking only at the invitation would let the limit be walked past by whoever accepts last.
+
+### Stripe, and what it sees
+
+**The company.** Stripe. **Sandbox only in this rehearsal** — test keys, test cards, test webhooks.
+The owner creates the objects; nothing in this repository creates a product or a price.
+
+**NO CARD NUMBER EVER REACHES THIS APP, and that is not a promise about our care — it is a property of
+the design.** Paying happens on **Stripe's own hosted checkout page**, at Stripe's address. This app
+creates a checkout session on the server and sends the browser to the URL Stripe returns. There is no
+card field anywhere in this app, no Stripe script in any page, and nothing for a card number to be
+typed into. The same reasoning as the attachments bucket being private: the safest way to hold
+something is not to hold it.
+
+**What Stripe therefore sees, and it is a real widening:** the **email address** of anybody who starts
+a checkout, their **card details**, and what they bought. Stripe is a payments company and holds that
+as its own record, on its own clock, outside this project. Resend already sees everybody's address;
+Stripe sees the address **and the payment**, which nothing else here does.
+
+**What this app sends it:** a price id, a success and cancel address, and — so a second checkout does
+not create a second customer — the person's **Stripe customer id** where we already hold one. **Not**
+their task text, their team names, their nickname or anything they typed.
+
+**What must never be sent:** a task title, a team name, a display name, a file, or any other person's
+address.
+
+### What is stored here, and nothing else
+
+Two tables, and between them they are nine values.
+
+**`entitlements`** — one row per person who has ever started a checkout: the **user id**, the **plan**,
+the **status**, the **current period end**, the **Stripe customer id** and the **subscription id**.
+Nothing about a card, no last four digits, no amount, no invoice, no address. A row says what this
+person is entitled to and when that runs out, and is incapable of saying what they paid or with what.
+
+**Who can read it: the person whose row it is, and nobody else.** Not their team mates, not the other
+members of a team they own. **Who can write it: nothing that a person can reach.** No user may write
+any row, ever — not their own. **Only `stripe-webhook` writes**, holding the service-role key, and
+that is the whole of the design: *the thing that decides what you have paid for is the thing Stripe
+talks to, not the thing you talk to.*
+
+**`stripe_events`** — the **event id** Stripe sent, its **type**, and **when we processed it**. A
+unique constraint on the id, so the same event arriving twice is written once and ignored the second
+time. Stripe retries, so this is not a precaution.
+
+**Nobody can read `stripe_events` through the app at all**, the way `usage_counts` and `account_status`
+can be read by nobody: no policy and no privileges for any role.
+
+### Reaching the success page grants nothing
+
+**Said as its own heading because it is the commonest way this goes wrong.** A person who lands on
+`/settings?paid=1` has proved only that their browser followed a redirect. Nothing in this app reads
+that address and writes an entitlement, and nothing ever will. **Paid access changes when Stripe tells
+the webhook it changed**, and at no other moment. The success page says "thank you, this may take a
+moment", and the limit changes when the row does.
+
+**And the webhook does not trust the event's contents either, for anything that changes paid access.**
+Events can arrive out of order — a cancellation can reach us before the sign-up that preceded it. So
+on any event that touches access, the function **fetches the current subscription from Stripe** and
+makes our row match that. The event is a nudge saying "look again", not a statement of fact.
+
+### The price on the pricing page comes from Stripe
+
+Read by the server, from **the same price id the checkout uses**. Not typed into a template, where it
+would become a number this app claims and Stripe disagrees with — which is the one kind of wrong a
+pricing page must not be.
+
+### What this deliberately is not
+
+- **No live keys, and no live mode.** The owner's decision of 2026-10-14. Production's secret store
+  stays empty of Stripe keys in this rehearsal, and the startup check below is what makes a mistake
+  loud rather than expensive.
+- **Not per-person billing, not seats, not usage billing.** One plan, one price, one thing it changes.
+- **No invoices, receipts or billing history in this app.** Stripe's own portal and emails are where
+  those live; building a second copy would mean holding amounts and addresses this plan has just
+  decided not to hold.
+- **No refunds, proration or plan switching in this app.**
+- **Nothing is deleted differently.** The entitlements row is keyed by the person's id and goes with
+  the account, like every other row; `docs/deletion.md` gains it. **What this app cannot do is cancel
+  somebody's Stripe subscription for them**, and the deletion screen must say so rather than letting
+  somebody delete an account and keep paying.
+
+### The keys, which is Lesson O9 and the reason the rehearsal is safe
+
+**Three rules, and the third is the one with teeth.**
+
+1. **Local and staging use sandbox keys only** — a publishable `pk_test_` and a **restricted** key
+   (`rk_test_`), never an unrestricted secret key where a restricted one will do.
+2. **Production would use live keys, stored only in production's own secret store.** In this rehearsal
+   there are none.
+3. **No key of any kind goes in this repository**, which rule 7 already says and which a CI check now
+   enforces for the two that would be worst: anything beginning `sk_live_` or `rk_live_`.
+
+**And the server functions refuse to run if the key does not match the environment.** A test key in
+production, or a live key anywhere else, means the function **stops and says so, naming neither the key
+nor any part of it**. The reason this is a startup check rather than a note: a live key on staging
+would take real money from real cards during a test, and a test key on production would silently let
+everybody in for free. Both are quiet failures, and both are now loud ones.
+
+**A TEST MODE banner is shown in the app whenever the publishable key starts with `pk_test_`.** So
+nobody can look at a screen in this rehearsal and mistake it for the real thing — and when live keys
+ever exist, the banner disappears by itself rather than by somebody remembering to remove it.
+
+### Personal data this adds
+
+Three rows for the appendix, and they are listed here as well because the appendix is long:
+
+- **What somebody is paying for** — plan, status, period end, and two Stripe identifiers. Ours.
+- **The processed event ids** — Stripe's identifiers and nothing about a person. Ours.
+- **Everything Stripe holds**: an email address, card details, and a payment history. **Theirs**, on
+  their clock, outside this project, and not deletable by anything in this app.
+
 ## Deliberately not in the first version
 
-Comments. Reminder emails. Payments. A phone app.
+Comments. Reminder emails. A phone app.
 
 Some of these come later, on purpose. When one does, this plan gets updated first.
 
@@ -2482,6 +2627,13 @@ before any code existed.
 **File attachments left it on 2026-10-08**, the same way. It is "Files attached to a task" above, written
 for Build it 23 with no bucket, no rule and no code in existence — so the list is now four things rather
 than five, counted here rather than remembered.
+
+**PAYMENTS LEFT IT ON 2026-10-14**, the same way again, and it is the last of the original five to go:
+"A paid Team plan, and the first team size limit" above was written for Build it 27 before any code,
+any table, any Stripe object or any key existed. **So the list is now three things**, counted here
+rather than remembered — and the one thing worth noting about this departure is that it is a
+**rehearsal**: payments have left the list in test mode only, and the owner's decision of 2026-10-14 is
+that no live key is created. The line can be read as fully gone only when it takes real money.
 
 ## Personal data it will hold
 
@@ -2523,6 +2675,16 @@ than five, counted here rather than remembered.
   kept **30 days** and removed by the statement that writes one. It exists only so that a restore from a
   copy taken before a deletion cannot bring a deleted person back. **Decided 2026-10-12 (question 10);
   not built.** Added 2026-10-12
+- **What somebody is paying for** — their plan, its status, when the current period ends, and two
+  Stripe identifiers. Six values in `entitlements`, nothing about a card, no amount and no invoice.
+  Readable by that person alone and **writable by nobody a person can reach**. "A paid Team plan, and
+  the first team size limit" above. Added 2026-10-14
+- **The identifiers of the Stripe events we have already processed** — an event id, its type and when
+  it was handled. Nothing about a person at all, and it is in this list because it is a new table
+  rather than because it is personal. Added 2026-10-14
+- **An email address and card details at Stripe**, for anybody who starts a checkout — **outside this
+  project**, held by a payments company on its own clock, and the one line in this list this app
+  cannot delete, search or even see. **No card number ever reaches this app.** Added 2026-10-14
 - **A deletion request from somebody who cannot sign in** — an email address and whatever they write,
   **in the owner's own mailbox, outside this project**, because the public request page deliberately has
   no form and collects nothing in the app. It is in this list because "no table is involved" is not the
@@ -2595,6 +2757,14 @@ The sign-up and reset emails moving to Resend, added the same day, add **no new 
 Resend is already here, and the two emails fit inside the free plan's 100 a day beside the invitations.
 `docs/costs.md` has both rows, and the one number on them worth keeping in step — Supabase's imposed
 30-messages-an-hour Auth limit is 720 a day against Resend's 100.
+
+Stripe, added 2026-10-14, brings in **a sixth outside company and adds £0 in this rehearsal, because
+nothing runs in live mode.** Stripe's published pricing is per successful charge and there are no
+charges in a sandbox: no monthly fee, no charge for a test payment, and the account itself costs
+nothing. **The figure that matters is therefore not a cost but a direction** — this is the first
+service in this app whose bill would be driven by somebody else succeeding rather than by us spending,
+and it is also the first that could ever take money **in**. `docs/costs.md` has the row and the three
+things that would have to be true before any of it is a real number.
 
 **And one sentence of this section is now out of date for a reason that has nothing to do with backups.**
 "Before real users arrive, production moves to a Supabase Pro organisation at about $25 a month" is what
