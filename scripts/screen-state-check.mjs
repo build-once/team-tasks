@@ -58,7 +58,7 @@
 // It reads two files and connects to nothing. Run it from anywhere:
 //   node scripts/screen-state-check.mjs
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -4666,6 +4666,71 @@ check(
   "and the limit follows it, so a failed read is the free plan rather than a guess",
   [memberLimitFor(null), memberLimitFor({ plan: "team", status: "active", current_period_end: "2099-01-01T00:00:00.000Z" })],
   [10, 25],
+);
+
+
+// ------------------------- 15. Every Edge Function says how it authenticates
+console.log("\n15. withSupabase: a config object, on every function, always");
+
+// THIS SECTION EXISTS BECAUSE OF ONE REAL FAILURE. On 2026-10-14 Alice's first
+// real checkout completed in the Stripe sandbox and the webhook answered HTTP
+// 502: "First argument to 'respondWith' must be a Response". stripe-webhook
+// called `withSupabase(handler)` with no config, reasoning that a webhook has
+// no user to authenticate. @supabase/server@1.9.0 has two overloads, and a
+// one-argument call matches `withSupabase(config)`, which returns a middleware
+// Entry rather than a fetch handler. So a subscription existed at Stripe and
+// `stripe_events` and `entitlements` were empty -- the one split this design is
+// built to prevent.
+//
+// AND AN EMPTY CONFIG WOULD BE ITS OWN BUG: `auth` defaults to "user", so
+// `withSupabase({}, handler)` refuses Stripe too, just more tidily. So the
+// check is not "is there a config" but "is there an auth mode, named".
+const FUNCTION_DIRS = readdirSync(resolve(HERE, "..", "supabase", "functions"), {
+  withFileTypes: true,
+})
+  .filter((e) => e.isDirectory() && !e.name.startsWith("_"))
+  .map((e) => e.name)
+  .sort();
+
+// Every function folder, found rather than listed, so a seventh is covered the
+// day it is written rather than the day somebody remembers this line.
+const WITH_SUPABASE_CALLS = FUNCTION_DIRS.map((name) => {
+  const src = readFileSync(
+    resolve(HERE, "..", "supabase", "functions", name, "index.ts"),
+    "utf8",
+  );
+  // The CALL at the fetch entry point, not the word: this file and that one
+  // both discuss the broken shape in comments, and a check failed by its own
+  // explanation is the mistake section 14 already made twice.
+  const call = /fetch:\s*withSupabase\(\s*\{\s*auth:\s*"(none|user|publishable|secret)"\s*\}/.exec(src);
+  return { name, mode: call ? call[1] : null };
+});
+
+check(
+  "every function entry point passes a config naming an auth mode",
+  WITH_SUPABASE_CALLS.filter((c) => c.mode === null).map((c) => c.name),
+  [],
+);
+
+// AND EXACTLY ONE OF THEM IS "none". If a second ever appears, it is a second
+// public door and wants the same argument stripe-webhook had to make: what
+// stands in place of the platform's lock, and what refuses a caller who cannot
+// prove anything.
+check(
+  "exactly one function is unauthenticated, and it is the webhook",
+  WITH_SUPABASE_CALLS.filter((c) => c.mode === "none").map((c) => c.name),
+  ["stripe-webhook"],
+);
+
+// AND IT IS THE ONLY verify_jwt = false IN config.toml, which is the same fact
+// from the platform's side. The two must agree: a function the platform guards
+// but that asks for no auth is merely odd; one the platform does NOT guard and
+// that asks for no auth is the one that needs its own door.
+check(
+  "and config.toml has exactly one verify_jwt = false",
+  (readFileSync(resolve(HERE, "..", "supabase", "config.toml"), "utf8")
+    .match(/^verify_jwt = false$/gm) ?? []).length,
+  1,
 );
 
 const total = passed + failures.length;

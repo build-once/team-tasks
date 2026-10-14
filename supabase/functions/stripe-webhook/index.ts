@@ -112,10 +112,41 @@ async function readRawBody(req: Request): Promise<string | null> {
 }
 
 export default {
-  // No `auth` option, because there is no user to authenticate. The identity
-  // that matters here is Stripe's, and it is established by the signature
-  // rather than by a header the platform understands.
-  fetch: withSupabase(async (req, ctx) => {
+  // `auth: "none"` -- A CONFIG OBJECT IS NOT OPTIONAL, and leaving it out is
+  // what broke Alice's first real checkout on staging. The call read
+  // `withSupabase(async (req, ctx) => …)` with no config, on the reasoning that
+  // there is no user to authenticate here. The library has TWO overloads:
+  //
+  //   withSupabase(config, handler)  ->  (req, ctx?) => Promise<Response>
+  //   withSupabase(config)           ->  Entry<SupabaseContext>
+  //
+  // A one-argument call matches the SECOND, so the handler was taken as the
+  // config and what came back was a middleware Entry rather than a fetch
+  // handler. The runtime then had a non-Response to answer with:
+  //
+  //   TypeError: First argument to 'respondWith' must be a Response or a
+  //   promise resolving to a Response
+  //
+  // Stripe saw HTTP 502, and `stripe_events` and `entitlements` stayed empty
+  // while a real subscription existed in the sandbox -- the exact split this
+  // whole design is supposed to make impossible, caused by the one function
+  // that is shaped differently from the other five.
+  //
+  // AND THE DEFAULT WOULD HAVE BEEN WRONG TOO, which is why `{}` is not the
+  // fix: WithSupabaseConfig documents `auth` as defaulting to `"user"`, so
+  // `withSupabase({}, handler)` would demand a signed-in caller and refuse
+  // Stripe just as thoroughly, only with a tidier status code.
+  //
+  // `"none"` is a real AuthMode -- `type AuthMode = 'none' | 'publishable' |
+  // 'secret' | 'user'` -- and is documented as matching unconditionally. That
+  // is correct here and is not a hole: this function's door is the Stripe
+  // signature, checked below against the raw body, and `verify_jwt = false` in
+  // config.toml already says the platform is not the thing guarding it.
+  //
+  // `ctx.supabaseAdmin` is unaffected: SupabaseContext carries it whatever the
+  // auth mode, and `userClaims` is simply null for a non-user mode, which this
+  // handler never reads.
+  fetch: withSupabase({ auth: "none" }, async (req, ctx) => {
     // ---- Only POST -------------------------------------------------------
     //
     // Stripe sends POST. A GET on this address is somebody looking around, and

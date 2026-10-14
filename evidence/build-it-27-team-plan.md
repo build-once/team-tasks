@@ -38,7 +38,7 @@ $ deno test --no-lock --allow-env --allow-read=supabase/migrations,supabase/func
 ok | 297 passed | 0 failed (1s)                                    exit 0
 
 $ node scripts/screen-state-check.mjs
-437 of 437 checks passed.                                          exit 0
+440 of 440 checks passed.                                          exit 0
 
 $ node scripts/check-workflows.mjs
 Checked 6 workflow file(s), 28 job(s): 0 problem(s), 0 warning(s).  exit 0
@@ -157,6 +157,55 @@ Anything else is acknowledged with 200 and ignored — the list is fixed in
 - **No price has been read from Stripe**, so the pricing page's number is a code path and not a figure.
 - **`docs/costs.md`'s Stripe row is mostly NOT READ**, on purpose: the fee for the owner's country is
   not written from memory.
+
+## 5b. THE FIRST REAL CHECKOUT FAILED, AND WHAT IT COST
+
+**2026-10-14, on staging, owner-reported.** Alice completed a test checkout. Stripe created the
+subscription (`livemode: false`) and delivered the event — and `stripe-webhook` answered **HTTP 502**:
+
+```
+TypeError: First argument to 'respondWith' must be a Response or a promise
+resolving to a Response
+    at Object.respondWith (ext:runtime/http.js:91:19)
+```
+
+`stripe_events` and `entitlements` both held **zero rows** while a real subscription existed at
+Stripe. That is precisely the split this design exists to prevent, and it was caused by one line.
+
+**The cause**, read off `@supabase/server@1.9.0`'s own type declarations in the Deno cache rather
+than guessed: `withSupabase` has **two overloads**.
+
+```
+withSupabase(config, handler)  ->  (req, ctx?) => Promise<Response>
+withSupabase(config)           ->  Entry<SupabaseContext<Database>>
+```
+
+`stripe-webhook` called it with **one argument** — the handler — on the reasoning that a webhook has
+no user to authenticate. That matches the second overload, so the handler was taken as the config and
+what came back was a middleware **Entry**, not a fetch handler. The runtime had a non-Response to
+answer with.
+
+**And an empty config would have been its own bug**, which is why `{}` is not the fix:
+`WithSupabaseConfig` documents `auth` as defaulting to `"user"`, so `withSupabase({}, handler)` would
+have refused Stripe just as thoroughly with a tidier status code. The fix is `{ auth: "none" }` —
+a real `AuthMode` (`'none' | 'publishable' | 'secret' | 'user'`), documented as matching
+unconditionally. `ctx.supabaseAdmin` is on `SupabaseContext` whatever the mode.
+
+**Why the type checker did not catch it:** nothing in CI type-checks the function entry points. The
+Deno job runs `supabase/functions/_tests` against one function's import map, and the handlers import
+`@supabase/server` through per-function maps that are not in scope there — so `deno test` on the
+folder reports `TS2307 Import "@supabase/server" not a dependency` for every `index.ts` and checks
+none of them. **That gap is unchanged by this fix** and is the thing that would have caught it.
+
+**What now checks it instead**, in `scripts/screen-state-check.mjs` section 15 — three checks, found
+by reading the folder rather than a list, so a seventh function is covered the day it is written:
+
+- every function's `fetch:` entry passes a config **naming an auth mode**;
+- **exactly one** is `"none"`, and it is `stripe-webhook`;
+- `config.toml` has **exactly one** `verify_jwt = false`, which is the same fact from the platform's
+  side.
+
+**Seen to fail first**: putting the one-argument call back turns the first two red, 440 → 438.
 
 ## 6. The one thing in this change that is a judgement rather than a rule
 
