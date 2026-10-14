@@ -71,6 +71,12 @@ export const BUTTON_IDS = {
   // whether anybody's task title leaves this project (Build it 21, issue #211).
   aiSuggestionsSave: "ai_suggestions_save",
 
+  // AND THE ONE IRREVERSIBLE BUTTON IN THE WHOLE APP (Build it 26). It is not
+  // enough on its own: the action behind it also requires a typed phrase, and
+  // supabase/functions/delete-account checks that phrase again for itself,
+  // because a screen can be skipped and this cannot be undone.
+  accountDelete: "account_delete",
+
   // The invitation page
   inviteAccept: "invite_accept",
 

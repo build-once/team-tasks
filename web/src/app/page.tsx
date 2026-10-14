@@ -1,16 +1,36 @@
 import Link from "next/link";
 
+import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import { ACCOUNT_DELETED } from "@/lib/account-deletion";
 
 // The design does not cover a signed-out front page, so this one stays plain
 // and uses the same pieces as the screens that are drawn.
-export default function Home() {
+//
+// IT GAINED ONE SENTENCE WITH BUILD IT 26, and this is the only page that could
+// carry it: after a deletion there is no signed-in person left, so there is no
+// signed-in screen to say it on. `web/src/app/settings/actions.ts` redirects
+// here with `?deleted=1`.
+//
+// NOTHING FROM THE ADDRESS BAR REACHES THE SCREEN. The value is compared with
+// one fixed string this app wrote, and the sentence drawn is a constant -- the
+// same rule as every other `?` on every other screen, and the hole
+// `web/src/app/teams/page.tsx` closed by name.
+export default async function Home({ searchParams }: PageProps<"/">) {
+  const { deleted } = await searchParams;
+
   return (
     <>
       <Header />
 
       <main className="page stack">
         <h1>Team Tasks</h1>
+
+        {deleted === "1" ? (
+          <Banner tone="ok" icon="check">
+            {ACCOUNT_DELETED}
+          </Banner>
+        ) : null}
         {/* THE THIRD CLAUSE USED TO BE "and who's doing it" (issue #196), and
             nothing in the app answered it. `tasks.owner_id` exists but is never
             drawn -- web/src/lib/tasks.ts says it is "only ever compared with the

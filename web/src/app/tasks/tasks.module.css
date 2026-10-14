@@ -111,24 +111,78 @@
   border-top: 1px solid var(--line);
 }
 
-/* A normal row: the tick-off control, then its two quiet actions. */
+/* A normal row: the tick-off control, then its quiet actions.
+
+   IT WRAPS AT EVERY WIDTH, SINCE 14 OCTOBER 2026, and the rule it is built on
+   is worth stating before the detail, because two attempts got it wrong:
+   THE TITLE TAKES WHAT IS LEFT AND WRAPS; THE LINKS KEEP THEIR OWN WIDTH AND
+   DROP TO A LINE OF THEIR OWN WHEN THERE IS NOT ENOUGH ROOM. Nothing here may
+   shrink a box below what its contents need, because a flex item that is
+   smaller than its contents does not squeeze them -- it lets them SPILL, and
+   what they spill onto is whatever is drawn beside them.
+   Which is exactly what the owner's screenshot of 83409bc showed on a desktop:
+   a long title wrapping UNDERNEATH "Suggest subtasks" instead of the links
+   moving out of its way. The badge fix had given `.title` a 13rem floor, so
+   the toggle now had a real minimum width -- and this form still said
+   `min-width: 0`, which let it be sized smaller than the toggle it contains.
+   The toggle is `width: 100%` of the form, so it overflowed to the right and
+   painted over the links. The floor did not cause that; it only made it
+   visible. A row whose title could shrink to nothing could never overflow,
+   which is why nobody saw this before. */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding-right: 12px;
 }
 
+/* Takes the room that is left, and is NEVER narrower than its own contents.
+   `min-width` is deliberately absent: a flex item's default minimum is its
+   content-based minimum, which here is the toggle's -- the box, the title's
+   floor and the toggle's padding. That is the number that has to be honoured
+   for the title and the links not to overlap, and the browser works it out
+   from the floor itself, so the 10rem rule for very narrow screens is carried
+   over without this needing to know about it.
+   `flex: 1` keeps the basis at 0 so the item ASKS for nothing and grows into
+   whatever is spare. Asking for its content width instead would make a long
+   title demand the whole row and push the links onto their own line on a
+   desktop that had plenty of space for both. */
 .row form {
   flex: 1;
-  min-width: 0;
 }
 
+/* Their natural width, never squeezed and never grown -- `flex: none` is what
+   "the links keep their own width" means. When the row cannot hold the form
+   and the links side by side, it is the links that move, because they are the
+   only item that cannot be made narrower.
+   And they wrap among themselves once they are on a line of their own, so a
+   very narrow screen stacks them rather than running them off the edge. */
 .actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   gap: 4px;
+  padding: 0 0 12px 16px;
 }
+
+/* THE INDENT ON `.actions` ABOVE IS NOT PHONE-ONLY, AND WAS, WHICH IS WORTH A
+   NOTE BECAUSE IT WAS WRONG FOR A REASON THAT KEEPS RECURRING IN THIS FILE:
+   "desktop" was being imagined as a wide screen. It is not. `--column` caps
+   this app at 640px and `.page` takes 20px of padding each side, so a task row
+   is AT MOST 588px wide on any screen ever, and the five links with their long
+   labels measure about 412px of that. The form cannot go below about 240px
+   without its contents spilling, and 240 + 8 + 412 is 660. So the links are on
+   a line of their own at essentially every width this app is ever drawn at,
+   and an indent applied only below 640px left them flush against the row's
+   left edge -- to the left of the tick box -- on exactly the screens the owner
+   looks at.
+   The one band where they do sit beside the title is a viewport of about 630
+   to 639px, where the labels have already dropped their second word and the
+   row is still at its widest. There the 16px reads as a slightly wider gap and
+   the 12px below them lifts the links about 6px off centre. That is the whole
+   cost, it is six pixels in a nine-pixel band, and it is written down rather
+   than guarded with a third media query. */
 
 /* Quiet on purpose: renaming and deleting should be findable, not loud. */
 .action {
@@ -193,11 +247,30 @@
   background: #601c11;
 }
 
-/* The whole row is the control, so ticking something off is an easy tap. */
+/* The whole row is the control, so ticking something off is an easy tap.
+
+   IT WRAPS, SINCE 14 OCTOBER 2026, and that is the whole of the fix for what
+   the owner's screenshot of the preview showed: a row carrying a team chip and
+   the "Former member" badge squeezed the title to ONE CHARACTER PER LINE while
+   every other row wrapped normally.
+   Why it happened: this was a single non-wrapping line of four items, and the
+   title was the only one of them that could shrink -- the box is `flex: none`
+   and so is every chip. So the chips took their content width, the title took
+   what was left, and `overflow-wrap: anywhere` on it turned "what was left"
+   into a column one letter wide. TWO chips made it absurd; ONE chip at the old
+   45% cap was already squeezing it, which is why the floor below is on the
+   title rather than a smaller cap on the chips.
+   With wrapping on, the title's floor decides where the break goes: the chips
+   drop onto a line of their own rather than the title being ground down.
+   COLUMN AND ROW GAPS SEPARATELY, because 16px between a title and a chip
+   sitting beside it is right and 16px of vertical space under a wrapped row is
+   too much. A row that does not wrap is unchanged by the row-gap. */
 .toggle {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  column-gap: 16px;
+  row-gap: 8px;
   width: 100%;
   min-height: 64px;
   padding: 12px 16px;
@@ -218,20 +291,62 @@
 }
 
 /* The task's own text takes whatever room is left, so a long one wraps rather
-   than pushing the team chip off the end of the row. */
+   than pushing the team chip off the end of the row.
+
+   AND IT STOPS SHRINKING AT 13rem, which is the half that was missing. It read
+   `min-width: 0`, which says "shrink to nothing if the row is tight" -- and the
+   row is tight the moment a chip is on it, so the title did exactly that. 13rem
+   is about thirty characters: enough that a title reads as a sentence rather
+   than a column, and short enough that a phone can still fit it beside the box.
+
+   A PLAIN LENGTH, AND NOT `min(13rem, calc(100% - 3rem))`, WHICH WAS TRIED
+   FIRST AND LOOKED CLEVERER. The percentage was meant to stop the floor ever
+   asking for more room than the row has. What it actually did, measured in
+   Chrome at 390px, was make the row OVERFLOW: a floor written with a
+   percentage is not resolved when the browser decides which items share a
+   line, so the chip was placed beside the title as though the title could
+   shrink to nothing, and only afterwards was the title clamped back up to
+   13rem -- pushing the chip off the right-hand edge, which is a worse fault
+   than the one being fixed. A plain length is known at that moment, so the
+   chip is moved to the next line instead, which is the whole point.
+   The narrow-screen case the percentage was guarding against is real and is
+   handled below, where it can be seen rather than inferred. */
 .title {
   flex: 1;
-  min-width: 0;
+  min-width: 13rem;
   overflow-wrap: anywhere;
+}
+
+/* THE GUARD, at the width where 13rem stops fitting. The box is 28px and its
+   gap is 16px, so the floor plus 44px has to be inside the toggle or the title
+   is pushed onto a line of its own and the tick box is left sitting alone above
+   it.
+   THE BREAKPOINT IS MEASURED RATHER THAN GUESSED, and the guess was wrong by a
+   whole phone: it was written at 359px on the back of an envelope, and a row
+   pinned to 320px in Chrome put the box and the title on the same line with
+   room to spare -- 208px of floor and 44px of box inside a 274px toggle. So a
+   320px screen, the narrowest anybody still carries, wants no help at all.
+   Below 320 it does, and 10rem still reads as a sentence. */
+@media (max-width: 319px) {
+  .title {
+    min-width: 10rem;
+  }
 }
 
 /* Which team a task belongs to, on the task itself (issue #83): a team mate's
    task must never read as one of your own. A personal task has no chip at all,
    so the difference is visible without reading anything. Always the team's name,
-   never its id. */
+   never its id.
+
+   THE 45% CAP IS GONE, and that is the other half of 14 October's fix. It was
+   there to stop a 60-character team name eating the row, which the title's own
+   floor now does properly -- and while the row could not wrap, 45% was ALSO the
+   most a single chip could take, so one long name already left a phone's title
+   column about seven characters wide. On a line of its own a chip should be
+   allowed the whole width and wrap inside itself, which is what 100% says. */
 .team {
   flex: none;
-  max-width: 45%;
+  max-width: 100%;
   padding: 2px 10px;
   color: var(--green-ink);
   font-size: 0.875rem;

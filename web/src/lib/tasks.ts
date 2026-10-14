@@ -14,14 +14,70 @@
 //
 // owner_id is a user id, not a name or an address. It is only ever compared with
 // the signed-in person's own id -- never shown, and never put in a link.
+// owner_id IS NULLABLE FROM BUILD IT 26, and that is the one change to this
+// type the account deletion makes. `20261013140000_account_deletion.sql` made
+// the column nullable with `on delete set null`, so a null means THE PERSON WHO
+// CREATED THIS HAS DELETED THEIR ACCOUNT. The task stays with its team, which
+// is the owner's decision 1 of 2026-10-12, and `FORMER_MEMBER` below is what a
+// screen says in place of a name.
 export type Task = {
   id: string;
   title: string;
   done: boolean;
   created_at: string;
   team_id: string | null;
-  owner_id: string;
+  owner_id: string | null;
 };
+
+/**
+ * What a task says when the person who created it has gone.
+ *
+ * ADDED AFTER THE OWNER'S DAVE TEST OF 13 OCTOBER 2026, which found the task
+ * surviving exactly as it should and SAYING NOTHING: the row drew its title, its
+ * team chip, Suggest subtasks, Files and Rename, with no sign that its creator
+ * had left and no Delete for the one person allowed to remove it.
+ *
+ * THE WORDS ARE docs/deletion.md's OWN -- "shown as 'Former member'" -- and this
+ * is the only place in this app that draws anything at all about who created a
+ * task. `web/src/lib/tasks.ts` has always said `owner_id` is "only ever compared
+ * with the signed-in person's own id -- never shown", and that stays true: what
+ * is drawn here is the ABSENCE of a creator, which is not a person's name and
+ * identifies nobody.
+ */
+export const FORMER_MEMBER = "Former member";
+
+/**
+ * May this person delete this task?
+ *
+ * TWO WAYS, and the second arrived with Build it 26:
+ *
+ *   its CREATOR, which is feature 4 -- "only the person who created a task can
+ *   delete it, so nobody loses an entry because somebody else tidied up";
+ *   or THE OWNER OF ITS TEAM, when the task has NO creator left. That is the
+ *   policy `20261013140000_account_deletion.sql` adds, and it exists because
+ *   "Owners can remove their own tasks" is `auth.uid() = owner_id`, which is
+ *   false for a null owner -- so without it NOBODY could ever remove such a row.
+ *
+ * `ownedTeamIds` is the teams this person OWNS, not the teams they are in: a
+ * member must not gain this, and the policy reads `teams.owner_id` directly for
+ * the same reason.
+ *
+ * THE CONTROL IS DRAWN ONLY FOR SOMEBODY THE DATABASE WOULD ALLOW, which is
+ * issue #83's lesson applied again: a Delete drawn for everybody and refused on
+ * use is a worse screen than one that is not drawn.
+ */
+export function mayDeleteTask(
+  task: Pick<Task, "owner_id" | "team_id">,
+  context: { userId: string; ownedTeamIds: ReadonlySet<string> },
+): boolean {
+  if (task.owner_id === context.userId) return true;
+
+  return (
+    task.owner_id === null &&
+    task.team_id !== null &&
+    context.ownedTeamIds.has(task.team_id)
+  );
+}
 
 // docs/plan.md keeps task text short on purpose, and asks people not to type
 // personal details into it. The same limit is a check constraint in

@@ -351,6 +351,18 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
   {
     heading: "What you can ask for",
     paragraphs: [
+      // ADDED WITH THE EXPORT, Build it 26 PR 3, and not one word of it before
+      // the feature existed: scripts/screen-state-check.mjs section 11i refused
+      // any claim about a download until there was one, and docs/claims.md
+      // section 7d's row for it said MUST NOT SAY YET.
+      //
+      // IT NAMES WHERE, because a right somebody cannot find is not a right
+      // they have -- the same argument docs/plan.md makes for the consent
+      // setting having a page of its own rather than a box on another screen.
+      //
+      // AND IT SAYS WHAT THE FILE DOES NOT HOLD rather than listing it here.
+      // The list is in the file, which is where the person reading it is.
+      `You can download what this app holds about you, as one file, from Settings. The file itself says what is deliberately not in it, and why.`,
       `You can change your tasks and your nickname yourself, and you can switch AI suggestions off at any time, which stops anything more being sent immediately.`,
       // CHANGED on the re-read: the first version said "we will delete it" with
       // nothing about how. It is done BY HAND, in a dashboard, and today the
@@ -359,8 +371,33 @@ export const PRIVACY: ReadonlyArray<LegalSection> = [
       // that stops the deletion happening; it stops it being instant, and a
       // sentence that implied otherwise would be a promise about speed nobody
       // made.
-      `There is no way to delete your account in this app yet. Write to ${CONTACT_ADDRESS} from the address on the account and we will delete it by hand. It is not instant, and it is one person doing it.`,
+      // REWRITTEN WITH BUILD IT 26, and the sentence it replaces was the one
+      // #204 required while there was no way out at all: "There is no way to
+      // delete your account in this app yet. Write to <address> from the address
+      // on the account and we will delete it by hand." There is a way now, so
+      // the old sentence would be false -- and scripts/screen-state-check.mjs
+      // section 11i has turned from refusing a claim about it into requiring
+      // one.
+      //
+      // IT SAYS WHAT GOES AND WHAT STAYS IN THE SAME BREATH, because the second
+      // half is what somebody would not guess: a task they wrote in another
+      // person's team is not theirs alone to remove.
+      `You can delete your account yourself, in Settings. It deletes your account, your nickname, your settings, your tasks and the files on them, and every team you own — with any invitations waiting in those teams.`,
+      `It cannot be undone, and you are asked to type a phrase to confirm it.`,
+      `Two things stay, and they are worth knowing before you press it. A task you wrote in somebody else's team stays with that team, shown as “Former member” — your name is off it and nothing links it to you. And when a team of yours goes, every other member's own task comes back to them as a personal task, so nobody loses work they wrote themselves.`,
+      `If you cannot sign in — a forgotten password, or an address we never confirmed — write to ${CONTACT_ADDRESS} from the address on the account instead. The same goes if you were invited to a team and never signed up: write from the address that was invited.`,
       `Asking from the address on the account is how we know it is you — without that, anybody who knew your address could have your account destroyed.`,
+      // WHAT IS KEPT AFTERWARDS, which the book's Build it 26 prompt asks to be
+      // listed on this page: "Keep only records the law requires, and list them
+      // for our privacy policy."
+      //
+      // THE ANSWER IS NOTHING OF OURS, and it is worth saying as a sentence
+      // rather than leaving a reader to infer it from an absence. There is no
+      // record in this app of a deletion having happened -- no list of deleted
+      // people, no date, no id. The four things that DO outlive a deletion are
+      // other companies' records and the nightly copies, and every one of them
+      // is named elsewhere on this page with its own clock.
+      `After a deletion we keep no record of it at all — no list of deleted accounts, no date, nothing. What outlives it is not ours: the email service's sending log, error reports at Sentry until somebody asks for them, anything already sent to the AI service, and the encrypted nightly copies. Each of those is described above, with how long it lasts.`,
       `Changing the email address on an account is also done by hand. Write to the same place.`,
       `To ask what is held about you, or for the two things above that nobody can see through the app, write to ${CONTACT_ADDRESS}.`,
       // CHANGED on the re-read: an untried procedure described as though it were

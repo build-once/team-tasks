@@ -1,8 +1,15 @@
 "use server";
 
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  CONFIRM_FIELD,
+  CONFIRM_PHRASE,
+  deleteOutcome,
+  phraseMatches,
+} from "@/lib/account-deletion";
 import { ACT_FIELD, BUTTON_IDS, pressed } from "@/lib/buttons";
 import {
   CONSENT_OFF,
@@ -205,4 +212,117 @@ export async function saveAiSuggestions(formData: FormData) {
   }
 
   redirect(`/settings?saved=${wanted ? CONSENT_ON : CONSENT_OFF}`);
+}
+
+// ---------------------------------------------------------------------------
+// Delete my account -- Build it 26, and the only irreversible thing in this app
+// ---------------------------------------------------------------------------
+//
+// THE FUNCTION DOES THE WORK AND THIS ACTION DOES THREE THINGS: it refuses a
+// press that did not carry the typed phrase, it calls
+// supabase/functions/delete-account, and it signs the person out afterwards.
+//
+// EVERY CHECK HERE IS THE SECOND ONE. The function checks the phrase for itself,
+// checks `account_status` for itself, and holds the only key that can remove a
+// login -- so nothing below is what makes the deletion safe. What the checks
+// here buy is a refusal that costs no round trip and a sentence that says why,
+// which is the same division of labour `createTeam` has with its name length.
+//
+// IT IS A SERVER ACTION AND NOT A ROUTE, which is the opposite of the export one
+// screen above -- and for a reason: an export is a GET somebody may repeat, and
+// this must be a POST that cannot be reached by following a link, prefetching
+// one, or a mail scanner fetching a URL. The export is a download; this is a
+// destruction.
+//
+// THE SIGN-OUT IS AFTER, AND IT IS NOT WHAT PROVES ANYTHING. Step 7 of
+// docs/deletion.md section 3: "Sign them out, and send them to a page that says
+// it is done ... Last, because until step 6 succeeds they are still an account."
+// Their session is already worthless -- the login row is gone -- so this is
+// tidiness rather than security, and it is done so the next screen is not an
+// app drawing empty lists at somebody who no longer exists.
+export async function deleteAccount(formData: FormData) {
+  // The press is authorised by the identifier, never by the label.
+  if (!pressed(formData.get(ACT_FIELD), [BUTTON_IDS.accountDelete])) {
+    redirect("/settings?problem=button");
+  }
+
+  // THE TYPED PHRASE. Checked here so a mistyped box costs nothing, and checked
+  // AGAIN in the function, which is the check that counts.
+  const typed = formData.get(CONFIRM_FIELD);
+  if (!phraseMatches(typed)) {
+    redirect("/settings?problem=phrase");
+  }
+
+  const supabase = await createClient();
+
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (claimsError || !userId) {
+    redirect("/login");
+  }
+
+  rememberUserForErrorReports(userId);
+
+  // NOTHING ABOUT WHO IS ASKING IS IN THIS BODY, and that is the property worth
+  // noticing: `invoke` sends the signed-in person's token in the Authorization
+  // header, and the function takes the id from that verified token. There is no
+  // user id here for a caller to tamper with, so a signed-in person cannot
+  // delete somebody else's account by editing a form.
+  //
+  // The phrase IS sent, because the function checks it rather than trusting that
+  // a screen did.
+  const { error } = await supabase.functions.invoke("delete-account", {
+    body: { confirm: CONFIRM_PHRASE },
+  });
+
+  if (error) {
+    // THE STATUS AND A KNOWN CODE WORD, never the function's own message. The
+    // long note beside TEAM_ACTION_OUTCOMES in web/src/lib/teams.ts is the
+    // argument, and `web/src/app/teams/page.tsx`'s own history is the reason:
+    // a message put through `?problem=` is a message anybody can craft.
+    let code: unknown;
+    let status: unknown;
+
+    if (error instanceof FunctionsHttpError) {
+      status = error.context?.status;
+      try {
+        const body = await error.context.json();
+        code = (body as { code?: unknown } | null)?.code;
+      } catch {
+        // Not JSON, or already read. The status alone decides.
+      }
+    }
+
+    const outcome = deleteOutcome({
+      reached: error instanceof FunctionsHttpError,
+      status,
+      code,
+    });
+
+    // DELIBERATELY NOT REPORTED TO SENTRY, which is a departure from
+    // `createTeam`'s `worthReporting` and is worth saying why. Every refusal
+    // here is about one person's own account, and an error report carries their
+    // user id -- so reporting a failed deletion would put the id of somebody who
+    // has just asked to be forgotten into an outside company's system, at the
+    // exact moment they asked. docs/deletion.md section 8 says the owner can
+    // only delete Sentry events BEFORE the account goes; adding one during the
+    // attempt is the opposite of that.
+    redirect(`/settings?problem=${outcome}`);
+  }
+
+  // ---- Step 7: sign out, and say it is done ----------------------------
+  //
+  // scope is left at its default, which signs out this browser. A global
+  // sign-out is pointless here -- the login row is gone, so every session with
+  // it is already dead -- and issue #150 records five scripts that used a global
+  // scope and ended the owner's own sessions.
+  await supabase.auth.signOut();
+
+  revalidatePath("/", "layout");
+
+  // THE HOME PAGE, which is public, because there is no signed-in person left to
+  // show a signed-in page to. `?deleted=1` is a fixed value this app wrote, and
+  // `web/src/app/page.tsx` draws one fixed sentence for it -- nothing from the
+  // address bar reaches the screen.
+  redirect("/?deleted=1");
 }

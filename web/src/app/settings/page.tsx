@@ -3,6 +3,18 @@ import { redirect } from "next/navigation";
 import { ActButton } from "@/app/components/ActButton";
 import { Banner } from "@/app/components/Banner";
 import { Header } from "@/app/components/Header";
+import {
+  CONFIRM_FIELD,
+  CONFIRM_PHRASE,
+  DELETE_BUTTON_LABEL,
+  DELETE_HEADING,
+  DELETE_IRREVERSIBLE,
+  DELETE_TYPE_TO_CONFIRM,
+  REQUEST_PATH,
+  deleteSentence,
+  deletionWarning,
+} from "@/lib/account-deletion";
+import { listFilesForExport } from "@/lib/attachment-store";
 import { BUTTON_IDS } from "@/lib/buttons";
 import {
   CONSENT_HOW_LONG,
@@ -19,11 +31,118 @@ import {
   settingsSentence,
   settingsWentWell,
 } from "@/lib/consent";
+import {
+  EXPORT_HEADING,
+  EXPORT_LINK_LABEL,
+  EXPORT_PATH,
+  EXPORT_WORDS,
+  exportRefusalSentence,
+} from "@/lib/export-data";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import { DISPLAY_NAME_MAX } from "@/lib/teams";
 
-import { saveAiSuggestions } from "./actions";
+import { deleteAccount, saveAiSuggestions } from "./actions";
+
+/**
+ * What a deletion would destroy, counted with the caller's own rights.
+ *
+ * THREE NULLS ARE POSSIBLE AND EACH ONE IS SAID. A count this app could not read
+ * is `null`, never 0, and `deletionWarning` turns each into a sentence admitting
+ * it — because a `0` in a warning about destruction is the one place this app
+ * must not guess. Build it 19's rule, applied to the words somebody reads before
+ * pressing the only button that cannot be undone.
+ *
+ * `tasks` IS THEIR OWN ROWS ONLY — `.eq("owner_id", userId)` — so a team mate's
+ * task is never counted into what "will be deleted". The SELECT policy on
+ * `tasks` is wider than that on purpose, so the filter is what narrows it.
+ *
+ * `files` IS COUNTED ONLY ON THE TASKS THAT ARE GOING, which is the coach's fix
+ * of 2026-10-13 arriving in the warning as well as in the function. A task the
+ * person created in SOMEBODY ELSE'S team survives them, and it keeps the files
+ * other people attached to it — so counting those into "will be deleted" was
+ * counting other people's files as this person's loss. What the deletion takes
+ * from a surviving task is only what they uploaded, which nothing here can count
+ * because a storage listing does not say who uploaded a file:
+ * `DELETE_UPLOADS_ELSEWHERE` is the sentence that says so.
+ *
+ * `teams` is the NAMES of the teams they own. Not a count: decision 2 of
+ * 2026-10-12 asks for every name, one per line, because a count alone is a
+ * warning nobody can check.
+ */
+async function readWhatWouldGo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+): Promise<{
+  tasks: number | null;
+  files: number | null;
+  teams: ReadonlyArray<string> | null;
+}> {
+  const tasksAnswer = await supabase
+    .from("tasks")
+    .select("id, team_id")
+    .eq("owner_id", userId);
+
+  const teamsAnswer = await supabase
+    .from("teams")
+    .select("id, name, owner_id")
+    .eq("owner_id", userId);
+
+  const ownedTeamIds = new Set(
+    (teamsAnswer.data ?? [])
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string" && id !== ""),
+  );
+
+  // THE TASKS THAT ARE ACTUALLY GOING: personal, or in a team this person owns.
+  // The same rule `tasksToDelete` and `folderPlan` use in the function, and the
+  // reason the file count is taken over these and not over every task they
+  // created.
+  //
+  // If the TEAMS read failed, this app does not know which of their team tasks
+  // are in a team they own -- so it counts none of them rather than guessing,
+  // and the sentence about teams already says the read failed.
+  const doomedTaskIds = (tasksAnswer.data ?? [])
+    .filter((row) => {
+      const teamId = (row as { team_id?: unknown }).team_id;
+      if (teamId === null || teamId === undefined) return true;
+      return typeof teamId === "string" && ownedTeamIds.has(teamId);
+    })
+    .map((row) => (row as { id?: unknown }).id)
+    .filter((id): id is string => typeof id === "string" && id !== "");
+
+  // Only when the task read worked: a file count over a list this app could not
+  // read would be a number about nothing.
+  const files = tasksAnswer.error
+    ? null
+    : await listFilesForExport(supabase, doomedTaskIds);
+
+  return {
+    // THE TASK COUNT IS OF THE TASKS BEING DELETED, not of every task they
+    // created -- because the sentence says "will be deleted" and the ones in
+    // somebody else's team will not be. They stay as "Former member", which
+    // `DELETE_WHAT_STAYS` is the sentence for.
+    //
+    // AND IT IS NULL IF EITHER READ FAILED, including the TEAMS read: without
+    // the owned team ids this app cannot tell a task in a team of theirs from a
+    // task in somebody else's, so the count would be an undercount dressed as a
+    // fact. An unknown is said, never guessed at.
+    tasks: tasksAnswer.error || teamsAnswer.error ? null : doomedTaskIds.length,
+    files:
+      files === null || files.failed
+        ? null
+        : files.listings.reduce(
+            (total, listing) =>
+              total + (Array.isArray(listing.rows) ? listing.rows.length : 0),
+            0,
+          ),
+    teams: teamsAnswer.error
+      ? null
+      : (teamsAnswer.data ?? [])
+          .map((row) => (row as { name?: unknown }).name)
+          .filter((name): name is string => typeof name === "string" && name !== ""),
+  };
+}
 
 // Settings -- today it holds exactly one thing, and that one thing is the switch that
 // decides whether anybody's task title leaves this project.
@@ -52,7 +171,7 @@ import { saveAiSuggestions } from "./actions";
 export default async function SettingsPage({
   searchParams,
 }: PageProps<"/settings">) {
-  const { saved, problem } = await searchParams;
+  const { saved, problem, delete: wantsDelete } = await searchParams;
   const supabase = await createClient();
 
   // src/proxy.ts already turns signed-out visitors away, but a page that shows a
@@ -117,8 +236,29 @@ export default async function SettingsPage({
   const profileUnknown = Boolean(profileError);
   const needsNickname = !profileUnknown && profile === null;
 
-  const outcome = settingsSentence(saved ?? problem);
+  // TWO TABLES, ASKED IN ORDER, and neither of them ever reads a message.
+  //
+  // The consent table is this page's own; the export's two refusals live in
+  // web/src/lib/export-data.ts because they are about the download rather than
+  // about the setting. Both answer null for a code this app did not write, which
+  // is what stops a crafted `?problem=` printing chosen words on this site.
+  const outcome =
+    settingsSentence(saved ?? problem) ??
+    exportRefusalSentence(problem) ??
+    deleteSentence(problem);
   const outcomeIsGood = settingsWentWell(saved);
+
+  // ---- What a deletion would destroy, read ONLY when somebody asks ------
+  //
+  // `?delete=1` IS THE CONFIRMATION STEP, and it is also what keeps this page
+  // cheap. Counting the files means one storage listing PER TASK -- a listing is
+  // by prefix and a task's prefix is its id (issue #244) -- so doing it on every
+  // visit to Settings would make the slowest page in the app out of the one
+  // nobody is in a hurry on. Nobody is shown a warning they did not ask for, and
+  // nobody pays for one.
+  //
+  // The counts are read with the CALLER'S OWN RIGHTS, like everything else here.
+  const deletion = wantsDelete === "1" ? await readWhatWouldGo(supabase, userId) : null;
 
   return (
     <>
@@ -243,6 +383,127 @@ export default async function SettingsPage({
             once more.
           </p>
         ) : null}
+
+        {/* YOUR DATA -- Build it 26, PR 3. docs/deletion.md section 11.
+
+            A LINK AND NOT A BUTTON, which is the whole reason the export is a
+            route handler rather than a server action: an ordinary GET answering
+            with a Content-Disposition header is a download a browser performs
+            with NO JAVASCRIPT. Attaching a file is the one thing in this app
+            that needs any, and docs/architecture.md records that as a cost.
+
+            EVERY SENTENCE COMES FROM web/src/lib/export-data.ts, and this card
+            holds none of its own -- the same shape as the consent card above and
+            as the two legal pages, and each one is a row in docs/claims.md
+            section 2f.
+
+            THE FOURTH SENTENCE IS THE ONE THAT IS NOT OBVIOUS. Every row in the
+            file is something this person can already read on a screen today;
+            what is new is that they are gathered into one artefact that can be
+            forwarded. docs/deletion.md section 11.4 says so in those terms. */}
+        <section className="card">
+          <h2>{EXPORT_HEADING}</h2>
+
+          {EXPORT_WORDS.map((sentence) => (
+            <p className="hint" key={sentence}>
+              {sentence}
+            </p>
+          ))}
+
+          {/* btn--quiet rather than btn--primary: the primary action on this
+              page is Save, above, and a page with two green buttons on it has
+              no primary action. `.btn` alone would be nearly invisible on an
+              anchor -- it sets a transparent border and no background, and the
+              only other `.btn` in this app without a variant is on a <button>,
+              which a browser gives a background of its own. */}
+          <p>
+            <a className="btn btn--quiet" href={EXPORT_PATH} download>
+              {EXPORT_LINK_LABEL}
+            </a>
+          </p>
+        </section>
+
+        {/* DELETE MY ACCOUNT -- Build it 26, and the only irreversible thing in
+            this app.
+
+            TWO STEPS, which is the book's "clear confirmation step": this card
+            draws a link, and `?delete=1` draws the warning, the typed box and
+            the button. Nobody meets a destructive button by scrolling.
+
+            EVERY SENTENCE COMES FROM web/src/lib/account-deletion.ts, and the
+            counts in them are this person's own rows read a moment ago. A count
+            this app could not read says so rather than drawing a 0 -- which is
+            Build it 19's rule applied to the sentence somebody reads before
+            pressing the one button that cannot be undone. */}
+        <section className="card">
+          <h2>{DELETE_HEADING}</h2>
+
+          {deletion === null ? (
+            <>
+              <p className="hint">{DELETE_IRREVERSIBLE}</p>
+              <p>
+                <a className="btn btn--quiet" href="/settings?delete=1">
+                  {DELETE_HEADING}…
+                </a>
+              </p>
+            </>
+          ) : (
+            <form action={deleteAccount}>
+              {deletionWarning(deletion).map((sentence) => (
+                <p className="hint" key={sentence}>
+                  {sentence}
+                </p>
+              ))}
+
+              {/* THE TEAMS, BY NAME, one per line -- decision 2 of 2026-10-12,
+                  and the reason is that "a deletion that names nothing is a
+                  deletion nobody can consent to". A count alone would be a
+                  warning nobody could check.
+
+                  AND NOT THE MEMBERS. docs/deletion.md section 5: "It must not
+                  name the other members, and it must not name anybody's
+                  address." */}
+              {deletion.teams !== null && deletion.teams.length > 0 ? (
+                <ul>
+                  {deletion.teams.map((name) => (
+                    <li key={name}>{name}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div>
+                <label className="label" htmlFor={CONFIRM_FIELD}>
+                  {DELETE_TYPE_TO_CONFIRM}
+                </label>
+                <input
+                  className="input"
+                  id={CONFIRM_FIELD}
+                  name={CONFIRM_FIELD}
+                  type="text"
+                  autoComplete="off"
+                  placeholder={CONFIRM_PHRASE}
+                />
+              </div>
+
+              {/* btn--primary is the wrong tone for this and there is no
+                  destructive variant in globals.css, so it stays quiet rather
+                  than inviting. The guard is the typed phrase, not the colour --
+                  and the function checks that phrase again for itself. */}
+              <ActButton className="btn btn--quiet" act={BUTTON_IDS.accountDelete}>
+                {DELETE_BUTTON_LABEL}
+              </ActButton>
+
+              <p className="hint">
+                Changed your mind? <a href="/settings">Go back</a>.
+              </p>
+            </form>
+          )}
+
+          <p className="hint">
+            If you cannot sign in, <a href={REQUEST_PATH}>ask for your account to be
+            deleted</a> instead.
+          </p>
+        </section>
       </main>
     </>
   );

@@ -47,8 +47,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_ALL,
   FILTER_PERSONAL,
+  FORMER_MEMBER,
   TEAM_NOT_SHOWN,
   TITLE_MAX,
+  mayDeleteTask,
   readFilter,
   resolveFilter,
   taskTeam,
@@ -158,15 +160,36 @@ export default async function MyTasksPage({
   // chooser below can offer every row it gets and can never offer a team they are
   // not in -- the list is the database's answer, not this screen's guess.
   //
-  // Two columns, which are the two this page uses (Lesson D17). Ordered by name,
-  // because the chooser and the Show row are read by a person.
+  // THREE columns since Build it 26, and `owner_id` is the new one. It is read
+  // for exactly one thing: whether this person OWNS a team, which is what the
+  // delete policy on a FORMER MEMBER'S task asks
+  // (20261013140000_account_deletion.sql). Being in a team is not enough, so
+  // `teamNames` -- every team this person can see -- cannot answer it.
+  //
+  // It is a user id, never shown, and only ever compared with the signed-in
+  // person's own, which is what web/src/lib/teams.ts already says about the same
+  // column on the My teams page.
+  //
+  // Ordered by name, because the chooser and the Show row are read by a person.
   const { data: teamData, error: teamsError } = await supabase
     .from("teams")
-    .select("id, name")
+    .select("id, name, owner_id")
     .order("name", { ascending: true });
 
   const teams = (teamData ?? []) as TaskTeam[];
   const teamNames = new Map(teams.map((team) => [team.id, team.name]));
+
+  // The teams this person OWNS. A Set, because the only question asked of it is
+  // membership, once per row.
+  //
+  // AN EMPTY SET IF THE READ FAILED, which is the right direction: no Delete is
+  // drawn on a former member's task rather than one drawn on a guess. The page
+  // already says, once, that it could not read the teams.
+  const ownedTeamIds = new Set(
+    (teamData ?? [])
+      .filter((team) => (team as { owner_id?: unknown }).owner_id === userId)
+      .map((team) => (team as { id: string }).id),
+  );
 
   // No "where owner_id is me" here either: the row-level security rules decide
   // what comes back. Since 20261002133637_tasks_join_teams.sql that is the
@@ -894,12 +917,17 @@ export default async function MyTasksPage({
         ) : !showsData(listState) ? null : (
           <ul className={styles.list}>
             {visible.map((task) => {
-              // Only the person who created a task may delete it: the delete
-              // policy on tasks is still owner-only, deliberately, so that an
-              // organiser's list does not lose entries because somebody tidied
-              // up (docs/plan.md feature 4). The control is drawn only for them,
-              // rather than drawn for everybody and refused on use (issue #83).
+              // Whether this person CREATED the task. It decides Move to...,
+              // which is the creator's alone -- tasks_enforce_column_rules()
+              // refuses a team_id change by anybody else -- and it is no longer
+              // the whole of who may DELETE one: see `mayDelete` below.
               const mine = task.owner_id === userId;
+
+              // AND THE SECOND WAY, ADDED BY BUILD IT 26: the owner of a team
+              // may delete a task in it whose creator has deleted their account.
+              // `mayDeleteTask` in web/src/lib/tasks.ts carries the argument and
+              // is the same pair the new policy admits.
+              const mayDelete = mayDeleteTask(task, { userId, ownedTeamIds });
 
               // A team task always says which team. Null means personal, and a
               // personal task is labelled with nothing, because the heading above
@@ -977,12 +1005,23 @@ export default async function MyTasksPage({
                         Cancel
                       </Link>
                     </form>
-                  ) : confirm === task.id && mine ? (
+                  ) : confirm === task.id && mayDelete ? (
                     // Deleting is permanent, so it is asked for twice: once on
-                    // the row, and once here. `mine` is checked again on purpose:
-                    // ?confirm= arrives in the address bar, and without it a
-                    // hand-typed link would draw a Delete button on a team mate's
-                    // task that the database was only ever going to refuse.
+                    // the row, and once here. The permission is checked again on
+                    // purpose: ?confirm= arrives in the address bar, and without
+                    // it a hand-typed link would draw a Delete button on a team
+                    // mate's task that the database was only ever going to
+                    // refuse.
+                    //
+                    // AND IT IS `mayDelete` AND NOT `mine`, WHICH IS THE FAULT
+                    // THE OWNER'S RE-TEST OF 14 OCTOBER 2026 FOUND. The row's
+                    // own Delete was fixed to ask `mayDelete`, and this one was
+                    // left asking `mine` -- so a team's owner pressing Delete on
+                    // a former member's task got `?confirm=` in the address bar
+                    // and the ordinary row back again, with no confirmation and
+                    // nothing deleted. The same question twice, from the same
+                    // function, is the only arrangement in which the two steps
+                    // cannot disagree.
                     <div className={styles.confirmRow}>
                       <p className={styles.confirmText}>Delete this task?</p>
                       <form action={deleteTask}>
@@ -1012,7 +1051,7 @@ export default async function MyTasksPage({
                     // teams the add form offers -- the rows the database let
                     // this page read, which is every team this person belongs to
                     // and no other. canMove is checked again here on purpose,
-                    // for the same reason `mine` is checked on the delete
+                    // for the same reason `mayDelete` is checked on the delete
                     // confirmation: ?move= arrives in the address bar, and a
                     // hand-typed link must not draw a control on a team mate's
                     // task that the database was only ever going to refuse.
@@ -1127,6 +1166,32 @@ export default async function MyTasksPage({
                               {teamName}
                             </span>
                           )}
+                          {/* FORMER MEMBER -- Build it 26, and it is the only
+                              thing in this app that draws anything at all about
+                              who created a task.
+
+                              It says the ABSENCE of a creator, not a person: a
+                              null owner_id means that person deleted their
+                              account (20261013140000_account_deletion.sql), the
+                              task stays with its team by decision 1, and
+                              docs/deletion.md's own words for it are "shown as
+                              'Former member'".
+
+                              THE OWNER'S DAVE TEST OF 13 OCTOBER 2026 IS WHY
+                              THIS IS HERE: the task survived exactly as it
+                              should and the row said nothing, so a team's list
+                              held an entry with no sign that its author had
+                              gone.
+
+                              Read out as "by Former member", because the chip
+                              beside it is a team's name and the two would
+                              otherwise run together. */}
+                          {task.owner_id === null ? (
+                            <span className={`${styles.team} ${styles.teamLeft}`}>
+                              <span className="visually-hidden">by </span>
+                              {FORMER_MEMBER}
+                            </span>
+                          ) : null}
                         </ActButton>
                       </form>
 
@@ -1250,7 +1315,22 @@ export default async function MyTasksPage({
                             </span>
                           </Link>
                         ) : null}
-                        {mine ? (
+                        {/* DELETE: its creator, OR the owner of its team when
+                            it has no creator left.
+
+                            The second arrived with Build it 26 and `mayDelete`
+                            is where the two are decided -- the same two the new
+                            policy in 20261013140000_account_deletion.sql admits.
+                            It matters because "Owners can remove their own
+                            tasks" is `auth.uid() = owner_id`, which is false for
+                            a null owner, so without that policy NOBODY could
+                            ever remove such a row.
+
+                            The owner's Dave test of 13 October 2026 found the
+                            control missing where the policy already allowed it,
+                            which is the opposite of issue #83's fault and just
+                            as wrong: a row nobody can act on. */}
+                        {mayDelete ? (
                           <Link
                             className={styles.action}
                             href={tasksPath({
