@@ -111,67 +111,78 @@
   border-top: 1px solid var(--line);
 }
 
-/* A normal row: the tick-off control, then its quiet actions. */
+/* A normal row: the tick-off control, then its quiet actions.
+
+   IT WRAPS AT EVERY WIDTH, SINCE 14 OCTOBER 2026, and the rule it is built on
+   is worth stating before the detail, because two attempts got it wrong:
+   THE TITLE TAKES WHAT IS LEFT AND WRAPS; THE LINKS KEEP THEIR OWN WIDTH AND
+   DROP TO A LINE OF THEIR OWN WHEN THERE IS NOT ENOUGH ROOM. Nothing here may
+   shrink a box below what its contents need, because a flex item that is
+   smaller than its contents does not squeeze them -- it lets them SPILL, and
+   what they spill onto is whatever is drawn beside them.
+   Which is exactly what the owner's screenshot of 83409bc showed on a desktop:
+   a long title wrapping UNDERNEATH "Suggest subtasks" instead of the links
+   moving out of its way. The badge fix had given `.title` a 13rem floor, so
+   the toggle now had a real minimum width -- and this form still said
+   `min-width: 0`, which let it be sized smaller than the toggle it contains.
+   The toggle is `width: 100%` of the form, so it overflowed to the right and
+   painted over the links. The floor did not cause that; it only made it
+   visible. A row whose title could shrink to nothing could never overflow,
+   which is why nobody saw this before. */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding-right: 12px;
 }
 
+/* Takes the room that is left, and is NEVER narrower than its own contents.
+   `min-width` is deliberately absent: a flex item's default minimum is its
+   content-based minimum, which here is the toggle's -- the box, the title's
+   floor and the toggle's padding. That is the number that has to be honoured
+   for the title and the links not to overlap, and the browser works it out
+   from the floor itself, so the 10rem rule for very narrow screens is carried
+   over without this needing to know about it.
+   `flex: 1` keeps the basis at 0 so the item ASKS for nothing and grows into
+   whatever is spare. Asking for its content width instead would make a long
+   title demand the whole row and push the links onto their own line on a
+   desktop that had plenty of space for both. */
 .row form {
   flex: 1;
-  min-width: 0;
 }
 
+/* Their natural width, never squeezed and never grown -- `flex: none` is what
+   "the links keep their own width" means. When the row cannot hold the form
+   and the links side by side, it is the links that move, because they are the
+   only item that cannot be made narrower.
+   And they wrap among themselves once they are on a line of their own, so a
+   very narrow screen stacks them rather than running them off the edge. */
 .actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   gap: 4px;
+  padding: 0 0 12px 16px;
 }
 
-/* ON A PHONE THE ACTIONS GET THEIR OWN LINE, added 14 October 2026 beside the
-   badge fix below and found by looking at the first one on a 390px viewport.
-   It is a SECOND cause of the same symptom and it is worth keeping apart,
-   because fixing the badges alone would have left a phone exactly as bad:
-   there are FIVE action links on a row now -- Suggest, Files, Rename, Move,
-   Delete -- and at a phone's width they are wider than the row on their own.
-   `.actions` is `flex: none`, so they take that width whatever happens, and
-   the form holding the tick box, the title and the chips is `flex: 1` with
-   `min-width: 0` -- the only thing that could give. So on a phone the title
-   was being ground down by the ACTIONS before a single badge was drawn, which
-   is why the owner saw rows without badges wrap normally on a laptop and would
-   have seen them break on a phone.
-   Below the width at which this file already gives "Add task" and "Move to…"
-   their second word, the row wraps and the links drop underneath, where they
-   have the whole width and wrap among themselves. AT 640px AND ABOVE NOTHING
-   HERE APPLIES, so the laptop row is exactly what it was. */
-@media (max-width: 639px) {
-  .row {
-    flex-wrap: wrap;
-  }
-
-  /* The floor that makes the wrap happen: the form asks for 16rem, the links
-     ask for more than is left, so the links are what move.
-     A PLAIN LENGTH, for the reason written out above `.title`: a percentage in
-     a flex floor is not resolved when the browser decides which items share a
-     line, and that is exactly how the first attempt at this fix pushed a chip
-     off the right-hand edge. 16rem is 256px, inside the row on any screen from
-     280px up. */
-  .row form {
-    flex: 1 1 16rem;
-  }
-
-  /* Free to take the line it has been given, and to wrap inside it on a very
-     narrow screen rather than running off the edge. Indented to the same 16px
-     as the title above it, so the two read as one row rather than two, and
-     given the bottom padding the toggle was providing before they moved. */
-  .actions {
-    flex: 1 1 auto;
-    flex-wrap: wrap;
-    padding: 0 0 12px 16px;
-  }
-}
+/* THE INDENT ON `.actions` ABOVE IS NOT PHONE-ONLY, AND WAS, WHICH IS WORTH A
+   NOTE BECAUSE IT WAS WRONG FOR A REASON THAT KEEPS RECURRING IN THIS FILE:
+   "desktop" was being imagined as a wide screen. It is not. `--column` caps
+   this app at 640px and `.page` takes 20px of padding each side, so a task row
+   is AT MOST 588px wide on any screen ever, and the five links with their long
+   labels measure about 412px of that. The form cannot go below about 240px
+   without its contents spilling, and 240 + 8 + 412 is 660. So the links are on
+   a line of their own at essentially every width this app is ever drawn at,
+   and an indent applied only below 640px left them flush against the row's
+   left edge -- to the left of the tick box -- on exactly the screens the owner
+   looks at.
+   The one band where they do sit beside the title is a viewport of about 630
+   to 639px, where the labels have already dropped their second word and the
+   row is still at its widest. There the 16px reads as a slightly wider gap and
+   the 12px below them lifts the links about 6px off centre. That is the whole
+   cost, it is six pixels in a nine-pixel band, and it is written down rather
+   than guarded with a third media query. */
 
 /* Quiet on purpose: renaming and deleting should be findable, not loud. */
 .action {
