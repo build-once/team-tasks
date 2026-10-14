@@ -1595,7 +1595,13 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           # 14 -> 15 with Build it 24 part 1 (issue #258): backup-proof.
-          EXPECTED_JOBS: "15"
+          # 15 -> 16 with Build it 27's stripe-live-keys job. The guard below
+          # caught this being missed on PR #312, which is what it is for: the
+          # job was added to `needs` and this number was not, so every job
+          # succeeded and `required` still failed, naming the two lines to keep
+          # in step. A green aggregator that silently stopped waiting for a job
+          # is the failure it exists to prevent.
+          EXPECTED_JOBS: "16"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"
