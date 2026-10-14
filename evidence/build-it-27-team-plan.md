@@ -26,6 +26,7 @@ production.**
 | `supabase/functions/stripe-checkout/` | the hosted-checkout session and the price read (Lesson O8) |
 | `invite-member`, `accept-invite` | the team size check, in **both** doors |
 | `web/src/lib/env.ts`, `components/TestModeBanner.tsx` | the **TEST MODE** banner |
+| `web/src/lib/plan.ts`, `app/teams/page.tsx`, `app/teams/actions.ts` | **the screen, added after the owner found there was no way to buy anything.** The plan panel on My teams: current plan, the member limit, the price read from Stripe, the button, and the success look |
 | `.github/workflows/ci.yml` | the live-key check, **and its can-this-fail proof** |
 | `.github/workflows/migrate-production.yml` | the smoke-test exception for the one function that cannot answer 401 |
 
@@ -37,7 +38,7 @@ $ deno test --no-lock --allow-env --allow-read=supabase/migrations,supabase/func
 ok | 297 passed | 0 failed (1s)                                    exit 0
 
 $ node scripts/screen-state-check.mjs
-428 of 428 checks passed.                                          exit 0
+437 of 437 checks passed.                                          exit 0
 
 $ node scripts/check-workflows.mjs
 Checked 6 workflow file(s), 28 job(s): 0 problem(s), 0 warning(s).  exit 0
@@ -45,6 +46,14 @@ Checked 6 workflow file(s), 28 job(s): 0 problem(s), 0 warning(s).  exit 0
 $ npx eslint            (in web/)                                  exit 0
 $ npm run build         (in web/)   18 routes                      exit 0
 ```
+
+**The screen was missing from the first version of this change**, which the owner found on the
+Preview: everything server-side existed and nothing could reach it. `web/src` changed only the banner,
+the layout, the CSS and `env.ts`. The plan panel, the button and the success look were added after
+that, and `scripts/screen-state-check.mjs` section 14 is nine checks over them — including that the
+two numbers and the three copies of the entitling statuses all agree, that the page never calls
+`team_member_limit()` and never reads `entitlements` directly, and that the success look writes
+nothing. One of them was seen to fail first, by pointing the success address back at `/settings`.
 
 **19 of those 297 are new**, in `supabase/functions/_tests/stripe_test.ts`. The CI job's expected
 count moved from 250 to 297 — 250 was itself stale, because Build it 26's 28 tests landed without it

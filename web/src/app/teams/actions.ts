@@ -418,3 +418,50 @@ export async function inviteMember(formData: FormData) {
   const what = retried ? "again" : "sent";
   redirect(redirected ? `/teams?invited=${what}&to=test` : `/teams?invited=${what}`);
 }
+
+// ---------------------------------------------------------------------------
+// Build it 27: start a Stripe hosted checkout
+// ---------------------------------------------------------------------------
+//
+// NO CARD DETAIL PASSES THROUGH THIS FUNCTION, OR THROUGH ANY OF OURS. All it
+// does is ask stripe-checkout for a URL and send the browser there. The card is
+// typed on Stripe's own page, at Stripe's address, and this app has no field
+// for one anywhere -- which is Lesson O8 made structural rather than careful.
+//
+// IT SENDS NOTHING BUT AN ACTION WORD. No price, no amount, no user id: the
+// price id is a function secret, and the caller's identity comes from the token
+// `invoke` attaches. A body this app can tamper with is a body somebody else can
+// tamper with, and there is nothing here to tamper with.
+export async function startCheckout(formData: FormData) {
+  if (!pressed(formData.get(ACT_FIELD), [BUTTON_IDS.planUpgrade])) {
+    redirect("/teams?problem=button");
+  }
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.functions.invoke("stripe-checkout", {
+    body: { action: "checkout" },
+  });
+
+  if (error) {
+    // Deliberately NOT routed through outcomeOf: that reader is about the team
+    // functions' own vocabulary. Every way this can fail -- no key, no price,
+    // Stripe unreachable, the caller suspended -- is the same news to somebody
+    // standing at the screen, which is that nothing was charged and they can
+    // press it again.
+    redirect("/teams?problem=checkout");
+  }
+
+  const url = (data as { url?: unknown } | null)?.url;
+
+  // ONLY A STRIPE ADDRESS. The URL comes from our own server function, so this
+  // is belt-and-braces rather than a fix -- but it is a redirect to somewhere
+  // outside this app driven by a value that arrived over the network, and that
+  // is exactly the shape of thing worth checking before following. An open
+  // redirect is how a sign-in page ends up on somebody else's domain.
+  if (typeof url !== "string" || !url.startsWith("https://checkout.stripe.com/")) {
+    redirect("/teams?problem=checkout");
+  }
+
+  redirect(url);
+}

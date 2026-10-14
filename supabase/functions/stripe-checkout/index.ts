@@ -170,10 +170,18 @@ export default {
             // THE SUCCESS PAGE GRANTS NOTHING. docs/plan.md says so as its own
             // heading, and this address is the proof rather than the exception:
             // it carries no token, no session id and nothing a screen could
-            // read as permission. It is a page that says "thank you, this may
-            // take a moment".
-            success_url: `${appUrl}/settings?paid=1`,
-            cancel_url: `${appUrl}/settings`,
+            // read as permission. `/teams?paid=1` draws one fixed sentence that
+            // promises a WAIT rather than a result, and the plan line beside it
+            // is read from the database exactly as on any other visit -- so if
+            // the webhook has not landed yet, it still says Free, which is the
+            // truth.
+            //
+            // BOTH POINT AT /teams because that is where the button is. Stripe
+            // is told these addresses per session; nothing about them is
+            // configured in Stripe, so moving the button moved both and the
+            // webhook endpoint is untouched.
+            success_url: `${appUrl}/teams?paid=1`,
+            cancel_url: `${appUrl}/teams`,
             // THE ONE THING THAT TIES A PAYMENT TO A PERSON. The webhook reads
             // this off the subscription and writes the entitlement for it, so
             // a subscription with no metadata credits nobody -- which is the
