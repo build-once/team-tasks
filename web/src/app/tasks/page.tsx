@@ -917,11 +917,10 @@ export default async function MyTasksPage({
         ) : !showsData(listState) ? null : (
           <ul className={styles.list}>
             {visible.map((task) => {
-              // Only the person who created a task may delete it: the delete
-              // policy on tasks is still owner-only, deliberately, so that an
-              // organiser's list does not lose entries because somebody tidied
-              // up (docs/plan.md feature 4). The control is drawn only for them,
-              // rather than drawn for everybody and refused on use (issue #83).
+              // Whether this person CREATED the task. It decides Move to...,
+              // which is the creator's alone -- tasks_enforce_column_rules()
+              // refuses a team_id change by anybody else -- and it is no longer
+              // the whole of who may DELETE one: see `mayDelete` below.
               const mine = task.owner_id === userId;
 
               // AND THE SECOND WAY, ADDED BY BUILD IT 26: the owner of a team
@@ -1006,12 +1005,23 @@ export default async function MyTasksPage({
                         Cancel
                       </Link>
                     </form>
-                  ) : confirm === task.id && mine ? (
+                  ) : confirm === task.id && mayDelete ? (
                     // Deleting is permanent, so it is asked for twice: once on
-                    // the row, and once here. `mine` is checked again on purpose:
-                    // ?confirm= arrives in the address bar, and without it a
-                    // hand-typed link would draw a Delete button on a team mate's
-                    // task that the database was only ever going to refuse.
+                    // the row, and once here. The permission is checked again on
+                    // purpose: ?confirm= arrives in the address bar, and without
+                    // it a hand-typed link would draw a Delete button on a team
+                    // mate's task that the database was only ever going to
+                    // refuse.
+                    //
+                    // AND IT IS `mayDelete` AND NOT `mine`, WHICH IS THE FAULT
+                    // THE OWNER'S RE-TEST OF 14 OCTOBER 2026 FOUND. The row's
+                    // own Delete was fixed to ask `mayDelete`, and this one was
+                    // left asking `mine` -- so a team's owner pressing Delete on
+                    // a former member's task got `?confirm=` in the address bar
+                    // and the ordinary row back again, with no confirmation and
+                    // nothing deleted. The same question twice, from the same
+                    // function, is the only arrangement in which the two steps
+                    // cannot disagree.
                     <div className={styles.confirmRow}>
                       <p className={styles.confirmText}>Delete this task?</p>
                       <form action={deleteTask}>
@@ -1041,7 +1051,7 @@ export default async function MyTasksPage({
                     // teams the add form offers -- the rows the database let
                     // this page read, which is every team this person belongs to
                     // and no other. canMove is checked again here on purpose,
-                    // for the same reason `mine` is checked on the delete
+                    // for the same reason `mayDelete` is checked on the delete
                     // confirmation: ?move= arrives in the address bar, and a
                     // hand-typed link must not draw a control on a team mate's
                     // task that the database was only ever going to refuse.

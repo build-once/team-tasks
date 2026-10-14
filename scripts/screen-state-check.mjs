@@ -2253,19 +2253,106 @@ check(
 // situations: the row is not this person's, and the delete matched nothing. The
 // sentence names both possibilities and claims neither, which is why one
 // sentence is right for both -- §2d of docs/claims.md.
+// ANCHOR CHANGED 2026-10-14, AND THIS IS A RULE 20 LINE. It read:
+//
+//   TASKS_ACTIONS.indexOf("row.owner_id !== me") <
+//     TASKS_ACTIONS.indexOf("clearTaskFiles(supabase, id)")
+//
+// The property it checks -- the permission is read BEFORE storage is touched --
+// is unchanged and still checked. What changed is the string it anchors on,
+// because `row.owner_id !== me` was the FAULT the owner's re-test of 14 October
+// 2026 found and is gone. Worth noting how this check behaved while the fault
+// was there: `indexOf` of a string that is absent is -1, which is less than any
+// real index, so it would have gone GREEN against a guard that had been deleted
+// altogether. An ordering check anchored on a literal needs the literal to be
+// asserted present as well, which is the line below it now.
 check(
   "and it reads whose task it is BEFORE clearing, so a team mate is told the truthful thing",
   [
     count(TASKS_ACTIONS, 'problem: "delete"'),
-    TASKS_ACTIONS.indexOf("row.owner_id !== me") <
+    count(TASKS_ACTIONS, "mayDeleteTask({ owner_id: ownerId, team_id: taskTeamId }"),
+    TASKS_ACTIONS.indexOf("mayDeleteTask({ owner_id: ownerId") <
       TASKS_ACTIONS.indexOf("clearTaskFiles(supabase, id)"),
   ],
-  [2, true],
+  [2, 1, true],
 );
 check(
   "an unreadable claim is not a match, so an unknown is not a yes",
-  count(TASKS_ACTIONS, 'typeof me !== "string"'),
-  1,
+  [
+    count(TASKS_ACTIONS, 'typeof me !== "string"'),
+    // And the teams read is skipped rather than run with an unknown caller,
+    // which is the same answer reached from the other side.
+    count(TASKS_ACTIONS, 'typeof me === "string"'),
+  ],
+  [1, 1],
+);
+
+// ---- THE ACTION ASKS THE SAME QUESTION THE SCREEN DID (14 October 2026) ----
+//
+// THE OWNER'S RE-TEST FOUND BOTH HALVES OF THIS AND THE CHECKS ABOVE FOUND
+// NEITHER. The row's Delete control was fixed on 13 October to ask
+// `mayDeleteTask`, and two places that decide the same thing were left asking
+// `owner_id === me`:
+//
+//   the ACTION's own guard, `row.owner_id !== me`, which refused a former
+//   member's task before it ever reached the database -- while the policy
+//   "Team owners can remove a former member's task" was allowing it; and
+//   the CONFIRMATION ROW on the page, `confirm === task.id && mine`, so
+//   pressing Delete put `?confirm=` in the address bar and drew the ordinary
+//   row back again, with nothing to confirm.
+//
+// WHY THE 13 OCTOBER CHECK PASSED ANYWAY: it asserted `count(TASKS_PAGE,
+// "{mine ? (") === 0`, which was true, because the confirmation's condition is
+// spelled `confirm === task.id && mine` and does not contain that substring.
+// A check that names ONE spelling of a condition proves nothing about the
+// others, so these name every place the question is asked and require the
+// answer to come from one function.
+check(
+  "the ACTION asks mayDeleteTask, and compares owner_id to the caller NOWHERE",
+  [
+    // The CALL, not the word: the word also appears in the import and in the
+    // note above the guard, and neither of those is a decision.
+    count(TASKS_ACTIONS, "mayDeleteTask({ owner_id: ownerId, team_id: taskTeamId }"),
+    // The fault, by name and in both directions, so it cannot come back.
+    count(TASKS_ACTIONS, "row.owner_id !== me"),
+    count(TASKS_ACTIONS, "row.owner_id === me"),
+    count(TASKS_ACTIONS, "ownerId !== me"),
+    count(TASKS_ACTIONS, "ownerId === me"),
+    // team_id is read as well, because mayDeleteTask needs it: a guard that
+    // selected owner_id alone could not answer the new case at all.
+    count(TASKS_ACTIONS, '.select("id, owner_id, team_id")'),
+    // And the owned teams come from ownership, not from the teams the caller
+    // can merely see -- the same narrowness the policy has.
+    count(TASKS_ACTIONS, '.eq("owner_id", me)'),
+  ],
+  [1, 0, 0, 0, 0, 1, 1],
+);
+check(
+  "the CONFIRMATION ROW asks the same question as the control that opened it",
+  [
+    count(TASKS_PAGE, "confirm === task.id && mayDelete"),
+    // The fault: `mine` decided the confirmation while `mayDelete` decided the
+    // control, so one step offered what the next one withheld.
+    count(TASKS_PAGE, "confirm === task.id && mine"),
+    // `mine` survives, and only for what it is actually about: Move to... is
+    // the creator's alone, because tasks_enforce_column_rules() refuses a
+    // team_id change by anybody else.
+    count(TASKS_PAGE, "const canMove = mine &&"),
+  ],
+  [1, 0, 1],
+);
+// AND NO OTHER SPELLING OF THE QUESTION IS LEFT ANYWHERE ON THE PAGE, which is
+// the general form of what the 13 October check missed: it is not enough to
+// forbid one substring. `owner_id === userId` may appear EXACTLY ONCE -- the
+// line that defines `mine` -- and every decision is taken from `mine` or
+// `mayDelete` rather than from a fresh comparison.
+check(
+  "owner_id is compared with the caller in exactly one place on the page",
+  [
+    count(TASKS_PAGE, "task.owner_id === userId"),
+    count(TASKS_PAGE, "const mine = task.owner_id === userId;"),
+  ],
+  [1, 1],
 );
 // CHANGED 2026-10-12, AND THIS IS THE RULE 20 LINE. It read:
 //

@@ -21,6 +21,7 @@ import {
   TITLE_MAX,
   filterAfterAdd,
   isTeamId,
+  mayDeleteTask,
   readFilter,
   tasksPath,
 } from "@/lib/tasks";
@@ -450,34 +451,109 @@ export async function deleteTask(formData: FormData) {
   // BUT NOT BEFORE ASKING WHOSE TASK IT IS, and that read is here because of a
   // wrong SENTENCE rather than a wrong rule.
   //
-  // Clearing first for everybody would be safe -- the same storage policy that
-  // admits a creator's delete refuses a team mate's, so somebody who may not
-  // delete the task cannot clear its files either and `cleared` comes back
-  // false. It is safe and it says the wrong thing: a team mate would be told
-  // "its files could not be removed first", which is true and conceals the
+  // Clearing first for everybody would be safe -- the storage delete policies
+  // admit exactly the same two people as the task's, its uploader aside, so
+  // somebody who may not delete the task cannot clear its files either and
+  // `cleared` comes back false. It is safe and it says the wrong thing: a team
+  // mate who may do neither would be told "its files could not be removed
+  // first", which is true and conceals the
   // actual reason, which is that the task was never theirs to delete. This page
   // draws no Delete on somebody else's task, so it takes a hand-made request to
   // get here -- and a hand-made request still deserves the truthful answer.
   //
   // So: the row is read first, as the caller. No row means the task is gone or
-  // was never visible, and a row belonging to somebody else means exactly what
+  // was never visible, and a row this person may not delete means exactly what
   // the "nothing deleted" sentence below already says. Both take that path and
   // nothing touches storage, which also saves a delete that could not succeed
   // from making three requests first.
+  //
+  // AND THE QUESTION IT ASKS IS `mayDeleteTask`, WHICH IS THE FAULT THE OWNER'S
+  // RE-TEST OF 14 OCTOBER 2026 FOUND. This guard used to compare the row's
+  // creator with the caller and refuse anything else -- so a former member's
+  // task in a team the caller owns was refused HERE, by this app, while the
+  // policy "Team owners can remove a former member's task" in
+  // 20261013140000_account_deletion.sql was sitting there allowing it. The
+  // screen drew the Delete (Build it 26 fixed that), the person pressed it, and
+  // the row never reached the database. A guard narrower than the rule it is
+  // guarding is a rule nobody can use.
+  //
+  // `mayDeleteTask` is the one place the two allowed pairs are written down, and
+  // it is the same function the page asks before drawing the control -- so the
+  // screen and the action cannot disagree about who may press it. The comparison
+  // this replaced is named in scripts/screen-state-check.mjs and nowhere here,
+  // deliberately: a comment quoting a forbidden literal is what makes the check
+  // that forbids it stop working.
   const { data: owned, error: readError } = await supabase
     .from("tasks")
-    .select("id, owner_id")
+    .select("id, owner_id, team_id")
     .eq("id", id);
 
   if (readError) redirect(tasksPath({ filter, problem: "save" }));
 
-  const row = owned?.[0] as { owner_id?: unknown } | undefined;
+  const row = owned?.[0] as
+    | { owner_id?: unknown; team_id?: unknown }
+    | undefined;
   const { data: claimsData } = await supabase.auth.getClaims();
   const me = claimsData?.claims?.sub;
 
-  // An unreadable claim is not a match. The same direction as everything else
-  // in this app: an unknown is not a yes.
-  if (!row || typeof me !== "string" || row.owner_id !== me) {
+  // The two columns, read for what they are. A uuid column answers a string or
+  // null and nothing else, so anything else is this app misreading its own
+  // database rather than a person being refused -- and it gets the "try again"
+  // sentence rather than a verdict about who may delete what. A missing row
+  // gives null here and is dealt with by the one refusal below.
+  const ownerId = row ? row.owner_id : null;
+  const taskTeamId = row ? row.team_id : null;
+
+  if (
+    (ownerId !== null && typeof ownerId !== "string") ||
+    (taskTeamId !== null && typeof taskTeamId !== "string")
+  ) {
+    redirect(tasksPath({ filter, problem: "save" }));
+  }
+
+  // THE TEAMS THIS PERSON OWNS, and only when the answer turns on them: a task
+  // the caller created is theirs to delete whatever teams they own, so the
+  // commonest delete in the app still makes no second query.
+  //
+  // The query filters on the TEAM's own creator, which is ownership and not
+  // membership -- the whole point. The policy reads `teams.owner_id` directly so
+  // that a member does not gain this, and a guard built on the teams somebody
+  // can merely SEE would be wider than the policy instead of narrower.
+  //
+  // A FAILED READ IS NOT AN EMPTY SET. An empty set would answer "no" to a
+  // delete the database would have allowed, which is the fault being fixed here
+  // wearing different clothes, so an unreadable teams list is reported as a
+  // failure to try again rather than as a refusal.
+  let ownedTeamIds: ReadonlySet<string> = new Set<string>();
+
+  if (row && ownerId === null && typeof me === "string") {
+    const { data: myTeams, error: teamsError } = await supabase
+      .from("teams")
+      .select("id, owner_id")
+      .eq("owner_id", me);
+
+    if (teamsError) redirect(tasksPath({ filter, problem: "save" }));
+
+    ownedTeamIds = new Set(
+      (myTeams ?? [])
+        .map((team) => (team as { id?: unknown }).id)
+        .filter((teamId): teamId is string => typeof teamId === "string"),
+    );
+  }
+
+  // ONE REFUSAL FOR ALL THREE, and it is one sentence because it is one piece of
+  // news: nothing was deleted, and this code does not claim to know which of the
+  // three it was. No row -- gone, or never visible. An unreadable claim -- an
+  // unknown is not a yes, the same direction as everything else in this app. And
+  // a row `mayDeleteTask` does not admit.
+  if (
+    !row ||
+    typeof me !== "string" ||
+    !mayDeleteTask({ owner_id: ownerId, team_id: taskTeamId }, {
+      userId: me,
+      ownedTeamIds,
+    })
+  ) {
     redirect(tasksPath({ filter, problem: "delete" }));
   }
 
@@ -535,10 +611,10 @@ export async function deleteTask(formData: FormData) {
     redirect(tasksPath({ filter, problem: "save" }));
   }
 
-  // Nothing deleted. Two reasons, and this code cannot tell them apart: only a
-  // task's creator may delete it -- the delete policy is still owner-only, which
-  // is the rule this feature wants -- so a team mate's task matches no row, and
-  // neither does a task that has already gone.
+  // Nothing deleted. Two reasons, and this code cannot tell them apart: a task
+  // this person may not delete matches no row -- the two policies admit its
+  // creator, and a team's owner when it has no creator left, and nobody else --
+  // and neither does a task that has already gone.
   //
   // It used to say "that task no longer exists", which was true for one of those
   // two and false for the other (issue #83). The page no longer draws a delete
