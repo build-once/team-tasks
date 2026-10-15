@@ -1,0 +1,138 @@
+LAUNCH CHECK — THE COURSE 1 REHEARSAL'S FINAL RUN
+=================================================
+
+Saved 15 October 2026, from `node scripts/launch-check.mjs` on `main` at 70ec9fa.
+Expected and obtained: 33 PASS / 0 FAIL / 6 TODO.
+
+
+THE SIX TODO ROWS ARE DELIBERATE, AND THEY ARE NOT DONE
+------------------------------------------------------
+
+  accounts-2fa        two-step login on every account
+  spend-caps          a monthly cap on every paid service
+  billing-alerts      an alert before a cap is reached
+  env-separate-keys   each environment's own keys, by name
+  previews-staging    preview deployments point at staging
+  error-monitoring    a deliberate test error, with its event id
+
+Every one of these is an OWNER DASHBOARD LOOK, and not one was performed in this
+rehearsal. Team Tasks is a demo: it has no real users, production holds no
+accounts, and the Stripe half is a sandbox with no live keys. Doing them would
+have meant reporting readings nobody took.
+
+THEY MUST BE DONE BEFORE ANY REAL LAUNCH. "33 PASS" is not "ready for people" —
+it is "everything this repository can establish about itself, plus the readings
+the owner did take". The six above are the ones only a person in front of a
+dashboard can answer, and three of them (the caps and the alerts) are the ones
+that stand between a mistake and a bill.
+
+One note on the last of them, because the obvious attempt misleads: the page
+that produced Sentry event ids on 6 October was `/temp-error-test`, reverted in
+183a17f, so a deliberate error means re-adding it briefly on a PREVIEW deploy.
+And Sentry's environment list showing only "preview" is expected rather than a
+fault — this app sets a TAG called `deployment` from VERCEL_ENV and never
+Sentry's own `environment`, so that tag is what to filter on.
+
+
+TWO ROWS THAT PASS FOR A NARROWER REASON THAN THEY APPEAR TO
+------------------------------------------------------------
+
+lockfile-committed — reads "package.json has no dependencies".
+
+  That is TRUE OF THE ROOT package.json ONLY, which is the one this check looks
+  at, and it is not where this app's packages are. Every package the app runs is
+  in web/package.json: Next.js, React, @supabase/ssr, @supabase/supabase-js,
+  @sentry/nextjs.
+
+  web/package-lock.json IS tracked in git, and `npm ci` in CI's "App build" job
+  is what proves it: npm ci fails outright if the lockfile is missing or out of
+  step with package.json. So the thing the row is for is established — by a
+  different check than the one reporting PASS.
+
+  The same shape of gap was real in .github/dependabot.yml until 15 October: its
+  npm entry pointed at the root too, so Dependabot watched a manifest with no
+  dependencies. PR #316 added `directory: "/web"`.
+
+repo-private — reads "N/A - public by decision".
+
+  This repository is public on purpose: Vercel's Hobby plan cannot deploy a
+  private repository owned by a GitHub organisation. docs/decisions/public-repo.md
+  is the record, and evidence/repo-private.md is the row's answer.
+
+  The row was an AUTOMATIC check until 15 October. It is now an evidence row,
+  because launch-check.mjs's repo_private hard-codes PUBLIC to FAIL and the
+  script has no N/A path for an auto row — so a repository public by a recorded
+  decision could not be recorded as anything but a failure. The cost is stated
+  rather than hidden: NOTHING NOW WATCHES THE REPOSITORY'S VISIBILITY.
+
+
+THE RENAME TEST — THE CHECK CHECKED ITSELF
+------------------------------------------
+
+Done by the owner on 15 October 2026, on `main`:
+
+  evidence/captcha.md moved aside, then `node scripts/launch-check.mjs`:
+
+    TODO    captcha    Book 1 C24    missing evidence/captcha.md
+    39 items: 32 PASS, 0 FAIL, 7 TODO
+
+  The file was then restored, and the totals returned to 33 PASS / 0 FAIL /
+  6 TODO.
+
+That is the one test that matters about a checklist: it shows the PASS rows are
+being READ rather than remembered. A check that stayed green with its evidence
+missing would be a check reporting its own last mood.
+
+
+THE RUN
+=======
+
+$ node scripts/launch-check.mjs
+
+Launch check for C:\Users\rajdh\team-tasks
+
+STATUS  ID                         LESSON                 DETAIL
+------  -------------------------  ---------------------  ---------------------------------------------------------------------------------------
+PASS    architecture-doc           Book 1 A10             docs/architecture.md
+PASS    environments-doc           Book 1 A19             docs/environments.md
+TODO    accounts-2fa               Book 1 A13             missing evidence/accounts-2fa.md
+TODO    spend-caps                 Book 1 A15             missing evidence/spend-caps.md
+TODO    billing-alerts             Book 1 A15             missing evidence/billing-alerts.md
+PASS    repo-private               Book 1 L22             2026-10-15: N/A - public by decision
+PASS    main-protected             Book 1 A1              ruleset rules on main: deletion, non_fast_forward, pull_request, required_status_checks
+PASS    gitignore-env              Book 1 B1              covers .env and .env.*
+PASS    no-tracked-env             Book 1 B1              348 tracked files checked
+PASS    no-secrets-in-repo         Book 1 B1              346 tracked files scanned, 0 hits
+TODO    env-separate-keys          Book 1 A20             missing evidence/env-separate-keys.md
+TODO    previews-staging           Book 1 A21             missing evidence/previews-staging.md
+PASS    rls-alice-bob              Book 1 A22, H16        2026-10-15: PASS — Bob is refused Alice's rows on read, write
+PASS    storage-rules              Book 1 D23, D24        2026-10-15: PASS — Alice uploaded a file to staging's `attachm
+PASS    migrations-folder          Book 1 E1              supabase/migrations (database: supabase/)
+PASS    migrations-only-via-files  Book 1 E1              2026-10-15: PASS — the rule is written down and enforced by a
+PASS    lockfile-committed         Book 1 A4              package.json has no dependencies
+PASS    ci-green                   Book 1 I5              70ec9fa: 2 run(s) green
+PASS    ci-required-aggregator     Book 1 I7              .github\workflows\ci.yml:1650 job "required"
+PASS    ci-permissions-timeouts    Book 2 I6              6 workflow(s), 28 job(s)
+PASS    guards-installed           Book 1 A2              .claude/hooks/guard.mjs
+PASS    guards-registered          Book 1 A2              PreToolUse runs the guard
+PASS    guards-selftest            Book 1 A2              exit 0: PASS: 537 rule examples across 24 rules, plus 32 fail-closed checks.
+PASS    backups-on                 Book 1 E27             2026-10-15: PASS — production's daily backups are on and the l
+PASS    restore-tested             Book 1 E28             2026-10-11: PASS — a nightly copy of production was restored i
+PASS    rate-limits                Book 1 C23             2026-10-12: PASS for everything this repository can decide.**
+PASS    captcha                    Book 1 C24             2026-10-11: PASS for the thing the whole feature rested on — S
+PASS    privacy-policy             Book 1 N14             2026-10-14: PASS — the page exists, is public, and is linked f
+PASS    terms-of-service           Book 1 N15             2026-10-14: PASS — the page exists, is public, and is linked f
+PASS    account-deletion           Book 1 N17             2026-10-14: PASS — a real account was created and deleted from
+PASS    payments-keys-separate     Book 1 O9              2026-10-15: PASS.** Test keys and live keys are separated by t
+PASS    webhooks-verified          Book 1 R16             2026-10-15: PASS.** Delivery, idempotency, the entitlement wri
+PASS    store-requirements         Book 1 K41, K42        2026-10-15: N/A - web only
+TODO    error-monitoring           Book 1 J11             missing evidence/error-monitoring.md
+PASS    uptime-alert-phone         Book 1 J25             2026-10-15: PASS — a Sentry uptime monitor watches production'
+PASS    incident-plan              Book 1 J24             2026-10-15: PASS — `docs/incident-plan.md` exists, and one of
+PASS    dependabot-config          Book 1 L25             .github/dependabot.yml
+PASS    dependabot-alerts          Book 1 L25             2026-10-15: PASS — Dependabot alerts and security updates are
+PASS    handoff-present            Book 1 L5; Book 2 L26  HANDOFF.md
+
+39 items: 33 PASS, 0 FAIL, 0 UNVERIFIED, 6 TODO
+UNVERIFIED means the check could not run — it is NOT a pass. TODO means evidence is missing (see evidence/README.md).
+Item titles and how to prove each one: checklist/launch.json (or run with --json).
