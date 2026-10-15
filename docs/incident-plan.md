@@ -216,12 +216,17 @@ sooner?* Usually the answer is a check, and a check is a pull request.
 
 ---
 
-## Not verified
+## What has been tried, and what has not — 15 October 2026
 
-**Nothing on this page has been used in a real incident.** The switches work on a local
-PostgreSQL sandbox (`evidence/build-it-29-kill-switches.md`) and the migration is
-**applied nowhere** on the day this was written — not local, not staging, not production.
-Until the owner applies it and flips one on staging, every sentence above about what a
-person sees is a reading of the code rather than something observed.
+**Nothing on this page has been used in a real incident**, which is still the main thing. But two
+of its three sentences about itself have changed, and this section said them wrongly on the day it
+was written: it said the migration was "applied nowhere" and that "no uptime monitor exists yet".
 
-**And no uptime monitor exists yet.** `/health` answers; nothing is watching it.
+| | |
+|---|---|
+| **The migrations** | **on staging and on production.** The owner pushed both to staging and merged both through the pipeline |
+| **`ai_suggestions`, flipped** | **done, on staging.** Off → "Suggestions are switched off for now."; on → suggestions returned. `evidence/incident-plan.md` |
+| **The other three switches** | **flipped nowhere but a sandbox.** So the two warnings above about attachments are measured on PostgreSQL and have not been met on a real project |
+| **The uptime monitor** | **exists**: Sentry, every minute on `<production>/health`, issue after three consecutive failures, alert by email. Its test notification reached the owner's phone with Do Not Disturb on, and it recorded a real 503 period on 15 October. `evidence/uptime-alert-phone.md` |
+| **The second monitor**, on an address that does not exist | **not done.** The step above still asks for it: a real outage happened to prove the alarm can go red, which is luck rather than a check |
+| **A switch flipped on production** | **never**, and this page does not ask for one to be. The first time you use a kill switch is a bad day |

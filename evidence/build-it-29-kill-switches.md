@@ -1,13 +1,16 @@
 # Evidence: Build it 29 — the four kill switches
 
-Result: PASS on a local PostgreSQL sandbox, and **UNVERIFIED on every real project** — no switch
-has been flipped anywhere, and nobody has opened a screen in a browser.
-**AND THE "applied nowhere" THIS LINE CARRIED UNTIL 12:14Z IS STALE:**
-`20261015120000_feature_switches.sql` reached **production** on the merge of PR #316 (run #84,
-"Apply migrations to production: success") and **has still not been applied to staging**, because
-the owner's `db push` there was refused by this file's own pre-check (section 11a). So the one
-project a human can safely experiment on is the one without it. **And the first thing production
-did with it was break the health check** — section 15.
+Result: PASS on a local PostgreSQL sandbox, **AND NOW PASS ON STAGING** — the owner applied the
+migration there and the `ai_suggestions` switch was flipped off and on again with the sentence seen
+on the screen both ways round. `evidence/incident-plan.md` is that run.
+**TWO THINGS THIS LINE GOT WRONG, BOTH CORRECTED 2026-10-15.** It first said the migration was
+"applied nowhere"; it then said it reached production and **"has still not been applied to
+staging"**, which was also wrong. What is true, from the owner: **staging has both migrations** —
+`20261015120000_feature_switches.sql` pushed before PR #316 was merged, and
+`20261015160000_feature_on_for_anon.sql` before #324 — each reporting *"Finished supabase db
+push."*; and **production has both** through the pipeline (run #84, "Apply migrations to
+production: success", and #324's run). **The assistant asserted the staging half twice without
+being told it, and was wrong both times.**
 Date: 2026-10-15
 How checked: a throwaway PostgreSQL 17.10 cluster built by the assistant in its scratchpad, all
 eighteen migrations applied in order, then every rule attacked as the signed-in person, as
@@ -460,22 +463,31 @@ the same assertions the real gate passes and each required to come out red.
 
 ## 14. What is NOT verified, which is most of what matters
 
-- **The migration is applied nowhere.** Not local, not staging, not production. Rule 19 refuses
-  `db push` to the assistant everywhere.
-- **No switch has been flipped on a real project**, so nobody has seen "Suggestions are switched
-  off for now." on a screen. Every sentence in this repository about what a person sees is a
-  reading of the code.
-- **No Edge Function is deployed.** The five doors exist in this branch; the deployed functions
-  are a different program until somebody deploys.
-- **`_shared/switches.ts` is a second shared import**, and whether the bundler accepts it is
-  settled only by a deploy. If it refuses, the deploy fails and nothing is deployed — the safe
-  direction, and the same unknown `_shared/limits.ts` carried and survived.
-- **No browser, and no phone.** The footer link, the banner on My tasks, the panel on My teams
-  and the invitation page's sentence have been built and not looked at.
-- **No uptime monitor exists**, and which service watches `/health` is a decision
-  `docs/plan.md` leaves to the owner because it would be a seventh outside company. **This bullet
-  said "`/health` answers" and that was wrong on production**: it answered 503 for the reason in
-  section 15, and had a monitor existed it would have been alarming from the merge onwards.
+**REWRITTEN 2026-10-15 WITH THE OWNER'S RESULTS. Five of this list's bullets were true when it was
+written and are now wrong**, which is the thing this register exists to catch rather than carry.
+What they said, and what is true:
+
+| It said | What is true |
+|---|---|
+| "The migration is applied nowhere" | **both migrations are on staging and on production** — see the Result line |
+| "No switch has been flipped on a real project" | **`ai_suggestions` was flipped off and on again on staging**, and the sentence was seen both ways round (`evidence/incident-plan.md`) |
+| "No Edge Function is deployed" | **all five are on staging**, deployed by the owner before the run |
+| "`_shared/switches.ts` … settled only by a deploy" | **settled: the bundler accepted it.** The deploy succeeded and the functions work, so `accept-invite` importing from `_shared` for the first time is no longer an open question |
+| "No uptime monitor exists" | **one does** — Sentry, every minute on `<production>/health`, and it recorded a real outage (`evidence/uptime-alert-phone.md`) |
+
+**What IS still unverified, which is the honest remainder:**
+
+- **Three of the four switches have been flipped nowhere but a sandbox** — `invitations`,
+  `attachments` and `payments`. So the two warnings in section 7 are measured on PostgreSQL and
+  have not been met on a real project.
+- **No switch has been flipped on PRODUCTION**, and nothing asks for one to be.
+- **Three of the five screens have not been seen**: the attachments banner on My tasks, the plan
+  panel on My teams, and the invitation page's sentence. **The two that have** are Suggest
+  subtasks' switched-off sentence on staging, and the footer's Contact us link on the owner's
+  iPhone, which opened the mail app.
+- **No second monitor on an address that does not exist**, which the incident plan asks for as the
+  cheap way to watch an alert arrive deliberately. A real outage did that job instead
+  (`evidence/uptime-alert-phone.md` section 3), and the deliberate one is still worth doing.
 - **The sandbox's `storage` schema is a stand-in**, so nothing here says what Supabase Storage's
   own API does with a refused insert.
 
