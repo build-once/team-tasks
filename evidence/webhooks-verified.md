@@ -1,11 +1,11 @@
 # Evidence: webhooks-verified
 
-Result: **PASS for delivery, idempotency and the entitlement write, all seen on staging.** One of the
-book's three deliberate tests — a bad signature answering 400 — is **NOT YET RUN**; section 4 says
-exactly what is missing and the one command that settles it.
+Result: **PASS.** Delivery, idempotency, the entitlement write and the refusal of an unsigned body
+were all seen on staging, and nobody but the webhook can write an entitlement — asserted on every
+pull request rather than observed once.
 Date: 2026-10-15
-How checked: the owner's staging run of 15 October 2026 (sections 1 and 2), and the access-rule tests
-that run against staging on every pull request (section 3). Nothing in this file was run by the
+How checked: the owner's staging runs of 15 October 2026 (sections 1, 2 and 4), and the access-rule
+tests that run against staging on every pull request (section 3). Nothing in this file was run by the
 assistant: there is no staging connector here, and rule 10 forbids the production one.
 Checked by: the owner, on staging. Written up by Claude Code from the owner's report and the test file.
 
@@ -54,25 +54,42 @@ Your plan: Team — Each of your teams can have up to 25 members.
 
 `EXPECTED_APP_TESTS` moved 40 → 44 so the coverage cannot silently drop back.
 
-## 4. NOT VERIFIED — the bad-signature test
+## 4. An unsigned body is refused — OBSERVED, 15 October 2026
 
-**The book asks for a webhook with a bad signature to be answered 400, and nobody has run it.** The
-code is there — `constructEventAsync` against the **raw** body, every failure answered 400 with
-nothing read out of the body — and `supabase/functions/stripe-webhook/index.ts` carries the argument
-for why that is the function's only door. But an argument is not an observation.
-
-**The one command that settles it**, run by the owner against staging, needing no key and no account:
+**The book's bad-signature test, run by the owner against staging at 07:58:33 GMT.** A POST with a
+body of `{}` and **no `Stripe-Signature` header at all**:
 
 ```
-curl -i -X POST https://<staging-ref>.supabase.co/functions/v1/stripe-webhook -d '{}'
+HTTP/1.1 400 Bad Request
+Bad signature
+                        (served by supabase-edge-runtime)
+sb-request-id: 01a13e91-e874-7ef7-ace7-0a917b24654a
 ```
 
-Expected: **HTTP 400**. A 200 would mean the webhook accepts unsigned bodies, which is the single
-worst outcome this feature can have — anybody could then grant themselves a paid plan.
+**This is the sentence the whole feature rests on**, so it is worth being exact about what it proves
+and what it does not.
 
-**The same check runs automatically on production after every deploy**, as the smoke-test exception in
-`.github/workflows/migrate-production.yml`, which the owner authorised on 14 October: every other
-function must answer 401, and this one must answer 400.
+**What it proves.** The function's own door works on a deployed build. `verify_jwt = false` means the
+platform refuses nobody here — a request with no credentials of any kind reaches our code — and our
+code answered 400 and read nothing out of the body. A **200** would have meant the webhook accepts
+unsigned bodies, which is the worst outcome this feature can have: anybody who found the address
+could post themselves a paid plan.
+
+**Why the request id is kept and is not a secret.** It is a correlation id Supabase stamps on a
+response so a log line can be found later. It grants nothing, identifies nobody, and is the one thing
+that makes this observation checkable against the function's logs rather than taken on trust. No
+header, cookie, key or body from the request is recorded here, and the request carried none.
+
+**What it does not prove.** This is the *absent* signature. A **present but wrong** signature — a real
+`Stripe-Signature` header with the wrong secret, or a replayed one past its timestamp tolerance — has
+not been tried, and takes the same path in the code: both land in the one `catch` around
+`constructEventAsync`, which has no branch in it to tell them apart. The Deno tests do not cover it
+either, deliberately — verifying a signature is Stripe's library's job, not ours.
+
+**And the same check now runs on production after every deploy**, as the smoke-test exception in
+`.github/workflows/migrate-production.yml` the owner authorised on 14 October: every other function
+must answer 401, and this one must answer 400. So this is not a one-off observation but a standing
+one — the next deploy that broke the door would turn that job red.
 
 ## 5. Also not verified
 
