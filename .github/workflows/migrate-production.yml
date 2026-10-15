@@ -433,17 +433,55 @@ jobs:
             # A 200 here would be the worst result this job could produce: a
             # webhook that accepts unsigned bodies is a webhook anybody can use
             # to grant themselves a paid plan.
+            #
+            # ---- AND 503 stripe_not_configured IS ALSO A PASS, FOR NOW ------
+            #
+            # Added 2026-10-15, with the owner's authorisation, after this step
+            # failed on the merges of #312 and #314. The function checks its KEY
+            # before it checks the signature -- `withCheckedKey` in
+            # supabase/functions/stripe-webhook/index.ts, which answers 503 with
+            # the code `stripe_not_configured` from
+            # supabase/functions/_shared/stripe-keys.ts -- and production holds
+            # NO STRIPE KEY AT ALL, because docs/plan.md's Build it 27 is a
+            # rehearsal in Stripe's sandbox and the owner decided on 2026-10-14
+            # not to create live keys. So the 400 path cannot be reached on
+            # production, and the step was asserting something the plan forbids.
+            #
+            # THIS IS A PASS ONLY WHILE PRODUCTION HOLDS NO STRIPE KEY. Once a
+            # live key is installed, a 503 stops meaning "no key by design" and
+            # starts meaning "the webhook cannot do its job", so this expectation
+            # must be TIGHTENED BACK TO 400 ONLY at that moment.
+            # docs/environments.md carries that requirement where somebody
+            # installing the key will meet it.
+            #
+            # What is NOT loosened: any 2xx still fails, and so does a 503
+            # carrying any other code.
             if [ "$name" = "stripe-webhook" ]; then
               body="$(mktemp)"
+              curl_exit=0
               status="$(curl -s -o "$body" -w '%{http_code}' --max-time 30 \
-                -X POST "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${name}")" || true
+                -X POST "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${name}")" || curl_exit=$?
+
+              # stderr to /dev/null for the reason the general path below gives:
+              # jq's parse errors can quote the text they choked on, and that
+              # text is a response body.
+              code="$(jq -r '.code // empty' "$body" 2>/dev/null || true)"
               rm -f "$body"
+
+              # Printed only if it is a plain identifier, so nothing else from a
+              # body can reach this log through the code field.
+              case "$code" in
+                *[!A-Za-z0-9_]*|"") shown="(not a plain identifier; not printed)" ;;
+                *) shown="$code" ;;
+              esac
 
               if [ "$status" = "400" ]; then
                 echo "PASS  $name: HTTP 400 -- an unsigned body was refused by the function's own signature check."
+              elif [ "$status" = "503" ] && [ "$code" = "stripe_not_configured" ]; then
+                echo "PASS  $name: HTTP 503, code stripe_not_configured -- the key gate refused before the signature check was reached. THIS IS ACCEPTABLE ONLY WHILE PRODUCTION HOLDS NO STRIPE KEY, which is the Build it 27 rehearsal decision of 2026-10-14. When a live key is installed, this expectation must be tightened to 400 only -- a 503 would then mean the webhook is not working. See docs/environments.md."
               else
-                echo "FAIL  $name: expected HTTP 400 for an unsigned POST, got ${status}."
-                failed=$((failed + 1))
+                echo "::error::FAIL  $name answered HTTP $status, code $shown, to an unsigned POST. Expected 400 -- the function's own signature check refusing an unverifiable body -- or 503 with code stripe_not_configured while production holds no Stripe key. Anything in the 2xx range is the worst answer this job can get: a webhook that accepts unsigned bodies is one anybody can use to grant themselves a paid plan. A 503 with any other code is not this exception. 404 means it is not deployed under this name. 000 means it could not be reached at all (curl exit $curl_exit)."
+                failed=1
               fi
               continue
             fi
@@ -492,7 +530,9 @@ jobs:
             echo "::error::$checked function(s) were checked and at least one did not refuse a signed-out call correctly. The per-function message above says which."
             exit 1
           fi
-          echo "All $checked function(s) refused a signed-out POST with HTTP 401 and code UNAUTHORIZED_NO_AUTH_HEADER."
+          # Not "all answered 401": stripe-webhook cannot, and saying so here
+          # would be this job claiming something it did not check.
+          echo "All $checked function(s) refused a signed-out POST: HTTP 401 with code UNAUTHORIZED_NO_AUTH_HEADER for every function the platform guards, and for stripe-webhook either HTTP 400 from its own signature check or HTTP 503 stripe_not_configured while production holds no Stripe key. The per-function line above says which."
 
       # Redirects are deliberately NOT followed (no -L). The point is that the
       # address the owner recorded answers the app itself, so a 3xx is a finding:

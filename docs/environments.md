@@ -493,6 +493,29 @@ it is testing: every function must answer a signed-out POST with HTTP 401 and th
 401 from the function's own code instead would mean `verify_jwt` was off and the request reached the
 handler, so the job checks the code as well as the status.
 
+**With one exception, and it has a tightening requirement attached — added 2026-10-15.**
+`stripe-webhook` runs with `verify_jwt = false`, because Stripe sends no Supabase token, so the platform
+never refuses its callers and it can never answer 401. The owner authorised a different check for it on
+2026-10-14: an unsigned POST must answer **400**, which is a stronger thing to prove, because it is the
+function's own signature check refusing an unverifiable body rather than the platform refusing before
+the function ran.
+
+**On production that 400 cannot happen yet, and the step now accepts 503 instead.** The function checks
+its **key** before it checks the signature, and production holds **no Stripe key at all** — Build it 27
+is a rehearsal in Stripe's sandbox, and the owner decided on 2026-10-14 not to create live keys. So the
+key gate answers `503` with the code `stripe_not_configured`, and the step failed on the merges of
+[#312](https://github.com/build-once/team-tasks/pull/312) and
+[#314](https://github.com/build-once/team-tasks/pull/314) for asserting something the plan forbids. The
+step now passes on **400 for any reason**, or on **503 carrying exactly the code
+`stripe_not_configured`**. Any 2xx still fails, and so does a 503 carrying any other code.
+
+> **WHEN A LIVE STRIPE KEY IS INSTALLED ON PRODUCTION, THIS STEP MUST BE TIGHTENED BACK TO 400 ONLY.**
+> It is one branch to delete in `.github/workflows/migrate-production.yml`, in the step "Every server
+> function refuses a signed-out call". The reason it is not optional: with a key in place, a 503 stops
+> meaning "no key, by design" and starts meaning "the webhook cannot do its job" — and a webhook that
+> cannot do its job while Stripe is live is a paid plan that never arrives. The step's own passing
+> message says the same thing, so whoever reads a green run is told as well as whoever reads this page.
+
 ### What the access token can actually do
 
 An earlier version of this section said the token "cannot read the database". **That was wrong, and
