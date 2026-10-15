@@ -1068,3 +1068,104 @@ after(async () => {
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// Build it 27: nobody writes what they have paid for
+// ---------------------------------------------------------------------------
+//
+// THE BOOK'S FIRST DELIBERATE TEST for this chapter, and the one that matters
+// most: `entitlements` is the row that decides whether a team may hold 25
+// people instead of 10, and the whole design rests on one sentence --
+// docs/plan.md, "Who can write it: nothing that a person can reach. No user may
+// write any row, ever -- not their own. Only stripe-webhook writes."
+//
+// That is enforced by ABSENCE: the table has one SELECT policy for the row's
+// own owner and no insert, update or delete policy for anybody, plus every
+// table privilege revoked from anon and authenticated. An absence is exactly
+// the kind of rule that is easy to believe and hard to see, which is why it is
+// worth being the person it is meant to refuse.
+//
+// IT RUNS AGAINST A ROW A REAL CHECKOUT CREATED. Alice's entitlement exists on
+// staging because the owner completed a Stripe sandbox checkout on 15 October
+// 2026 and the webhook wrote it. So the "can" side below is also the chapter's
+// own check that the payment arrived: plan `team`, status active or trialing.
+test("Alice CAN read her own entitlement, and it is the Team plan", async () => {
+  const answer = await rest("POST", "rpc/my_entitlement", {
+    accessToken: sessions.alice.accessToken,
+    body: {},
+  });
+
+  const rows = allowed(answer, "Alice reads her own entitlement");
+  assert.equal(
+    rows.length,
+    1,
+    "Alice has no entitlement row, so every refusal below would prove nothing",
+  );
+  assert.equal(rows[0].plan, "team", `Alice's plan is ${rows[0].plan}, expected team`);
+  assert.ok(
+    ["active", "trialing"].includes(rows[0].status),
+    `Alice's status is ${rows[0].status}, which does not entitle`,
+  );
+  console.log(`# Alice's entitlement: ${rows[0].plan} / ${rows[0].status}`);
+});
+
+test("Bob CANNOT change Alice's entitlement", async () => {
+  const aliceId = sessions.alice.userId;
+  assert.ok(aliceId, "no user id for Alice, so the PATCH would target nothing");
+
+  const attempt = await rest("PATCH", `entitlements?user_id=eq.${aliceId}&select=plan`, {
+    accessToken: sessions.bob.accessToken,
+    body: { plan: "free", status: "canceled" },
+  });
+  const how = refused(attempt, "Bob downgrades Alice's entitlement");
+  console.log(`# Bob changing Alice's entitlement: ${how}`);
+
+  // AND IT IS STILL THERE AND STILL THE TEAM PLAN. A refusal that left the row
+  // changed would be a refusal in name only, and `refused` cannot see the row.
+  const after = allowed(
+    await rest("POST", "rpc/my_entitlement", {
+      accessToken: sessions.alice.accessToken,
+      body: {},
+    }),
+    "Alice reads her entitlement back",
+  );
+  assert.equal(after.length, 1, "Alice's entitlement vanished");
+  assert.equal(after[0].plan, "team", "Bob downgraded Alice's plan");
+});
+
+test("Bob CANNOT give HIMSELF the Team plan", async () => {
+  // The likelier attack by far: not vandalising somebody else's row, but
+  // writing his own. There is no insert policy for anybody, so this is refused
+  // for the same reason and is worth proving separately -- a policy written as
+  // `auth.uid() = user_id` would have permitted exactly this while still
+  // refusing the test above.
+  const attempt = await rest("POST", "entitlements?select=plan", {
+    accessToken: sessions.bob.accessToken,
+    body: {
+      user_id: sessions.bob.userId,
+      plan: "team",
+      status: "active",
+      current_period_end: "2099-01-01T00:00:00.000Z",
+    },
+  });
+  const how = refused(attempt, "Bob inserts his own entitlement");
+  console.log(`# Bob granting himself the Team plan: ${how}`);
+
+  const after = allowed(
+    await rest("POST", "rpc/my_entitlement", {
+      accessToken: sessions.bob.accessToken,
+      body: {},
+    }),
+    "Bob reads his own entitlement",
+  );
+  assert.equal(after.length, 0, "Bob now has an entitlement row");
+});
+
+test("Nobody can read the processed Stripe events, not even their own", async () => {
+  // `stripe_events` carries no policy and no privilege for any role: it is the
+  // idempotency log, and docs/plan.md puts it with `usage_counts` and
+  // `account_status` as a table no app user may read at all.
+  const attempt = await read("stripe_events", "event_id", {}, sessions.alice.accessToken);
+  const how = refused(attempt, "Alice reads the Stripe event log");
+  console.log(`# Alice reading stripe_events: ${how}`);
+});

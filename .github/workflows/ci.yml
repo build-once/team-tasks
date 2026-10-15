@@ -1501,7 +1501,15 @@ jobs:
       # attempted and refused on purpose, one of them 5 MB, which is nearly all of
       # what a run now sends. The after() hook removes files BEFORE tasks,
       # because the database refuses to delete a task that still has one.
-      EXPECTED_APP_TESTS: "40"
+      # 40 -> 44 WITH BUILD IT 27. Four new tests over `entitlements` and
+      # `stripe_events`, and NOT ONE existing test changed. They are the book's
+      # first deliberate test for this chapter, and they run against a row a
+      # REAL sandbox checkout created on 15 October 2026: Alice can read her own
+      # entitlement and it says team/active, Bob cannot change it, Bob cannot
+      # insert one for HIMSELF -- which a policy written `auth.uid() = user_id`
+      # would have permitted while still refusing the first -- and nobody can
+      # read `stripe_events` at all.
+      EXPECTED_APP_TESTS: "44"
       STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
       STAGING_ALICE_PASSWORD: ${{ secrets.STAGING_ALICE_PASSWORD }}
