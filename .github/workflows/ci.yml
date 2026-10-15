@@ -757,6 +757,105 @@ jobs:
           run_and_count build-it-25-upload-count-checks      scripts/staging/build-it-25-upload-count-checks.mjs      "$EXPECTED_UPLOAD_COUNT_CASES"
           run_and_count build-it-26-legal-pages-checks       scripts/staging/build-it-26-legal-pages-checks.mjs       "$EXPECTED_LEGAL_PAGES_CASES"
 
+  # NO LIVE STRIPE KEY ANYWHERE IN THIS REPOSITORY -- Build it 27, Lesson O9, and
+  # the owner's authorisation of 2026-10-14 for this workflow change (rule 5).
+  #
+  # WHY A SEPARATE JOB RATHER THAN A LINE IN THE GITLEAKS ONE. gitleaks reads the
+  # git HISTORY and has its own rule set; this reads the WORKING TREE for two exact
+  # strings the owner named. They catch different things and neither replaces the
+  # other -- the same argument the bundle scan already makes about itself: "gitleaks
+  # 8.30.1 has no rule for the sb_secret_ shape, so it would not catch this even in
+  # source."
+  #
+  # ONLY THE TWO LIVE SHAPES, AND DELIBERATELY NOT pk_live_. A publishable key is
+  # public by design -- it travels in the browser like the Supabase publishable key,
+  # the Sentry DSN and the Turnstile site key -- so failing on it would be failing on
+  # something that is not a secret, and a check that cries wolf is a check somebody
+  # turns off. What `sk_live_` and `rk_live_` have in common is that either one in a
+  # public repository is money somebody else can spend.
+  #
+  # IT MUST NOT MATCH ITSELF. The patterns are built from fragments at run time, so
+  # the literal strings never appear in this file -- otherwise this job would fail on
+  # its own source, which is the oldest joke in secret scanning and a real way to end
+  # up with the check deleted.
+  stripe-live-keys:
+    name: No live Stripe key in the repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fail if a live Stripe key appears
+        run: |
+          set -uo pipefail
+
+          # IT MATCHES A KEY, NOT A MENTION, and that distinction was found by
+          # writing the first version of this check and running it: a bare search
+          # for the two prefixes matched this workflow's own comments, two
+          # sentences in docs/, and -- the one that proves the point --
+          # scripts/scan-history.mjs, whose job is to look for the very same
+          # thing. A check that cannot tell a leaked key from a document
+          # discussing leaked keys is a check that gets switched off in a week.
+          #
+          # So the pattern is the SHAPE: the prefix followed by at least ten key
+          # characters. The same floor scripts/scan-history.mjs already uses for
+          # this key, chosen there for the same reason. A real Stripe key is far
+          # longer than ten; prose that writes the bare prefix has nothing after
+          # it, and a regex that writes the character class has punctuation.
+          #
+          # Built from pieces so this file does not contain what it forbids --
+          # otherwise the job fails on its own source, which is the oldest joke
+          # in secret scanning and a real way to end up with the check deleted.
+          live="_live_"
+          pattern="(sk|rk)${live}[0-9A-Za-z]{10,}"
+
+          # --exclude-dir .git, because a packed object can contain anything and is
+          # not a file anybody edits; gitleaks is what reads history.
+          # grep exit codes: 0 found, 1 not found, 2 grep itself failed. "Not found"
+          # is what we want, so 1 must not fail the step and 2 must never be mistaken
+          # for it -- the same explicit handling the bundle scan uses.
+          status=0
+          grep -rIEn --exclude-dir=.git "$pattern" . || status=$?
+
+          if [ "$status" = "0" ]; then
+            echo "FAIL: a live Stripe key appears in the working tree, at the line(s) above."
+            echo "A live key in a public repository is money somebody else can spend."
+            echo "Remove it, then ROTATE it in Stripe -- deleting it in a later commit does not un-leak it."
+            exit 1
+          fi
+
+          if [ "$status" -gt 1 ]; then
+            echo "FAIL: grep itself failed (exit ${status}); this check did not run."
+            exit 1
+          fi
+
+          echo "PASS: no live Stripe key in the working tree."
+
+      # CAN THIS CHECK FAIL? Asked here rather than assumed, because a secret
+      # scan that silently matches nothing is indistinguishable from a clean
+      # repository -- and this one was rewritten once already, which is exactly
+      # when a pattern stops matching by accident.
+      - name: And prove the pattern catches one
+        run: |
+          set -uo pipefail
+          live="_live_"
+          pattern="(sk|rk)${live}[0-9A-Za-z]{10,}"
+
+          planted="$RUNNER_TEMP/planted.txt"
+          printf 'rk%sAbCdEf0123456789xyz\n' "$live" > "$planted"
+
+          if grep -qE "$pattern" "$planted"; then
+            echo "PASS: the pattern matches a planted live key."
+            rm -f "$planted"
+          else
+            echo "FAIL: the pattern did NOT match a planted live key, so the check above proves nothing."
+            rm -f "$planted"
+            exit 1
+          fi
+
   # The Deno tests over the four Edge Functions: issues #136, #167 and #183. They
   # are the only thing that proves the suspended-account check fails CLOSED when the
   # account_status read errors, the only thing that notices if one of the
@@ -854,7 +953,40 @@ jobs:
       # thing a new code may do to it, and the two assertions that matter -- one sentence
       # and one status across every code in the list -- are untouched. The pull request
       # has its own line about it.
-      EXPECTED_FUNCTION_TESTS: "250"
+      #
+      # 250 -> 278 with Build it 26 (delete-account), and 278 -> 297 WITH BUILD IT
+      # 27 (issue for the Team plan): nineteen tests in a FIFTH file,
+      # supabase/functions/_tests/stripe_test.ts. It needed no change to the step
+      # below, because that step names the FOLDER.
+      #
+      # What the 19 are: ten over the key check of Lesson O9 -- a live key outside
+      # production and a test key inside it are both refused, the matching pairs are
+      # allowed, a missing key is its own reason, a key whose mode cannot be read is
+      # refused because an unknown is not a yes, and only the exact word "production"
+      # counts as production; two of those ten are the gate itself, which with a
+      # mismatched key never runs the handler at all and with a matching one runs it
+      # exactly once, which is the same negative-and-its-over-correction pair every
+      # other gate in this folder is tested with. ONE OF THEM IS A RULE 18 TEST: the
+      # refusal's log line must contain the setting's name and the two mode words and
+      # must NOT contain the key, its body or its tail.
+      #
+      # Five are what a Stripe subscription becomes: active and trialing entitle,
+      # past_due / unpaid / canceled / incomplete / paused do not but keep their
+      # status so a lapse can be told from a cancellation, a subscription with no
+      # user_id in its metadata produces NO ROW rather than one belonging to nobody,
+      # a null period end stays null, and the period end is read as SECONDS -- a
+      # factor of 1000 there would put every expiry in 1970 and silently take away
+      # what somebody paid for.
+      #
+      # Four are the book's "cancellation arriving before the sign-up": the point of
+      # the design is that order cannot produce a wrong answer, because nothing reads
+      # a status out of an event -- both events prompt the same question to Stripe and
+      # Stripe's answer is what is written. So the test is that either event, given
+      # the same current subscription, produces the identical row; plus that the
+      # access-event list is fixed and carries the cancellation, and that the two
+      # entitling statuses are the same pair the migration's team_member_limit()
+      # spells.
+      EXPECTED_FUNCTION_TESTS: "297"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1369,7 +1501,15 @@ jobs:
       # attempted and refused on purpose, one of them 5 MB, which is nearly all of
       # what a run now sends. The after() hook removes files BEFORE tasks,
       # because the database refuses to delete a task that still has one.
-      EXPECTED_APP_TESTS: "40"
+      # 40 -> 44 WITH BUILD IT 27. Four new tests over `entitlements` and
+      # `stripe_events`, and NOT ONE existing test changed. They are the book's
+      # first deliberate test for this chapter, and they run against a row a
+      # REAL sandbox checkout created on 15 October 2026: Alice can read her own
+      # entitlement and it says team/active, Bob cannot change it, Bob cannot
+      # insert one for HIMSELF -- which a policy written `auth.uid() = user_id`
+      # would have permitted while still refusing the first -- and nobody can
+      # read `stripe_events` at all.
+      EXPECTED_APP_TESTS: "44"
       STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
       STAGING_ALICE_PASSWORD: ${{ secrets.STAGING_ALICE_PASSWORD }}
@@ -1454,7 +1594,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, backup-proof, other-os, secret-scan, app-build, app-tests]
+    needs: [guard-selftest, skills-lint, launch-check-selftest, workflow-lint, vet-tool-selftest, handoff-selftest, drift-check-selftest, pure-checks, staging-script-selftests, functions-test, backup-proof, other-os, secret-scan, stripe-live-keys, app-build, app-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -1463,7 +1603,13 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           # 14 -> 15 with Build it 24 part 1 (issue #258): backup-proof.
-          EXPECTED_JOBS: "15"
+          # 15 -> 16 with Build it 27's stripe-live-keys job. The guard below
+          # caught this being missed on PR #312, which is what it is for: the
+          # job was added to `needs` and this number was not, so every job
+          # succeeded and `required` still failed, naming the two lines to keep
+          # in step. A green aggregator that silently stopped waiting for a job
+          # is the failure it exists to prevent.
+          EXPECTED_JOBS: "16"
         run: |
           set -euo pipefail
           echo "Result of every needed job:"

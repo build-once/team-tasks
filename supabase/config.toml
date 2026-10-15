@@ -97,3 +97,34 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/suggest-subtasks/deno.json"
 entrypoint = "./functions/suggest-subtasks/index.ts"
+
+[functions.stripe-checkout]
+# Build it 27. Signed-in only, like the other four a person can reach: the
+# caller's id comes from the verified token and is what the subscription's
+# metadata is set to, so nobody can start a checkout that credits somebody else.
+verify_jwt = true
+import_map = "./functions/stripe-checkout/deno.json"
+entrypoint = "./functions/stripe-checkout/index.ts"
+
+[functions.stripe-webhook]
+# verify_jwt = false, AND IT IS THE ONLY false IN THIS FILE.
+#
+# Stripe sends no Supabase token, because Stripe has never heard of Supabase. So
+# the platform lock that guards the other five cannot guard this one: with the
+# default, every event would be refused before our code ran and no payment would
+# ever reach the database.
+#
+# WHAT STANDS IN ITS PLACE IS NOT WEAKER. The other five ask "are you signed
+# in". This one asks "can you prove you hold a secret that only Stripe and this
+# function's settings have" -- the Stripe-Signature header checked against the
+# RAW body with Stripe's own library. A request that cannot prove it is answered
+# 400 and nothing is read out of it.
+#
+# AND THE PRODUCTION SMOKE TEST KNOWS. migrate-production.yml probes every
+# function after a deploy and requires 401, which this one cannot answer; the
+# owner authorised an exception on 2026-10-14 that probes it for 400 instead.
+# That is a better check than the one it replaces: 401 proves the platform
+# refused, 400 proves OUR door worked.
+verify_jwt = false
+import_map = "./functions/stripe-webhook/deno.json"
+entrypoint = "./functions/stripe-webhook/index.ts"

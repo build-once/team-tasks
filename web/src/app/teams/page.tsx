@@ -11,6 +11,20 @@ import {
   showsData,
   type ScreenState,
 } from "@/lib/screen-state";
+import {
+  PLAN_BUY_BUTTON,
+  PLAN_CHECKOUT_FAILED,
+  PLAN_FREE_NAME,
+  PLAN_TEAM_NAME,
+  PLAN_THANKS,
+  PLAN_TITLE,
+  PLAN_UNAVAILABLE,
+  limitSentence,
+  memberLimitFor,
+  offerSentence,
+  onTeamPlan,
+  type Entitlement,
+} from "@/lib/plan";
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -32,7 +46,7 @@ import {
 } from "@/lib/teams";
 import { NO_DISPLAY_NAME, plainText, roleWord } from "@/lib/words";
 
-import { createTeam, inviteMember, saveDisplayName } from "./actions";
+import { createTeam, inviteMember, saveDisplayName, startCheckout } from "./actions";
 
 // An outcome code from the query string, turned into one of THIS FILE'S sentences.
 //
@@ -138,7 +152,7 @@ function MembersList({
 export default async function MyTeamsPage({
   searchParams,
 }: PageProps<"/teams">) {
-  const { problem, created, invited, to, joined, named, outcome } =
+  const { problem, created, invited, to, joined, named, outcome, paid } =
     await searchParams;
   const supabase = await createClient();
 
@@ -157,6 +171,56 @@ export default async function MyTeamsPage({
   // nothing else (issue #157). After the signed-out redirect, so it only runs
   // with a verified token in hand.
   rememberUserForErrorReports(userId);
+
+  // ---- THE PLAN (Build it 27) --------------------------------------------
+  //
+  // TWO READS, and neither of them decides anything.
+  //
+  // `my_entitlement()` is a security definer function returning the CALLER'S
+  // OWN row and nobody else's. No client role holds SELECT on `entitlements`
+  // and there is no insert, update or delete policy for anybody at all -- only
+  // stripe-webhook writes, holding the service-role key. So this is a read of a
+  // fact, not a place a plan can be granted.
+  //
+  // A FAILED READ IS THE FREE PLAN, not an error banner. Null is also what a
+  // person who has never started a checkout gets, which is everybody today, so
+  // the two are the same picture: the free limit, and an offer. Nothing is
+  // promised that the database would not honour, because the smaller number is
+  // the safe direction to be wrong in.
+  const { data: entitlementRows } = await supabase.rpc("my_entitlement");
+  const entitlement = (entitlementRows?.[0] ?? null) as Entitlement;
+
+  const onPlan = onTeamPlan(entitlement);
+  const memberLimit = memberLimitFor(entitlement);
+
+  // THE PRICE COMES FROM STRIPE, through our own server function, from the SAME
+  // price id the checkout charges -- one setting, so the page and the charge
+  // cannot drift apart. docs/plan.md: a number typed into a template "is the one
+  // kind of wrong a pricing page must not be".
+  //
+  // ASKED ONLY WHEN IT WOULD BE SHOWN. Somebody already on the plan is not
+  // offered it, so there is no call -- which also means the commonest signed-in
+  // visit by a paying person costs nothing.
+  //
+  // NULL MEANS "DO NOT OFFER IT". No key installed, Stripe unreachable, a
+  // misconfigured price: all the same answer here, which is that the panel says
+  // payments are not available and draws no button. On production in this
+  // rehearsal there is deliberately no key, so this is the expected path there.
+  let planPrice: string | null = null;
+  let planInterval: string | null = null;
+
+  if (!onPlan) {
+    const { data: priceData, error: priceError } = await supabase.functions.invoke(
+      "stripe-checkout",
+      { body: { action: "price" } },
+    );
+
+    if (!priceError) {
+      const answer = priceData as { amount?: unknown; interval?: unknown } | null;
+      planPrice = typeof answer?.amount === "string" ? answer.amount : null;
+      planInterval = typeof answer?.interval === "string" ? answer.interval : null;
+    }
+  }
 
   // No "where owner_id is me" here: the select rule on teams decides what comes
   // back, in the database rather than in this screen. Since
@@ -628,6 +692,64 @@ export default async function MyTeamsPage({
             migration in supabase/migrations has not been applied.
           </LoadFailed>
         ) : null}
+
+        {/* ---- YOUR PLAN (Build it 27) ---------------------------------------
+            ABOVE the two lists and outside the empty/error branch below, because
+            it is about this person rather than about their teams: somebody with
+            no teams yet still has a plan, and the limit is the thing that
+            decides how big the team they are about to make may get.
+
+            THE PANEL NEVER DECIDES ANYTHING. The limit it prints comes from the
+            same entitlement the database reads, and the database is what
+            actually refuses a 26th member -- in invite-member and accept-invite,
+            through team_member_limit(). If this panel and the database ever
+            disagreed, the database would win and the panel would be the bug. */}
+        <section className="stack">
+          <h2>{PLAN_TITLE}</h2>
+
+          {paid === "1" ? (
+            // THE SUCCESS LOOK, AND IT GRANTS NOTHING. Reaching this address
+            // proves only that a browser followed a redirect: there is no token
+            // in it, nothing is read out of it, and no row is written because of
+            // it. The plan line below is drawn from the database exactly as it
+            // is on every other visit, so if the webhook has not arrived yet this
+            // still says Free -- which is the truth, and is why the sentence
+            // promises a wait rather than a result.
+            <Banner tone="ok" icon="check">{PLAN_THANKS}</Banner>
+          ) : null}
+
+          {problem === "checkout" ? (
+            <Banner tone="bad" icon="alert">{PLAN_CHECKOUT_FAILED}</Banner>
+          ) : null}
+
+          <p>
+            <strong>{onPlan ? PLAN_TEAM_NAME : PLAN_FREE_NAME}</strong>
+            {" — "}
+            {limitSentence(memberLimit)}
+          </p>
+
+          {onPlan ? null : (
+            <>
+              <p className="hint">{offerSentence(planPrice, planInterval)}</p>
+              {planPrice === null ? (
+                // Stripe could not be reached, or no key is installed. No
+                // button, because a button that cannot work is worse than a
+                // sentence saying so -- and on production in this rehearsal
+                // there is deliberately no key at all.
+                <p className="hint">{PLAN_UNAVAILABLE}</p>
+              ) : (
+                <form action={startCheckout}>
+                  <ActButton
+                    className="btn btn--primary"
+                    act={BUTTON_IDS.planUpgrade}
+                  >
+                    {PLAN_BUY_BUTTON}
+                  </ActButton>
+                </form>
+              )}
+            </>
+          )}
+        </section>
 
         {/* THE EMPTY LOOK: nothing to show, one line, and no headings for two empty
             sections. Then the data look. */}

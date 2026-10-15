@@ -410,6 +410,59 @@ export default {
     // a row won, and the loser's returns none, because accepted_at is no longer
     // null. Checking accepted_at and then updating would leave a window between
     // the two where both callers see null.
+    // ---- IS THERE ROOM IN THE TEAM? (Build it 27) ------------------------
+    //
+    // docs/plan.md's team size limit: 10, or 25 for a team whose owner holds an
+    // active Team plan. invite-member checks the same thing, and THIS is the
+    // check that actually holds the line -- an invitation can be sent while a
+    // team has room and accepted after it has filled, so the door that lets
+    // somebody in is the one that has to count.
+    //
+    // BEFORE THE CLAIM, deliberately. Claiming the invitation marks it accepted
+    // and cannot be undone by this function; refusing afterwards would burn
+    // somebody's invitation to tell them the team is full. So the count happens
+    // while the invitation is still usable, and a refusal here leaves it
+    // exactly as it was, to be accepted when somebody leaves.
+    const limitAnswer = await ctx.supabaseAdmin.rpc("team_member_limit", {
+      p_team_id: invitation.team_id,
+    });
+
+    const memberLimit =
+      typeof limitAnswer.data === "number" ? limitAnswer.data : null;
+
+    if (limitAnswer.error || memberLimit === null) {
+      // An unknown is not a large number.
+      return fail(
+        "Could not check whether this team has room. Please try again.",
+        500,
+        "failed",
+      );
+    }
+
+    const memberCount = await ctx.supabaseAdmin
+      .from("team_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("team_id", invitation.team_id);
+
+    if (memberCount.error || typeof memberCount.count !== "number") {
+      return fail(
+        "Could not check whether this team has room. Please try again.",
+        500,
+        "failed",
+      );
+    }
+
+    if (memberCount.count >= memberLimit) {
+      // The invitation is untouched, so this is a "not yet" rather than a
+      // "never", and the sentence says which. It names no plan and nobody's
+      // payment status: the person reading it is being invited, not billing.
+      return fail(
+        "This team is full, so the invitation could not be accepted. Ask whoever invited you to make room and try the link again.",
+        409,
+        "failed",
+      );
+    }
+
     const { data: claimed, error: claimError } = await ctx.supabaseAdmin
       .from("invitations")
       .update({ accepted_at: new Date().toISOString() })

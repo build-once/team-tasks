@@ -58,7 +58,7 @@
 // It reads two files and connects to nothing. Run it from anywhere:
 //   node scripts/screen-state-check.mjs
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -86,6 +86,18 @@ const { NO_ACCOUNT_NAME, NO_DISPLAY_NAME, accountLabel, plainText } =
 
 const { NO_VERSION_LABEL, SHORT_COMMIT_LENGTH, appVersion } =
   await load("app-version.ts");
+
+// Build it 27. Loaded here with the others so section 14 runs the real
+// functions rather than a copy of their arithmetic.
+const {
+  FREE_TEAM_MEMBERS,
+  PAID_TEAM_MEMBERS,
+  ENTITLING_STATUSES: PLAN_ENTITLING,
+  PLAN_THANKS,
+  memberLimitFor,
+  offerSentence,
+  onTeamPlan,
+} = await load("plan.ts");
 
 const {
   ACT_FIELD,
@@ -592,6 +604,17 @@ check(
 // are untouched, and `account_delete` passes both. The pull request has its own
 // line about the number (AGENTS.md rule 20).
 //
+// 21 -> 22 WITH BUILD IT 27, and the one new button is `plan_upgrade` -- the
+// only button in this app that sends somebody to another company's website.
+// Same rule as above: raising the number is all a new button may do here, and
+// the two assertions that matter are untouched. The pull request has its own
+// line about it (AGENTS.md rule 20).
+//
+// AND IT IS NOT WHAT GUARDS THE PAYMENT, for the same shape of reason as
+// account_delete: pressing it starts a Stripe hosted checkout and grants
+// nothing. Paid access changes only when stripe-webhook writes the
+// entitlement row, which no screen and no user can reach.
+//
 // AND THE BUTTON IS NOT WHAT GUARDS THE DELETION, which is why adding it is a
 // one-number change rather than a decision: the action also requires a typed
 // phrase, and supabase/functions/delete-account checks that phrase again for
@@ -599,7 +622,7 @@ check(
 check(
   "the buttons that actually exist, counted from the list",
   ALL_BUTTON_IDS.length,
-  21,
+  22,
 );
 
 // ---- readButtonId -------------------------------------------------------
@@ -4503,6 +4526,213 @@ check(
 );
 
 // ------------------------------------------------------------------- the score
+
+// ---------------------------------- 14. Build it 27: the Team plan panel
+console.log("\n14. The Team plan: three copies of two numbers, and one place that decides");
+
+const PLAN_LIB = readFileSync(resolve(HERE, "..", "web", "src", "lib", "plan.ts"), "utf8");
+const TEAM_PLAN_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261014120000_team_plan.sql"),
+  "utf8",
+);
+const ENTITLEMENT_TS = readFileSync(
+  resolve(HERE, "..", "supabase", "functions", "stripe-webhook", "entitlement.ts"),
+  "utf8",
+);
+const TEAMS_PAGE_SRC = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "teams", "page.tsx"),
+  "utf8",
+);
+const CHECKOUT_FN = readFileSync(
+  resolve(HERE, "..", "supabase", "functions", "stripe-checkout", "index.ts"),
+  "utf8",
+);
+
+// THE TWO NUMBERS EXIST IN TWO PLACES ON PURPOSE -- the screen draws a sentence
+// and the database enforces the rule -- so the one thing that must never happen
+// is them disagreeing. A panel promising 25 while team_member_limit() returns 10
+// is the app lying about what somebody bought.
+check(
+  "the screen's two numbers are the migration's two numbers",
+  [
+    FREE_TEAM_MEMBERS,
+    PAID_TEAM_MEMBERS,
+    has(TEAM_PLAN_MIGRATION, "then 25"),
+    has(TEAM_PLAN_MIGRATION, "else 10"),
+  ],
+  [10, 25, true, true],
+);
+
+// AND THE ENTITLING STATUSES EXIST IN THREE PLACES: the migration's `in` list,
+// the webhook's ENTITLING_STATUSES, and the screen's. Same argument.
+check(
+  "all three copies of the entitling statuses agree, and past_due is in none of them",
+  [
+    [...PLAN_ENTITLING].sort().join(","),
+    has(TEAM_PLAN_MIGRATION, "'active', 'trialing'"),
+    has(ENTITLEMENT_TS, '["active", "trialing"]'),
+    /past_due/.test(String(PLAN_ENTITLING)),
+  ],
+  ["active,trialing", true, true, false],
+);
+
+// THE PANEL NEVER DECIDES. It reads my_entitlement(), which returns the
+// caller's own row; it must not read the entitlements table directly, and it
+// must not call team_member_limit(), which is granted to service_role alone.
+check(
+  "the page reads my_entitlement() and nothing else about entitlements",
+  [
+    count(TEAMS_PAGE_SRC, 'rpc("my_entitlement")'),
+    count(TEAMS_PAGE_SRC, 'from("entitlements")'),
+    // The CALL, not the word: a comment on this page explains why the page
+    // does not call it, and a check that counted the word would be failed by
+    // its own explanation.
+    count(TEAMS_PAGE_SRC, 'rpc("team_member_limit")'),
+  ],
+  [1, 0, 0],
+);
+
+// THE PRICE COMES FROM STRIPE, from the SAME setting the checkout charges.
+check(
+  "one price id, read by both halves, and the page never spells an amount",
+  [
+    // Read from the environment ONCE. The name appears again in the "not
+    // set" message, which is a sentence rather than a second source of truth.
+    count(CHECKOUT_FN, "Deno.env.get(STRIPE_SETTINGS.priceTeam)"),
+    // The page asks the function; it holds no currency symbol of its own.
+    count(TEAMS_PAGE_SRC, 'action: "price"'),
+    /[£$€]\s?\d/.test(PLAN_LIB),
+    /[£$€]\s?\d/.test(TEAMS_PAGE_SRC),
+  ],
+  [1, 1, false, false],
+);
+
+// AND A MISSING PRICE DRAWS NO BUTTON, which is the production path in this
+// rehearsal: no key, so no offer and nothing to press.
+check(
+  "no price means no button, and a sentence instead",
+  [
+    offerSentence(null, null).includes(String(PAID_TEAM_MEMBERS)),
+    has(PLAN_LIB, "PLAN_UNAVAILABLE"),
+    has(TEAMS_PAGE_SRC, "planPrice === null ? ("),
+  ],
+  [true, true, true],
+);
+
+// THE SUCCESS PAGE GRANTS NOTHING, which is docs/plan.md's own heading. The
+// page may read ?paid= to draw a sentence and must never write anything because
+// of it.
+check(
+  "the success look draws a fixed sentence and writes nothing",
+  [
+    has(TEAMS_PAGE_SRC, 'paid === "1"'),
+    has(TEAMS_PAGE_SRC, "{PLAN_THANKS}"),
+    // It promises a wait, not a result.
+    /updates here once Stripe confirms/.test(PLAN_THANKS),
+    // And the plan line is drawn from the database, not from the address bar.
+    has(TEAMS_PAGE_SRC, "onPlan ? PLAN_TEAM_NAME : PLAN_FREE_NAME"),
+  ],
+  [true, true, true, true],
+);
+
+// THE TWO ADDRESSES STRIPE IS SENT point at the page the button is on.
+check(
+  "the success and cancel addresses are /teams, where the button is",
+  [
+    has(CHECKOUT_FN, "${appUrl}/teams?paid=1"),
+    has(CHECKOUT_FN, "${appUrl}/teams"),
+    // No session id, no token: nothing in the success address is read as
+    // permission, because there is nothing in it to read.
+    /success_url:[^\n]*session/.test(CHECKOUT_FN),
+  ],
+  [true, true, false],
+);
+
+// ON THE PLAN ALREADY: both conditions, because the database checks both.
+check(
+  "an expired period is not an entitlement, however the status reads",
+  [
+    onTeamPlan({ plan: "team", status: "active", current_period_end: "2099-01-01T00:00:00.000Z" }),
+    onTeamPlan({ plan: "team", status: "active", current_period_end: "2020-01-01T00:00:00.000Z" }),
+    onTeamPlan({ plan: "team", status: "past_due", current_period_end: "2099-01-01T00:00:00.000Z" }),
+    onTeamPlan({ plan: "team", status: "active", current_period_end: null }),
+    onTeamPlan({ plan: "team", status: "active", current_period_end: "not a date" }),
+    onTeamPlan(null),
+  ],
+  [true, false, false, false, false, false],
+);
+
+check(
+  "and the limit follows it, so a failed read is the free plan rather than a guess",
+  [memberLimitFor(null), memberLimitFor({ plan: "team", status: "active", current_period_end: "2099-01-01T00:00:00.000Z" })],
+  [10, 25],
+);
+
+
+// ------------------------- 15. Every Edge Function says how it authenticates
+console.log("\n15. withSupabase: a config object, on every function, always");
+
+// THIS SECTION EXISTS BECAUSE OF ONE REAL FAILURE. On 2026-10-14 Alice's first
+// real checkout completed in the Stripe sandbox and the webhook answered HTTP
+// 502: "First argument to 'respondWith' must be a Response". stripe-webhook
+// called `withSupabase(handler)` with no config, reasoning that a webhook has
+// no user to authenticate. @supabase/server@1.9.0 has two overloads, and a
+// one-argument call matches `withSupabase(config)`, which returns a middleware
+// Entry rather than a fetch handler. So a subscription existed at Stripe and
+// `stripe_events` and `entitlements` were empty -- the one split this design is
+// built to prevent.
+//
+// AND AN EMPTY CONFIG WOULD BE ITS OWN BUG: `auth` defaults to "user", so
+// `withSupabase({}, handler)` refuses Stripe too, just more tidily. So the
+// check is not "is there a config" but "is there an auth mode, named".
+const FUNCTION_DIRS = readdirSync(resolve(HERE, "..", "supabase", "functions"), {
+  withFileTypes: true,
+})
+  .filter((e) => e.isDirectory() && !e.name.startsWith("_"))
+  .map((e) => e.name)
+  .sort();
+
+// Every function folder, found rather than listed, so a seventh is covered the
+// day it is written rather than the day somebody remembers this line.
+const WITH_SUPABASE_CALLS = FUNCTION_DIRS.map((name) => {
+  const src = readFileSync(
+    resolve(HERE, "..", "supabase", "functions", name, "index.ts"),
+    "utf8",
+  );
+  // The CALL at the fetch entry point, not the word: this file and that one
+  // both discuss the broken shape in comments, and a check failed by its own
+  // explanation is the mistake section 14 already made twice.
+  const call = /fetch:\s*withSupabase\(\s*\{\s*auth:\s*"(none|user|publishable|secret)"\s*\}/.exec(src);
+  return { name, mode: call ? call[1] : null };
+});
+
+check(
+  "every function entry point passes a config naming an auth mode",
+  WITH_SUPABASE_CALLS.filter((c) => c.mode === null).map((c) => c.name),
+  [],
+);
+
+// AND EXACTLY ONE OF THEM IS "none". If a second ever appears, it is a second
+// public door and wants the same argument stripe-webhook had to make: what
+// stands in place of the platform's lock, and what refuses a caller who cannot
+// prove anything.
+check(
+  "exactly one function is unauthenticated, and it is the webhook",
+  WITH_SUPABASE_CALLS.filter((c) => c.mode === "none").map((c) => c.name),
+  ["stripe-webhook"],
+);
+
+// AND IT IS THE ONLY verify_jwt = false IN config.toml, which is the same fact
+// from the platform's side. The two must agree: a function the platform guards
+// but that asks for no auth is merely odd; one the platform does NOT guard and
+// that asks for no auth is the one that needs its own door.
+check(
+  "and config.toml has exactly one verify_jwt = false",
+  (readFileSync(resolve(HERE, "..", "supabase", "config.toml"), "utf8")
+    .match(/^verify_jwt = false$/gm) ?? []).length,
+  1,
+);
+
 const total = passed + failures.length;
 console.log(`\n${passed} of ${total} checks passed.`);
 

@@ -175,6 +175,50 @@ function requireTurnstileSiteKeyWhereItMatters(): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+//
+// NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY. Build it 27. PUBLIC, like the three above
+// -- it identifies the Stripe account to a browser and grants nothing. The key
+// that can move money is the RESTRICTED key, which lives only in each Supabase
+// project's function secrets and exists nowhere in this repository.
+//
+// IT IS READ FOR EXACTLY ONE PURPOSE, which is worth saying because a Stripe
+// publishable key usually means Stripe.js is on the page and it is NOT here:
+// this app never loads Stripe's script and has no card field, because the card
+// is typed on Stripe's own hosted checkout page. The only thing this value does
+// is decide whether to draw the TEST MODE banner.
+//
+// EMPTY IS A VALID ANSWER and draws no banner, which is right for local work
+// and for any build made before the owner has created a Stripe object. It is
+// deliberately NOT added to the Vercel builds that must have a DSN and a site
+// key: a missing payments key means payments are not available, which the
+// functions already answer for, and stopping a build over it would make the
+// whole app undeployable because of a feature nobody has switched on.
+export const STRIPE_PUBLISHABLE_KEY = (
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ""
+).trim();
+
+/**
+ * Is this build pointed at Stripe's sandbox?
+ *
+ * The owner's instruction: "Show a visible TEST MODE banner in the app whenever
+ * the publishable key starts with pk_test_."
+ *
+ * `startsWith` AND NOT `includes`, which is the one place this differs from the
+ * Edge Functions' own check. There the question is "which mode is this key",
+ * asked of a key that is already known to be ours; here the question is "should
+ * this app shout", and a prefix is the stricter test -- a value that merely
+ * CONTAINED pk_test_ somewhere in the middle is not a Stripe publishable key
+ * and should not be trusted to decide anything.
+ *
+ * AND IT FAILS TOWARDS SHOUTING ONLY WHEN IT IS CERTAIN. No key at all means no
+ * banner, because a build with no payments configured is not a test build of
+ * payments -- it is a build with no payments. What must never happen is a LIVE
+ * key with a banner saying TEST MODE, and that cannot: `pk_live_` does not
+ * start with `pk_test_`.
+ */
+export const STRIPE_TEST_MODE = STRIPE_PUBLISHABLE_KEY.startsWith("pk_test_");
+
 // Importing this module is what runs the first two checks above, because those
 // two constants are initialised at import time. next.config.ts calls this so
 // that the failure happens at the very start of `next build` and `next dev`,

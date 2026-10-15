@@ -67,6 +67,11 @@ export const BUTTON_IDS = {
   inviteSend: "invite_send",
   inviteRetry: "invite_retry",
 
+  // Build it 27. The only button in this app that sends somebody to another
+  // company's website, and the only one that leads to a payment. It starts a
+  // Stripe hosted checkout; no card detail is typed on any screen of ours.
+  planUpgrade: "plan_upgrade",
+
   // Settings. One button, and the switch it carries is the thing that decides
   // whether anybody's task title leaves this project (Build it 21, issue #211).
   aiSuggestionsSave: "ai_suggestions_save",

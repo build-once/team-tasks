@@ -3,6 +3,7 @@ import { Fraunces, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 
 import { Footer } from "@/app/components/Footer";
+import { TestModeBanner } from "@/app/components/TestModeBanner";
 
 // The two typefaces in docs/design/team-tasks-screens.pdf. Both come from
 // next/font/google, which is built into Next.js, so no package was added and
@@ -32,6 +33,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable}`}>
       <body>
+        {/* ABOVE EVERYTHING, and above {children} rather than below it, which
+            is the opposite of the footer's placement and for the opposite
+            reason: a version number is a thing you go looking for, and "this is
+            not the real app" is a thing you must not be able to miss. It draws
+            nothing at all unless the Stripe publishable key is a test one. */}
+        <TestModeBanner />
+
         {children}
 
         {/* HERE RATHER THAN ON EACH PAGE, so there is no screen without a
