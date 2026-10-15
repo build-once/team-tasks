@@ -1133,3 +1133,57 @@ signed-out `/login` at `45d187b`, in `evidence/cookies.md`.
    "Anthropic publishes", "the project's settings say" — rather than asserting them in this app's own
    voice. That is a drafting rule, not a check, and it is question 5's reviewer who has to hold it.
 
+
+
+## 8. The four kill switches, the health check and Contact us — Build it 29
+
+Added 2026-10-15. **Five new sentences on screens, one new public address, and one sentence this
+app answers to a machine.** Every one of them is enforced in this repository and **not one has
+been seen on a screen**, which is the standing caveat of §6 and applies to all of them.
+
+### 8a. The four switched-off sentences
+
+Each is drawn when a feature's kill switch is off, and each is **one sentence saying somebody
+turned it off** — not that something broke.
+
+| The sentence | What makes it true | Verdict today |
+|---|---|---|
+| Suggestions are switched off for now. | `SWITCHED_OFF_MESSAGES.ai_suggestions` in `supabase/functions/_shared/switches.ts`, sent by `suggest-subtasks`' gate; drawn from `SUGGESTIONS_SWITCHED_OFF` in `web/src/lib/suggestions.ts` | **ENFORCED** — the gate is above every other check in that function, so with the switch off no task is read and nothing is sent. 37 Deno tests, and `screen-state-check` §16 compares all three copies character for character |
+| Invitations are switched off for now. | the same map's `invitations` entry, sent by **both** `invite-member` and `accept-invite`; drawn from `INVITATIONS_SWITCHED_OFF_SENTENCE` in `web/src/lib/teams.ts` | **ENFORCED at both doors**, which is what makes it true of the feature rather than of one direction of it |
+| Attachments are switched off for now. | `SWITCHED_OFF_SENTENCES.attachments` in `web/src/lib/switches.ts`, drawn by My tasks | **ENFORCED BY THE DATABASE AND BY NO FUNCTION** — an upload has no Edge Function in its path, so the two restrictive policies on `storage.objects` are what refuse. This is the one of the four whose sentence no server function sends |
+| Payments are switched off for now. | the same map's `payments` entry, drawn by My teams; `stripe-checkout`'s gate refuses a checkout and `stripe-webhook`'s asks Stripe to retry | **ENFORCED**, and it is deliberately **not** `Payments aren't available right now.` — that sentence means this app could not reach Stripe, and this one means somebody decided |
+
+**And one claim each of them does NOT make, which is the row worth reading twice:** none of them
+is drawn when the switch **cannot be read**. That is its own code (`switch_unknown`), it gets the
+fixed plumbing sentence each function already has, and the reason is the one `docs/plan.md` gives
+about a failed read of the consent setting: **claiming a person made a decision they did not make
+is the one thing these four sentences must never do.** `screen-state-check` §16d asserts both
+directions, so neither can be "fixed" into the other.
+
+### 8b. The invitation page's own sentence
+
+| The sentence | What makes it true | Verdict today |
+|---|---|---|
+| Invitations are switched off for now, so this one was not accepted. Your invitation is still valid — open this link again later. | `REASON_MESSAGES.switched_off` in `web/src/app/invite/[token]/page.tsx`, reached only through the fixed `INVITE_REASONS` list | **ENFORCED, and the second half is the load-bearing part.** `accept-invite` reads the switch **before anything is looked up**, so nothing was claimed and the 7 days are still running. Without that sentence this would read like `failed` — "please try again" — and somebody would press it repeatedly on a link they would then believe they had burnt |
+
+### 8c. Contact us
+
+| The sentence | What makes it true | Verdict today |
+|---|---|---|
+| Contact us, reaching `support@raj-dhonota.com` | `SUPPORT_TITLE` and `SUPPORT_ADDRESS` in `web/src/lib/legal.ts`, drawn by `web/src/app/components/Footer.tsx`, which is in the root layout | **ENFORCED — there is no screen without it**, which is what makes "reachable from every screen" true rather than a list somebody keeps in step. It is a `mailto:` and not a page, so there is no form, no endpoint and no row |
+| …and it is **not** the data-protection address | `CONTACT_ADDRESS` is `dp@raj-dhonota.com` and is unchanged | **ENFORCED**, and asserted by name in `screen-state-check` §16i so the two cannot quietly become one |
+
+**What this adds to the data register**, and `docs/plan.md`'s appendix now carries it: an email
+address and whatever somebody writes, **in the owner's own mailbox, outside this project**. The
+same shape as the deletion-request row, and in the register for the same reason.
+
+### 8d. The health check
+
+| What it answers | What makes it true | Verdict today |
+|---|---|---|
+| `ok` with HTTP 200, or `error` with HTTP 503, and nothing else | `web/src/app/health/route.ts` — two constants, a plain-text body, `dynamic = "force-dynamic"` and `cache-control: no-store` | **ENFORCED**, and `screen-state-check` §16i asserts the absences as well: no version, no counts, no database message, no name of whatever failed. It is public and unauthenticated, so everything it could say would be said to anybody who found it |
+| It is reachable without signing in | `"/health"` in `PUBLIC_PATHS`, `web/src/lib/supabase/proxy.ts` | **ENFORCED, and this line is the whole of it**: `web/src/proxy.ts`'s matcher covers `/health` like any path, so without it a monitor would be redirected to `/login` — a 307 rather than the 200 it watches for, and an alarm that fires for ever against a healthy app |
+
+**NOT VERIFIED, and it is not a sentence but an absence: nothing is watching it.** Which uptime
+service does is a decision `docs/plan.md` leaves to the owner, because the second answer would be
+a seventh outside company. So `/health` answers and no alert has ever fired.

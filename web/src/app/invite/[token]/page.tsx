@@ -49,6 +49,15 @@ const REASON_MESSAGES: Record<InviteReason, string> = {
   account_suspended: "You can't do that at the moment.",
   unreachable:
     "Could not reach the server to accept this invitation. Please try again.",
+  // THE INVITATIONS KILL SWITCH IS OFF (Build it 29, Lesson J24). Two sentences,
+  // and the second one is the one that matters: the switch is read before anything
+  // is looked up, so NOTHING WAS CLAIMED and this link is still good.
+  //
+  // Without that, this would read like `failed` -- "please try again" -- and
+  // somebody would press it repeatedly on a link they would then believe they had
+  // burnt. It says what to do instead, which is to wait and open the same link.
+  switched_off:
+    "Invitations are switched off for now, so this one was not accepted. Your invitation is still valid — open this link again later.",
 };
 
 function messageFor(raw: string | string[] | undefined): string | null {

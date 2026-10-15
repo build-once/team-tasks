@@ -21,3 +21,72 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+
+  # ---------------------------------------------------------------------------
+  # THE APP ITSELF: web/ -- Build it 29, Lesson L25
+  # ---------------------------------------------------------------------------
+  #
+  # WHY THIS WAS MISSING AND WHY IT MATTERS. The entry above names "/", which is the
+  # repository root, and the root package.json has no dependencies -- every package
+  # this app actually runs is in web/package.json: Next.js, React, the Supabase
+  # client, the Sentry SDK. So until this entry existed, Dependabot was watching the
+  # two files with nothing in them and not the one with everything in it.
+  #
+  # That was not a quiet gap: GitHub reported 8 vulnerabilities on the default branch
+  # (3 high, 4 moderate, 1 low) in the push output of 15 October 2026, and nothing in
+  # this file would ever have opened a pull request for one of them.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+    # -------------------------------------------------------------------------
+    # NO GROUPS, AND THAT IS THE OWNER'S INSTRUCTION RATHER THAN A DEFAULT
+    # -------------------------------------------------------------------------
+    #
+    # Build it 29's words: "keep payments, sign-in, the database and error
+    # monitoring out of any group."
+    #
+    # WHY, in one sentence: a grouped pull request is one review and one merge for
+    # several packages, so if it breaks something you learn that the GROUP broke it
+    # and not which package -- and for these four, "something broke" means nobody can
+    # sign in, nobody's data is private, a payment is taken wrongly, or the thing
+    # that would have told you is itself the thing that broke.
+    #
+    # Three of the four are in web/package.json, counted by reading it:
+    #
+    #   sign-in and the    @supabase/ssr 0.12.7, @supabase/supabase-js 2.117.2
+    #   database           (one library does both: the same client carries the
+    #                      session AND every query, so there is no splitting them)
+    #   error monitoring   @sentry/nextjs 11.4.0
+    #
+    # AND PAYMENTS IS NOT IN THIS FILE'S REACH AT ALL, which is worth saying rather
+    # than leaving as a gap somebody discovers. `stripe` is not an npm dependency of
+    # the app: it is a DENO import in two Edge Functions, pinned in
+    # supabase/functions/stripe-checkout/deno.json and
+    # supabase/functions/stripe-webhook/deno.json as `npm:stripe@23.0.0`. Dependabot
+    # has no ecosystem for a Deno import map, so NOTHING WATCHES THAT VERSION and
+    # nothing in this file can. Upgrading it is a person editing two JSON files.
+    #
+    # The instruction is still kept for it, in the only way available: it is in no
+    # group because it is in no entry.
+    #
+    # THIS FILE DEFINES NO GROUPS AT ALL, which is how that instruction is kept.
+    # Without a `groups:` key Dependabot opens one pull request per package, so each
+    # of the four is already on its own -- and so is everything else, which is the
+    # right default for an app with this few dependencies.
+    #
+    # SO THERE IS NOTHING HERE TO EXCLUDE THEM FROM, and that is deliberate: an
+    # `ignore` or an exclusion list would be a second place to keep in step, and a
+    # future `groups:` key that forgot to exclude them would pass every check in this
+    # repository. If a group is ever wanted -- and at five open pull requests a week
+    # it is not -- these four get their own `applies-to`/`exclude-patterns` entry,
+    # and this comment is the one to come back to.
+    #
+    # WHAT REVIEWING ONE STILL MEANS, because Dependabot does not do it: read the
+    # diff, let CI run, and for these four look at the upstream changelog rather than
+    # only the version number. AGENTS.md rule 17 is about ADDING a package; this is
+    # about changing one that is already running with this app's permissions.

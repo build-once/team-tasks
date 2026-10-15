@@ -1941,9 +1941,15 @@ Deno.test("every code produces the SAME sentence and the same status, and carrie
   // NOT in the list are the consent OFF refusal, which section 8b asserts is absent, and
   // the daily LIMIT refusal, which daily_limit_test.ts asserts is absent -- so there is
   // no way to satisfy both halves by loosening either.
-  if (SUGGEST_CODES.length !== 13) {
+  // FOURTEEN SINCE BUILD IT 29, which added `switch_unknown` -- the kill switch's
+  // READ failing, which is plumbing and gets this function's one fixed sentence.
+  // The switched-off refusal itself is deliberately NOT in the list, and
+  // feature_switch_test.ts section 3 asserts its absence, so there is no way to
+  // satisfy both halves by loosening either. Raising this number is still the only
+  // thing a new code may do to this test, and it is all this change did.
+  if (SUGGEST_CODES.length !== 14) {
     throw new Error(
-      `there are ${SUGGEST_CODES.length} codes; this file was written against 13. A new ` +
+      `there are ${SUGGEST_CODES.length} codes; this file was written against 14. A new ` +
         `code needs no new sentence -- every one of them gets the same one, which is the ` +
         `point -- but it does need adding to the copy of this list in ` +
         `scripts/staging/build-it-20-ai-checks.mjs, which refuses a code it does not know`,

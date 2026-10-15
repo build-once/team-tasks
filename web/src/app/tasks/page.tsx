@@ -37,12 +37,22 @@ import {
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import {
   SUGGESTIONS_DAILY_LIMIT,
+  SUGGESTIONS_SWITCHED_OFF,
   SUGGESTIONS_UNAVAILABLE,
   SUGGEST_DATA,
   SUGGEST_LIMIT,
+  SUGGEST_OFF,
   SUGGEST_UNAVAILABLE,
   suggestOutcome,
 } from "@/lib/suggestions";
+import {
+  SWITCH_ARGUMENT,
+  SWITCH_ATTACHMENTS,
+  SWITCH_RPC,
+  SWITCHED_OFF_SENTENCES,
+  switchedOffOnScreen,
+  switchState,
+} from "@/lib/switches";
 import { createClient } from "@/lib/supabase/server";
 import {
   FILTER_ALL,
@@ -434,17 +444,47 @@ export default async function MyTasksPage({
   // -- the same way round as the AI helper's "a database fault must not turn
   // into a bill", and here it keeps a failed read from becoming a dozen storage
   // requests.
-  const { byTask: filesByTask, failed: filesFailed } = await filesForTasks(
-    supabase,
-    visible.map((task) => task.id),
+  // ---- AND FIRST: ARE ATTACHMENTS SWITCHED ON AT ALL? (Build it 29) --------
+  //
+  // THIS ONE IS NOT A COURTESY, which is the difference from the other three
+  // switches' screens. With the attachments switch off, the two restrictive
+  // policies in 20261015120000_feature_switches.sql make a listing come back
+  // EMPTY rather than failing -- a signed-in person simply cannot see the rows
+  // -- so a page that asked anyway would draw "No files on this task yet" over
+  // a task carrying three photographs. That is precisely the lie Build it 19
+  // exists to prevent, arriving through a door nobody had opened before.
+  //
+  // So the switch is read FIRST, and when it is off nothing is listed at all:
+  // no storage request per task, no counts, no panel, no upload box, and one
+  // sentence saying why.
+  //
+  // ON AN UNREADABLE SWITCH THE PAGE BEHAVES AS IT ALWAYS DID. `switchState`
+  // answers "unknown", `switchedOffOnScreen` is false, and the listings happen
+  // -- because a screen is not the control and claiming somebody switched this
+  // off on a failed read would be stating an unknown as a decision. The
+  // database is still what refuses. web/src/lib/switches.ts argues it in full.
+  const attachmentsSwitch = switchState(
+    await supabase.rpc(SWITCH_RPC, { [SWITCH_ARGUMENT]: SWITCH_ATTACHMENTS }),
   );
+  const attachmentsOff = switchedOffOnScreen(attachmentsSwitch);
+
+  const { byTask: filesByTask, failed: filesFailed } = attachmentsOff
+    ? { byTask: new Map<string, never[]>(), failed: false }
+    : await filesForTasks(
+      supabase,
+      visible.map((task) => task.id),
+    );
 
   // Which task's attachment panel is open. Checked against the tasks this page
   // actually read, not merely for shape: `?files=` arrives in the address bar,
   // and a panel drawn for a task that is not on the screen would be a box
   // offering to attach a file to something the person cannot see.
-  const filesOpenFor =
-    visible.find((task) => task.id === String(files ?? "").trim().toLowerCase())?.id ?? null;
+  //
+  // AND NEVER WHEN THE SWITCH IS OFF: the panel's whole content is a list that
+  // would be empty for the wrong reason and a box that cannot work.
+  const filesOpenFor = attachmentsOff
+    ? null
+    : visible.find((task) => task.id === String(files ?? "").trim().toLowerCase())?.id ?? null;
 
   // What just happened to a file, as one of the fixed words in
   // web/src/lib/attachments.ts. Anything else is null and draws nothing, so a
@@ -877,6 +917,17 @@ export default async function MyTasksPage({
           </LoadFailed>
         ) : null}
 
+        {/* ATTACHMENTS SWITCHED OFF (Build it 29). One sentence, once, at the top
+            rather than on every row: it is a fact about the app and not about any
+            one task. The Files links are not drawn while it is showing, so the
+            page offers nothing that cannot work -- and no row says "no files",
+            which is the thing this banner is here to stop. */}
+        {attachmentsOff ? (
+          <Banner tone="bad" icon="alert">
+            {SWITCHED_OFF_SENTENCES[SWITCH_ATTACHMENTS]}
+          </Banner>
+        ) : null}
+
         {canChoose && listState !== SCREEN_ERROR ? (
           <nav className={styles.shows} aria-label="Which tasks to show">
             <ShowLink value={null} active={activeFilter === FILTER_ALL}>
@@ -1259,27 +1310,36 @@ export default async function MyTasksPage({
                             plan says a file is visible to exactly the people
                             its task is visible to. What differs between them is
                             inside the panel: who may delete which file. */}
-                        <Link
-                          className={styles.action}
-                          href={tasksPath({
-                            filter: carried,
-                            files: task.id,
-                          })}
-                        >
-                          Files
-                          {taskFiles.length > 0 ? (
-                            <span className={styles.fileCount}>
-                              {taskFiles.length}
+                        {/* NOT DRAWN AT ALL WHILE THE SWITCH IS OFF (Build it
+                            29), which is this page's own habit -- issue #83's
+                            lesson is to draw a control only for the people it
+                            will work for. The panel behind it would hold an
+                            empty list and a box that cannot upload, and the
+                            banner at the top of the page is where the reason
+                            is said once. */}
+                        {attachmentsOff ? null : (
+                          <Link
+                            className={styles.action}
+                            href={tasksPath({
+                              filter: carried,
+                              files: task.id,
+                            })}
+                          >
+                            Files
+                            {taskFiles.length > 0 ? (
+                              <span className={styles.fileCount}>
+                                {taskFiles.length}
+                              </span>
+                            ) : null}
+                            <span className="visually-hidden">
+                              {taskFiles.length === 1
+                                ? ` on ${task.title}: 1 file`
+                                : taskFiles.length > 1
+                                  ? ` on ${task.title}: ${taskFiles.length} files`
+                                  : ` on ${task.title}`}
                             </span>
-                          ) : null}
-                          <span className="visually-hidden">
-                            {taskFiles.length === 1
-                              ? ` on ${task.title}: 1 file`
-                              : taskFiles.length > 1
-                                ? ` on ${task.title}: ${taskFiles.length} files`
-                                : ` on ${task.title}`}
-                          </span>
-                        </Link>
+                          </Link>
+                        )}
                         <Link
                           className={styles.action}
                           href={tasksPath({
@@ -1564,6 +1624,35 @@ export default async function MyTasksPage({
                       <Link className="btn btn--quiet" href={CONSENT_PATH}>
                         Open Settings
                       </Link>
+                      <Link
+                        className="btn btn--quiet"
+                        href={tasksPath({ filter: carried })}
+                      >
+                        Close
+                      </Link>
+                    </div>
+                  ) : suggestions.state === SUGGEST_OFF ? (
+                    <div className={styles.suggest}>
+                      {/* SWITCHED OFF (Build it 29, Lesson J24). The owner has turned
+                          this feature off in the database, and the sentence says so
+                          and nothing else -- not which company, not for how long, not
+                          what to do instead, because nothing this person does will
+                          change it.
+
+                          NO LINK ANYWHERE, for the reason the limit branch below
+                          gives about Settings: there is no screen in this app that
+                          switches a feature back on, and a button that cannot help is
+                          worse than no button. Just the sentence, and Close.
+
+                          AND AN UNREADABLE SWITCH DOES NOT COME HERE. It is one of the
+                          function's fixed-failure codes, so it falls to the sentence
+                          below -- because telling somebody a person switched this off
+                          when the switch merely could not be read would be stating an
+                          unknown as a decision. The same line the consent branch above
+                          draws, for the same reason. */}
+                      <Banner tone="bad" icon="alert">
+                        {SUGGESTIONS_SWITCHED_OFF}
+                      </Banner>
                       <Link
                         className="btn btn--quiet"
                         href={tasksPath({ filter: carried })}

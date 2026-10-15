@@ -104,6 +104,18 @@ import {
   withDailyLimit,
 } from "../_shared/limits.ts";
 
+// And the second shared file, for the same reasons and with the same risk: Build
+// it 29's kill switches. ../_shared/switches.ts holds the four feature words, the
+// four sentences and the one gate; the switch itself lives in a table no role may
+// touch (supabase/migrations/20261015120000_feature_switches.sql).
+import {
+  SWITCH_ARGUMENT,
+  SWITCH_INVITATIONS,
+  SWITCH_RPC,
+  SWITCH_UNKNOWN_CODE,
+  withSwitch,
+} from "../_shared/switches.ts";
+
 const MAX_PENDING_PER_TEAM = 20;
 const TOKEN_BYTES = 32; // 32 random bytes = 256 bits. See makeToken below.
 
@@ -868,739 +880,788 @@ export default {
     if (!callerId) {
       return fail("You must be signed in to invite somebody.", 401);
     }
-
-    // ---- Is this account suspended? --------------------------------------
+    // ---- IS THIS FEATURE SWITCHED ON AT ALL? -----------------------------
     //
-    // FIRST, before `await req.json()` and so before every check below it. The
-    // position is the point rather than tidiness: a suspended caller never
-    // reaches decideDelivery, never reaches the pending count, and never reaches
-    // an insert -- so no mail is sent, and none of the team's 20 pending slots
-    // is spent on an invitation its owner was not allowed to make.
-    const suspension = await checkSuspension(() =>
-      ctx.supabaseAdmin
-        .from("account_status")
-        .select("user_id")
-        .eq("user_id", callerId)
-        .limit(1)
-    );
-    if (!suspension.allowed) {
-      if (suspension.why === "suspended") {
-        return suspendedRefusal();
-      }
-      // Fail closed. The read did not answer, so whether this person may act is
-      // not known -- and an unknown is not a "no row". A different refusal from
-      // the one above, with a different status and message, because its cause is
-      // a failed check rather than a suspension.
-      return fail(
-        "Could not check your account, so no invitation was created. Please try again.",
-        500,
-        suspension.code,
-      );
-    }
-
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return fail("Expected a JSON body with a team id and an email.", 400);
-    }
-
-    const rawTeamId = (body as { team_id?: unknown } | null)?.team_id;
-    const rawEmail = (body as { email?: unknown } | null)?.email;
-
-    if (typeof rawTeamId !== "string" || rawTeamId.trim() === "") {
-      return fail("Which team is this invitation for?", 400);
-    }
-    if (typeof rawEmail !== "string") {
-      return fail("Please give an email address to invite.", 400);
-    }
-
-    const teamId = rawTeamId.trim();
-
-    // A valid UUID, checked BEFORE any database call.
+    // BUILD IT 29, Lesson J24, and it is the OUTERMOST gate on purpose -- above
+    // the suspension read, above the body, above the team check, above the
+    // pending count, above the insert, above the count and the send. A feature
+    // the owner has switched off costs this app one boolean read and nothing
+    // else: no row about this person is touched, NO INVITATION ROW IS WRITTEN,
+    // and no email is sent.
     //
-    // teams.id is a uuid column. Sending anything else -- the owner did it on
-    // staging by typing an email address into the team id prompt -- made
-    // Postgres refuse to cast it, error 22P02 (invalid_text_representation),
-    // which arrived here as a query error and came back as
-    // 500 "Could not check the team, so no invitation was created."
+    // THAT LAST POINT IS WHY THE POSITION MATTERS HERE MORE THAN ANYWHERE ELSE.
+    // This function writes a row and then sends an email, and the row holds an
+    // address belonging to somebody who is not a user. A switch checked halfway
+    // down would leave pending invitations behind that nobody asked to keep.
     //
-    // That is wrong twice over: 500 says the server broke when the caller sent
-    // something malformed, and the message sends somebody looking at the team
-    // rather than at what they typed. A shape this easy to check should never
-    // reach the database to be rejected.
-    if (!UUID_PATTERN.test(teamId)) {
-      return fail("That is not a valid team id.", 400);
-    }
-
-    // Lowercased here, so it matches the invitations_email_lowercase constraint
-    // and so accept-invite's comparison is case-insensitive by construction.
-    const email = rawEmail.trim().toLowerCase();
-
-    if (email === "") {
-      return fail("Please give an email address to invite.", 400);
-    }
-    // Deliberately loose. Address validity is settled by whether the mail
-    // arrives, not by a regular expression; this only catches obvious typos.
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      return fail("That does not look like an email address.", 400);
-    }
-    if (email.length > 320) {
-      return fail("That email address is too long.", 400);
-    }
-
-    // ---- Only the team's owner may invite ---------------------------------
+    // ONE SWITCH FOR BOTH DIRECTIONS. accept-invite reads the same
+    // `invitations` switch and says the same sentence, because it is one
+    // feature: switching invitations off stops them being sent AND stops them
+    // being accepted. docs/incident-plan.md says so where somebody is about to
+    // flip it, because it is the one switch whose name does not say it.
     //
-    // Read with supabaseAdmin and check owner_id here, rather than relying on
-    // the caller's own client returning nothing for somebody else's team. Both
-    // would work today; this one keeps working if the select policy changes,
-    // and it lets "not your team" be told apart from "no such team".
-    const { data: team, error: teamError } = await ctx.supabaseAdmin
-      .from("teams")
-      .select("id, name, owner_id")
-      .eq("id", teamId)
-      .limit(1);
-
-    // Lesson F14: check the error AND what came back.
-    if (teamError) {
-      return fail(
-        "Could not check the team, so no invitation was created. Please try again.",
-        500,
-        teamError.code,
-      );
-    }
-    if (!Array.isArray(team) || team.length !== 1) {
-      // Zero rows: no such team. 404, and a DIFFERENT answer from "not yours",
-      // which is the 403 just below this block -- the two outcomes are
-      // deliberately told apart, for the reason given at the top of this block:
-      // reading the team with supabaseAdmin "lets 'not your team' be told apart
-      // from 'no such team'".
-      //
-      // This comment used to claim the two answers were identical, so that team
-      // ids could not be discovered. They are not identical, and the claim was
-      // worse than wrong: it invited somebody to "restore" that behaviour by
-      // collapsing the 403 into this 404, losing a distinction the file argues
-      // for on purpose (issue #111). What a caller can learn from the pair is
-      // that a team id exists -- not who is in it, not its name, and not
-      // anything about its invitations.
-      return fail("That team was not found.", 404);
-    }
-    if (team[0].owner_id !== callerId) {
-      return fail("Only the team's owner can invite people.", 403);
-    }
-    const teamName = String(team[0].name ?? "");
-
-    // ---- Refuse inviting yourself -----------------------------------------
-    //
-    // Cheap and first: the caller's own address is on the verified token, so
-    // this costs no query. An owner inviting themselves would send a link they
-    // can never use -- accept-invite would match the address, add them to
-    // team_members, and leave them a "member" of a team they already own, which
-    // means nothing and confuses the pending list.
-    const callerEmail = ctx.userClaims?.email;
-    if (
-      typeof callerEmail === "string" &&
-      callerEmail.trim().toLowerCase() === email
-    ) {
-      return fail(
-        "That is your own email address. You already own this team, so there is nothing to accept.",
-        409,
-      );
-    }
-
-    // ---- Refuse inviting somebody already in the team ---------------------
-    //
-    // Checked by looking up THE TEAM'S members and comparing their addresses,
-    // rather than looking up the invited address and asking which teams it is
-    // in. The reason is the shape of the data available: team_members holds
-    // user ids, invitations hold email addresses, and the installed client has
-    // no "find the user with this email" call -- `listUsers` is paginated over
-    // every user in the project and `getUserById` needs an id you do not have.
-    //
-    // So the loop is bounded by the size of THIS TEAM (a handful of people),
-    // not by the number of accounts in the project. If teams ever grow large
-    // this wants replacing with a lookup, but it is correct either way: it
-    // never pages, so it cannot silently miss somebody on page two.
-    const { data: members, error: membersError } = await ctx.supabaseAdmin
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", teamId);
-
-    // Lesson F14: the error AND what came back. A failed read here must NOT be
-    // treated as "nobody is in the team" -- that would let the check pass by
-    // accident, which is the failing-open pattern this project keeps refusing.
-    if (membersError) {
-      return fail(
-        "Could not check who is already in this team, so no invitation was created. Please try again.",
-        500,
-        membersError.code,
-      );
-    }
-    if (!Array.isArray(members)) {
-      return fail(
-        "Could not check who is already in this team, so no invitation was created. Please try again.",
-        500,
-      );
-    }
-
-    for (const member of members) {
-      const memberId = (member as { user_id?: unknown }).user_id;
-      if (typeof memberId !== "string") continue;
-
-      const { data: memberUser, error: memberUserError } =
-        await ctx.supabaseAdmin.auth.admin.getUserById(memberId);
-
-      // Again, not treated as "not them". If a member's account cannot be read
-      // we do not know whether this address is already in the team, and an
-      // unknown is not a no.
-      if (memberUserError) {
-        return fail(
-          "Could not check who is already in this team, so no invitation was created. Please try again.",
-          500,
-        );
-      }
-
-      const memberEmail = memberUser?.user?.email;
-      if (
-        typeof memberEmail === "string" &&
-        memberEmail.trim().toLowerCase() === email
-      ) {
-        return fail(
-          "That person is already in this team, so there is nothing to invite them to.",
-          409,
-        );
-      }
-    }
-
-    // ---- Limit: fewer than 20 PENDING invitations -------------------------
-    //
-    // Pending means not accepted and not expired. An expired or accepted
-    // invitation does not occupy a slot, which is what stops a team being
-    // permanently full because of invitations that went nowhere.
-    const nowIso = new Date().toISOString();
-    const { count: pendingCount, error: countError } = await ctx.supabaseAdmin
-      .from("invitations")
-      .select("id", { count: "exact", head: true })
-      .eq("team_id", teamId)
-      .is("accepted_at", null)
-      .gt("expires_at", nowIso);
-
-    if (countError) {
-      return fail(
-        "Could not check how many invitations this team already has, so none was created. Please try again.",
-        500,
-        countError.code,
-      );
-    }
-    if (typeof pendingCount !== "number") {
-      // No error but no number is an unknown, not a zero. Treating it as zero
-      // is how a limit gets bypassed.
-      return fail(
-        "Could not check how many invitations this team already has, so none was created. Please try again.",
-        500,
-      );
-    }
-    if (pendingCount >= MAX_PENDING_PER_TEAM) {
-      return fail(
-        `This team has ${pendingCount} invitations waiting, the most allowed. Wait for some to be accepted or to expire.`,
-        409,
-      );
-    }
-
-    // ---- IS THERE ROOM IN THE TEAM AT ALL? (Build it 27) -----------------
-    //
-    // docs/plan.md, "A paid Team plan, and the first team size limit": a team
-    // may have 10 members, or 25 if its OWNER holds an active Team plan. This
-    // is the first limit this app has ever had on how many people are in a
-    // team, and it is a different thing from the 20-pending check above --
-    // that one caps addresses waiting, this one caps people who have arrived.
-    //
-    // CHECKED IN BOTH DOORS, and this is only the first of them. An invitation
-    // can be sent while a team has room and accepted after it has filled, so a
-    // check here alone would let the limit be walked past by whoever accepts
-    // last. accept-invite carries the same check for that reason.
-    //
-    // THE NUMBER COMES FROM THE DATABASE, not from this file and not from
-    // limits.ts. public.team_member_limit() answers 10 or 25 by looking at the
-    // team's owner's entitlement -- a row this function must not read directly
-    // and does not. Asking a function for the number means the entitlement
-    // never passes through here, which is also why nothing in this file can
-    // leak whether somebody is paying.
-    const limitAnswer = await ctx.supabaseAdmin.rpc("team_member_limit", {
-      p_team_id: teamId,
-    });
-
-    const memberLimit =
-      typeof limitAnswer.data === "number" ? limitAnswer.data : null;
-
-    if (limitAnswer.error || memberLimit === null) {
-      // An unknown is not a large number. The same direction every other check
-      // in this project fails in, and the cost of getting it the other way
-      // round is a team that quietly grows past what anybody agreed to.
-      return fail(
-        "Could not check how many people this team may have, so no invitation was sent. Please try again.",
-        500,
-      );
-    }
-
-    const memberCount = await ctx.supabaseAdmin
-      .from("team_members")
-      .select("user_id", { count: "exact", head: true })
-      .eq("team_id", teamId);
-
-    if (memberCount.error || typeof memberCount.count !== "number") {
-      return fail(
-        "Could not check how many people are in this team, so no invitation was sent. Please try again.",
-        500,
-      );
-    }
-
-    if (memberCount.count >= memberLimit) {
-      // THE SENTENCE NAMES THE NUMBER AND WHAT WOULD CHANGE IT, and nothing
-      // about anybody's payment status. "You own 3 teams, the most allowed" is
-      // the shape this follows -- a refusal a person can act on earns its own
-      // words. What it does NOT say is "upgrade to get 25", because this
-      // function is not a sales page and the owner of the team may not be the
-      // person reading it.
-      return fail(
-        `This team has ${memberCount.count} members, the most allowed on its current plan. Remove somebody, or the team's owner can raise the limit on the settings page.`,
-        409,
-      );
-    }
-
-    // AND A RETRY IS COUNTED HERE TOO, WHICH IS WRONG AND IS NOT FIXED HERE. A
-    // failed invitation is still pending by this count -- not accepted, not expired
-    // -- so a team sitting at 20 cannot send one of them again, even though a retry
-    // creates no row and occupies no new slot. The owner presses Try again and is
-    // told the team is full.
-    //
-    // The fix is to read the existing row before counting, and that moves a refusal
-    // ahead of another one, which issue #166 does not allow in this change. Issue
-    // #170 holds it, with what a fix must and must not change.
-
-    // ---- Decide delivery BEFORE writing anything --------------------------
-    //
-    // Required by the delivery rules, and worth restating: if this environment
-    // may not send, nothing is created at all. No invitation, no wasted slot.
-    //
-    // AND THIS IS WHY NOTHING IS EVER STORED AS `not_configured`, which is a
-    // thing to say out loud rather than leave somebody to discover. The fixed
-    // list in 20261006095847_invitation_status.sql has four codes, and names this
-    // branch as the source of that one -- but this branch runs BEFORE any row
-    // exists, by the deliberate ordering above, so there is nothing to write a
-    // status on. The caller gets 503 and the table is untouched.
-    //
-    // The code is still in the list, the screen still has a sentence for it, and
-    // both are right: the column can hold it, the check constraint allows it, and
-    // a later change that writes a row before deciding delivery would produce it.
-    // What would be wrong is a screen that met the value and showed nothing.
-    // Issue #169 holds the question of whether the ordering should change so that
-    // a retry in an unconfigured environment records this instead of leaving the
-    // row as it was; it is not changed here because issue #166 requires every
-    // existing refusal to keep its order.
-    const decision = decideDelivery(email, teamName);
-    if (!decision.ok) {
-      // Names the settings. Never their values -- see the note at the end.
-      console.error(
-        `invite-member refused: email delivery not configured. Settings involved: ${decision.missing.join(", ")}. No value is logged.`,
-      );
-      return fail(decision.message, 503);
-    }
-
-    // ---- Clear this address's DEAD invitations to this team ---------------
-    //
-    // Without this, an address could be invited to a team exactly once, ever.
-    //
-    // The unique index invitations_one_pending_per_email covers
-    // (team_id, email) WHERE accepted_at IS NULL. "Not accepted" includes
-    // "not accepted and long expired", so an invitation that lapsed after 7
-    // days still occupies that slot -- and a fresh invite to the same person
-    // hits 23505 and reports "already has an invitation waiting", which is
-    // simply untrue. Nothing expires the row, so the block is permanent.
-    //
-    // WHY THE INDEX IS NOT CHANGED INSTEAD. The obvious fix -- adding
-    // `and expires_at > now()` to the index predicate -- is not allowed by
-    // Postgres. From the CREATE INDEX documentation: "All functions and
-    // operators used in an index definition must be immutable, that is, their
-    // results must depend only on their arguments and never on any outside
-    // influence (such as the contents of another table or the current time)."
-    // now() depends on the current time, so a time-aware partial index cannot
-    // exist. The index is kept exactly as it is, and the dead rows are removed
-    // here instead, which is the only place that can know the clock.
-    //
-    // Deleted rather than kept for the record: an expired invitation that was
-    // never accepted is not history worth holding, and docs/plan.md's whole
-    // reason for the 7-day expiry is that an address belonging to somebody who
-    // never joined should not sit in the database.
-    //
-    // Placed after the delivery decision on purpose, so an environment that may
-    // not send still changes nothing at all.
-    const { error: clearError, count: clearedCount } = await ctx.supabaseAdmin
-      .from("invitations")
-      .delete({ count: "exact" })
-      .eq("team_id", teamId)
-      .eq("email", email)
-      .is("accepted_at", null)
-      .lte("expires_at", nowIso);
-
-    // F14 on the delete. If it failed, stop: carrying on would hit the unique
-    // index and report "already has an invitation waiting", which is the wrong
-    // message and the bug this code exists to remove.
-    if (clearError) {
-      return fail(
-        "Could not clear an earlier expired invitation for that address, so no new invitation was created. Please try again.",
-        500,
-        clearError.code,
-      );
-    }
-
-    // A COUNT only, never the address. There is normally nothing to clear, so
-    // the zero case is not worth a line.
-    if ((clearedCount ?? 0) > 0) {
-      console.log(
-        `invite-member: cleared ${clearedCount} expired unaccepted invitation(s) for this team and address before re-inviting. No address is logged.`,
-      );
-    }
-
-    // ---- Create the invitation, or take over the one already there ---------
-    //
-    // The row is created as 'queued'. Nothing names that column in the insert:
-    // 20261006095847_invitation_status.sql gives status the default 'queued' and
-    // failure_code the default '', and letting the defaults do it means there is
-    // one place the starting state is written down rather than two.
-    const token = makeToken();
-    const tokenHash = await hashToken(token);
-
-    const { data: inserted, error: insertError } = await ctx.supabaseAdmin
-      .from("invitations")
-      .insert({
-        team_id: teamId,
-        email,
-        token_hash: tokenHash,
-        invited_by: callerId,
-      })
-      .select("id, email, expires_at, status");
-
-    // The row this request is going to send for, once it is known: either the one
-    // just inserted or the one that was already there and may be sent again.
-    let invitationId: string;
-    let invitationEmail: string;
-    let invitationExpiry: string;
-    let retried: boolean;
-
-    if (insertError) {
-      // 23505 is unique_violation: the partial unique index means this address
-      // already has a live invitation to this team.
-      //
-      // BEFORE THIS CHANGE THAT WAS THE END OF IT -- one sentence, 409, and
-      // nothing to do about it. It is now the start of the retry path, because
-      // the table can say what happened to that invitation's email, and "it was
-      // never delivered" and "it is in their inbox" deserve different answers.
-      if (insertError.code === "23505") {
-        const { data: existing, error: existingError } = await ctx.supabaseAdmin
-          .from("invitations")
-          .select("id, email, status, created_at, expires_at")
-          .eq("team_id", teamId)
-          .eq("email", email)
-          .is("accepted_at", null)
-          .limit(1);
-
-        // Lesson F14: the error AND what came back. A read that failed does not
-        // mean "no row", and it certainly does not mean "retry" -- a retry sends
-        // mail, so an unknown here must refuse.
-        if (existingError) {
-          return fail(
-            "That address already has an invitation to this team, and it could not be read, so nothing was sent. Please try again.",
-            500,
-            existingError.code,
-          );
-        }
-        if (!Array.isArray(existing) || existing.length !== 1) {
-          // Zero rows: the row that blocked the insert is no longer pending --
-          // accepted or deleted in the moment between the two statements. The
-          // unchanged refusal is the right answer rather than a guess: it sends
-          // no mail, and asking again a second later inserts cleanly.
-          return alreadyWaitingAnswer(insertError.code);
-        }
-
-        const row = existing[0];
-        const verdict = retryVerdict(row, Date.now());
-
-        if (!verdict.retry) {
-          if (verdict.why === "sending") return stillSendingAnswer(insertError.code);
-          // 'sent' and 'unknown' both get the refusal this function has always
-          // sent, which is what issue #166 requires of the first and what the
-          // comment in retryVerdict argues for the second.
-          return alreadyWaitingAnswer(insertError.code);
-        }
-
-        // ---- A RETRY. The link is replaced before anything is sent. ---------
-        //
-        // A NEW TOKEN, because the old one cannot be reused: the token itself is
-        // never stored (only its SHA-256 hash), so there is nothing to put in a
-        // second email even if the first one had been delivered -- and it was
-        // not, which is the whole reason this branch exists. The new hash
-        // replaces the old one, so the previous link, wherever it got to, now
-        // opens nothing.
-        //
-        // THE 7 DAYS START AGAIN, and that is deliberate. The email about to go
-        // out says "The link works for 7 days", and on a row created six days ago
-        // that sentence would be false -- the link would die tomorrow. A retry is
-        // a new invitation in every respect except which row it lives in, so it
-        // gets a new window and the email tells the truth. The cost is named
-        // plainly: an address belonging to somebody who never joined can sit here
-        // for 7 days from the LAST attempt rather than the first.
-        //
-        // created_at is left alone, so "when was this person first invited" is
-        // still answerable, and 20260930193813_create_invitations.sql's
-        // invitations_expires_after_created constraint still holds.
-        //
-        // status goes back to 'queued' and failure_code back to '', which the
-        // check constraint requires of any row that is not 'failed'. Both are
-        // named here, not left to a default: a default only applies to an insert.
-        const freshExpiry = new Date(
-          Date.now() + INVITATION_DAYS * 24 * 60 * 60 * 1000,
-        ).toISOString();
-
-        // THE WRITE IS A COMPARE-AND-SET, and every entry of the filter below is
-        // applied. The loop is what makes that true rather than hoped: `RetryFilter`
-        // is a map, `resetForRetry` fills it, and a field it names cannot be left
-        // off here by somebody adding one and forgetting a line. The test asserts
-        // on the map, so what it checks is what the database is given.
-        const reset = await resetForRetry({
-          row,
-          tokenHash,
-          freshExpiry,
-          apply: (patch, filter) => {
-            let write = ctx.supabaseAdmin.from("invitations").update(patch);
-            for (const [column, value] of Object.entries(filter)) {
-              write = write.eq(column, value);
-            }
-            return write.select("id, email, expires_at, status");
-          },
-        });
-
-        if (!reset.ok) {
-          // A lost race is a 409 "being sent now", not a failure: the other request
-          // is sending the email, and this one must not send a second.
-          return resetFailureAnswer(reset, insertError.code);
-        }
-
-        // A COUNT AND A REASON, never the address and never the token. The reason
-        // is one of two fixed words from retryVerdict, so this line cannot grow a
-        // value somebody typed.
-        console.log(
-          `invite-member: sending an existing invitation again (${verdict.why}). A new link replaces the old one. No address, token or hash is logged.`,
-        );
-
-        invitationId = reset.row.id;
-        invitationEmail = reset.row.email;
-        invitationExpiry = reset.row.expires_at;
-        retried = true;
-      } else {
-        return fail(
-          "Could not create the invitation. Please try again.",
-          500,
-          insertError.code,
-        );
-      }
-    } else {
-      if (!Array.isArray(inserted) || inserted.length !== 1) {
-        const wrote = Array.isArray(inserted) ? inserted.length : 0;
-        return fail(
-          `The invitation may not have been created: the database reported no error but returned ${wrote} rows instead of 1. Please check the team's invitations before trying again.`,
-          500,
-        );
-      }
-      invitationId = inserted[0].id;
-      invitationEmail = inserted[0].email;
-      invitationExpiry = inserted[0].expires_at;
-      retried = false;
-    }
-
-    // ---- Send the email ---------------------------------------------------
-    //
-    // The link's host comes ONLY from APP_URL. Never from a request header:
-    // Host, X-Forwarded-Host and Origin are all attacker-controlled, and a link
-    // built from one would let somebody send a real invitation pointing at a
-    // site they own, harvesting the token when it is opened.
-    const appUrl = (Deno.env.get("APP_URL") ?? "").trim().replace(/\/+$/, "");
-    const link = `${appUrl}/invite/${token}`;
-
-    const text = [
-      `You have been invited to join the team "${teamName}" on Team Tasks.`,
-      ``,
-      `Open this link to accept:`,
-      link,
-      ``,
-      `The link works for 7 days, and only for ${email}.`,
-      `Sign in or sign up with that address first, then open the link again.`,
-      ``,
-      `If you were not expecting this, you can ignore this email.`,
-    ].join("\n");
-
-    // ---- TODAY'S LIMIT: the last thing before an email is sent ------------
-    //
-    // Build it 22 part 2, issue #221. docs/plan.md: "invite-member -- after the
-    // door checks and the team's 20-pending check, IMMEDIATELY BEFORE the send --
-    // and a retry counts, because it sends a second email."
-    //
-    // A RETRY COUNTS, AND IT COUNTS HERE WITHOUT A SECOND CALL SITE, which is worth
-    // saying because it looks as though it would need one. Both paths above -- the
-    // fresh insert and the retry's compare-and-set -- fall through to this one
-    // `sendEmail`, because a retry is "a new invitation in every respect except
-    // which row it lives in". So one count in front of one send is the whole of it,
-    // and there is no way to add a send that skips the count without moving this
-    // line. The owner decided it on 2026-10-08, against a real argument the plan
-    // keeps: "somebody retrying because the first send failed is not doing a second
-    // thing" -- but "the thing being limited is the email and a retry sends one".
-    //
-    // WHY HERE AND NOWHERE EARLIER. Everything above this line is a refusal that
-    // sends no email, and docs/plan.md's table lists all of them as NOT counted: no
-    // signed-in caller, `account_suspended`, a caller who does not own the team,
-    // inviting yourself, inviting somebody already in the team, the team's
-    // 20-pending limit, no EMAIL_FROM or no delivery setting, and a failure writing
-    // the invitation row. That last one is why this is not a line or two higher: the
-    // insert and the retry's update are both above it, so a database that refused to
-    // write the row costs nobody one of their twenty.
-    //
-    // WHAT THAT ORDER COSTS, STATED RATHER THAN HIDDEN, because it is a real and
-    // visible consequence rather than a theoretical one. At the limit, the
-    // invitation row has ALREADY been written (or already been reset by the retry
-    // path) and it stays behind at `queued`. So the team's owner sees an invitation
-    // that says "sending" for an email that will never go, and it occupies one of
-    // the team's 20 pending slots until it expires. It is not lost work: after
-    // STALE_QUEUED_MINUTES the row becomes retryable, so tomorrow's first press
-    // sends it. The alternatives were both worse -- counting BEFORE the insert makes
-    // a failed insert cost a slot of somebody's twenty, which the plan's table
-    // forbids by name, and writing the row as `failed` would need a fifth failure
-    // code, which is a check constraint in 20261006095847_invitation_status.sql and
-    // so a migration this change does not have. Issue filed, and named in the pull
-    // request, rather than left for somebody to find on a screen.
-    //
-    // THE RPC IS WRITTEN OUT HERE for the reason every other read in this file is:
-    // a reviewer sees which function is called with which arguments. `callerId` is
-    // the verified token's id, read before the body was parsed, so nothing a caller
-    // can put in a body changes whose count is spent -- and it is the CALLER'S count,
-    // not the team's and not the invited person's. docs/plan.md: "Per person, not per
-    // team: one person who owns three teams has 20 invitations a day in total."
-    //
-    // ctx.supabaseAdmin, because `service_role` is the only role holding EXECUTE on
-    // it: 20261008115900_usage_counts.sql revokes it from PUBLIC, `anon` and
-    // `authenticated` by name, since the limit is an argument and a caller who could
-    // call it would choose the limit.
-    // THE GATE IS ONE EXPORTED FUNCTION AND THE WHOLE OF THE SEND IS ITS SECOND
-    // ARGUMENT, which is the shape suggest-subtasks' consent check already uses and
-    // the reason is the same: it is what makes "when the count refuses, the email
-    // service receives NOTHING" a fact a test can establish about this handler rather
-    // than about a copy of its order written out in a test file.
-    return await withDailyLimit(
+    // AND AN UNREADABLE SWITCH IS NOT A SWITCHED-OFF SWITCH: it gets the
+    // "could not check, so nothing was sent" shape this function uses for every
+    // other check that did not answer, with `switch_unknown` in the log.
+    return await withSwitch(
       {
-        count: () =>
-          ctx.supabaseAdmin.rpc(COUNT_RPC, {
-            p_user_id: callerId,
-            p_feature: FEATURE_INVITATIONS,
-            p_limit: dailyLimit(FEATURE_INVITATIONS),
+        feature: SWITCH_INVITATIONS,
+        // Written out here, at the call site, so the rpc and its one argument
+        // are lines a reviewer sees. It takes no user id: a switch is a fact
+        // about this app, not about the person asking.
+        read: () =>
+          ctx.supabaseAdmin.rpc(SWITCH_RPC, {
+            [SWITCH_ARGUMENT]: SWITCH_INVITATIONS,
           }),
-        // THE COUNT DID NOT ANSWER, so whether this person may send is NOT KNOWN --
-        // and an unknown is not a yes. Issue #221: "A failed count is not permission
-        // to spend money." Its own sentence, in the shape this function uses for every
-        // other check that did not answer ("Could not check your account, so no
-        // invitation was created"), and a 500 because the cause is a failed check
-        // rather than a limit.
-        //
-        // LOGGED, unlike the at-limit refusal the gate sends, because a count that has
-        // stopped working refuses everybody and nothing else will notice. The code is
-        // one of this app's own fixed words; the Postgres error code goes no further
-        // than countOneUse's return value, and no address, team name or user id is
-        // named.
         unknownAnswer: () => {
           console.error(
-            "invite-member: today's usage count could not be written, so no invitation " +
-              `email was sent. Code: ${DAILY_LIMIT_UNKNOWN_CODE}. The invitation row is ` +
-              "left as it stands. No address, team name, user id or database message is logged.",
+            `invite-member: the ${SWITCH_INVITATIONS} switch could not be read, so no ` +
+              `invitation was created and no email was sent. Code: ${SWITCH_UNKNOWN_CODE}. ` +
+              "No address, team name, user id or database message is logged.",
           );
           return fail(
-            "Could not check today's limit, so no invitation email was sent. Please try again.",
+            "Could not check whether invitations are switched on, so nothing was sent. Please try again.",
             500,
-            DAILY_LIMIT_UNKNOWN_CODE,
+            SWITCH_UNKNOWN_CODE,
           );
         },
       },
       async () => {
-        // THE USE IS ALREADY COUNTED by the time this line runs, and nothing below
-        // gives it back -- not a refusal from the email service, not a timeout, not
-        // silence. See the note above.
-        const sent = await sendEmail({
-          apiKey: (Deno.env.get("EMAIL_API_KEY") ?? "").trim(),
-          from: (Deno.env.get("EMAIL_FROM") ?? "").trim(),
-          to: decision.to,
-          subject: decision.subject,
-          text,
+
+        // ---- Is this account suspended? --------------------------------------
+        //
+        // FIRST, before `await req.json()` and so before every check below it. The
+        // position is the point rather than tidiness: a suspended caller never
+        // reaches decideDelivery, never reaches the pending count, and never reaches
+        // an insert -- so no mail is sent, and none of the team's 20 pending slots
+        // is spent on an invitation its owner was not allowed to make.
+        const suspension = await checkSuspension(() =>
+          ctx.supabaseAdmin
+            .from("account_status")
+            .select("user_id")
+            .eq("user_id", callerId)
+            .limit(1)
+        );
+        if (!suspension.allowed) {
+          if (suspension.why === "suspended") {
+            return suspendedRefusal();
+          }
+          // Fail closed. The read did not answer, so whether this person may act is
+          // not known -- and an unknown is not a "no row". A different refusal from
+          // the one above, with a different status and message, because its cause is
+          // a failed check rather than a suspension.
+          return fail(
+            "Could not check your account, so no invitation was created. Please try again.",
+            500,
+            suspension.code,
+          );
+        }
+
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return fail("Expected a JSON body with a team id and an email.", 400);
+        }
+
+        const rawTeamId = (body as { team_id?: unknown } | null)?.team_id;
+        const rawEmail = (body as { email?: unknown } | null)?.email;
+
+        if (typeof rawTeamId !== "string" || rawTeamId.trim() === "") {
+          return fail("Which team is this invitation for?", 400);
+        }
+        if (typeof rawEmail !== "string") {
+          return fail("Please give an email address to invite.", 400);
+        }
+
+        const teamId = rawTeamId.trim();
+
+        // A valid UUID, checked BEFORE any database call.
+        //
+        // teams.id is a uuid column. Sending anything else -- the owner did it on
+        // staging by typing an email address into the team id prompt -- made
+        // Postgres refuse to cast it, error 22P02 (invalid_text_representation),
+        // which arrived here as a query error and came back as
+        // 500 "Could not check the team, so no invitation was created."
+        //
+        // That is wrong twice over: 500 says the server broke when the caller sent
+        // something malformed, and the message sends somebody looking at the team
+        // rather than at what they typed. A shape this easy to check should never
+        // reach the database to be rejected.
+        if (!UUID_PATTERN.test(teamId)) {
+          return fail("That is not a valid team id.", 400);
+        }
+
+        // Lowercased here, so it matches the invitations_email_lowercase constraint
+        // and so accept-invite's comparison is case-insensitive by construction.
+        const email = rawEmail.trim().toLowerCase();
+
+        if (email === "") {
+          return fail("Please give an email address to invite.", 400);
+        }
+        // Deliberately loose. Address validity is settled by whether the mail
+        // arrives, not by a regular expression; this only catches obvious typos.
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          return fail("That does not look like an email address.", 400);
+        }
+        if (email.length > 320) {
+          return fail("That email address is too long.", 400);
+        }
+
+        // ---- Only the team's owner may invite ---------------------------------
+        //
+        // Read with supabaseAdmin and check owner_id here, rather than relying on
+        // the caller's own client returning nothing for somebody else's team. Both
+        // would work today; this one keeps working if the select policy changes,
+        // and it lets "not your team" be told apart from "no such team".
+        const { data: team, error: teamError } = await ctx.supabaseAdmin
+          .from("teams")
+          .select("id, name, owner_id")
+          .eq("id", teamId)
+          .limit(1);
+
+        // Lesson F14: check the error AND what came back.
+        if (teamError) {
+          return fail(
+            "Could not check the team, so no invitation was created. Please try again.",
+            500,
+            teamError.code,
+          );
+        }
+        if (!Array.isArray(team) || team.length !== 1) {
+          // Zero rows: no such team. 404, and a DIFFERENT answer from "not yours",
+          // which is the 403 just below this block -- the two outcomes are
+          // deliberately told apart, for the reason given at the top of this block:
+          // reading the team with supabaseAdmin "lets 'not your team' be told apart
+          // from 'no such team'".
+          //
+          // This comment used to claim the two answers were identical, so that team
+          // ids could not be discovered. They are not identical, and the claim was
+          // worse than wrong: it invited somebody to "restore" that behaviour by
+          // collapsing the 403 into this 404, losing a distinction the file argues
+          // for on purpose (issue #111). What a caller can learn from the pair is
+          // that a team id exists -- not who is in it, not its name, and not
+          // anything about its invitations.
+          return fail("That team was not found.", 404);
+        }
+        if (team[0].owner_id !== callerId) {
+          return fail("Only the team's owner can invite people.", 403);
+        }
+        const teamName = String(team[0].name ?? "");
+
+        // ---- Refuse inviting yourself -----------------------------------------
+        //
+        // Cheap and first: the caller's own address is on the verified token, so
+        // this costs no query. An owner inviting themselves would send a link they
+        // can never use -- accept-invite would match the address, add them to
+        // team_members, and leave them a "member" of a team they already own, which
+        // means nothing and confuses the pending list.
+        const callerEmail = ctx.userClaims?.email;
+        if (
+          typeof callerEmail === "string" &&
+          callerEmail.trim().toLowerCase() === email
+        ) {
+          return fail(
+            "That is your own email address. You already own this team, so there is nothing to accept.",
+            409,
+          );
+        }
+
+        // ---- Refuse inviting somebody already in the team ---------------------
+        //
+        // Checked by looking up THE TEAM'S members and comparing their addresses,
+        // rather than looking up the invited address and asking which teams it is
+        // in. The reason is the shape of the data available: team_members holds
+        // user ids, invitations hold email addresses, and the installed client has
+        // no "find the user with this email" call -- `listUsers` is paginated over
+        // every user in the project and `getUserById` needs an id you do not have.
+        //
+        // So the loop is bounded by the size of THIS TEAM (a handful of people),
+        // not by the number of accounts in the project. If teams ever grow large
+        // this wants replacing with a lookup, but it is correct either way: it
+        // never pages, so it cannot silently miss somebody on page two.
+        const { data: members, error: membersError } = await ctx.supabaseAdmin
+          .from("team_members")
+          .select("user_id")
+          .eq("team_id", teamId);
+
+        // Lesson F14: the error AND what came back. A failed read here must NOT be
+        // treated as "nobody is in the team" -- that would let the check pass by
+        // accident, which is the failing-open pattern this project keeps refusing.
+        if (membersError) {
+          return fail(
+            "Could not check who is already in this team, so no invitation was created. Please try again.",
+            500,
+            membersError.code,
+          );
+        }
+        if (!Array.isArray(members)) {
+          return fail(
+            "Could not check who is already in this team, so no invitation was created. Please try again.",
+            500,
+          );
+        }
+
+        for (const member of members) {
+          const memberId = (member as { user_id?: unknown }).user_id;
+          if (typeof memberId !== "string") continue;
+
+          const { data: memberUser, error: memberUserError } =
+            await ctx.supabaseAdmin.auth.admin.getUserById(memberId);
+
+          // Again, not treated as "not them". If a member's account cannot be read
+          // we do not know whether this address is already in the team, and an
+          // unknown is not a no.
+          if (memberUserError) {
+            return fail(
+              "Could not check who is already in this team, so no invitation was created. Please try again.",
+              500,
+            );
+          }
+
+          const memberEmail = memberUser?.user?.email;
+          if (
+            typeof memberEmail === "string" &&
+            memberEmail.trim().toLowerCase() === email
+          ) {
+            return fail(
+              "That person is already in this team, so there is nothing to invite them to.",
+              409,
+            );
+          }
+        }
+
+        // ---- Limit: fewer than 20 PENDING invitations -------------------------
+        //
+        // Pending means not accepted and not expired. An expired or accepted
+        // invitation does not occupy a slot, which is what stops a team being
+        // permanently full because of invitations that went nowhere.
+        const nowIso = new Date().toISOString();
+        const { count: pendingCount, error: countError } = await ctx.supabaseAdmin
+          .from("invitations")
+          .select("id", { count: "exact", head: true })
+          .eq("team_id", teamId)
+          .is("accepted_at", null)
+          .gt("expires_at", nowIso);
+
+        if (countError) {
+          return fail(
+            "Could not check how many invitations this team already has, so none was created. Please try again.",
+            500,
+            countError.code,
+          );
+        }
+        if (typeof pendingCount !== "number") {
+          // No error but no number is an unknown, not a zero. Treating it as zero
+          // is how a limit gets bypassed.
+          return fail(
+            "Could not check how many invitations this team already has, so none was created. Please try again.",
+            500,
+          );
+        }
+        if (pendingCount >= MAX_PENDING_PER_TEAM) {
+          return fail(
+            `This team has ${pendingCount} invitations waiting, the most allowed. Wait for some to be accepted or to expire.`,
+            409,
+          );
+        }
+
+        // ---- IS THERE ROOM IN THE TEAM AT ALL? (Build it 27) -----------------
+        //
+        // docs/plan.md, "A paid Team plan, and the first team size limit": a team
+        // may have 10 members, or 25 if its OWNER holds an active Team plan. This
+        // is the first limit this app has ever had on how many people are in a
+        // team, and it is a different thing from the 20-pending check above --
+        // that one caps addresses waiting, this one caps people who have arrived.
+        //
+        // CHECKED IN BOTH DOORS, and this is only the first of them. An invitation
+        // can be sent while a team has room and accepted after it has filled, so a
+        // check here alone would let the limit be walked past by whoever accepts
+        // last. accept-invite carries the same check for that reason.
+        //
+        // THE NUMBER COMES FROM THE DATABASE, not from this file and not from
+        // limits.ts. public.team_member_limit() answers 10 or 25 by looking at the
+        // team's owner's entitlement -- a row this function must not read directly
+        // and does not. Asking a function for the number means the entitlement
+        // never passes through here, which is also why nothing in this file can
+        // leak whether somebody is paying.
+        const limitAnswer = await ctx.supabaseAdmin.rpc("team_member_limit", {
+          p_team_id: teamId,
         });
 
-        // ---- Write down what happened to the email --------------------------
-        //
-        // THE ROW NO LONGER DISAPPEARS WHEN A SEND FAILS, and that is the change
-        // issue #166 asks for. What the old code did instead -- delete the
-        // invitation -- threw away the only record that anybody had tried, so the
-        // owner saw an empty list and had no way to tell "nobody invited them" from
-        // "the email bounced off the service twice this morning". A failed row stays,
-        // says so, and offers to go again.
-        //
-        // The status write is the LAST thing, after the send, because until the
-        // service has answered there is nothing true to write. What that leaves
-        // behind if this function stops between the insert and this line is a row at
-        // 'queued' and no second write -- see STALE_QUEUED_MINUTES, which is how such
-        // a row becomes retryable rather than sitting there for seven days.
-        const outcome = sent.ok
-          ? { status: "sent" as const, failure_code: "" }
-          : { status: "failed" as const, failure_code: sent.code };
+        const memberLimit =
+          typeof limitAnswer.data === "number" ? limitAnswer.data : null;
 
-        const { data: recorded, error: recordError } = await ctx.supabaseAdmin
+        if (limitAnswer.error || memberLimit === null) {
+          // An unknown is not a large number. The same direction every other check
+          // in this project fails in, and the cost of getting it the other way
+          // round is a team that quietly grows past what anybody agreed to.
+          return fail(
+            "Could not check how many people this team may have, so no invitation was sent. Please try again.",
+            500,
+          );
+        }
+
+        const memberCount = await ctx.supabaseAdmin
+          .from("team_members")
+          .select("user_id", { count: "exact", head: true })
+          .eq("team_id", teamId);
+
+        if (memberCount.error || typeof memberCount.count !== "number") {
+          return fail(
+            "Could not check how many people are in this team, so no invitation was sent. Please try again.",
+            500,
+          );
+        }
+
+        if (memberCount.count >= memberLimit) {
+          // THE SENTENCE NAMES THE NUMBER AND WHAT WOULD CHANGE IT, and nothing
+          // about anybody's payment status. "You own 3 teams, the most allowed" is
+          // the shape this follows -- a refusal a person can act on earns its own
+          // words. What it does NOT say is "upgrade to get 25", because this
+          // function is not a sales page and the owner of the team may not be the
+          // person reading it.
+          return fail(
+            `This team has ${memberCount.count} members, the most allowed on its current plan. Remove somebody, or the team's owner can raise the limit on the settings page.`,
+            409,
+          );
+        }
+
+        // AND A RETRY IS COUNTED HERE TOO, WHICH IS WRONG AND IS NOT FIXED HERE. A
+        // failed invitation is still pending by this count -- not accepted, not expired
+        // -- so a team sitting at 20 cannot send one of them again, even though a retry
+        // creates no row and occupies no new slot. The owner presses Try again and is
+        // told the team is full.
+        //
+        // The fix is to read the existing row before counting, and that moves a refusal
+        // ahead of another one, which issue #166 does not allow in this change. Issue
+        // #170 holds it, with what a fix must and must not change.
+
+        // ---- Decide delivery BEFORE writing anything --------------------------
+        //
+        // Required by the delivery rules, and worth restating: if this environment
+        // may not send, nothing is created at all. No invitation, no wasted slot.
+        //
+        // AND THIS IS WHY NOTHING IS EVER STORED AS `not_configured`, which is a
+        // thing to say out loud rather than leave somebody to discover. The fixed
+        // list in 20261006095847_invitation_status.sql has four codes, and names this
+        // branch as the source of that one -- but this branch runs BEFORE any row
+        // exists, by the deliberate ordering above, so there is nothing to write a
+        // status on. The caller gets 503 and the table is untouched.
+        //
+        // The code is still in the list, the screen still has a sentence for it, and
+        // both are right: the column can hold it, the check constraint allows it, and
+        // a later change that writes a row before deciding delivery would produce it.
+        // What would be wrong is a screen that met the value and showed nothing.
+        // Issue #169 holds the question of whether the ordering should change so that
+        // a retry in an unconfigured environment records this instead of leaving the
+        // row as it was; it is not changed here because issue #166 requires every
+        // existing refusal to keep its order.
+        const decision = decideDelivery(email, teamName);
+        if (!decision.ok) {
+          // Names the settings. Never their values -- see the note at the end.
+          console.error(
+            `invite-member refused: email delivery not configured. Settings involved: ${decision.missing.join(", ")}. No value is logged.`,
+          );
+          return fail(decision.message, 503);
+        }
+
+        // ---- Clear this address's DEAD invitations to this team ---------------
+        //
+        // Without this, an address could be invited to a team exactly once, ever.
+        //
+        // The unique index invitations_one_pending_per_email covers
+        // (team_id, email) WHERE accepted_at IS NULL. "Not accepted" includes
+        // "not accepted and long expired", so an invitation that lapsed after 7
+        // days still occupies that slot -- and a fresh invite to the same person
+        // hits 23505 and reports "already has an invitation waiting", which is
+        // simply untrue. Nothing expires the row, so the block is permanent.
+        //
+        // WHY THE INDEX IS NOT CHANGED INSTEAD. The obvious fix -- adding
+        // `and expires_at > now()` to the index predicate -- is not allowed by
+        // Postgres. From the CREATE INDEX documentation: "All functions and
+        // operators used in an index definition must be immutable, that is, their
+        // results must depend only on their arguments and never on any outside
+        // influence (such as the contents of another table or the current time)."
+        // now() depends on the current time, so a time-aware partial index cannot
+        // exist. The index is kept exactly as it is, and the dead rows are removed
+        // here instead, which is the only place that can know the clock.
+        //
+        // Deleted rather than kept for the record: an expired invitation that was
+        // never accepted is not history worth holding, and docs/plan.md's whole
+        // reason for the 7-day expiry is that an address belonging to somebody who
+        // never joined should not sit in the database.
+        //
+        // Placed after the delivery decision on purpose, so an environment that may
+        // not send still changes nothing at all.
+        const { error: clearError, count: clearedCount } = await ctx.supabaseAdmin
           .from("invitations")
-          .update(outcome)
-          .eq("id", invitationId)
+          .delete({ count: "exact" })
+          .eq("team_id", teamId)
+          .eq("email", email)
+          .is("accepted_at", null)
+          .lte("expires_at", nowIso);
+
+        // F14 on the delete. If it failed, stop: carrying on would hit the unique
+        // index and report "already has an invitation waiting", which is the wrong
+        // message and the bug this code exists to remove.
+        if (clearError) {
+          return fail(
+            "Could not clear an earlier expired invitation for that address, so no new invitation was created. Please try again.",
+            500,
+            clearError.code,
+          );
+        }
+
+        // A COUNT only, never the address. There is normally nothing to clear, so
+        // the zero case is not worth a line.
+        if ((clearedCount ?? 0) > 0) {
+          console.log(
+            `invite-member: cleared ${clearedCount} expired unaccepted invitation(s) for this team and address before re-inviting. No address is logged.`,
+          );
+        }
+
+        // ---- Create the invitation, or take over the one already there ---------
+        //
+        // The row is created as 'queued'. Nothing names that column in the insert:
+        // 20261006095847_invitation_status.sql gives status the default 'queued' and
+        // failure_code the default '', and letting the defaults do it means there is
+        // one place the starting state is written down rather than two.
+        const token = makeToken();
+        const tokenHash = await hashToken(token);
+
+        const { data: inserted, error: insertError } = await ctx.supabaseAdmin
+          .from("invitations")
+          .insert({
+            team_id: teamId,
+            email,
+            token_hash: tokenHash,
+            invited_by: callerId,
+          })
           .select("id, email, expires_at, status");
 
-        // F14 on the status write. One row back, with no error, is the only thing
-        // that means the row says what this function is about to claim it says.
-        const wroteOneRow =
-          !recordError && Array.isArray(recorded) && recorded.length === 1;
+        // The row this request is going to send for, once it is known: either the one
+        // just inserted or the one that was already there and may be sent again.
+        let invitationId: string;
+        let invitationEmail: string;
+        let invitationExpiry: string;
+        let retried: boolean;
 
-        if (!wroteOneRow) {
-          // The row still says 'queued', whatever happened to the email. Said in a
-          // log line because nothing else will notice: the owner's screen will show
-          // "sending" and, after STALE_QUEUED_MINUTES, a Try again button -- which is
-          // the right offer, but somebody looking into why wants to find this.
+        if (insertError) {
+          // 23505 is unique_violation: the partial unique index means this address
+          // already has a live invitation to this team.
           //
-          // The invitation id is named, as the old orphan line named it. No address,
-          // no token, no hash, and nothing the email service said.
-          console.error(
-            `invite-member: the email ${sent.ok ? "WENT" : "did not go"} and the status could not be written. Invitation id ${invitationId} still says "queued". Error code: ${recordError?.code ?? "none"}; rows updated: ${Array.isArray(recorded) ? recorded.length : "unknown"}.`,
-          );
+          // BEFORE THIS CHANGE THAT WAS THE END OF IT -- one sentence, 409, and
+          // nothing to do about it. It is now the start of the retry path, because
+          // the table can say what happened to that invitation's email, and "it was
+          // never delivered" and "it is in their inbox" deserve different answers.
+          if (insertError.code === "23505") {
+            const { data: existing, error: existingError } = await ctx.supabaseAdmin
+              .from("invitations")
+              .select("id, email, status, created_at, expires_at")
+              .eq("team_id", teamId)
+              .eq("email", email)
+              .is("accepted_at", null)
+              .limit(1);
+
+            // Lesson F14: the error AND what came back. A read that failed does not
+            // mean "no row", and it certainly does not mean "retry" -- a retry sends
+            // mail, so an unknown here must refuse.
+            if (existingError) {
+              return fail(
+                "That address already has an invitation to this team, and it could not be read, so nothing was sent. Please try again.",
+                500,
+                existingError.code,
+              );
+            }
+            if (!Array.isArray(existing) || existing.length !== 1) {
+              // Zero rows: the row that blocked the insert is no longer pending --
+              // accepted or deleted in the moment between the two statements. The
+              // unchanged refusal is the right answer rather than a guess: it sends
+              // no mail, and asking again a second later inserts cleanly.
+              return alreadyWaitingAnswer(insertError.code);
+            }
+
+            const row = existing[0];
+            const verdict = retryVerdict(row, Date.now());
+
+            if (!verdict.retry) {
+              if (verdict.why === "sending") return stillSendingAnswer(insertError.code);
+              // 'sent' and 'unknown' both get the refusal this function has always
+              // sent, which is what issue #166 requires of the first and what the
+              // comment in retryVerdict argues for the second.
+              return alreadyWaitingAnswer(insertError.code);
+            }
+
+            // ---- A RETRY. The link is replaced before anything is sent. ---------
+            //
+            // A NEW TOKEN, because the old one cannot be reused: the token itself is
+            // never stored (only its SHA-256 hash), so there is nothing to put in a
+            // second email even if the first one had been delivered -- and it was
+            // not, which is the whole reason this branch exists. The new hash
+            // replaces the old one, so the previous link, wherever it got to, now
+            // opens nothing.
+            //
+            // THE 7 DAYS START AGAIN, and that is deliberate. The email about to go
+            // out says "The link works for 7 days", and on a row created six days ago
+            // that sentence would be false -- the link would die tomorrow. A retry is
+            // a new invitation in every respect except which row it lives in, so it
+            // gets a new window and the email tells the truth. The cost is named
+            // plainly: an address belonging to somebody who never joined can sit here
+            // for 7 days from the LAST attempt rather than the first.
+            //
+            // created_at is left alone, so "when was this person first invited" is
+            // still answerable, and 20260930193813_create_invitations.sql's
+            // invitations_expires_after_created constraint still holds.
+            //
+            // status goes back to 'queued' and failure_code back to '', which the
+            // check constraint requires of any row that is not 'failed'. Both are
+            // named here, not left to a default: a default only applies to an insert.
+            const freshExpiry = new Date(
+              Date.now() + INVITATION_DAYS * 24 * 60 * 60 * 1000,
+            ).toISOString();
+
+            // THE WRITE IS A COMPARE-AND-SET, and every entry of the filter below is
+            // applied. The loop is what makes that true rather than hoped: `RetryFilter`
+            // is a map, `resetForRetry` fills it, and a field it names cannot be left
+            // off here by somebody adding one and forgetting a line. The test asserts
+            // on the map, so what it checks is what the database is given.
+            const reset = await resetForRetry({
+              row,
+              tokenHash,
+              freshExpiry,
+              apply: (patch, filter) => {
+                let write = ctx.supabaseAdmin.from("invitations").update(patch);
+                for (const [column, value] of Object.entries(filter)) {
+                  write = write.eq(column, value);
+                }
+                return write.select("id, email, expires_at, status");
+              },
+            });
+
+            if (!reset.ok) {
+              // A lost race is a 409 "being sent now", not a failure: the other request
+              // is sending the email, and this one must not send a second.
+              return resetFailureAnswer(reset, insertError.code);
+            }
+
+            // A COUNT AND A REASON, never the address and never the token. The reason
+            // is one of two fixed words from retryVerdict, so this line cannot grow a
+            // value somebody typed.
+            console.log(
+              `invite-member: sending an existing invitation again (${verdict.why}). A new link replaces the old one. No address, token or hash is logged.`,
+            );
+
+            invitationId = reset.row.id;
+            invitationEmail = reset.row.email;
+            invitationExpiry = reset.row.expires_at;
+            retried = true;
+          } else {
+            return fail(
+              "Could not create the invitation. Please try again.",
+              500,
+              insertError.code,
+            );
+          }
+        } else {
+          if (!Array.isArray(inserted) || inserted.length !== 1) {
+            const wrote = Array.isArray(inserted) ? inserted.length : 0;
+            return fail(
+              `The invitation may not have been created: the database reported no error but returned ${wrote} rows instead of 1. Please check the team's invitations before trying again.`,
+              500,
+            );
+          }
+          invitationId = inserted[0].id;
+          invitationEmail = inserted[0].email;
+          invitationExpiry = inserted[0].expires_at;
+          retried = false;
         }
 
-        if (!sent.ok) {
-          // Named, not described, and never the service's own reply. `recorded` is
-          // what makes the answer match the row: a 502 says the invitation is marked
-          // as failed, and this function only says that when it is.
-          console.error(
-            `invite-member: the invitation email did not go. Code: ${sent.code}. Recorded on the row: ${wroteOneRow ? "yes" : "NO"}. No address, token or email-service reply is logged.`,
-          );
-          return sendFailureAnswer({ code: sent.code, recorded: wroteOneRow });
-        }
+        // ---- Send the email ---------------------------------------------------
+        //
+        // The link's host comes ONLY from APP_URL. Never from a request header:
+        // Host, X-Forwarded-Host and Origin are all attacker-controlled, and a link
+        // built from one would let somebody send a real invitation pointing at a
+        // site they own, harvesting the token when it is opened.
+        const appUrl = (Deno.env.get("APP_URL") ?? "").trim().replace(/\/+$/, "");
+        const link = `${appUrl}/invite/${token}`;
 
-        // The email went. The status is the one the database confirmed, so a failed
-        // status write answers 'queued' rather than claiming 'sent'.
-        return invitationAnswer({
-          id: invitationId,
-          email: wroteOneRow ? recorded[0].email : invitationEmail,
-          expires_at: wroteOneRow ? recorded[0].expires_at : invitationExpiry,
-          status: wroteOneRow ? "sent" : "queued",
-          redirected: decision.redirected,
-          retried,
-        });
+        const text = [
+          `You have been invited to join the team "${teamName}" on Team Tasks.`,
+          ``,
+          `Open this link to accept:`,
+          link,
+          ``,
+          `The link works for 7 days, and only for ${email}.`,
+          `Sign in or sign up with that address first, then open the link again.`,
+          ``,
+          `If you were not expecting this, you can ignore this email.`,
+        ].join("\n");
+
+        // ---- TODAY'S LIMIT: the last thing before an email is sent ------------
+        //
+        // Build it 22 part 2, issue #221. docs/plan.md: "invite-member -- after the
+        // door checks and the team's 20-pending check, IMMEDIATELY BEFORE the send --
+        // and a retry counts, because it sends a second email."
+        //
+        // A RETRY COUNTS, AND IT COUNTS HERE WITHOUT A SECOND CALL SITE, which is worth
+        // saying because it looks as though it would need one. Both paths above -- the
+        // fresh insert and the retry's compare-and-set -- fall through to this one
+        // `sendEmail`, because a retry is "a new invitation in every respect except
+        // which row it lives in". So one count in front of one send is the whole of it,
+        // and there is no way to add a send that skips the count without moving this
+        // line. The owner decided it on 2026-10-08, against a real argument the plan
+        // keeps: "somebody retrying because the first send failed is not doing a second
+        // thing" -- but "the thing being limited is the email and a retry sends one".
+        //
+        // WHY HERE AND NOWHERE EARLIER. Everything above this line is a refusal that
+        // sends no email, and docs/plan.md's table lists all of them as NOT counted: no
+        // signed-in caller, `account_suspended`, a caller who does not own the team,
+        // inviting yourself, inviting somebody already in the team, the team's
+        // 20-pending limit, no EMAIL_FROM or no delivery setting, and a failure writing
+        // the invitation row. That last one is why this is not a line or two higher: the
+        // insert and the retry's update are both above it, so a database that refused to
+        // write the row costs nobody one of their twenty.
+        //
+        // WHAT THAT ORDER COSTS, STATED RATHER THAN HIDDEN, because it is a real and
+        // visible consequence rather than a theoretical one. At the limit, the
+        // invitation row has ALREADY been written (or already been reset by the retry
+        // path) and it stays behind at `queued`. So the team's owner sees an invitation
+        // that says "sending" for an email that will never go, and it occupies one of
+        // the team's 20 pending slots until it expires. It is not lost work: after
+        // STALE_QUEUED_MINUTES the row becomes retryable, so tomorrow's first press
+        // sends it. The alternatives were both worse -- counting BEFORE the insert makes
+        // a failed insert cost a slot of somebody's twenty, which the plan's table
+        // forbids by name, and writing the row as `failed` would need a fifth failure
+        // code, which is a check constraint in 20261006095847_invitation_status.sql and
+        // so a migration this change does not have. Issue filed, and named in the pull
+        // request, rather than left for somebody to find on a screen.
+        //
+        // THE RPC IS WRITTEN OUT HERE for the reason every other read in this file is:
+        // a reviewer sees which function is called with which arguments. `callerId` is
+        // the verified token's id, read before the body was parsed, so nothing a caller
+        // can put in a body changes whose count is spent -- and it is the CALLER'S count,
+        // not the team's and not the invited person's. docs/plan.md: "Per person, not per
+        // team: one person who owns three teams has 20 invitations a day in total."
+        //
+        // ctx.supabaseAdmin, because `service_role` is the only role holding EXECUTE on
+        // it: 20261008115900_usage_counts.sql revokes it from PUBLIC, `anon` and
+        // `authenticated` by name, since the limit is an argument and a caller who could
+        // call it would choose the limit.
+        // THE GATE IS ONE EXPORTED FUNCTION AND THE WHOLE OF THE SEND IS ITS SECOND
+        // ARGUMENT, which is the shape suggest-subtasks' consent check already uses and
+        // the reason is the same: it is what makes "when the count refuses, the email
+        // service receives NOTHING" a fact a test can establish about this handler rather
+        // than about a copy of its order written out in a test file.
+        return await withDailyLimit(
+          {
+            count: () =>
+              ctx.supabaseAdmin.rpc(COUNT_RPC, {
+                p_user_id: callerId,
+                p_feature: FEATURE_INVITATIONS,
+                p_limit: dailyLimit(FEATURE_INVITATIONS),
+              }),
+            // THE COUNT DID NOT ANSWER, so whether this person may send is NOT KNOWN --
+            // and an unknown is not a yes. Issue #221: "A failed count is not permission
+            // to spend money." Its own sentence, in the shape this function uses for every
+            // other check that did not answer ("Could not check your account, so no
+            // invitation was created"), and a 500 because the cause is a failed check
+            // rather than a limit.
+            //
+            // LOGGED, unlike the at-limit refusal the gate sends, because a count that has
+            // stopped working refuses everybody and nothing else will notice. The code is
+            // one of this app's own fixed words; the Postgres error code goes no further
+            // than countOneUse's return value, and no address, team name or user id is
+            // named.
+            unknownAnswer: () => {
+              console.error(
+                "invite-member: today's usage count could not be written, so no invitation " +
+                  `email was sent. Code: ${DAILY_LIMIT_UNKNOWN_CODE}. The invitation row is ` +
+                  "left as it stands. No address, team name, user id or database message is logged.",
+              );
+              return fail(
+                "Could not check today's limit, so no invitation email was sent. Please try again.",
+                500,
+                DAILY_LIMIT_UNKNOWN_CODE,
+              );
+            },
+          },
+          async () => {
+            // THE USE IS ALREADY COUNTED by the time this line runs, and nothing below
+            // gives it back -- not a refusal from the email service, not a timeout, not
+            // silence. See the note above.
+            const sent = await sendEmail({
+              apiKey: (Deno.env.get("EMAIL_API_KEY") ?? "").trim(),
+              from: (Deno.env.get("EMAIL_FROM") ?? "").trim(),
+              to: decision.to,
+              subject: decision.subject,
+              text,
+            });
+
+            // ---- Write down what happened to the email --------------------------
+            //
+            // THE ROW NO LONGER DISAPPEARS WHEN A SEND FAILS, and that is the change
+            // issue #166 asks for. What the old code did instead -- delete the
+            // invitation -- threw away the only record that anybody had tried, so the
+            // owner saw an empty list and had no way to tell "nobody invited them" from
+            // "the email bounced off the service twice this morning". A failed row stays,
+            // says so, and offers to go again.
+            //
+            // The status write is the LAST thing, after the send, because until the
+            // service has answered there is nothing true to write. What that leaves
+            // behind if this function stops between the insert and this line is a row at
+            // 'queued' and no second write -- see STALE_QUEUED_MINUTES, which is how such
+            // a row becomes retryable rather than sitting there for seven days.
+            const outcome = sent.ok
+              ? { status: "sent" as const, failure_code: "" }
+              : { status: "failed" as const, failure_code: sent.code };
+
+            const { data: recorded, error: recordError } = await ctx.supabaseAdmin
+              .from("invitations")
+              .update(outcome)
+              .eq("id", invitationId)
+              .select("id, email, expires_at, status");
+
+            // F14 on the status write. One row back, with no error, is the only thing
+            // that means the row says what this function is about to claim it says.
+            const wroteOneRow =
+              !recordError && Array.isArray(recorded) && recorded.length === 1;
+
+            if (!wroteOneRow) {
+              // The row still says 'queued', whatever happened to the email. Said in a
+              // log line because nothing else will notice: the owner's screen will show
+              // "sending" and, after STALE_QUEUED_MINUTES, a Try again button -- which is
+              // the right offer, but somebody looking into why wants to find this.
+              //
+              // The invitation id is named, as the old orphan line named it. No address,
+              // no token, no hash, and nothing the email service said.
+              console.error(
+                `invite-member: the email ${sent.ok ? "WENT" : "did not go"} and the status could not be written. Invitation id ${invitationId} still says "queued". Error code: ${recordError?.code ?? "none"}; rows updated: ${Array.isArray(recorded) ? recorded.length : "unknown"}.`,
+              );
+            }
+
+            if (!sent.ok) {
+              // Named, not described, and never the service's own reply. `recorded` is
+              // what makes the answer match the row: a 502 says the invitation is marked
+              // as failed, and this function only says that when it is.
+              console.error(
+                `invite-member: the invitation email did not go. Code: ${sent.code}. Recorded on the row: ${wroteOneRow ? "yes" : "NO"}. No address, token or email-service reply is logged.`,
+              );
+              return sendFailureAnswer({ code: sent.code, recorded: wroteOneRow });
+            }
+
+            // The email went. The status is the one the database confirmed, so a failed
+            // status write answers 'queued' rather than claiming 'sent'.
+            return invitationAnswer({
+              id: invitationId,
+              email: wroteOneRow ? recorded[0].email : invitationEmail,
+              expires_at: wroteOneRow ? recorded[0].expires_at : invitationExpiry,
+              status: wroteOneRow ? "sent" : "queued",
+              redirected: decision.redirected,
+              retried,
+            });
+          },
+        );
       },
     );
   }),

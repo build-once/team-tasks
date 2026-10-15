@@ -90,6 +90,30 @@ export const SUGGESTIONS_DAILY_LIMIT =
 // somebody else chose appearing in our styling.
 export const SUGGESTIONS_DAILY_LIMIT_CODE = "daily_limit";
 
+// AND A THIRD SENTENCE SINCE BUILD IT 29: the owner has switched this feature off.
+//
+// A COPY, like the two sentences above it and the two caps below, and NOT an import
+// -- which is the one thing this file's header insists on: "It has NO IMPORTS, so a
+// plain `node` run can load it". web/src/lib/switches.ts holds the same four
+// sentences for the other screens, and scripts/screen-state-check.mjs compares all
+// three copies -- this one, that file's, and the Edge Function's -- so a drift is a
+// red check rather than two screens saying different things.
+//
+// WHY IT IS NOT "Suggestions aren't available right now." The same argument the
+// daily limit's own sentence rests on, one step further: that sentence means
+// "something in this app's plumbing went wrong, press it again later", and this one
+// means a person decided -- so pressing again will not help today, and saying
+// otherwise would be using a sentence designed to conceal plumbing to conceal a
+// decision.
+//
+// AND IT IS NOT WHAT AN UNREADABLE SWITCH GETS. `switch_unknown` is one of the
+// function's fourteen fixed codes and so earns the "aren't available right now"
+// sentence, because claiming somebody switched this off when nobody did is the one
+// thing this sentence must never do.
+export const SUGGESTIONS_SWITCHED_OFF = "Suggestions are switched off for now.";
+
+export const SUGGESTIONS_SWITCHED_OFF_CODE = "ai_suggestions_switched_off";
+
 // The same two caps the function applies, named here so the screen can hold the
 // answer to them rather than taking the function's word for it. Copies on purpose,
 // for the reason in the header; if they ever disagree, the smaller one wins, which
@@ -112,10 +136,17 @@ export const SUGGEST_UNAVAILABLE = "unavailable";
 export const SUGGEST_LIMIT = "limit";
 export const SUGGEST_DATA = "data";
 
+// AND A FIFTH SINCE BUILD IT 29: somebody switched the whole feature off. Its own
+// state for the same reason `limit` has one -- the sentence is different and the
+// advice is different. "Press it again later" is wrong here in a way it is not even
+// wrong for a broken service: nothing will change until a person changes it.
+export const SUGGEST_OFF = "off";
+
 export type SuggestOutcome =
   | { state: typeof SUGGEST_IDLE }
   | { state: typeof SUGGEST_UNAVAILABLE }
   | { state: typeof SUGGEST_LIMIT }
+  | { state: typeof SUGGEST_OFF }
   | { state: typeof SUGGEST_DATA; suggestions: string[] };
 
 /** Every state, exported so a check script can assert the list rather than copy it. */
@@ -123,6 +154,7 @@ export const SUGGEST_STATES: ReadonlyArray<SuggestOutcome["state"]> = [
   SUGGEST_IDLE,
   SUGGEST_UNAVAILABLE,
   SUGGEST_LIMIT,
+  SUGGEST_OFF,
   SUGGEST_DATA,
 ];
 
@@ -186,6 +218,14 @@ export function suggestOutcome(read: {
   data?: unknown;
 }): SuggestOutcome {
   if (!read.asked) return { state: SUGGEST_IDLE };
+
+  // SWITCHED OFF, first of the three failures and for the same reason the limit is
+  // checked before the general one: its sentence is the most specific and the advice
+  // in the others would be wrong. Only on a failure, so a 200 carrying this code
+  // cannot make the screen hide suggestions it was given.
+  if (read.failed === true && read.code === SUGGESTIONS_SWITCHED_OFF_CODE) {
+    return { state: SUGGEST_OFF };
+  }
 
   // TODAY'S LIMIT, before the general failure and only on a failure. A 200 carrying
   // this code is not a thing the function sends, and treating one as a refusal would

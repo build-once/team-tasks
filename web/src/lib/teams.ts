@@ -282,6 +282,15 @@ export const INVITE_REASONS = [
   "failed",
   "account_suspended",
   "unreachable",
+  // The invitations kill switch is off (Build it 29). accept-invite sends it as the
+  // `reason` beside its own code, because this page picks every sentence it draws
+  // from this fixed list -- which is what stops a crafted link putting words of
+  // somebody else's choosing on this app's own domain.
+  //
+  // THE INVITATION IS UNTOUCHED when this happens, and the sentence has to say so:
+  // the switch is read before anything is looked up, so nothing was claimed and the
+  // 7 days are still running.
+  "switched_off",
 ] as const;
 
 export type InviteReason = (typeof INVITE_REASONS)[number];
@@ -346,6 +355,14 @@ export const TEAM_ACTION_OUTCOMES = [
   // default sentence is the opposite advice ("please try again"). A 429 falling
   // through to `broke` would tell somebody to do the one thing that cannot work.
   "limit",
+  // 503 carrying the "invitations_switched_off" code: the owner has switched the
+  // whole feature off in the database. Build it 29, Lesson J24.
+  //
+  // IT IS TOLD APART BY ITS CODE for the same reason "suspended" and "limit" are,
+  // and more sharply than either: a 503 falling through to `broke` would say "That
+  // invitation could not be sent. Please try again" -- and trying again is exactly
+  // what will not work, because nothing will change until a person changes it.
+  "switchedoff",
   // Anything else the function answered with -- 500, 503, a status nobody here
   // has seen. The app cannot explain it, so it says so and reports it.
   "broke",
@@ -385,6 +402,20 @@ export const DAILY_LIMIT_CODE = "daily_limit";
 export const DAILY_LIMIT_SENTENCE =
   "You've reached today's limit. It resets tomorrow.";
 
+// AND THE THIRD CODE, since Build it 29: the invitations kill switch is off.
+// supabase/functions/_shared/switches.ts, SWITCHED_OFF_CODES.invitations -- sent by
+// invite-member and by accept-invite, which are the two halves of one feature.
+//
+// Read as an exact word and never printed, like the two above it.
+export const INVITATIONS_SWITCHED_OFF_CODE = "invitations_switched_off";
+
+// THE SENTENCE, which is web/src/lib/switches.ts's and the function's. A copy here
+// for the reason beside DAILY_LIMIT_SENTENCE -- the deployed function is a different
+// program from the one in this branch -- and scripts/screen-state-check.mjs compares
+// every copy, so a drift is a red check.
+export const INVITATIONS_SWITCHED_OFF_SENTENCE =
+  "Invitations are switched off for now.";
+
 /**
  * Which outcome a failed function call was.
  *
@@ -411,6 +442,10 @@ export function teamActionOutcome(answer: {
   // And the same, for the same reason: a 429 whose sentence has to say when the
   // allowance comes back rather than "please try again".
   if (answer.code === DAILY_LIMIT_CODE) return "limit";
+
+  // And the third: a 503 whose sentence has to say that somebody switched the
+  // feature off, rather than inviting a retry that cannot help.
+  if (answer.code === INVITATIONS_SWITCHED_OFF_CODE) return "switchedoff";
 
   switch (answer.status) {
     case 401:
@@ -444,6 +479,11 @@ export function teamActionOutcome(answer: {
  * the `usage_counts` table, which the operator reads in the dashboard; the error
  * reporter is not a metrics service and docs/plan.md's "Analytics: stays at none"
  * covers the temptation.
+ *
+ * AND NEITHER IS "switchedoff", for a sharper version of the same reason (Build it
+ * 29): the owner switched the feature off themselves, so an error report would be
+ * this app telling them something they just did. It is the one outcome in the list
+ * that is certainly not a fault.
  */
 export function worthReporting(outcome: TeamActionOutcome): boolean {
   return outcome === "broke" || outcome === "unreachable";
@@ -477,6 +517,13 @@ export const CREATE_TEAM_SENTENCES: Readonly<
   // nothing. If it is ever reached, it is true and it is the same sentence the other
   // map uses.
   limit: DAILY_LIMIT_SENTENCE,
+  // AND NEITHER IS CREATING A TEAM A SWITCHED FEATURE. There is no `create_team`
+  // kill switch -- the four are AI suggestions, invitations, attachments and
+  // payments -- and `feature_switches_feature_allowed` would refuse a fifth word
+  // anyway. The entry exists because the type requires one for every outcome, which
+  // is the right way round: a screen that met an outcome it had no words for would
+  // draw nothing. If it is ever reached it is true, and it says the least it can.
+  switchedoff: "That is switched off for now.",
   broke: "The team could not be created. Please try again.",
   unreachable:
     "Could not reach the server, so no team was created. Please try again.",
@@ -501,6 +548,11 @@ export const INVITE_SENTENCES: Readonly<Record<TeamActionOutcome, string>> = {
   // decision, so it says nothing about which of the two limits was met -- and that is
   // right, because the `conflict` sentence is the one that names the team's.
   limit: DAILY_LIMIT_SENTENCE,
+  // SWITCHED OFF (Build it 29, Lesson J24), and this is the one map where this
+  // outcome is really reachable: invite-member's gate sends it. The sentence says
+  // the feature is off and nothing else -- not why, not for how long, not what to
+  // do instead, because nothing this person does will change it.
+  switchedoff: INVITATIONS_SWITCHED_OFF_SENTENCE,
   broke: "That invitation could not be sent. Please try again.",
   unreachable:
     "Could not reach the server, so no invitation was sent. Please try again.",

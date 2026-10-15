@@ -2614,6 +2614,150 @@ Three rows for the appendix, and they are listed here as well because the append
 - **Everything Stripe holds**: an email address, card details, and a payment history. **Theirs**, on
   their clock, outside this project, and not deletable by anything in this app.
 
+## Four switches for a bad day, a health check, and a way to reach a person
+
+Added 2026-10-15, for Build it 29, at the owner's instruction. **None of these four things is a
+sixth feature of the list above, and three of them hold no personal data at all.** The five
+things stay five: nobody using the app gets a new button, and the only new thing on a screen is
+a link in the footer saying **Contact us**.
+
+**AND THE ORDER WAS WRONG, WHICH THIS SECTION HAS TO SAY IN ITS FIRST PARAGRAPH.** Rule 9 asks
+for the plan before the code — "The plan is updated first, then the code" — and every section
+above this one was written that way, several of them saying so with some pride. This one was
+not: the migration, the five function doors, the screens, the tests and `docs/incident-plan.md`
+were written first, and this section was written after them in the same pull request. Nothing
+is hidden by that and nothing about the design changed to fit it, but the habit is the thing
+that makes rule 9 worth having, and a section that quietly appeared in the right place would be
+the plan's record of its own discipline being wrong. **The owner decides whether the scope is
+widened; what follows is what was built, so that decision is made against the real thing.**
+
+### What it is, in four parts
+
+1. **Four kill switches.** A table called **`feature_switches`** holding one row per risky
+   feature — **AI suggestions, invitations, attachments and payments** — with a true-or-false
+   column. Changing one value stops that feature on the next request, **with no deploy**. It is
+   a **safety control for the owner**, exactly as "Suspending an account" above is, and it is in
+   the plan for that section's reason: it is a new table, and it changes what the app does.
+2. **An incident plan**, `docs/incident-plan.md`: one page, readable on a phone, saying what the
+   one person does in what order on a bad day.
+3. **A health check** at **`/health`**, answering **`ok`** with 200 or **`error`** with 503 and
+   nothing else, for an uptime monitor to watch.
+4. **A way to reach a person**: **`support@raj-dhonota.com`**, in the footer of every screen as
+   **Contact us**, and `web/` added to Dependabot so the packages this app actually runs are
+   watched.
+
+### Where each switch is checked, which is the half that decides whether it is real
+
+**Not on a screen**, for the reason this plan gives everywhere else, and **not in one place**
+either — because the four features are reached through three different doors:
+
+| Switch | Checked in | What off means |
+|---|---|---|
+| `ai_suggestions` | `suggest-subtasks`, above every other check | no task title leaves this project, and nothing is spent at Anthropic |
+| `invitations` | **`invite-member` AND `accept-invite`** | no invitation is created and no email sent, **and one already in an inbox cannot be accepted** — the link stays valid and keeps its 7 days |
+| `attachments` | **two restrictive policies on `storage.objects`** | no file can be attached and no new signed link made |
+| `payments` | `stripe-checkout`, and `stripe-webhook` | no new checkout can be started; **everybody's existing plan is untouched** |
+
+**Two doors for invitations, because it is one feature with two halves.** An invitation can be
+sent before the switch is flipped and accepted after it, so checking only the sending half
+would leave the feature half-running — the same argument the team size limit above makes for
+checking at both doors.
+
+**And attachments are the odd one out, because an upload has no Edge Function in its path** —
+the owner's decision of 9 October, which "Files attached to a task" above records. So that
+switch lives in the database as two **restrictive** policies, which can only ever subtract from
+what the four existing policies allow.
+
+### Three things about it that were measured rather than reasoned
+
+On a local PostgreSQL 17.10 sandbox with every migration applied;
+`evidence/build-it-29-kill-switches.md` is the run. Each one is a cost rather than a feature,
+and each is written in `docs/incident-plan.md` beside the switch it belongs to, where somebody
+is about to act.
+
+- **With attachments off, a file CANNOT BE DELETED either** — and therefore a task that has
+  files cannot be deleted while the switch is off. Not refused with an error: the delete
+  matches nothing, because the restrictive read policy stops the person seeing the row. **The
+  section above says deleting a task deletes its files first**, so that is the sentence this
+  touches, and the person gets an honest refusal they can act on rather than a crash. The way
+  to remove one unwanted file during an incident is the dashboard, which "Who can read, upload
+  and delete a file" above already names as the last resort.
+- **A signed link already handed out keeps working** for the rest of its five minutes. The
+  check happens when a link is **made**, which "Links, and what an unexpired one allows" above
+  says in full. A kill switch stops new links; nothing in this design can recall one.
+- **The webhook answers 500 so Stripe retries**, rather than 200. A 200 would tell Stripe the
+  event was handled and it would never come back, so **somebody who paid during a switched-off
+  window would silently never get what they paid for.** The cost of the other choice is that
+  **Stripe's retries do not last for ever**: hours are free, days need reconciling by hand.
+
+### What a person sees, and what the switch must never claim
+
+One sentence per feature — "Suggestions are switched off for now." and the same for the other
+three — saying that this app turned the feature off and nothing else: no company, no table, no
+status, no code, and **no promise about when it comes back**, because nobody knows.
+
+**AND A SWITCH THAT CANNOT BE READ IS NOT A SWITCH SOMEBODY TURNED OFF.** That is its own
+answer, with its own code, and it gets the fixed sentence each function already says for broken
+plumbing. Claiming a person made a decision they did not make is the one thing these four
+sentences must never do — the same line "AI suggestions — the consent setting" above draws about
+a failed read of the setting.
+
+**The two halves fail in opposite directions on purpose, and it looks like a bug until you ask
+what each one is for.** A **server function** refuses when it cannot read a switch, because it
+is about to spend money and an unknown is not permission. A **screen** does not: it draws
+exactly what it drew yesterday, because a screen is not the control and the database refuses
+regardless of what was drawn.
+
+### What it deliberately is not
+
+- **No screen, and no self-service.** The owner changes a row by hand in the Supabase Table
+  Editor. There is no admin page in this version, and nobody else can switch anything.
+- **Not a suspension.** These are per feature; `account_status` is per person.
+- **Not reachable by the app or by any server function.** No role holds a privilege on the
+  table — not `anon`, not `authenticated`, and **not `service_role` either**, which is the one
+  that matters: a server function that could write this table could switch a feature back on,
+  and the owner's only lever has to be a lever nothing else can reach.
+- **No history.** One row per feature, with the date it last changed. No log of who flipped
+  what and when, for the reason "Suspending an account" above gives for keeping none.
+- **Not a rate limit, and not a replacement for one.** `docs/rate-limits.md` is unchanged by
+  this.
+- **Nothing new leaves this project**, and no outside company is added — *with one exception the
+  owner has not yet taken*, below.
+
+### The personal data this adds, which is one row and not four
+
+**`feature_switches` holds nothing about anybody**: a feature word, a boolean and a date. So the
+appendix gains no row for it, and this is the first thing added to this plan that creates a
+table and adds nothing to the data register.
+
+**The health check publishes nothing**: `ok` or `error`, and that is the whole of it — no
+version, no counts, no database message, no name of whatever failed. It is public and
+unauthenticated, because a monitor holds no session, so everything it could say would be said
+to anybody who found it.
+
+**The one row the appendix does gain is the support mailbox.** `support@raj-dhonota.com` is
+published on every screen, so **an email address and whatever somebody writes will sit in the
+owner's own mailbox, outside this project** — exactly the shape the deletion-request row above
+already has, and in this plan for the same reason: "no table is involved" is not the same as "no
+personal data is held". It is a **second** address on purpose, kept apart from
+`dp@raj-dhonota.com`: a deletion request carries a legal clock and a support mailbox is where
+things get skimmed, and mixing them would put the message that matters most in the inbox read
+least carefully.
+
+### The one decision this section does NOT take, and it is the owner's
+
+**Which uptime service watches `/health`.** Lesson J25 offers the error-monitoring service from
+Build it 18 — Sentry, which this app already uses — or another one. **Nothing is chosen here and
+nothing is installed**, because the second answer would be **a seventh outside company**, and a
+company that polls this app every minute sees its address, its availability and the IP address
+of whatever region it polls from. That is the kind of thing every other section here puts to the
+owner before it exists.
+
+**So `/health` answers and nothing is watching it.** If the owner picks Sentry, this plan needs
+no new company and this paragraph is all that was needed; if they pick another, that service
+gets its own short section before anything is configured — what it sees, what it keeps, and what
+it costs.
+
 ## Deliberately not in the first version
 
 Comments. Reminder emails. A phone app.
@@ -2691,6 +2835,21 @@ that no live key is created. The line can be read as fully gone only when it tak
   same as "no personal data is held". **The address is `dp@raj-dhonota.com`** — answer 1 of
   2026-10-13 — and it is **published on a public page**, which is also what makes it the one address in
   this project that must not go unread. Added 2026-10-12, address added 2026-10-13
+- **A support message from anybody at all** — an email address and whatever they write, **in the
+  owner's own mailbox, outside this project**, because the Contact us link in the footer is a
+  `mailto:` and this app has no contact form, no endpoint and no row. The same shape as the line
+  above it and in this list for the same reason. **The address is `support@raj-dhonota.com`**, and
+  it is **a different address from the one above on purpose**: a deletion request carries a legal
+  clock, a support mailbox is where things get skimmed, and mixing them would put the message that
+  matters most in the inbox read least carefully. "Four switches for a bad day" above. Added
+  2026-10-15
+
+**And one thing added on 2026-10-15 that is NOT in this list, said here because it creates a table
+and so looks as though it should be:** `feature_switches`, the four kill switches. It holds a
+feature word, a boolean and a date, and nothing about any person — so there is no row for it in the
+appendix, and it is the first thing added to this plan that builds a table and adds nothing to this
+register. The health check at `/health` adds nothing either: it answers `ok` or `error` and
+publishes no version, no count and no message.
 
 Nothing else: no phone numbers, addresses, birthdays or photos — **and that last word changed meaning on
 2026-10-08.** The app still asks for none of those and has no field for a photograph; what it now has is
@@ -2830,6 +2989,7 @@ free text that could contain absolutely anything.
 | **Every person's own email address at the email service**, on sign-up and on every password reset | "The sign-up and reset emails move to Resend" above — Supabase's built-in sender "will refuse to deliver messages to addresses that are not part of the project's team" ([Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp), read 2026-10-11), so on production as it stands a volunteer receives neither email | Resend — **outside your app**, which already holds the "Sent-invitation logs" row above. **IT IS DONE ON PRODUCTION, AND THIS CELL SAID "NOTHING IS CHANGED YET" UNTIL 2026-10-12.** Custom SMTP was set on **production** on 11 October 2026, through Resend, and a reset email arrived at the test mailbox; **staging keeps the built-in sender** (decision M). So the widening below is **real rather than planned**, and nothing in this repository can read either project's SMTP setting back. Owner-reported. What widened is **whose** addresses Resend sees: today only people who were **invited**, afterwards **everybody who uses this app**. The message body carries Supabase's confirmation or reset **link**, which until it expires is a credential — the same class as the invitation token row above | Owner via Resend; Resend | 30 days on the free plan, as the invitation-log row above. **This app keeps nothing at all** — no row, no status, no log line, which is also why it cannot tell somebody their reset email failed | **They cannot.** Not user-deletable; the owner clears it in Resend, as for the invitation logs | **Yes** — the log becomes a record of **who signed up and who has been resetting their password**, and the body carries a live credential while the link lasts |
 | **An export file: every row of this table that is about ONE person, in one JSON file** | "The documents, your own data, and deleting an account" above, and the first of the five rights that section lists — "what do you hold about me?" is not answered by a document that describes the shape of the answer | **Nowhere.** It is built on request from rows the person can already read, **with their own rights and no secret key**, and handed to their browser. Nothing of it is stored, logged or sent anywhere. **NOT BUILT** | The person themselves, and whoever they give the file to. **Nobody else, and no server function assembles it on anybody's behalf** | **Not kept at all.** It exists for the length of one request, and then only on the person's own device | **Not applicable** — there is nothing of ours to delete. The app's part of it is a read | **Yes**, and it is the one row here whose risk is about **concentration** rather than content: every line of it is readable by that person today, and the file is new. Somebody holding a session can take it |
 | **That an account was deleted, and on what date** — a tombstone of two values | "The documents, your own data, and deleting an account" above. **One reason only**: a restore from a copy taken before a deletion would otherwise recreate the account, the tasks, the nickname and the files of somebody who asked to be gone, and nobody would notice, because a successful restore is one where everything matched | A table of **two columns** — the `auth.users` id and a date — with **no policy and no privilege for any role**, exactly as `account_status` and `usage_counts` have none. No address, no nickname, no task text, no reason. **DECIDED 2026-10-12 (question 10, option A), NOT BUILT** | **Nobody through the app.** The app's operator, in the dashboard, and the restore | **30 days**, removed by the same statement that writes one — the mechanism `count_daily_use` already uses for its 7 days. **30 is chosen because it outlives the longest-lived copy that could resurrect the person** (about fifteen days) and nothing more. So it is a note that expires before the thing it exists to correct does, not a register of departures | **They cannot**, and it is the one row in this table where that is the point: it is the record that their deletion happened | No — it is an id and a date, and it holds nothing a person typed. **But it is a fact about a person held after they asked to be forgotten**, which is why it is bounded at 30 days rather than kept |
+| **A support message from anybody at all** — their address, and whatever they chose to write | The Contact us link in the footer of every screen (Build it 29, Lesson J26). There is one person running this app, and an app with no way to reach them is an app where a broken screen goes unreported | **The owner's own mailbox, outside this project.** The link is a `mailto:` and nothing else — **no contact form, no endpoint, no row, no email sent by this app, no CAPTCHA and no rate limit to choose** — which is the same reduction the deletion-request page took on 2026-10-12 and for the same reason: a form is a new store of strangers' addresses. **BUILT**: `SUPPORT_ADDRESS` in `web/src/lib/legal.ts`, drawn by `web/src/app/components/Footer.tsx`, which is in the root layout so there is no screen without it | The owner; whoever runs that mailbox | **Not decided here, and the owner's to decide**, because it is their mailbox | **They cannot through the app.** They can ask the owner, in the same message | **Yes** — free text somebody wrote, which can say anything, plus the address it came from. **It is a SEPARATE address from `dp@raj-dhonota.com`** on purpose: a deletion request carries a legal clock and a support mailbox is where things get skimmed |
 | **A deletion request from somebody who cannot sign in** — their address, and whatever they chose to write | The public request page: somebody who has forgotten their password, whose account is suspended, or **who was invited and never had an account at all** — whose address is in `invitations` and who this app has no other way of hearing from | **The owner's own mailbox, outside this project.** The page deliberately has **no form** — question 14, **decided 2026-10-12** — so nothing is collected in the app: no row, no endpoint, no email sent by this app, no CAPTCHA and no rate limit needed. **NOT BUILT** | The owner; whoever runs that mailbox | **Not decided here, and the owner's to decide**, because it is their mailbox. The request should be deleted once the deletion is done | **They cannot through the app.** They can ask the owner, in the same message | **Yes** — free text somebody wrote, which can say anything, plus the address it came from. **And the address is what proves who is asking**: the request must come from the address on the account, or anybody who knows a volunteer's address could have their account destroyed |
 
 ## Collecting less — decided

@@ -129,6 +129,24 @@ const {
   readExportFiles,
 } = await load("export-data.ts");
 
+// Build it 29's kill switches, for section 16. Import-free for the same reason as
+// the five above: so this script runs the REAL reading of a switch rather than a
+// copy of it.
+const {
+  SWITCHES: SCREEN_SWITCHES,
+  SWITCH_AI_SUGGESTIONS: SCREEN_SWITCH_AI,
+  SWITCH_ARGUMENT: SCREEN_SWITCH_ARGUMENT,
+  SWITCH_ATTACHMENTS: SCREEN_SWITCH_ATTACHMENTS,
+  SWITCH_INVITATIONS: SCREEN_SWITCH_INVITATIONS,
+  SWITCH_OFF_REASON: SCREEN_SWITCH_OFF_REASON,
+  SWITCH_PAYMENTS: SCREEN_SWITCH_PAYMENTS,
+  SWITCH_RPC: SCREEN_SWITCH_RPC,
+  SWITCHED_OFF_CODES: SCREEN_SWITCHED_OFF_CODES,
+  SWITCHED_OFF_SENTENCES,
+  switchState,
+  switchedOffOnScreen,
+} = await load("switches.ts");
+
 // And the deletion's words. Import-free for the same reason.
 const {
   ACCOUNT_DELETED,
@@ -1191,10 +1209,13 @@ console.log("\n9. today's limit: one sentence, in three places, and never the fi
 const {
   SUGGESTIONS_DAILY_LIMIT,
   SUGGESTIONS_DAILY_LIMIT_CODE,
+  SUGGESTIONS_SWITCHED_OFF,
+  SUGGESTIONS_SWITCHED_OFF_CODE,
   SUGGESTIONS_UNAVAILABLE,
   SUGGEST_DATA,
   SUGGEST_IDLE,
   SUGGEST_LIMIT,
+  SUGGEST_OFF,
   SUGGEST_STATES,
   SUGGEST_UNAVAILABLE,
   suggestOutcome,
@@ -1375,8 +1396,15 @@ check(
   [true, true],
 );
 
-// FOUR STATES NOW, and the new one is not the fixed-failure one.
-check("the four states My tasks can be in", SUGGEST_STATES.slice(), ["ask", "unavailable", "limit", "data"]);
+// FIVE STATES SINCE BUILD IT 29, and neither of the two newest is the
+// fixed-failure one. `off` is the kill switch; section 12 below is the whole of it.
+check("the five states My tasks can be in", SUGGEST_STATES.slice(), [
+  "ask",
+  "unavailable",
+  "limit",
+  "off",
+  "data",
+]);
 check(
   "the limit state is its own, not the unavailable one",
   [SUGGEST_LIMIT === SUGGEST_UNAVAILABLE, SUGGESTIONS_DAILY_LIMIT === SUGGESTIONS_UNAVAILABLE],
@@ -4731,6 +4759,488 @@ check(
   (readFileSync(resolve(HERE, "..", "supabase", "config.toml"), "utf8")
     .match(/^verify_jwt = false$/gm) ?? []).length,
   1,
+);
+
+// -------------------------- 16. Build it 29: the four kill switches
+console.log("\n16. kill switches: one sentence each, in three places, and never a crash");
+
+// WHY THIS SECTION IS LONGER THAN THE FEATURE LOOKS. A kill switch has exactly one
+// failure that matters -- the owner flips it off and the feature carries on -- and
+// nothing in a browser would show that. What CAN be checked without a database is
+// everything about the WORDS and the ORDER, and those are what this section holds.
+
+const SWITCH_MIGRATION = readFileSync(
+  resolve(HERE, "..", "supabase", "migrations", "20261015120000_feature_switches.sql"),
+  "utf8",
+);
+const SWITCH_SHARED = readFileSync(
+  resolve(HERE, "..", "supabase", "functions", "_shared", "switches.ts"),
+  "utf8",
+);
+const INCIDENT_PLAN = readFileSync(resolve(HERE, "..", "docs", "incident-plan.md"), "utf8");
+
+// ---- 16a. The four words, and the database is what decides -----------------
+
+check("four switches, no fifth", SCREEN_SWITCHES.slice(), [
+  "ai_suggestions",
+  "invitations",
+  "attachments",
+  "payments",
+]);
+
+// THE CHECK CONSTRAINT IS THE AUTHORITY, read out of the migration rather than
+// copied. A fifth word added to TypeScript alone would be a switch nothing can
+// store; a fifth in the migration alone would be one nothing reads.
+const SWITCH_CONSTRAINT = SWITCH_MIGRATION.match(
+  /add constraint feature_switches_feature_allowed\s*\n?\s*check \(feature in \(([^)]*)\)\)/,
+);
+check("the migration carries the fixed list", SWITCH_CONSTRAINT !== null, true);
+check(
+  "and it is the same four words the screens and the functions use",
+  [...(SWITCH_CONSTRAINT?.[1] ?? "").matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort(),
+  [...SCREEN_SWITCHES].sort(),
+);
+
+// ---- 16b. THE SENTENCES, IN THREE PLACES, CHARACTER FOR CHARACTER ---------
+//
+// The reason there are copies at all is in each file's header: the deployed
+// function is a different program from the one in this branch until somebody
+// deploys. The copies are the design; a DRIFT between them is the bug.
+for (const feature of SCREEN_SWITCHES) {
+  const sentence = SWITCHED_OFF_SENTENCES[feature];
+
+  // THE MAP ENTRY, not any mention: these sentences are quoted in comments too --
+  // the Edge Function's header quotes the owner's instruction verbatim -- and a
+  // check that counted every occurrence would be counting prose.
+  check(
+    `${feature}: the screens' sentence is the Edge Function's map entry`,
+    count(SWITCH_SHARED, `: "${sentence}",`),
+    1,
+  );
+  check(
+    `${feature}: and it ends "switched off for now."`,
+    sentence.endsWith("switched off for now."),
+    true,
+  );
+  // NAMES NOTHING SOMEBODY ELSE CHOSE -- the same list the daily limit's sentence
+  // is held to, plus the table and the function this one could so easily mention.
+  check(
+    `${feature}: it names no company, no table and no code`,
+    [
+      /anthropic|claude|resend|stripe|cloudflare|supabase/i.test(sentence),
+      /feature_switches|feature_on/i.test(sentence),
+      sentence.includes(SCREEN_SWITCHED_OFF_CODES[feature]),
+      /\b50[0-9]\b/.test(sentence),
+    ],
+    [false, false, false, false],
+  );
+}
+
+// THE OWNER'S OWN WORDING, character for character.
+check(
+  "the AI sentence is the owner's words",
+  SWITCHED_OFF_SENTENCES[SCREEN_SWITCH_AI],
+  "Suggestions are switched off for now.",
+);
+
+// The copies on the two screens that have their own.
+check(
+  "My tasks' copy of the AI sentence and code match",
+  [SUGGESTIONS_SWITCHED_OFF, SUGGESTIONS_SWITCHED_OFF_CODE],
+  [SWITCHED_OFF_SENTENCES[SCREEN_SWITCH_AI], SCREEN_SWITCHED_OFF_CODES[SCREEN_SWITCH_AI]],
+);
+// The two constants, and NO PATTERN SPANNING A LINE BREAK: a working copy on
+// Windows has CRLF endings and the repository has LF, so a `\n` in a search string
+// is a check that passes or fails depending on whose machine it runs on. The
+// sentence is matched as its own quoted literal, which appears once, and the
+// constant names are matched separately.
+check(
+  "My teams' copy of the invitations sentence and code match",
+  [
+    count(TEAMS_SOURCE, `"${SWITCHED_OFF_SENTENCES[SCREEN_SWITCH_INVITATIONS]}";`),
+    /export const INVITATIONS_SWITCHED_OFF_SENTENCE =/.test(TEAMS_SOURCE),
+    count(
+      TEAMS_SOURCE,
+      `INVITATIONS_SWITCHED_OFF_CODE = "${SCREEN_SWITCHED_OFF_CODES[SCREEN_SWITCH_INVITATIONS]}";`,
+    ),
+  ],
+  [1, true, 1],
+);
+
+// ---- 16c. NEVER THE PLUMBING SENTENCE ------------------------------------
+//
+// The whole argument for giving this refusal its own words: the fixed-failure
+// sentence means "something broke, press it again later", and pressing again is
+// exactly what cannot help when a person has switched something off.
+check(
+  "switched-off is not the fixed-failure sentence or the limit",
+  [
+    SUGGESTIONS_SWITCHED_OFF === SUGGESTIONS_UNAVAILABLE,
+    SUGGESTIONS_SWITCHED_OFF === SUGGESTIONS_DAILY_LIMIT,
+    SUGGEST_OFF === SUGGEST_UNAVAILABLE,
+    SUGGEST_OFF === SUGGEST_LIMIT,
+  ],
+  [false, false, false, false],
+);
+
+// ---- 16d. THE DECISION ITSELF, run rather than described ------------------
+
+check(
+  "a failed ask carrying the switch's code is OFF",
+  suggestOutcome({ asked: true, failed: true, code: SUGGESTIONS_SWITCHED_OFF_CODE }),
+  { state: SUGGEST_OFF },
+);
+// AND AN UNREADABLE SWITCH IS NOT OFF. `switch_unknown` is one of the function's
+// fixed codes, so it gets the plumbing sentence -- claiming a person switched
+// something off when the switch could not be read would state an unknown as a
+// decision.
+check(
+  "a failed ask carrying switch_unknown is unavailable: that one is plumbing",
+  suggestOutcome({ asked: true, failed: true, code: "switch_unknown" }),
+  { state: SUGGEST_UNAVAILABLE },
+);
+// A 200 CARRYING THE CODE IS NOT A REFUSAL, so an answer's body cannot hide
+// suggestions the function actually sent.
+check(
+  "a SUCCESSFUL ask carrying the code is not off",
+  suggestOutcome({
+    asked: true,
+    code: SUGGESTIONS_SWITCHED_OFF_CODE,
+    data: { suggestions: ["Book the hall"] },
+  }),
+  { state: SUGGEST_DATA, suggestions: ["Book the hall"] },
+);
+check(
+  "and an unasked screen is idle, whatever the code says",
+  suggestOutcome({ asked: false, failed: true, code: SUGGESTIONS_SWITCHED_OFF_CODE }),
+  { state: SUGGEST_IDLE },
+);
+
+// ---- 16e. A SCREEN FAILS OPEN, A FUNCTION FAILS CLOSED -------------------
+//
+// THE ONE PLACE THE TWO HALVES DISAGREE ON PURPOSE, and it is worth checking
+// because it looks like a bug. A server function refuses on an unknown, because it
+// is about to spend money. A SCREEN DOES NOT: drawing "switched off" on a read that
+// merely failed would claim a decision nobody made, and a screen is not the control
+// -- the restrictive storage policies and the function gates do not care what the
+// screen drew.
+check("a switch read as true is on", switchState({ data: true, error: null }), "on");
+check("a switch read as false is off", switchState({ data: false, error: null }), "off");
+check(
+  'every other shape is unknown, including the TRUTHY string "false"',
+  [
+    switchState({ data: "false", error: null }),
+    switchState({ data: "true", error: null }),
+    switchState({ data: null, error: null }),
+    switchState({ data: undefined, error: null }),
+    switchState({ data: 1, error: null }),
+    switchState({ data: {}, error: null }),
+    switchState({ data: true, error: { code: "42883" } }),
+    switchState(null),
+    switchState(undefined),
+  ],
+  ["unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"],
+);
+check(
+  'and ONLY "off" hides anything on a screen',
+  [switchedOffOnScreen("off"), switchedOffOnScreen("on"), switchedOffOnScreen("unknown")],
+  [true, false, false],
+);
+
+// ---- 16f. THE MIGRATION: who may touch the table, and which way it fails --
+
+check(
+  "the rpc and its argument are the migration's",
+  [
+    SCREEN_SWITCH_RPC,
+    SCREEN_SWITCH_ARGUMENT,
+    count(
+      SWITCH_MIGRATION,
+      `create function public.${SCREEN_SWITCH_RPC}(${SCREEN_SWITCH_ARGUMENT} text)`,
+    ),
+  ],
+  ["feature_on", "p_feature", 1],
+);
+
+// A MISSING ROW MEANS OFF, which is the fail-closed direction and is a property of
+// one `coalesce`. Nothing in TypeScript could tell.
+check(
+  "feature_on() coalesces a missing row to false",
+  /coalesce\(\s*\(\s*select fs\.enabled[\s\S]*?\),\s*false\s*\)/.test(SWITCH_MIGRATION),
+  true,
+);
+// And the four rows are seeded in the same file, so no database has the table
+// without them -- which with the line above would be four features switched off.
+check(
+  "and all four rows are seeded by the same migration",
+  SCREEN_SWITCHES.map((f) => count(SWITCH_MIGRATION, `('${f}', true)`)),
+  [1, 1, 1, 1],
+);
+
+// NO ROLE MAY TOUCH THE TABLE, which is what makes the switch the owner's alone: a
+// server function that could write it could switch a feature back on.
+check(
+  "the table is revoked from all four roles, including service_role",
+  ["public", "anon", "authenticated", "service_role"].map((role) =>
+    count(SWITCH_MIGRATION, `revoke all on table public.feature_switches from ${role};`)
+  ),
+  [1, 1, 1, 1],
+);
+check(
+  "nothing is granted back on the table, and no policy is created on it",
+  [
+    /grant [a-z, ]* on table public\.feature_switches/.test(SWITCH_MIGRATION),
+    /create policy[^;]*on public\.feature_switches/.test(SWITCH_MIGRATION),
+    count(SWITCH_MIGRATION, "alter table public.feature_switches enable row level security;"),
+  ],
+  [false, false, 1],
+);
+
+// THE TWO STORAGE POLICIES ARE RESTRICTIVE, which is what makes them safe to add
+// beside the four that already exist: a restrictive policy can only SUBTRACT.
+check(
+  "the two storage policies are restrictive",
+  [
+    count(SWITCH_MIGRATION, "as restrictive"),
+    count(SWITCH_MIGRATION, `create policy "Attachments: no new link while the switch is off"`),
+    count(SWITCH_MIGRATION, `create policy "Attachments: no new file while the switch is off"`),
+  ],
+  [2, 1, 1],
+);
+// `is distinct from` AND NOT `<>`: a restrictive policy whose expression is UNKNOWN
+// refuses the row, so a `<>` against a null bucket_id would quietly make objects
+// outside this app's bucket unreadable.
+// The two POLICY EXPRESSIONS, told from the paragraph that explains the choice by
+// their indentation rather than by a pattern spanning a line break -- see the note
+// above about CRLF. The comment's mention is inside backticks and not indented.
+check(
+  "they use `is distinct from`, so a null bucket_id cannot refuse another app's object",
+  [
+    SWITCH_MIGRATION.split(/\r?\n/).filter(
+      (line) => line === "    bucket_id is distinct from 'attachments'",
+    ).length,
+    /bucket_id <> 'attachments'/.test(SWITCH_MIGRATION),
+  ],
+  [2, false],
+);
+
+// ---- 16g. THE FIVE DOORS -------------------------------------------------
+
+for (
+  const door of [
+    ["suggest-subtasks", SCREEN_SWITCH_AI],
+    ["invite-member", SCREEN_SWITCH_INVITATIONS],
+    ["accept-invite", SCREEN_SWITCH_INVITATIONS],
+    ["stripe-checkout", SCREEN_SWITCH_PAYMENTS],
+  ]
+) {
+  const source = readFileSync(
+    resolve(HERE, "..", "supabase", "functions", door[0], "index.ts"),
+    "utf8",
+  );
+  check(
+    `${door[0]} reads a switch through the shared gate`,
+    [source.includes("../_shared/switches.ts"), source.includes("withSwitch(")],
+    [true, true],
+  );
+  // AND NO FUNCTION SPELLS A SENTENCE. One place, so two cannot drift.
+  check(
+    `${door[0]} spells no switched-off sentence of its own`,
+    SCREEN_SWITCHES.filter((f) => source.includes(SWITCHED_OFF_SENTENCES[f])),
+    [],
+  );
+}
+
+// THE WEBHOOK IS THE ONE THAT IS DIFFERENT, and the order is the point: AFTER the
+// signature, so a switch can never change what an unverifiable body is told -- the
+// production smoke test depends on that answer -- and BEFORE the first write, so a
+// switched-off window records nothing.
+const WEBHOOK_SOURCE = readFileSync(
+  resolve(HERE, "..", "supabase", "functions", "stripe-webhook", "index.ts"),
+  "utf8",
+);
+check(
+  "the webhook reads the switch after the signature and before it writes",
+  [
+    WEBHOOK_SOURCE.indexOf("constructEventAsync(") < WEBHOOK_SOURCE.indexOf("readSwitch("),
+    WEBHOOK_SOURCE.indexOf("readSwitch(") < WEBHOOK_SOURCE.indexOf('.from("stripe_events")'),
+  ],
+  [true, true],
+);
+// AND IT ASKS STRIPE TO RETRY. A 200 would tell Stripe the event was handled and it
+// would never come back, so somebody who paid during the window would silently
+// never get what they paid for.
+check(
+  "and it answers RETRY rather than OK, so the event is not lost",
+  (() => {
+    const block = WEBHOOK_SOURCE.slice(
+      WEBHOOK_SOURCE.indexOf("readSwitch("),
+      WEBHOOK_SOURCE.indexOf('.from("stripe_events")'),
+    );
+    return [block.includes("return RETRY();"), block.includes("return OK();")];
+  })(),
+  [true, false],
+);
+
+// ---- 16h. THE SCREENS: no control that cannot work ----------------------
+
+// My tasks: the files panel and the Files link are both behind the switch, because
+// with it off a listing comes back EMPTY rather than failing -- so a page that
+// asked anyway would draw "No files on this task yet" over a task carrying three
+// photographs, which is the exact lie Build it 19 exists to prevent.
+check(
+  "My tasks hides the Files link and the panel when attachments are off",
+  [
+    count(TASKS_PAGE, "switchedOffOnScreen(attachmentsSwitch)"),
+    TASKS_PAGE.includes("{attachmentsOff ? null : ("),
+    TASKS_PAGE.includes("const filesOpenFor = attachmentsOff"),
+    count(TASKS_PAGE, "{SWITCHED_OFF_SENTENCES[SWITCH_ATTACHMENTS]}"),
+  ],
+  [1, true, true, 1],
+);
+
+// My teams: the payments switch hides the offer and the button, and is a DIFFERENT
+// sentence from "Payments aren't available right now" -- that one means this app
+// could not reach Stripe, and this one means somebody decided.
+const TEAMS_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "teams", "page.tsx"),
+  "utf8",
+);
+check(
+  "My teams draws no offer and no button when payments are off",
+  [
+    count(TEAMS_PAGE, "switchedOffOnScreen(paymentsSwitch)"),
+    count(TEAMS_PAGE, "{SWITCHED_OFF_SENTENCES[SWITCH_PAYMENTS]}"),
+    TEAMS_PAGE.includes("if (!onPlan && !paymentsOff)"),
+    SWITCHED_OFF_SENTENCES[SCREEN_SWITCH_PAYMENTS] === "Payments aren't available right now.",
+  ],
+  [1, 1, true, false],
+);
+
+// The invitation page picks its own sentence from a code in a fixed list, which is
+// what stops a crafted link putting words of somebody else's choosing on this app's
+// domain. So the reason the function sends has to BE in that list.
+const INVITE_PAGE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "invite", "[token]", "page.tsx"),
+  "utf8",
+);
+check(
+  "the reason accept-invite sends is in the invitation page's fixed list",
+  [
+    SCREEN_SWITCH_OFF_REASON,
+    count(TEAMS_SOURCE, `"${SCREEN_SWITCH_OFF_REASON}",`),
+    count(SWITCH_SHARED, `"${SCREEN_SWITCH_OFF_REASON}"`),
+  ],
+  ["switched_off", 1, 1],
+);
+// AND ITS SENTENCE SAYS THE INVITATION SURVIVED, which is the half somebody acts
+// on: the switch is read before anything is looked up, so nothing was claimed.
+check(
+  "and the invitation page's sentence says the invitation is still valid",
+  /switched_off:\s*\n?\s*"[^"]*still valid[^"]*"/.test(INVITE_PAGE),
+  true,
+);
+
+// ---- 16i. CONTACT US, and the health check -----------------------------
+
+// Lesson J26: reachable from every screen. The footer is in the root layout, so
+// there is no screen without it -- ONE tap, inside "three taps or fewer".
+const FOOTER = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "components", "Footer.tsx"),
+  "utf8",
+);
+// LEGAL_SOURCE is already read in section 11, where the two public pages' sentences
+// are checked. Reused rather than re-read.
+const supportAddress = LEGAL_SOURCE.match(/export const SUPPORT_ADDRESS = "([^"]+)"/)?.[1];
+const contactAddress = LEGAL_SOURCE.match(/export const CONTACT_ADDRESS = "([^"]+)"/)?.[1];
+
+check(
+  "Contact us is a mailto in the footer, which every screen has",
+  [
+    count(FOOTER, "mailto:${SUPPORT_ADDRESS}"),
+    count(FOOTER, "{SUPPORT_TITLE}"),
+    count(LEGAL_SOURCE, 'export const SUPPORT_TITLE = "Contact us";'),
+  ],
+  [1, 1, 1],
+);
+// IT IS NOT THE DATA-PROTECTION ADDRESS, which is a decision rather than two
+// people picking two addresses: a deletion request carries a legal clock and a
+// support mailbox is where things get skimmed.
+check(
+  "the support address is in one place and is not the data-protection one",
+  [
+    count(LEGAL_SOURCE, 'export const SUPPORT_ADDRESS = "'),
+    supportAddress,
+    supportAddress === contactAddress,
+  ],
+  [1, "support@raj-dhonota.com", false],
+);
+
+// Lesson J25: the health check says "ok" or "error" AND NOTHING ELSE. It is public
+// and unauthenticated, so everything it says is said to anybody who finds it.
+const HEALTH_ROUTE = readFileSync(
+  resolve(HERE, "..", "web", "src", "app", "health", "route.ts"),
+  "utf8",
+);
+check(
+  "the health check answers only ok or error, and is not cached",
+  [
+    count(HEALTH_ROUTE, 'const OK = "ok";'),
+    count(HEALTH_ROUTE, 'const ERROR = "error";'),
+    count(HEALTH_ROUTE, 'export const dynamic = "force-dynamic";'),
+    HEALTH_ROUTE.includes('"cache-control": "no-store'),
+  ],
+  [1, 1, 1, true],
+);
+// IT IS IN PUBLIC_PATHS, and without that line a monitor is redirected to /login --
+// a 307 rather than the 200 it is watching for, and an alarm that fires for ever
+// against a healthy app. web/src/proxy.ts's matcher covers /health like any path.
+// PROXY_SOURCE is already read earlier, where the public pages' paths are checked.
+check(
+  "and /health is public, or a monitor would be sent to /login",
+  count(PROXY_SOURCE, '"/health",'),
+  1,
+);
+// AND IT SAYS NOTHING ELSE: no version, no counts, no database message, no name of
+// whatever failed. The temptation on a page like this is to be helpful.
+check(
+  "it publishes no version, no count and no database message",
+  [
+    /APP_COMMIT|VERCEL_ENV|appVersion/.test(HEALTH_ROUTE),
+    /error\.message|error\.details|error\.hint/.test(HEALTH_ROUTE),
+    /count\(/.test(HEALTH_ROUTE),
+  ],
+  [false, false, false],
+);
+
+// ---- 16j. THE INCIDENT PLAN names every switch and how to flip it ------
+
+check(
+  "docs/incident-plan.md names all four switches",
+  SCREEN_SWITCHES.filter((f) => !INCIDENT_PLAN.includes(f)),
+  [],
+);
+check(
+  "and names the table, the column and the Table Editor",
+  [
+    INCIDENT_PLAN.includes("feature_switches"),
+    INCIDENT_PLAN.includes("Table Editor"),
+    INCIDENT_PLAN.includes("enabled"),
+  ],
+  [true, true, true],
+);
+// THE TWO SURPRISES A PERSON MUST BE TOLD BEFORE THEY FLIP ONE, both measured on a
+// sandbox rather than reasoned: deleting a row switches the feature OFF, and with
+// attachments off nobody can remove a file either.
+check(
+  "and it warns that deleting a row switches a feature OFF rather than on",
+  /deleting (a|the|that) row/i.test(INCIDENT_PLAN),
+  true,
+);
+check(
+  "and that attachments off means a file cannot be removed either",
+  /cannot be deleted|cannot remove|cannot be removed/i.test(INCIDENT_PLAN),
+  true,
 );
 
 const total = passed + failures.length;

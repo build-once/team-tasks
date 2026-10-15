@@ -1,7 +1,12 @@
 import Link from "next/link";
 
 import { appVersion } from "@/lib/app-version";
-import { PRIVACY_TITLE, TERMS_TITLE } from "@/lib/legal";
+import {
+  PRIVACY_TITLE,
+  SUPPORT_ADDRESS,
+  SUPPORT_TITLE,
+  TERMS_TITLE,
+} from "@/lib/legal";
 
 // The footer, on every screen, saying which build you are looking at.
 //
@@ -46,6 +51,22 @@ export function Footer() {
       <Link href="/privacy">{PRIVACY_TITLE}</Link>
       {" · "}
       <Link href="/terms">{TERMS_TITLE}</Link>
+      {" · "}
+      {/* CONTACT US (Build it 29, Lesson J26). Here for the same reason the two
+          links beside it are: this component is in the root layout, so there is no
+          screen without it and no screen that has to remember to add it. From any
+          page that is ONE TAP, which is inside the owner's "three taps or fewer".
+
+          A `mailto:` AND NOT A PAGE, which is the whole of this feature. A contact
+          page would be a page with a form on it -- a new endpoint taking text from
+          a stranger, a new thing to rate-limit, a new CAPTCHA, and a new store of
+          addresses. The same argument the deletion-request page already settled
+          (decision 10, 12 October 2026): nothing is collected in the app, and the
+          owner's own mailbox is the store.
+
+          NOT A NEW `PUBLIC_PATHS` ENTRY either, because there is no path: this
+          works signed out, on every screen, with no proxy rule to keep in step. */}
+      <a href={`mailto:${SUPPORT_ADDRESS}`}>{SUPPORT_TITLE}</a>
     </footer>
   );
 }

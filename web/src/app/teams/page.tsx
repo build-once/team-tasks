@@ -28,6 +28,14 @@ import {
 import { rememberUserForErrorReports } from "@/lib/sentry-user";
 import { createClient } from "@/lib/supabase/server";
 import {
+  SWITCH_ARGUMENT,
+  SWITCH_PAYMENTS,
+  SWITCH_RPC,
+  SWITCHED_OFF_SENTENCES,
+  switchedOffOnScreen,
+  switchState,
+} from "@/lib/switches";
+import {
   CREATE_TEAM_SENTENCES,
   DISPLAY_NAME_MAX,
   EMAIL_MAX,
@@ -206,10 +214,31 @@ export default async function MyTeamsPage({
   // misconfigured price: all the same answer here, which is that the panel says
   // payments are not available and draws no button. On production in this
   // rehearsal there is deliberately no key, so this is the expected path there.
+  // AND THE PAYMENTS KILL SWITCH (Build it 29, Lesson J24), read before the price.
+  //
+  // WHAT IT CHANGES ON THIS PANEL AND WHAT IT DOES NOT, because the distinction is
+  // the whole of what the switch means here: it stops a NEW checkout being offered,
+  // and it changes nothing about an entitlement already in the database. Somebody
+  // who is on the Team plan keeps their 25 members and keeps seeing so -- the limit
+  // is read from `my_entitlement` exactly as always, and the database is what
+  // enforces it in invite-member and accept-invite.
+  //
+  // So the switch is only consulted on the path that offers to sell something, and
+  // it saves the call as well: with payments off there is no request to
+  // stripe-checkout, which is the function that would have asked Stripe for a price.
+  //
+  // ON AN UNREADABLE SWITCH THE PANEL BEHAVES AS IT ALWAYS DID, for the reason
+  // web/src/lib/switches.ts gives: a screen is not the control, and a failed read is
+  // not a decision somebody made. The function's own gate still refuses a checkout.
+  const paymentsSwitch = switchState(
+    await supabase.rpc(SWITCH_RPC, { [SWITCH_ARGUMENT]: SWITCH_PAYMENTS }),
+  );
+  const paymentsOff = switchedOffOnScreen(paymentsSwitch);
+
   let planPrice: string | null = null;
   let planInterval: string | null = null;
 
-  if (!onPlan) {
+  if (!onPlan && !paymentsOff) {
     const { data: priceData, error: priceError } = await supabase.functions.invoke(
       "stripe-checkout",
       { body: { action: "price" } },
@@ -728,7 +757,18 @@ export default async function MyTeamsPage({
             {limitSentence(memberLimit)}
           </p>
 
-          {onPlan ? null : (
+          {onPlan ? null : paymentsOff ? (
+            // SWITCHED OFF (Build it 29). One sentence, no offer and no button:
+            // the offer sentence would be advertising something nobody can buy.
+            //
+            // IT IS A DIFFERENT SENTENCE FROM PLAN_UNAVAILABLE below, and the
+            // difference is who made it happen: that one means this app could
+            // not reach Stripe or has no key, and this one means the owner
+            // turned payments off. Both leave no button; only one of them is a
+            // decision, and saying "aren't available right now" about a decision
+            // would be using a sentence about plumbing to describe a choice.
+            <p className="hint">{SWITCHED_OFF_SENTENCES[SWITCH_PAYMENTS]}</p>
+          ) : (
             <>
               <p className="hint">{offerSentence(planPrice, planInterval)}</p>
               {planPrice === null ? (
