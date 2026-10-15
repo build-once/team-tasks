@@ -21,11 +21,14 @@ refuses production entirely.
 | **Established** | the rules work **against PostgreSQL**: the table is unreachable by every app role, `feature_on()` fails closed, the two restrictive policies stop an upload and a listing, and the switch is reversible |
 | **NOT established** | that any of it works **on Supabase**. The `storage` schema here is a stand-in the assistant wrote; the migration is applied to no project; no Edge Function is deployed; no screen has been opened |
 
-**The one thing a sandbox can never settle, and it is the first question the migration asks:**
-whether the role `supabase db push` connects as may **create a policy on `storage.objects`**.
-Here `postgres` is a superuser and owns everything, so the answer is yes for the wrong reason.
-Section 0 of the migration asks the question properly and raises before anything is created, so
-a wrong answer costs a refused push and no half-applied schema.
+**The one thing a sandbox can never settle:** whether the role `supabase db push` connects as may
+**create a policy on `storage.objects`**. Here `postgres` is a superuser and owns everything, so
+the answer is yes for the wrong reason — demonstrated below, where a probe that used
+`create policy on storage.objects` as its deliberate failure **succeeded** and measured nothing.
+
+**THE MIGRATION TRIED TO ASK THAT QUESTION AND THE QUESTION WAS WRONG. Section 11a is the
+correction**, after the owner's `db push` to staging on 15 October 2026 was refused by this
+file's own pre-check for an operation that demonstrably works.
 
 ---
 
@@ -57,11 +60,12 @@ A. CONTROL -- the old default privileges in the stand-in really took
 (1 row)
 ```
 
-All eighteen migrations applied, exit 0 each, the new one last:
+All eighteen migrations applied, exit 0 each, the new one last. **Re-run on a freshly dropped and
+rebuilt database after the pre-check was deleted** (section 11a), which is why there is no `DO`
+line at the top any more:
 
 ```
 $ psql ... -f supabase/migrations/20261015120000_feature_switches.sql
-DO
 CREATE TABLE
 COMMENT ×4
 ALTER TABLE ×2
@@ -75,7 +79,6 @@ COMMENT
 REVOKE ×2
 GRANT ×2
 CREATE POLICY ×2
-NOTICE:  Ownership of storage.objects: held by postgres. Proceeding.
 [exit 0]
 
 ALL MIGRATIONS APPLIED.
@@ -299,6 +302,93 @@ INSERT 0 1
 **The upload goes straight through and both files are visible**, with the switch still reading
 `false`. So sections 7a and 7b are the policies doing the work rather than something that was
 already true.
+
+## 11a. The pre-check that was wrong, and what replaced it — 15 October 2026
+
+**The owner's `supabase db push` to staging (`ghskxrhqlhvrhpnivqbd`) was refused by this file's own
+section 0:**
+
+```
+ERROR: Build it 29 creates two restrictive policies on storage.objects, which needs
+ownership of that table, and the role applying it (postgres) does not have it.
+NOTHING IN THIS MIGRATION HAS BEEN APPLIED.  (SQLSTATE P0001)
+```
+
+**And it was wrong**, because the same role created **three** policies on that same table on that
+same project in October — `20261008191804_attachments_bucket.sql`, read back through the staging
+connector as three policies, each `to authenticated`.
+
+### What the expression was actually testing
+
+A table owned by another role, with two members of it:
+
+```
+      rolname      | usage_priv | member_priv | rolinherit
+-------------------+------------+-------------+------------
+ inheriting_member | t          | t           | t
+ noinherit_member  | f          | t           | f
+ postgres          | t          | t           | t
+
+-- the INHERITING member:        CREATE POLICY
+-- the NON-INHERITING member:    ERROR:  must be owner of table objects
+```
+
+So `pg_has_role(…, 'USAGE')` **does** track what `CREATE POLICY` needs for an ordinary member, and
+`'MEMBER'` would have been the wrong one to pick. **The test was not nonsense — which is exactly
+why it was deleted rather than corrected.** It asked a reasonable question and got an answer that
+does not predict the outcome on Supabase.
+
+**And I do not know what does.** Ownership is not a grantable privilege, so there is no
+`has_table_privilege` to ask instead, and the next guess would be a Supabase-internal role name
+this project has never read. What is established is only this: `postgres` created three policies on
+`storage.objects` on staging and on production in October, and on 15 October
+`pg_has_role(current_user, <that table's owner>, 'USAGE')` answered **false** for `postgres` on
+staging. Both facts are the owner's; nobody writing this opened a connector.
+
+**A pre-check that refuses a working operation is worse than no pre-check**, which is the whole of
+the decision. `20261008191804_attachments_bucket.sql` had already taken the same view of the same
+question: "if it does, it fails LOUDLY, on the first statement, having changed nothing."
+
+### And "a failure applies nothing" is measured, not assumed
+
+It is the only thing holding the file together once the pre-check is gone, so it is checked twice.
+
+**Read off the CLI's own source** (`supabase/cli`, `apps/cli-go/pkg/migration/file.go`,
+`MigrationFile.ExecBatch`, read 15 October 2026): every statement is queued into one
+`pgconn.Batch` and sent as a pipeline — **no `begin` and no `commit` in that path**. PostgreSQL for
+that mode: *"If the pipeline used an implicit transaction, then operations that have already
+executed are rolled back and operations that were queued to follow the failed operation are
+skipped entirely"* ([libpq pipeline
+mode](https://www.postgresql.org/docs/17/libpq-pipeline-mode.html), read 15 October 2026).
+
+**And measured, on the sandbox** — three statements in one message, the last failing:
+
+```
+--- three statements in ONE message, the last one failing
+CREATE TABLE
+CREATE TABLE
+ERROR:  division by zero
+[exit 1]
+
+--- did either table survive?
+ a | b
+---+---
+   |
+(1 row)
+```
+
+**Neither table survived.** (The first attempt at this probe used
+`create policy … on storage.objects` as its deliberate failure and it **succeeded**, because
+`postgres` is a superuser here — so the probe measured nothing, and the failing statement was
+changed to one that fails for everybody. It is the clearest illustration in this file of what the
+sandbox cannot settle.)
+
+**ONE CAVEAT, which is why this is a paragraph and not a sentence.** That same function **flushes
+the batch** around six kinds of statement, each then run on its own: `create index`, `drop index`,
+`reindex`, `vacuum`, `alter system`, `cluster`. A file containing one of those is applied in more
+than one implicit transaction, and a later failure would leave the earlier part committed.
+**This file contains none of the six** — checked by searching it — and the migration's own comment
+says why it needs no index.
 
 ## 12. The policies, as Postgres holds them
 

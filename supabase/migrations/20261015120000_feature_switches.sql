@@ -77,41 +77,80 @@
 -- them the feature is off.
 
 -- ---------------------------------------------------------------------------
--- 0. Before anything: may this role create a policy on storage.objects?
+-- 0. THERE IS NO PRE-CHECK, AND THERE WAS ONE UNTIL 2026-10-15
 -- ---------------------------------------------------------------------------
 --
--- storage.objects is not this project's table. 20261012120000_upload_daily_count.sql
--- measured what its own statement needed and found that CREATE POLICY on that table
--- needs OWNERSHIP ("must be owner of table objects"), not a privilege that can be
--- granted -- so this check asks the question that one asks about TRIGGER, in the
--- form Postgres actually answers.
+-- This file opened with a `do` block that refused to go on unless the applying
+-- role held ownership of storage.objects, in the shape
+-- 20261012120000_upload_daily_count.sql asks about the TRIGGER privilege. IT WAS
+-- WRONG, AND IT STOPPED A PUSH THAT WOULD HAVE WORKED: on staging
+-- (`ghskxrhqlhvrhpnivqbd`, the owner's run of `supabase db push` on 15 October
+-- 2026) it raised, naming `postgres` as the role without ownership --
 --
--- WHY ASK AT ALL, when the statement would fail anyway: so that the failure names
--- the cause in one sentence instead of arriving as a bare permission error two
--- hundred lines in, and so that nothing at all is applied when the answer is no.
--- 20261008191804_attachments_bucket.sql created three policies on this table on both
--- projects in October, so the expected answer is yes.
-do $$
-begin
-  if to_regclass('storage.objects') is null then
-    raise exception
-      'Build it 29 needs the table storage.objects and it is not there. Nothing in this migration has been applied.';
-  end if;
-
-  if not pg_catalog.pg_has_role(
-       current_user,
-       (select c.relowner from pg_catalog.pg_class c where c.oid = 'storage.objects'::regclass),
-       'USAGE'
-     ) then
-    raise exception
-      'Build it 29 creates two restrictive policies on storage.objects, which needs ownership of that table, and the role applying it (%) does not have it. NOTHING IN THIS MIGRATION HAS BEEN APPLIED.',
-      current_user;
-  end if;
-
-  raise notice
-    'Ownership of storage.objects: held by %. Proceeding.', current_user;
-end;
-$$;
+--   Build it 29 creates two restrictive policies on storage.objects, which
+--   needs ownership of that table, and the role applying it (postgres) does not
+--   have it.  (SQLSTATE P0001)
+--
+-- -- and the same role created THREE policies on that same table on that same
+-- project in October (20261008191804_attachments_bucket.sql, read back through
+-- the staging connector: three policies, each `to authenticated`). So the check
+-- said no to something that demonstrably works.
+--
+-- WHAT THE EXPRESSION WAS ACTUALLY TESTING, measured rather than guessed at
+-- (evidence/build-it-29-kill-switches.md, "What CREATE POLICY requires"): a
+-- table owned by another role, with two members of that role, gives
+--
+--   inheriting member      pg_has_role USAGE = t   create policy -> CREATE POLICY
+--   NON-inheriting member  pg_has_role USAGE = f   create policy -> ERROR: must
+--                                                  be owner of table objects
+--
+-- so `pg_has_role(..., 'USAGE')` does track what CREATE POLICY needs for an
+-- ordinary member. It is not a nonsense test -- which is exactly why it is being
+-- deleted rather than corrected: IT ASKED A REASONABLE QUESTION AND GOT AN ANSWER
+-- THAT DOES NOT PREDICT THE OUTCOME ON SUPABASE, and nobody writing this knows
+-- what does. Ownership is not a grantable privilege, so there is no
+-- `has_table_privilege` equivalent to ask instead, and the next guess would be a
+-- Supabase-internal role name this project has never read. **I do not know what
+-- lets `postgres` create a policy on storage.objects on a Supabase project**; what
+-- is known is that it did, twice, in October.
+--
+-- A PRE-CHECK THAT REFUSES A WORKING OPERATION IS WORSE THAN NO PRE-CHECK. It
+-- turns a success into a blocked push, and it does it with a confident sentence.
+--
+-- ---------------------------------------------------------------------------
+-- SO THE STATEMENT IS THE TEST, AND A FAILURE APPLIES NOTHING
+-- ---------------------------------------------------------------------------
+--
+-- Which is what 20261008191804_attachments_bucket.sql already decided for the
+-- same question, in its own words: whether the applying role "may insert into
+-- storage.buckets and create policies on storage.objects" is "UNVERIFIED, and it
+-- is the most likely way this file fails on staging: if it does, it fails LOUDLY,
+-- on the first statement, having changed nothing."
+--
+-- AND "APPLIES NOTHING" IS CHECKED HERE RATHER THAN ASSUMED, because it is the
+-- whole reason the pre-check can go. Read off the CLI's own source on 15 October
+-- 2026 (`supabase/cli`, `apps/cli-go/pkg/migration/file.go`, `MigrationFile.ExecBatch`):
+-- every statement of a migration is queued into one `pgconn.Batch` and sent as a
+-- PIPELINE, with no `begin` and no `commit` anywhere in that path. PostgreSQL's
+-- own documentation for that mode: "If the pipeline used an implicit transaction,
+-- then operations that have already executed are rolled back and operations that
+-- were queued to follow the failed operation are skipped entirely"
+-- (https://www.postgresql.org/docs/17/libpq-pipeline-mode.html, read 2026-10-15).
+--
+-- SO ONE FILE IS ONE IMPLICIT TRANSACTION -- WITH ONE CAVEAT WORTH KNOWING. That
+-- same function flushes the batch around six kinds of statement, each of which then
+-- runs on its own: `create index`, `drop index`, `reindex`, `vacuum`,
+-- `alter system` and `cluster`. A file containing one of those is applied in more
+-- than one implicit transaction, and a later failure would leave the earlier part
+-- committed. **This file contains none of the six**, and the migration's own
+-- comment in section 1 says why it needs no index. If a later migration here ever
+-- adds an index beside something that can be refused for a privilege, this
+-- paragraph is the one to come back to.
+--
+-- WHAT THAT COSTS, stated rather than glossed: the failure message is now
+-- PostgreSQL's rather than this file's -- `must be owner of table objects`, naming
+-- the statement and its position -- instead of a sentence written here. That is a
+-- worse message and a correct outcome, and the trade is the right way round.
 
 -- ---------------------------------------------------------------------------
 -- 1. feature_switches -- one row per switch
