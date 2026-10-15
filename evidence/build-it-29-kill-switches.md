@@ -1,8 +1,13 @@
 # Evidence: Build it 29 — the four kill switches
 
-Result: PASS on a local PostgreSQL sandbox, and **UNVERIFIED on every real project** — the
-migration is applied nowhere, no switch has been flipped on staging, and nobody has opened a
-screen in a browser.
+Result: PASS on a local PostgreSQL sandbox, and **UNVERIFIED on every real project** — no switch
+has been flipped anywhere, and nobody has opened a screen in a browser.
+**AND THE "applied nowhere" THIS LINE CARRIED UNTIL 12:14Z IS STALE:**
+`20261015120000_feature_switches.sql` reached **production** on the merge of PR #316 (run #84,
+"Apply migrations to production: success") and **has still not been applied to staging**, because
+the owner's `db push` there was refused by this file's own pre-check (section 11a). So the one
+project a human can safely experiment on is the one without it. **And the first thing production
+did with it was break the health check** — section 15.
 Date: 2026-10-15
 How checked: a throwaway PostgreSQL 17.10 cluster built by the assistant in its scratchpad, all
 eighteen migrations applied in order, then every rule attacked as the signed-in person, as
@@ -467,8 +472,67 @@ the same assertions the real gate passes and each required to come out red.
   direction, and the same unknown `_shared/limits.ts` carried and survived.
 - **No browser, and no phone.** The footer link, the banner on My tasks, the panel on My teams
   and the invitation page's sentence have been built and not looked at.
-- **No uptime monitor exists.** `/health` answers; nothing is watching it, and which service
-  watches it is a decision `docs/plan.md` leaves to the owner because it would be a seventh
-  outside company.
+- **No uptime monitor exists**, and which service watches `/health` is a decision
+  `docs/plan.md` leaves to the owner because it would be a seventh outside company. **This bullet
+  said "`/health` answers" and that was wrong on production**: it answered 503 for the reason in
+  section 15, and had a monitor existed it would have been alarming from the merge onwards.
 - **The sandbox's `storage` schema is a stand-in**, so nothing here says what Supabase Storage's
   own API does with a refused insert.
+
+
+## 15. The health check was broken by this very migration — 15 October 2026
+
+**Added after the merge of PR #316, which is when it became visible.** Production's `/health`
+answered **503 `error`** while the home page on the same deployment was fine:
+
+```
+$ curl -i https://<production>/health
+HTTP/1.1 503 Service Unavailable
+Cache-Control: no-store, max-age=0, must-revalidate
+X-Matched-Path: /health
+
+error
+```
+
+**Not a missing setting, and not an environment difference.** Run #84's "Apply migrations to
+production" succeeded, so `feature_on()` is on production; both `NEXT_PUBLIC_` settings are
+plainly present, because every other page works.
+
+**The cause is section 2 of this migration meeting the route.** `20261015120000_feature_switches.sql`
+revokes EXECUTE on `public.feature_on(text)` from `anon` **by name** — and `/health` is fetched by
+a monitor with **no session**, which the publishable key makes `anon`. Measured on the sandbox,
+before and after the one-line fix-forward `20261015160000_feature_on_for_anon.sql`:
+
+```
+BEFORE                                  AFTER
+    rolname    | may_execute                rolname    | may_execute
+---------------+-------------           ---------------+-------------
+ anon          | f                       anon          | t
+ authenticated | t                       authenticated | t
+ service_role  | t                       service_role  | t
+
+-- as anon:                             -- as anon:
+ERROR:  permission denied for            feature_on
+        function feature_on             ------------
+                                         t
+```
+
+**And the table is still closed to everybody**, which is what makes the grant the small thing it
+claims to be — re-read after the fix:
+
+```
+ anon_sel | auth_sel | svc_sel
+----------+----------+---------
+ f        | f        | f
+```
+
+**Two things this is a lesson about, both written down rather than fixed quietly:**
+
+- **The route's own comment asserted the opposite and was written in the same change as the
+  revoke.** It said the function is "granted to `authenticated` AND to no client role beyond that
+  — so an anonymous caller here reaches it through the publishable key the same way every
+  signed-out screen does", which contradicts itself in one sentence. The comment is corrected.
+- **No check in this repository fetches `/health`** — `scripts/screen-state-check.mjs` reads the
+  route's *source*, and `migrate-production.yml`'s smoke test fetches `PRODUCTION_SITE_URL`, the
+  home page. So a fully green pull request said nothing whatever about the one address whose whole
+  job is to answer, and the first thing to notice was the owner opening it in a browser.

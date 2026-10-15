@@ -39,11 +39,28 @@ import { createClient } from "@/lib/supabase/server";
 // Anthropic was busy would be an alarm nobody could act on at 3am.
 //
 // WHY `public.feature_on`, which is the narrowest thing it could ask. It takes no
-// user id, returns one boolean, reads one row of a four-row table, and is granted to
+// user id, returns one boolean, and reads one row of a four-row table. A `select` on
+// `tasks` would be a query over people's data to answer a question that is not
+// about them.
+//
+// AND IT RUNS AS `anon`, WHICH IS THE THING THIS COMMENT GOT WRONG AND IS KEPT HERE
+// AS A CORRECTION RATHER THAN A TIDY-UP. It used to say the function "is granted to
 // `authenticated` AND to no client role beyond that -- so an anonymous caller here
-// reaches it through the publishable key the same way every signed-out screen does.
-// A `select` on `tasks` would be a query over people's data to answer a question
-// that is not about them.
+// reaches it through the publishable key the same way every signed-out screen does",
+// which contradicts itself: a monitor holds NO SESSION, so the publishable key makes
+// it `anon`, and 20261015120000_feature_switches.sql revoked EXECUTE from `anon` by
+// name. The two were written in the same change.
+//
+// So this route answered 503 `error` on production from the merge of PR #316 until
+// 20261015160000_feature_on_for_anon.sql granted `anon` that one EXECUTE. Nothing
+// was misconfigured and no setting was missing; the home page was fine throughout,
+// and no check in CI fetches this address, so a green pull request said nothing
+// about it. That migration's header has the measurement.
+//
+// WHAT THAT GRANT DOES AND DOES NOT WIDEN: a signed-out caller can learn whether a
+// feature is switched off -- the same answer everybody gets, about this app rather
+// than about any person -- and `public.feature_switches` itself stays unreachable by
+// every role, so nothing can read which switches exist or change one.
 //
 // AND THE ANSWER'S VALUE IS IGNORED. Whether attachments are switched on or off has
 // nothing to do with whether this app is healthy -- a switched-off feature is the
