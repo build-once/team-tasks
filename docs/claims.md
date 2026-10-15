@@ -1138,8 +1138,15 @@ signed-out `/login` at `45d187b`, in `evidence/cookies.md`.
 ## 8. The four kill switches, the health check and Contact us — Build it 29
 
 Added 2026-10-15. **Five new sentences on screens, one new public address, and one sentence this
-app answers to a machine.** Every one of them is enforced in this repository and **not one has
-been seen on a screen**, which is the standing caveat of §6 and applies to all of them.
+app answers to a machine.** Every one of them is enforced in this repository.
+
+**This paragraph said "not one has been seen on a screen" and that is now wrong for two of them —
+corrected the same day, with the owner's results.** Seen: **"Suggestions are switched off for now."**
+on staging, as Alice, with the switch flipped off and then on again
+(`evidence/incident-plan.md`); and **Contact us**, on the owner's iPhone, one tap from the home
+page, opening the mail app at `support@raj-dhonota.com`. **Still unseen**: the attachments banner on
+My tasks, the plan panel on My teams, and the invitation page's sentence — §6's standing caveat
+applies to those three and not to the whole section.
 
 ### 8a. The four switched-off sentences
 
@@ -1184,6 +1191,21 @@ same shape as the deletion-request row, and in the register for the same reason.
 | `ok` with HTTP 200, or `error` with HTTP 503, and nothing else | `web/src/app/health/route.ts` — two constants, a plain-text body, `dynamic = "force-dynamic"` and `cache-control: no-store` | **ENFORCED**, and `screen-state-check` §16i asserts the absences as well: no version, no counts, no database message, no name of whatever failed. It is public and unauthenticated, so everything it could say would be said to anybody who found it |
 | It is reachable without signing in | `"/health"` in `PUBLIC_PATHS`, `web/src/lib/supabase/proxy.ts` | **ENFORCED, and this line is the whole of it**: `web/src/proxy.ts`'s matcher covers `/health` like any path, so without it a monitor would be redirected to `/login` — a 307 rather than the 200 it watches for, and an alarm that fires for ever against a healthy app |
 
-**NOT VERIFIED, and it is not a sentence but an absence: nothing is watching it.** Which uptime
-service does is a decision `docs/plan.md` leaves to the owner, because the second answer would be
-a seventh outside company. So `/health` answers and no alert has ever fired.
+**AND IT HAS BEEN OBSERVED FROM OUTSIDE, BOTH WAYS ROUND — which is more than any other row in
+this register can say.** This paragraph read "NOT VERIFIED … nothing is watching it. So `/health`
+answers and no alert has ever fired", and every clause of it turned over on 15 October 2026:
+
+- **production answered `error`, 503**, for its first hour after PR #316 — because the switches
+  migration revoked `EXECUTE` on `feature_on()` from `anon` and a monitor has no session. The
+  route's own comment claimed the opposite; §15 of `evidence/build-it-29-kill-switches.md` has it;
+- **then `ok`, 200**, after PR #324's one-line grant — read on the production URL in a private
+  window, so no session and no cache could flatter it;
+- **and something IS watching it**: a Sentry uptime monitor, every minute, issue after three
+  consecutive failures. **Sentry was already in use, so no company was added** — the decision
+  `docs/plan.md` left open, taken. Its history recorded the 503 period and the recovery, and its
+  test notification reached the owner's phone with Do Not Disturb on.
+  `evidence/uptime-alert-phone.md`.
+
+**What is still not verified about it:** no second monitor on an address that does not exist, so
+the alarm has been seen to go red by accident rather than on purpose; and no alert has been watched
+arriving for a real failure, only the test notification.

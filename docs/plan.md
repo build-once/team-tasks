@@ -2744,19 +2744,34 @@ personal data is held". It is a **second** address on purpose, kept apart from
 things get skimmed, and mixing them would put the message that matters most in the inbox read
 least carefully.
 
-### The one decision this section does NOT take, and it is the owner's
+### ~~The one decision this section does NOT take~~ — DECIDED 2026-10-15: SENTRY
 
-**Which uptime service watches `/health`.** Lesson J25 offers the error-monitoring service from
-Build it 18 — Sentry, which this app already uses — or another one. **Nothing is chosen here and
-nothing is installed**, because the second answer would be **a seventh outside company**, and a
-company that polls this app every minute sees its address, its availability and the IP address
-of whatever region it polls from. That is the kind of thing every other section here puts to the
-owner before it exists.
+**Which uptime service watches `/health`.** It was left open here because the second answer would
+have been **a seventh outside company**, and a company that polls this app every minute sees its
+address, its availability and the IP address of whatever region it polls from. The paragraph that
+stood here said: *"If the owner picks Sentry, this plan needs no new company and this paragraph is
+all that was needed; if they pick another, that service gets its own short section before anything
+is configured."*
 
-**So `/health` answers and nothing is watching it.** If the owner picks Sentry, this plan needs
-no new company and this paragraph is all that was needed; if they pick another, that service
-gets its own short section before anything is configured — what it sees, what it keeps, and what
-it costs.
+**The owner picked Sentry, on 15 October 2026, so this paragraph is all that was needed.** No new
+company, no new section, and **no new row in the appendix**: Sentry has been in this plan since
+Build it 18 and already receives error reports. What it now also receives is a request to one
+public address every minute, which carries nothing about anybody.
+
+**What was set up**, owner-reported: a monitor named `Team Tasks production health`, project
+`team-tasks`, environment `production`, `GET <production>/health` every **1 minute**, 2xx meaning
+up, an issue after **3 consecutive failures**, and an alert `Team Tasks production down` by email.
+**Its test notification reached the owner's iPhone with Do Not Disturb on**, which is the whole of
+what Lesson J25 asks for — and it has already recorded a real outage rather than only a drill.
+`evidence/uptime-alert-phone.md`.
+
+**And `/health` answered `error` for its first hour on production**, which is the one thing this
+section did not see coming: the switches migration revoked `EXECUTE` on `feature_on()` from `anon`,
+and a monitor has no session. One grant fixed it
+(`20261015160000_feature_on_for_anon.sql`), and the lesson is written in
+`evidence/build-it-29-kill-switches.md` section 15: **no check in this repository fetches
+`/health`**, so a fully green pull request said nothing about the one address whose job is to
+answer.
 
 ## Deliberately not in the first version
 
