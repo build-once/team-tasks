@@ -93,6 +93,45 @@ export const CONTROLLER = "DHTA Ltd";
  */
 export const CONTACT_ADDRESS = "dp@raj-dhonota.com";
 
+// ---------------------------------------------------------------------------
+// AND A SECOND ADDRESS, FOR SUPPORT: Build it 29, Lesson J26
+// ---------------------------------------------------------------------------
+
+/**
+ * Where somebody writes when the app is not working, or they do not understand it.
+ *
+ * SEPARATE FROM `CONTACT_ADDRESS` ABOVE, and the separation is the decision rather
+ * than an accident of two owners choosing two addresses. That one is the data
+ * protection route: it is what the privacy page and the terms publish, it is how
+ * somebody who cannot sign in asks for their account to be deleted, and answer 1 of
+ * 13 October 2026 says it is "the one address in this project that must not go
+ * unread". This one is "the app is broken" and "how do I move a task".
+ *
+ * WHY THAT IS WORTH TWO ADDRESSES in an app for about six volunteers: a deletion
+ * request carries a legal clock, and a support mailbox is where things get skimmed.
+ * Mixing them means the request that matters most arrives in the inbox that is read
+ * least carefully. The owner reads both; the addresses are what let the owner tell
+ * them apart at a glance.
+ *
+ * IT IS ALSO PUBLIC AND WILL BE SCRAPED, exactly as the one above is, and for the
+ * same reason: it is in a link on every screen. That is the price of being reachable
+ * without a form -- and a form is the thing this app deliberately does not have
+ * (decision 10 of 12 October 2026), because a form is a new store of strangers'
+ * addresses.
+ */
+export const SUPPORT_ADDRESS = "support@raj-dhonota.com";
+
+/**
+ * The words on the link, in the footer of every screen.
+ *
+ * "Contact us" rather than "Support" or "Help": the owner's instruction for Build
+ * it 29 says Contact us, and it is also the more honest of the three. There is no
+ * support team and no help centre -- there is one person -- and a label that
+ * promised either would be the kind of borrowed corporate wording this app's whole
+ * Build it 19 discipline is against.
+ */
+export const SUPPORT_TITLE = "Contact us";
+
 /** Answer 2, 13 Oct 2026. Both the governing law and the venue. */
 export const GOVERNING_LAW = "England and Wales";
 

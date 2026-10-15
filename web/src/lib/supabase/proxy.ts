@@ -62,6 +62,16 @@ const PUBLIC_PATHS = [
   "/privacy",
   "/terms",
   "/delete-account",
+  // THE HEALTH CHECK (Build it 29, Lesson J25), and it is the one entry here that
+  // is not for a person at all: an uptime monitor holds no session, so without this
+  // line it would be redirected to /login -- a 307 rather than the 200 it is
+  // watching for, and an alarm that fires for ever against a perfectly healthy app.
+  //
+  // IT COSTS NOTHING TO BE PUBLIC. web/src/app/health/route.ts answers five
+  // characters or eight -- `ok` with 200, `error` with 503 -- and says nothing else
+  // to anybody: no version, no counts, no database message, no name of whatever
+  // failed.
+  "/health",
 ];
 
 function isPublic(pathname: string) {

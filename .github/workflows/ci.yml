@@ -344,7 +344,33 @@ jobs:
       # thing it was protecting instead: every message read goes to one of this
       # project's own readers, and NO message reaches a redirect, a banner or a
       # template. Agreed by the owner, 12 October 2026.
-      EXPECTED_SCREEN_STATE_CHECKS: "297"
+      #
+      # 297 -> 497 WITH BUILD IT 29 (the four kill switches), which is the largest
+      # single jump this number has had and is the right size for what it covers:
+      # section 16 is 200 checks over a feature whose one failure that matters --
+      # the owner flips a switch off and the feature carries on -- is invisible in
+      # a browser. What CAN be checked without a database is every word and every
+      # order, so that is what it checks: the four sentences compared character for
+      # character across the Edge Function, the two screens that keep their own
+      # copy and the migration; that none of them names a company, a table, a code
+      # or a status; that the migration revokes the table from all four roles and
+      # grants nothing back; that `feature_on()` coalesces a missing row to FALSE,
+      # which is the whole fail-closed design and is a property of one SQL
+      # expression; that the two storage policies are RESTRICTIVE and use
+      # `is distinct from` rather than `<>`, so a null bucket_id cannot refuse
+      # another app's object; that all five function doors read the switch through
+      # the shared gate and spell no sentence of their own; that the webhook reads
+      # it AFTER the signature and BEFORE its first write, and answers RETRY rather
+      # than OK so a paid event is never lost; that the screens draw no control that
+      # cannot work; and that docs/incident-plan.md names every switch, the Table
+      # Editor, and the two surprises a person must be told before they flip one.
+      #
+      # AND ONE OF THEM IS THE PLACE THE TWO HALVES DISAGREE ON PURPOSE: a server
+      # function fails CLOSED on a switch it cannot read, because it is about to
+      # spend money, and a SCREEN does not -- drawing "switched off" on a failed
+      # read would claim a decision nobody made. Both directions are asserted, so
+      # neither can be "fixed" into the other by accident.
+      EXPECTED_SCREEN_STATE_CHECKS: "497"
       EXPECTED_FRIENDLY_WORDS_CHECKS: "45"
       # The sixth arrived with Build it 20 (issue #183). Six PASS lines: the
       # 39 logic cases behaving as described, the approved file existing and
@@ -986,7 +1012,37 @@ jobs:
       # access-event list is fixed and carries the cancellation, and that the two
       # entitling statuses are the same pair the migration's team_member_limit()
       # spells.
-      EXPECTED_FUNCTION_TESTS: "297"
+      #
+      # 297 -> 334 WITH BUILD IT 29 (the four kill switches), and the SIXTH FILE in
+      # that folder arrived with it: supabase/functions/_tests/feature_switch_test.ts,
+      # 37 tests. It needed no change to the step below, because that step names the
+      # FOLDER rather than a file -- the third time issue #167's decision has paid
+      # for itself.
+      #
+      # What the 37 are: three over the config, which read the MIGRATION rather than
+      # a copy of themselves -- the four feature words against the check constraint,
+      # the rpc and its one argument against the `create function`, and the
+      # `coalesce(..., false)` that makes a missing row mean OFF; fourteen over
+      # readSwitch, including every truthy shape a boolean read back as text arrives
+      # in, where the string "false" must not be read as "on"; six over the four
+      # refusals' own sentences, codes and status, including that the four OFF codes
+      # are deliberately NOT among suggest-subtasks' fixed-failure codes while
+      # `switch_unknown` IS, and that no refusal carries a person, a key, a company
+      # or a table name; five over the gate itself, which with a switch off or
+      # unreadable never runs the handler and with it on runs it exactly once and
+      # returns its answer untouched; six over the gate at two real doors, where the
+      # stubbed AI service and the stubbed email service must receive NOTHING; and
+      # three CAN-THIS-FAIL guards, which feed the same assertions a gate that reads
+      # the switch with a truthy test, one that treats an error as permission, and
+      # one that reads it AFTER doing the work -- and require each to come out RED.
+      #
+      # THE ONE TEST IN AN EXISTING FILE THAT CHANGED is suggest_subtasks_test.ts's
+      # count of SUGGEST_CODES, from 13 to 14, because `switch_unknown` was added to
+      # that list. That test says in its own words that raising the number is the
+      # only thing a new code may do to it, and the two assertions that matter --
+      # one sentence and one status across every code in the list -- are untouched.
+      # The pull request has its own line about it.
+      EXPECTED_FUNCTION_TESTS: "334"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -54,6 +54,13 @@
 
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
+import {
+  readSwitch,
+  SWITCH_ARGUMENT,
+  SWITCH_PAYMENTS,
+  SWITCH_RPC,
+  SWITCH_UNKNOWN_CODE,
+} from "../_shared/switches.ts";
 import Stripe from "stripe";
 
 import {
@@ -218,6 +225,56 @@ export default {
         // From here the event is Stripe's. Type and id only, which is the
         // owner's instruction and is enough to find it in Stripe's dashboard.
         console.log(`stripe-webhook: ${event.type} ${event.id}`);
+
+        // ---- IS THIS FEATURE SWITCHED ON AT ALL? -------------------------
+        //
+        // BUILD IT 29, Lesson J24, and THE ONE SWITCH IN THIS APP THAT IS NOT
+        // CHECKED FIRST. Two reasons, and both are about what somebody else is
+        // told:
+        //
+        //   * AN UNSIGNED BODY MUST GO ON GETTING 400, whatever any switch says.
+        //     The signature is this function's door; a switch that answered
+        //     before it would change what a prober -- and the production smoke
+        //     test in .github/workflows/migrate-production.yml -- is told about
+        //     an unverifiable body. A kill switch is not allowed to move a
+        //     security boundary.
+        //   * so the switch sits between "this really is Stripe" and "write it
+        //     down", which is exactly where it belongs: NOTHING IS WRITTEN. No
+        //     stripe_events row, no entitlement, no read of a subscription.
+        //
+        // AND IT ANSWERS 500 SO STRIPE SENDS IT AGAIN, which is the whole
+        // difference between this and every other switch in this app. A
+        // webhook that answered 200 would tell Stripe the event was handled and
+        // it would never come back -- so somebody who paid during the switched-off
+        // window would never get what they paid for, and nothing would ever say
+        // so. RETRY() keeps the event alive at Stripe instead.
+        //
+        // WHAT THAT COSTS, and it is in docs/incident-plan.md beside the switch:
+        // Stripe's retries do not last forever. Payments switched off for days
+        // means events that stop being re-sent, which is a reconciliation job by
+        // hand. Hours are free; days are not.
+        //
+        // The same `payments` switch stripe-checkout reads, and the same sentence
+        // -- which nobody sees here, because the only caller is Stripe.
+        const paymentsSwitch = await readSwitch(() =>
+          ctx.supabaseAdmin.rpc(SWITCH_RPC, {
+            [SWITCH_ARGUMENT]: SWITCH_PAYMENTS,
+          })
+        );
+        if (!paymentsSwitch.on) {
+          // Which of the two it was goes in the log, because they are different
+          // news: `off` is somebody's decision and `unknown` is broken plumbing.
+          // Neither carries anything out of the event but its type and id, which
+          // are already on the line above.
+          console.error(
+            `stripe-webhook: ${
+              paymentsSwitch.why === "off"
+                ? `the ${SWITCH_PAYMENTS} switch is off`
+                : `the ${SWITCH_PAYMENTS} switch could not be read (${SWITCH_UNKNOWN_CODE})`
+            }, so ${event.type} ${event.id} was not recorded. Asking Stripe to retry.`,
+          );
+          return RETRY();
+        }
 
         // ---- Have we already done this one? ------------------------------
         //
