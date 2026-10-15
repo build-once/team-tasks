@@ -1,8 +1,9 @@
 # Evidence: webhooks-verified
 
-Result: **PASS.** Delivery, idempotency, the entitlement write and the refusal of an unsigned body
-were all seen on staging, and nobody but the webhook can write an entitlement — asserted on every
-pull request rather than observed once.
+Result: **PASS.** Delivery, idempotency, the entitlement write, and the refusal of a body that cannot
+prove it came from Stripe — missing header and forged header both — were all seen on staging, and
+nobody but the webhook can write an entitlement, asserted on every pull request rather than observed
+once.
 Date: 2026-10-15
 How checked: the owner's staging runs of 15 October 2026 (sections 1, 2 and 4), and the access-rule
 tests that run against staging on every pull request (section 3). Nothing in this file was run by the
@@ -54,7 +55,7 @@ Your plan: Team — Each of your teams can have up to 25 members.
 
 `EXPECTED_APP_TESTS` moved 40 → 44 so the coverage cannot silently drop back.
 
-## 4. An unsigned body is refused — OBSERVED, 15 October 2026
+## 4. A body that cannot prove it came from Stripe is refused — OBSERVED, 15 October 2026
 
 **The book's bad-signature test, run by the owner against staging at 07:58:33 GMT.** A POST with a
 body of `{}` and **no `Stripe-Signature` header at all**:
@@ -80,11 +81,34 @@ response so a log line can be found later. It grants nothing, identifies nobody,
 that makes this observation checkable against the function's logs rather than taken on trust. No
 header, cookie, key or body from the request is recorded here, and the request carried none.
 
-**What it does not prove.** This is the *absent* signature. A **present but wrong** signature — a real
-`Stripe-Signature` header with the wrong secret, or a replayed one past its timestamp tolerance — has
-not been tried, and takes the same path in the code: both land in the one `catch` around
-`constructEventAsync`, which has no branch in it to tell them apart. The Deno tests do not cover it
-either, deliberately — verifying a signature is Stripe's library's job, not ours.
+### And a present-but-wrong signature, 08:03:48 GMT the same morning
+
+The caveat this section carried — that only the *absent* header had been tried — is closed. The owner
+posted a made-up `checkout.session.completed` body carrying a real-shaped header:
+
+```
+Stripe-Signature: t=1792051112,v1=<64 zeros>
+
+HTTP/1.1 400 Bad Request
+Bad signature
+sb-request-id: 01a13e96-bb29-7b96-8056-c291f050987f
+```
+
+So a forged header is refused as firmly as a missing one, which is the thing worth knowing: somebody
+who finds this address and knows the shape of Stripe's header gets no further than somebody who sends
+nothing.
+
+**WHICH OF THE TWO REASONS IT WAS CANNOT BE TOLD FROM THIS RUN, and that is worth writing down rather
+than rounding off.** `t=1792051112` is **2026-10-15T07:58:32Z**, and the request was made at
+**08:03:48** — **316 seconds later**, against Stripe's default tolerance of **300**. So the header was
+~16 seconds too old to be accepted whatever its `v1` said, and the refusal may have been the
+**timestamp** rather than the **HMAC**. Our code cannot distinguish them either: both land in the one
+`catch` around `constructEventAsync`, which has no branch in it on purpose — telling a prober which of
+their guesses was closest is not something this function does.
+
+**What that leaves untested is narrow and named:** a wrong `v1` carried on a *fresh* timestamp. It is
+the same code path by inspection, and no run has isolated it. The Deno tests do not cover it either,
+deliberately — verifying a signature is Stripe's library's job, not ours.
 
 **And the same check now runs on production after every deploy**, as the smoke-test exception in
 `.github/workflows/migrate-production.yml` the owner authorised on 14 October: every other function
