@@ -50,8 +50,9 @@
       "section": "Code",
       "title": "Your code repository is private",
       "lesson": "Book 1 L22",
-      "type": "auto",
-      "check": "repo_private"
+      "type": "evidence",
+      "evidence_file": "evidence/repo-private.md",
+      "how_to_prove": "Note whether the repository is private. If it is public on purpose, write \"Result: N/A - public by decision\" and link the decision record. CHANGED FROM type \"auto\" ON 2026-10-15: the kit's repo_private check hard-codes PUBLIC to FAIL and launch-check.mjs has no N/A path for an auto row, so a repository that is public by decision could not be recorded as anything but a failure. See docs/decisions/public-repo.md."
     },
     {
       "id": "main-protected",

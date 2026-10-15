@@ -824,8 +824,18 @@ function pureCases() {
   check(unknown.refuse === false && /did not run/.test(unknown.note), "an unreadable version string does NOT stop the backup -- it says the check did not run, and leaves pg_dump's own refusal as the thing that catches a mismatch.");
 
   console.log("--- The database password never becomes an argument");
-  const pg = pgEnvFromUrl("postgresql://a%40b:p%40ss%2Fword@db.example.invalid:6543/postgres?sslmode=require");
-  check(pg.PGPASSWORD === "p@ss/word" && pg.PGUSER === "a@b", "the connection string's user and password are percent-decoded into libpq's own variables.");
+  // THE PASSWORD SAYS "example" ON PURPOSE, and it is the only reason this line
+  // is shaped the way it is. `scripts/lib/secrets.mjs`'s `db-url-with-credentials`
+  // pattern matches any `postgres://user:pass@host`, and its `dbUrlIsSensitive`
+  // check looks at THE PASSWORD ALONE -- not the host. So `db.example.invalid`
+  // did not save the old fixture, `p%40ss%2Fword`, and `node scripts/launch-check.mjs`
+  // reported this file as a secret-looking line and failed the `no-secrets-in-repo`
+  // row. A password containing one of that file's PLACEHOLDER_HINTS does not match.
+  //
+  // It still has to carry a `%40` and a `%2F`, because what the two assertions below
+  // are about is percent-DECODING -- so the fixture keeps an `@` and a `/` in it.
+  const pg = pgEnvFromUrl("postgresql://a%40b:p%40ss%2Fexample@db.example.invalid:6543/postgres?sslmode=require");
+  check(pg.PGPASSWORD === "p@ss/example" && pg.PGUSER === "a@b", "the connection string's user and password are percent-decoded into libpq's own variables.");
   check(pg.PGHOST === "db.example.invalid" && pg.PGPORT === "6543" && pg.PGDATABASE === "postgres" && pg.PGSSLMODE === "require", "so are the host, the port, the database and sslmode.");
   check(!Object.keys(pg).some((k) => k !== "PGPASSWORD" && String(pg[k]).includes("p@ss")), "and the password is in PGPASSWORD and in nothing else -- there is no argument for it to leak into.");
   checkRefuses(threw(() => pgEnvFromUrl("mysql://x/y")) !== undefined, "a connection string that is not postgres:// is refused.");
