@@ -115,6 +115,24 @@ deliberately — verifying a signature is Stripe's library's job, not ours.
 must answer 401, and this one must answer 400. So this is not a one-off observation but a standing
 one — the next deploy that broke the door would turn that job red.
 
+**CORRECTION, 15 October 2026: on production that check has never passed, and it cannot while
+production holds no Stripe key.** The paragraph above is kept as written because it is what was
+believed when the evidence was recorded, and this is what happened. The step ran twice — on the merge
+of [#312](https://github.com/build-once/team-tasks/pull/312) (run 80) and of
+[#314](https://github.com/build-once/team-tasks/pull/314) (run 81) — and **failed both times** with
+`FAIL stripe-webhook: expected HTTP 400 for an unsigned POST, got 503`. The reason is the order of the
+function's own gates: it checks its **key** before it checks the signature, and production has no key,
+so it answers `503 stripe_not_configured` and the signature check is never reached. The owner
+authorised the step to accept that 503 on 15 October, and `docs/environments.md` carries the
+requirement to tighten it back to 400 only when a live key is installed.
+
+**So what section 4's two runs prove is unchanged, and what this paragraph claimed is narrowed.** The
+400 was observed **on staging**, twice, which is where the signature check has a key to get past. On
+production, what is observed after every deploy is that the webhook **refuses an unsigned body before
+doing anything with it** — by the key gate rather than by the signature check. The standing check
+against a 2xx is intact in both projects: a webhook that accepted an unsigned body would still turn
+that job red.
+
 ## 5. Also not verified
 
 - **`stripe_events` has not been read directly.** The row's existence is inferred from the Resend
