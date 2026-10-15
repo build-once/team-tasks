@@ -1,13 +1,14 @@
 # Evidence: backups-on
 
-Result: PASS — production has Supabase's own daily backups (**7 days** of retention on Pro, read off
-Supabase's page), **and** a nightly encrypted copy of the database *and* the files to Cloudflare R2,
-of which **one has been restored end to end in 219 seconds**.
-Date: 2026-10-15 (the readings: 10 October 2026; the restore: 10–11 October 2026)
-How checked: the owner read production's Database → Backups page on 10 Oct 2026; the retention
-figure is quoted from Supabase's published page rather than inferred from how many backups were
-listed; the nightly copy and the restore are `docs/backups.md` and
-`evidence/restore-tested.md`.
+Result: PASS — production's daily backups are on and the latest is 15 Oct 2026 at 12:17:51 UTC
+(Physical), with **7 days** of retention quoted from Supabase's own page; and there is a nightly
+encrypted copy of the database *and* the files to Cloudflare R2, of which **one has been restored
+end to end in 219 seconds**.
+Date: 2026-10-15 (the latest-backup reading: 15 October 2026; the seven-day listing: 10 October 2026; the restore: 10–11 October 2026)
+How checked: the owner read production's Database → Backups page **on 15 Oct 2026** for the latest
+backup, and **on 10 Oct 2026** for the seven-day listing; the retention figure is quoted from
+Supabase's published page rather than inferred from how many backups were listed; the nightly copy
+and the restore are `docs/backups.md` and `evidence/restore-tested.md`.
 Checked by: the owner, for the dashboard reading and the restore drill. **The assistant opened no
 dashboard** — rule 10 forbids it — and nothing here was re-tested.
 
@@ -17,7 +18,8 @@ dashboard** — rule 10 forbids it — and nothing here was re-tested.
 
 | | |
 |---|---|
-| **What the owner saw**, production's Database → Backups page, **10 Oct 2026** | **seven daily physical backups, 3 to 9 October, each around 12:20 UTC** |
+| **The latest backup, read today** — production's Database → Backups page, **15 Oct 2026** | **15 Oct 2026 at 12:17:51 UTC, Physical.** So dailies are still being taken, which is the half this row is actually about |
+| **What the owner saw on the same page, 10 Oct 2026** | **seven daily physical backups, 3 to 9 October, each around 12:20 UTC** |
 | **Retention, quoted rather than counted** | *"Pro Plan projects can access the last 7 days of daily backups."* — [Database Backups](https://supabase.com/docs/guides/platform/backups), read 2026-10-10 |
 | **What a daily backup can lose** | *"Even with daily backups, you could still lose a day's worth of data."* — same page |
 | **Finer granularity** | PITR is *"an add-on"* for Pro and above. **Not enabled, and nobody has priced it** |
@@ -31,6 +33,11 @@ are *"Pro only"* and that free staging has none — but production's seven backu
 October, every one before the Pro transfer on the 10th**. So dailies were being taken while
 production was still in a free organisation. **Which of the two is wrong is not established**, and
 `docs/backups.md` holds the question.
+
+**The 15 October reading does NOT resolve it**, and it is worth saying so rather than letting a
+fresh date look like an answer: a backup taken on the 15th is *after* the transfer, so it is exactly
+what the Pro plan predicts and tells us nothing about why the pre-transfer ones existed. What it does
+settle is narrower and is this row's actual job — **the dailies are live now**.
 
 **Staging:** no backup of its own is claimed here. It holds only the Alice/Bob/Carol test accounts.
 

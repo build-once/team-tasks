@@ -10,7 +10,10 @@ app had to deploy, and the budget is £0 a month while building (`docs/plan.md`)
 is kept as an archive.
 
 **What was done about it at the time.** Commits use **noreply-only** addresses, so no personal email
-address is in the history. **GitHub secret scanning and push protection are on.**
+address is in the history. **GitHub Secret Protection and push protection are on** — read by the
+owner in Settings → Advanced Security on **15 October 2026**, both showing a "Disable" button, which
+is a page saying they are enabled. Nothing in this repository can check either, so a change would go
+unnoticed by every check here; `evidence/repo-private.md` section 4 is the reading and that limit.
 
 **What this costs, and it is not nothing.** Everything in this repository is readable by anybody:
 every Actions run log, every evidence file, every migration, and every comment explaining how the

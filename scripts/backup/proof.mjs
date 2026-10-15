@@ -834,6 +834,14 @@ function pureCases() {
   //
   // It still has to carry a `%40` and a `%2F`, because what the two assertions below
   // are about is percent-DECODING -- so the fixture keeps an `@` and a `/` in it.
+  //
+  // RULE 20: THIS IS A TEST THE OWNER AGREED TO CHANGE, on 15 October 2026, and
+  // this comment is the line that rule asks for. What changed is the FIXTURE's
+  // password and the expected string beside it; what the two checks assert is
+  // unchanged -- that the user and password are percent-decoded into libpq's own
+  // variables, and that the password reaches PGPASSWORD and nothing else. Nothing
+  // was loosened, skipped or lowered, and `node scripts/backup/proof.mjs` gives
+  // 165 PASS either side of the change.
   const pg = pgEnvFromUrl("postgresql://a%40b:p%40ss%2Fexample@db.example.invalid:6543/postgres?sslmode=require");
   check(pg.PGPASSWORD === "p@ss/example" && pg.PGUSER === "a@b", "the connection string's user and password are percent-decoded into libpq's own variables.");
   check(pg.PGHOST === "db.example.invalid" && pg.PGPORT === "6543" && pg.PGDATABASE === "postgres" && pg.PGSSLMODE === "require", "so are the host, the port, the database and sslmode.");

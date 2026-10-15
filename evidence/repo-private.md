@@ -2,12 +2,13 @@
 
 Result: N/A - public by decision
 Date: 2026-10-15
-How checked: read the decision record, `docs/decisions/public-repo.md`, and confirmed the
-repository's visibility: `gh repo view --json visibility` reports `PUBLIC` for
-`build-once/team-tasks`, which is what `scripts/launch-check.mjs` reported as a FAIL before this row
-became an evidence row.
-Checked by: the owner took the decision on 28 September 2026; the assistant wrote it down and read
-the visibility back.
+How checked: read the decision record, `docs/decisions/public-repo.md`; confirmed the repository's
+visibility (`gh repo view --json visibility` reports `PUBLIC` for `build-once/team-tasks`, which is
+what `scripts/launch-check.mjs` reported as a FAIL before this row became an evidence row); and the
+owner read **Secret Protection** and **push protection** as ON in Settings → Advanced Security on
+15 Oct 2026 — section 4.
+Checked by: the owner took the decision on 28 September 2026 and read the two settings on 15 October
+2026; the assistant wrote it down and read the visibility back.
 
 ---
 
@@ -46,7 +47,27 @@ would stop deploying and that is noticed in minutes.
   `docs/decisions/public-repo.md` lists what it costs: every Actions log, every evidence file and
   every migration is readable by anybody, which is why the backup job echoes only names and byte
   counts and why the production project reference and site address are absent from this repository.
-- **Not that secret scanning has caught anything**, or has ever been tested. It is reported as
-  switched on by the owner; nobody writing this has opened the settings page. **Unchecked.**
+- **Not that secret scanning has caught anything**, or has ever been tested. **That both are ON is
+  now a reading rather than a report** — see section 4 — but a switch being on is not the same as a
+  leak being stopped, and no push has ever been refused by it here.
 - **Not that the archive repository is still there.** The owner's report of 28 September 2026 is the
   only source, and nothing here re-reads it.
+
+## 4. The two settings, read on 15 October 2026
+
+What makes a public repository tolerable is the pair that stops a secret reaching it, so they are
+read rather than assumed:
+
+| Setting | State | How |
+|---|---|---|
+| **Secret Protection** | **on** | the owner, in `team-tasks` → Settings → **Advanced Security**, 15 Oct 2026 |
+| **Push protection** | **on** | same page, same day |
+
+**Each shows a "Disable" button**, which is the detail worth recording: a settings page that offers
+to disable a thing is a page saying it is currently enabled. A screenshot of a toggle can be read
+either way round; "the button says Disable" cannot.
+
+**Still the owner's reading and not the assistant's** — rule 10 keeps it away from that page, and
+nothing in this repository can check either setting. So if one were switched off tomorrow, every
+sentence here would still say "on". `docs/claims.md` records the same limit about Supabase's own Auth
+settings, for the same reason.
